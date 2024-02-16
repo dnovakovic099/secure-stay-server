@@ -133,6 +133,13 @@ export const AppRoutes = () => {
             rawJson: false,
         },
         {
+            path: '/device/getclientsessiontoken',
+            method: "get",
+            action: devicesController.getClientSessionToken,
+            file: false,
+            rawJson: false
+        },
+        {
             path: "/users/create",
             method: "post",
             action: usersController.createUser,

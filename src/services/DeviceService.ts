@@ -29,4 +29,9 @@ export class DeviceService {
         const deviec_id = String(request.body.device_id);
         return this.seamConnect.unlockDeviceData(deviec_id)
     }
+
+    //get clientsessiontoken
+    async getClientSessioToken(){
+        return this.seamConnect.getClientSessionToken()
+    }
 }
