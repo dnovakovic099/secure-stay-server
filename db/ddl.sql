@@ -202,6 +202,20 @@ CREATE TABLE IF NOT EXISTS `user_verification` (
   PRIMARY KEY (`user_verification_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+-- Dumping structure for table users
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` int(50) NOT NULL AUTO_INCREMENT,
+  `uid` int(50) NOT NULL,
+  `firstName` varchar(50) DEFAULT NULL,
+  `lastName` varchar(50) DEFAULT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `companyName` varchar(100) DEFAULT NULL,
+  `numberofProperties` varchar(50) DEFAULT NULL,
+  `message` varchar(255) DEFAULT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
