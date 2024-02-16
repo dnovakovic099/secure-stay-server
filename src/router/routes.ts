@@ -6,6 +6,7 @@ import { FaqController } from "../controllers/FaqController";
 import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
 import { DevicesController } from "../controllers/devicesController";
+import { UsersController } from "../controllers/UsersController";
 
 export const AppRoutes = () => {
     const userVerificationController = new UserVerificationController();
@@ -16,6 +17,8 @@ export const AppRoutes = () => {
     const payController = new PaymentController();
     const checkInController = new CheckInController();
     const devicesController = new DevicesController();
+    const usersController = new UsersController();
+
     return [
         {
             path: "/user-verification/:reservationLink",
@@ -135,7 +138,14 @@ export const AppRoutes = () => {
             action: devicesController.getClientSessionToken,
             file: false,
             rawJson: false
-        }
+        },
+        {
+            path: "/users/create",
+            method: "post",
+            action: usersController.createUser,
+            file: false,
+            rawJson: false
+        },
 
     ];
 }
