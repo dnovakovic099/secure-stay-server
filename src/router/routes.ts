@@ -128,6 +128,13 @@ export const AppRoutes = () => {
             action: devicesController.unlockDevice,
             file: false,
             rawJson: false,
+        },
+        {
+            path: '/device/getclientsessiontoken',
+            method: "get",
+            action: devicesController.getClientSessionToken,
+            file: false,
+            rawJson: false
         }
 
     ];
