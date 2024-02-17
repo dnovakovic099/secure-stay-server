@@ -62,5 +62,23 @@ export class HostAwayClient {
         }
     }
 
+    public async getListing() {
+        const url = `https://api.hostaway.com/v1/listings`;
+        try {
+            const authResponse = await this.getAuthToken();
+            this.accessToken = authResponse.data?.access_token;
+
+            const response = await axios.get(url, {
+                headers: {
+                    Authorization: `Bearer ${this.accessToken}`,
+                    "Cache-control": "no-cache",
+                },
+            });
+            return response.data.result
+        } catch (error) {
+            throw error
+        }
+    }
+
 }
 
