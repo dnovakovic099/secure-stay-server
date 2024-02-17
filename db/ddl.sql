@@ -216,6 +216,42 @@ CREATE TABLE IF NOT EXISTS `users` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+CREATE TABLE `listing_info` (
+  `listing_id` int NOT NULL AUTO_INCREMENT,
+  `id` int NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `externalListingName` varchar(255) NOT NULL,
+  `address` varchar(255) NOT NULL,
+  `price` float NOT NULL,
+  `guestsIncluded` int NOT NULL,
+  `priceForExtraPerson` float NOT NULL,
+  `currencyCode` varchar(255) NOT NULL,
+  PRIMARY KEY (`listing_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
+CREATE TABLE `listing_image` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `caption` varchar(255) DEFAULT NULL,
+  `vrboCaption` varchar(255) DEFAULT NULL,
+  `airbnbCaption` varchar(255) DEFAULT NULL,
+  `url` varchar(255) NOT NULL,
+  `sortOrder` int DEFAULT NULL,
+  `listing_id` int DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `FK_9d46296bf4cb8bc590f5e6f5ade` (`listing_id`),
+  CONSTRAINT `FK_9d46296bf4cb8bc590f5e6f5ade` FOREIGN KEY (`listing_id`) REFERENCES `listing_info` (`listing_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=532 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
+CREATE TABLE `listing_lock_info` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `listing_id` int NOT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  `lock_id` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;

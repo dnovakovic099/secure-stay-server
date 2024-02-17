@@ -7,6 +7,7 @@ import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
 import { DevicesController } from "../controllers/devicesController";
 import { UsersController } from "../controllers/UsersController";
+import { ListingController } from "../controllers/ListingController";
 
 export const AppRoutes = () => {
     const userVerificationController = new UserVerificationController();
@@ -18,6 +19,7 @@ export const AppRoutes = () => {
     const checkInController = new CheckInController();
     const devicesController = new DevicesController();
     const usersController = new UsersController();
+    const listingController = new ListingController();
 
     return [
         {
@@ -146,6 +148,26 @@ export const AppRoutes = () => {
             file: false,
             rawJson: false
         },
-
+        {
+            path: "/listing/synchostawaylistings",
+            method: "get",
+            action: listingController.syncHostawayListing,
+            file: false,
+            rawJson: false
+        },
+        {
+            path: '/listing/getlistings',
+            method: "get",
+            action: listingController.getListings,
+            file: false,
+            rawJson: false
+        },
+        {
+            path: '/device/savelocklistinginfo',
+            method: "post",
+            action: listingController.saveLockListingInfo,
+            file: false,
+            rawJson: false
+        }
     ];
 }
