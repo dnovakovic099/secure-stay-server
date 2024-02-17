@@ -8,6 +8,7 @@ import { CheckInController } from "../controllers/CheckInController";
 import { DevicesController } from "../controllers/devicesController";
 import { UsersController } from "../controllers/UsersController";
 import { ListingController } from "../controllers/ListingController";
+import { UpSellController } from "../controllers/UpSellController";
 
 export const AppRoutes = () => {
     const userVerificationController = new UserVerificationController();
@@ -20,7 +21,7 @@ export const AppRoutes = () => {
     const devicesController = new DevicesController();
     const usersController = new UsersController();
     const listingController = new ListingController();
-
+    const upSellController = new UpSellController()
     return [
         {
             path: "/user-verification/:reservationLink",
@@ -166,6 +167,36 @@ export const AppRoutes = () => {
             path: '/device/savelocklistinginfo',
             method: "post",
             action: listingController.saveLockListingInfo,
+            file: false,
+            rawJson: false
+        },
+        ,
+        {
+            path: '/upsell/create',
+            method: 'post',
+            action: upSellController.createUpSell,
+            file: true,
+            rawJson: false
+        },
+        {
+            path: '/upsell/update',
+            method: 'put',
+            action: upSellController.updateUpSell,
+            file: true,
+            rawJson: false
+
+        },
+        {
+            path: '/upsell/upsellList',
+            method: 'get',
+            action: upSellController.getUpSell,
+            file: false,
+            rawJson: false
+        },
+        {
+            path: '/upsell/delete',
+            method: 'delete',
+            action: upSellController.deleteUpSell,
             file: false,
             rawJson: false
         }
