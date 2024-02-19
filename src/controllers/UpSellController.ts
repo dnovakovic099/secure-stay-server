@@ -26,4 +26,10 @@ export class UpSellController {
         const data = await deleteUpSellServices.deleteUpSellInfo(request, response)
         return response.send(data)
     }
+
+    async getAssociatedUpSellListing(request: Request, response: Response) {
+        const getUpSellListing = new UpSellServices()
+        const upSellListing = await getUpSellListing.getUpSellAssociatedListing(request, response)
+        return response.send(upSellListing)
+    }
 }
