@@ -199,6 +199,15 @@ export const AppRoutes = () => {
             action: upSellController.deleteUpSell,
             file: false,
             rawJson: false
-        }
+        },
+        {
+            path: '/upsell/listing',
+            method: 'get',
+            action: upSellController.getAssociatedUpSellListing,
+            file: true,
+            rawJson: false
+        },
+
+
     ];
 }
