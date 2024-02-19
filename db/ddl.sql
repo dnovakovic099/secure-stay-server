@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS `user_verification` (
 -- Dumping structure for table users
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int(50) NOT NULL AUTO_INCREMENT,
-  `uid` int(50) NOT NULL,
+  `uid` varchar(50) NOT NULL,
   `firstName` varchar(50) DEFAULT NULL,
   `lastName` varchar(50) DEFAULT NULL,
   `email` varchar(100) DEFAULT NULL,

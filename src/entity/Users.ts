@@ -7,8 +7,8 @@ export class UsersEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({ type: 'int', length: 50, nullable: false })
-    uid: number;
+    @Column({ type: 'varchar', length: 50, nullable: false })
+    uid: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     firstName: string;
@@ -22,7 +22,7 @@ export class UsersEntity {
     @Column({ type: 'varchar', length: 100, nullable: true })
     companyName: string;
 
-    @Column({ type: 'int', length: 50, nullable: true })
+    @Column({ type: 'varchar', length: 50, nullable: true })
     numberofProperties: number;
 
     @Column({ type: 'varchar', length: 255, nullable: true })
