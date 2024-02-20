@@ -33,6 +33,25 @@ export class DevicesController {
   //getclientsessiontoken
   async getClientSessionToken(request: Request, response: Response) {
     const deviceServices = new DeviceService();
-    response.send(await deviceServices.getClientSessioToken());
+    response.send(await deviceServices.getClientSessionToken());
   }
+
+  //get access token for sifely devices
+  async getAccessToken(request: Request, response: Response) {
+    const deviceService = new DeviceService()
+    response.send(await deviceService.getAccessToken(request))
+  }
+
+  //get sifely locks
+  async getSifelyLocks(request: Request, response: Response) {
+    const deviceService = new DeviceService()
+    response.send(await deviceService.getSifelyLocks(request))
+  }
+
+  //get sifely lock info
+  async getSifelyLockInfo(request: Request, response: Response) {
+    const deviceService = new DeviceService()
+    response.send(await deviceService.getSifelyLockInfo(request))
+  }
+
 }
