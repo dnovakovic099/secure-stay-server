@@ -21,8 +21,8 @@ export class UsersService {
             });
             
         } catch (error) {
-            console.error('Error saving user:', error);
-            return 'Internal Server Error';
+            console.log("error",error);
+            throw error;
         }
     }
 }

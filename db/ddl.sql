@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS `user_verification` (
 -- Dumping structure for table users
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int(50) NOT NULL AUTO_INCREMENT,
-  `uid` int(50) NOT NULL,
+  `uid` varchar(50) NOT NULL,
   `firstName` varchar(50) DEFAULT NULL,
   `lastName` varchar(50) DEFAULT NULL,
   `email` varchar(100) DEFAULT NULL,
@@ -251,6 +251,27 @@ CREATE TABLE `listing_lock_info` (
   `lock_id` varchar(255) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `upsell_info` (
+  `upsell_id` int NOT NULL AUTO_INCREMENT,
+  `title` varchar(50) NOT NULL,
+  `price` bigint NOT NULL,
+  `timePeriod` varchar(50) DEFAULT NULL,
+  `description` varchar(500) NOT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `isActive` tinyint NOT NULL DEFAULT '1',
+  `availability` varchar(50) DEFAULT 'Always',
+  `image` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`upsell_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `upsell_listing` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `listingId` int NOT NULL,
+  `upSellId` int NOT NULL,
+  `status` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 -- Data exporting was unselected.
 
