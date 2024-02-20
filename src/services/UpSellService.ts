@@ -318,8 +318,8 @@ export class UpSellServices {
                         const listingsInfo: any = await this.listingInfoRepository.find({
                             where: { listingId: data.listingId }
                         });
-                        listingsInfo[0].status =
-                            upSellListing.push(this.updateUpSellInfo[0])
+                        listingsInfo[0].status = 1
+                        upSellListing.push(listingsInfo[0])
                     }))
                     return {
                         status: true,
