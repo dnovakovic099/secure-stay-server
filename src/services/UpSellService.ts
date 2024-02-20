@@ -31,10 +31,10 @@ export class UpSellServices {
                 }
             })
 
-            response.status(200).send({
+            return {
                 status: true,
                 message: "Data saved successfully!!!"
-            })
+            }
         } catch (error) {
             throw new Error(error)
         }
@@ -43,6 +43,7 @@ export class UpSellServices {
     async updateUpSellInfo(request: Request, response: Response) {
         try {
             const { listingIds, ...upSellInfo } = request.body
+
             //check for existing upsell
             const data = await this.upSellRepository.findOne({
                 where: {
@@ -52,10 +53,10 @@ export class UpSellServices {
             })
 
             if (!data) {
-                response.status(200).send({
+                return {
                     status: true,
-                    message: "No associated upsell found."
-                })
+                    message: "No associated upsell found!!!"
+                }
             } else {
 
                 await appDatabase.transaction(async (transactionalEntityManager) => {
@@ -63,12 +64,12 @@ export class UpSellServices {
                     // Update UpSellEntity
                     await transactionalEntityManager.update(UpSellEntity, upSellInfo.upSellId, upSellInfo);
 
-                    //check either listing are present in the api request
+                    // check either listing are present in the api request
                     if (Array.isArray(listingIds)) {
                         // Update UpSellListing status to 0
                         await transactionalEntityManager.update(UpSellListing, { upSellId: upSellInfo.upSellId }, { status: 0 });
                         // Save new UpSellListing records
-                        await Promise.all(listingIds.map(async (listingId: number) => {
+                        await Promise.all(listingIds?.map(async (listingId: number) => {
                             const upSellListing = new UpSellListing();
                             upSellListing.listingId = listingId;
                             upSellListing.upSellId = upSellInfo.upSellId;
@@ -78,9 +79,10 @@ export class UpSellServices {
                     }
                 })
 
-                response.status(200).send({
-                    "message": "Data updated successfully!!!"
-                })
+                return {
+                    status: true,
+                    message: "Data updated successfully!!!"
+                }
             }
         } catch (error) {
             throw new Error(error)
@@ -145,17 +147,20 @@ export class UpSellServices {
             const limit: any = request.query.limit || 10;
             const title = request.query.title !== undefined ? request.query.title : "";
             const offset: any = (page - 1) * limit;
-            const isActive: any = request.query.isActive
 
             let upSellInfo = await this.upSellRepository.findAndCount({
                 where: {
                     title: Like(`${title}%`),
-                    isActive: isActive
+                    isActive: true
                 },
                 take: limit,
                 skip: offset
             })
-            response.status(200).send(upSellInfo);
+
+            return {
+                status: true,
+                data: upSellInfo[0]
+            }
         } catch (error) {
             throw new Error(error)
 
@@ -165,18 +170,26 @@ export class UpSellServices {
     async getUpSellById(request: Request, response: Response) {
         try {
             const upSellId: any = request.params.upSellId
-            const isActive: any = request.params.isActive
+            let listing: object[] = []
 
             let upSellInfo = await this.upSellRepository.findOne({
                 where: {
                     upSellId: upSellId,
-                    isActive: isActive || true
+                    isActive: true
                 },
             })
-            response.status(200).send({
-                status: true,
-                data: upSellInfo
-            });
+            if (upSellInfo) {
+                return {
+                    status: true,
+                    data: upSellInfo[0]
+                }
+            } else {
+                return {
+                    status: true,
+                    message: "Provide valid upsell!!!"
+                }
+            }
+
         } catch (error) {
             throw new Error(error)
         }
@@ -194,10 +207,10 @@ export class UpSellServices {
                 }
             })
             if (!data) {
-                response.send({
+                return {
                     status: true,
                     message: "No associated upsell found."
-                })
+                }
             } else {
                 await appDatabase.transaction(async (transactionalEntityManager: EntityManager) => {
                     let upSellToUpdate = await transactionalEntityManager.findOne(UpSellEntity, {
@@ -216,10 +229,10 @@ export class UpSellServices {
                         upSellToUpdate
                     );
                 })
-                response.status(202).send({
+                return {
                     status: true,
                     message: "Data deleted successfully!!!"
-                })
+                }
             }
         } catch (error) {
             throw new Error(error)
@@ -258,22 +271,18 @@ export class UpSellServices {
             });
 
             if (invalidUpSellIds.length > 0) {
-                response.status(400).send({
+                return {
                     status: false,
-                    message: "Provide valid all valid upsell!!!",
-                    invalidIds: invalidUpSellIds
-                });
+                    message: "Please provide all valid upsell!!!",
+                    data: invalidUpSellIds
+                };
             } else {
-                response.status(202).send({
+                return {
                     status: true,
                     message: "Data deleted successfully!!!"
-                });
+                };
             }
         } catch (error) {
-            response.status(500).send({
-                status: false,
-                message: "Internal server error"
-            });
             console.error(error);
         }
     }
@@ -285,13 +294,18 @@ export class UpSellServices {
             const upSellId: any = request.query.upSellId
 
             //check for existing upsell
-            const data = await this.upSellRepository.findBy(upSellId)
+            const data = await this.upSellRepository.findOne({
+                where: {
+                    upSellId: upSellId,
+                    isActive: true
+                }
+            })
 
             if (!data) {
-                response.send({
+                return {
                     status: true,
                     message: "No associated upsell found."
-                })
+                }
             } else {
 
                 let upSellListing: any[] = []
@@ -301,15 +315,24 @@ export class UpSellServices {
                         status: 1
                     },
                 })
+                if (Array.isArray(listingData)) {
+                    await Promise.all(listingData.map(async (data: any) => {
+                        const listingsInfo: any = await this.listingInfoRepository.find({
+                            where: { listingId: data.listingId }
+                        });
+                        upSellListing.push(listingsInfo[0])
+                    }))
+                    return {
+                        status: true,
+                        data: upSellListing
+                    };
+                } else {
+                    return {
+                        status: true,
+                        message: "No associated listing found for given upsell."
+                    }
+                }
 
-                await Promise.all(listingData.map(async (data: any) => {
-                    const listingsInfo: any = await this.listingInfoRepository.find({
-                        where: { listingId: data.listingId }
-                    });
-                    upSellListing.push(listingsInfo)
-                }))
-
-                response.status(200).send(upSellListing);
             }
 
         } catch (error) {
