@@ -207,6 +207,27 @@ export const AppRoutes = () => {
             file: true,
             rawJson: false
         },
+        {
+            path: '/upsell/delete-multiple',
+            method: 'post',
+            action: upSellController.deleteMultipleUpSell,
+            file: true,
+            rawJson: true
+        },
+        {
+            path: '/upsell/update-multiple-status',
+            method: 'put',
+            action: upSellController.updateMultipleSellStatus,
+            file: true,
+            rawJson: true
+        },
+        {
+            path: '/upsell/:id',
+            method: 'get',
+            action: upSellController.getUpSellById,
+            file: false,
+            rawJson: false
+        },
 
 
     ];
