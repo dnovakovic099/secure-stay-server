@@ -227,7 +227,7 @@ CREATE TABLE `listing_info` (
   `priceForExtraPerson` float NOT NULL,
   `currencyCode` varchar(255) NOT NULL,
   PRIMARY KEY (`listing_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 CREATE TABLE `listing_image` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -240,7 +240,7 @@ CREATE TABLE `listing_image` (
   PRIMARY KEY (`id`),
   KEY `FK_9d46296bf4cb8bc590f5e6f5ade` (`listing_id`),
   CONSTRAINT `FK_9d46296bf4cb8bc590f5e6f5ade` FOREIGN KEY (`listing_id`) REFERENCES `listing_info` (`listing_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=532 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=532 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 CREATE TABLE `listing_lock_info` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -250,7 +250,7 @@ CREATE TABLE `listing_lock_info` (
   `updated_at` datetime NOT NULL,
   `lock_id` varchar(255) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 -- Data exporting was unselected.
 
