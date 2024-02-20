@@ -204,22 +204,22 @@ export const AppRoutes = () => {
             path: '/upsell/listing',
             method: 'get',
             action: upSellController.getAssociatedUpSellListing,
-            file: true,
+            file: false,
             rawJson: false
         },
         {
             path: '/upsell/delete-multiple',
             method: 'post',
             action: upSellController.deleteMultipleUpSell,
-            file: true,
-            rawJson: true
+            file: false,
+            rawJson: false
         },
         {
             path: '/upsell/update-multiple-status',
             method: 'put',
             action: upSellController.updateMultipleSellStatus,
-            file: true,
-            rawJson: true
+            file: false,
+            rawJson: false
         },
         {
             path: '/upsell/:id',

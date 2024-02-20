@@ -42,6 +42,7 @@ export class UpSellController {
     async getUpSellById(request: Request, response: Response) {
         const upSellById = new UpSellServices()
         const data = await upSellById.getUpSellById(request, response)
+
         return response.send(data)
     }
 
