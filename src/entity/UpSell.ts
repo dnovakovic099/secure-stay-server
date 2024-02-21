@@ -14,7 +14,7 @@ export class UpSellEntity {
     @Column({ type: 'bigint', nullable: false })
     price: Number
 
-    @Column({ type: 'varchar', default: 'Per Booking - Onetime', length: 50 })
+    @Column({ type: 'varchar', default: 'Per Booking - Onetime', length: 50, nullable: true })
     timePeriod: String
 
     @Column({ type: 'varchar', default: 'Always', length: 50, nullable: true })
