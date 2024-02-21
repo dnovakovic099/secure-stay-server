@@ -159,10 +159,16 @@ export class UpSellServices {
                     upSellId: "DESC"
                 }
             })
+            const totalCount = await this.upSellRepository.count({
+                where: {
+                    isActive: true
+                }
+            })
 
             return {
                 status: true,
-                data: upSellInfo[0]
+                data: upSellInfo[0],
+                length: totalCount
             }
         } catch (error) {
             throw new Error(error)
