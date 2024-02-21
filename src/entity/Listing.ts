@@ -38,6 +38,52 @@ export class Listing {
 
   @OneToMany(() => ListingImage, (image) => image.listing)
   images: ListingImage[];
+
+  @Column()
+  internalListingName: string;
+
+  @Column()
+  country: string;
+  
+  @Column()
+  countryCode: string;
+  
+  @Column()
+  state: string;
+  
+  @Column()
+  city: string;
+  
+  @Column()
+  street: string;
+  
+  @Column()
+  zipcode: string;
+  
+  @Column("float")
+  lat: number;
+
+  @Column("float")
+  lng: number;
+  
+  @Column("int")
+  checkInTimeStart: number;
+  
+  @Column("int")
+  checkInTimeEnd: number;
+
+  @Column("int")
+  checkOutTime: number;
+
+  @Column()
+  wifiUsername: string;
+  
+  @Column()
+  wifiPassword: string;
+  
+  @Column()
+  bookingcomPropertyRoomName: string;
+
 }
 
 

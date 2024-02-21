@@ -14,26 +14,40 @@ export class ListingService {
   //fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing() {
     const listing = await this.hostAwayClient.getListing();
-
     try {
       await appDatabase.manager.transaction(
         async (transactionalEntityManager) => {
           for (let i = 0; i < listing.length; i++) {
             const existingListing = await transactionalEntityManager.findOneBy(
               Listing,
-              { id: listing[i].id }
+              { id: listing[i]?.id }
             );
 
             if (!existingListing) {
               const listingObj = {
-                id: listing[i].id,
-                name: listing[i].name,
-                externalListingName: listing[i].externalListingName,
-                address: listing[i].address,
-                price: listing[i].price,
-                guestsIncluded: listing[i].guestsIncluded,
-                priceForExtraPerson: listing[i].priceForExtraPerson,
-                currencyCode: listing[i].currencyCode,
+                id: listing[i]?.id,
+                name: listing[i]?.name,
+                externalListingName: listing[i]?.externalListingName,
+                address: listing[i]?.address,
+                price: listing[i]?.price,
+                guestsIncluded: listing[i]?.guestsIncluded,
+                priceForExtraPerson: listing[i]?.priceForExtraPerson,
+                currencyCode: listing[i]?.currencyCode,
+                internalListingName: listing[i]?.internalListingName ? listing[i].internalListingName : "",
+                country: listing[i]?.country ? listing[i].country : "",
+                countryCode: listing[i]?.countryCode ? listing[i].countryCode : "",
+                state: listing[i]?.state ? listing[i].state : "",
+                city: listing[i]?.city ? listing[i].city : "",
+                street: listing[i]?.street ? listing[i].street : "",
+                zipcode: listing[i]?.zipcode ? listing[i].zipcode : "",
+                lat: listing[i]?.lat ? listing[i].lat : 0,
+                lng: listing[i]?.lng ? listing[i].lng : 0,
+                checkInTimeStart: listing[i]?.checkInTimeStart ? listing[i].checkInTimeStart : 0,
+                checkInTimeEnd: listing[i]?.checkInTimeEnd ? listing[i].checkInTimeEnd : 0,
+                checkOutTime: listing[i]?.checkOutTime ? listing[i].checkOutTime : 0,
+                wifiUsername: listing[i]?.wifiUsername ? listing[i].wifiUsername : "",
+                wifiPassword: listing[i]?.wifiPassword ? listing[i].wifiPassword : "",
+                bookingcomPropertyRoomName: listing[i]?.bookingcomPropertyRoomName ? listing[i].bookingcomPropertyRoomName : "",
               };
               const saveListing = await transactionalEntityManager.save(
                 Listing,
@@ -93,7 +107,7 @@ export class ListingService {
       });
       if (!isExists) {
         const result = await this.listingLockInfoRepository.save(obj);
-        return { success: true,message:'Device listing info saved successfully!', result };
+        return { success: true, message: 'Device listing info saved successfully!', result };
       } else {
         return { success: false, message: "Device with the same listing already exists!" };
       }
