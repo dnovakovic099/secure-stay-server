@@ -256,7 +256,7 @@ CREATE TABLE `upsell_info` (
   `upsell_id` int NOT NULL AUTO_INCREMENT,
   `title` varchar(50) NOT NULL,
   `price` bigint NOT NULL,
-  `timePeriod` varchar(50) DEFAULT NULL,
+  `timePeriod` varchar(50) DEFAULT 'Per Booking - Onetime',
   `description` varchar(500) NOT NULL,
   `status` tinyint NOT NULL DEFAULT '1',
   `isActive` tinyint NOT NULL DEFAULT '1',
