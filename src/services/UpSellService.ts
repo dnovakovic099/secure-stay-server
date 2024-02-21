@@ -154,7 +154,10 @@ export class UpSellServices {
                     isActive: true
                 },
                 take: limit,
-                skip: offset
+                skip: offset,
+                order: {
+                    upSellId: "DESC"
+                }
             })
 
             return {
