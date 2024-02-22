@@ -12,8 +12,8 @@ export class ListingController {
     return response.send(await listingService.getListings())
   }
 
-  async saveLockListingInfo(request: Request, response: Response) {
-    const listingService = new ListingService()
-    return response.send(await listingService.saveLockListingInfo(request));
+  async getListingById(request:Request,response:Response){
+    const listingService=new ListingService()
+    return response.send(await listingService.getListingById(request))
   }
 }

@@ -31,5 +31,19 @@ export const DeviceRoutes = () => {
       file: false,
       rawJson: false,
     },
+    {
+      path: "/device/getlistings/:device_id",
+      method: "get",
+      action: devicesController.getDeviceListings,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/device/savelocklistinginfo",
+      method: "post",
+      action: devicesController.saveLockListingInfo,
+      file: false,
+      rawJson: false,
+    },
   ];
 };

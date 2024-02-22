@@ -38,20 +38,30 @@ export class DevicesController {
 
   //get access token for sifely devices
   async getAccessToken(request: Request, response: Response) {
-    const deviceService = new DeviceService()
-    response.send(await deviceService.getAccessToken(request))
+    const deviceService = new DeviceService();
+    response.send(await deviceService.getAccessToken(request));
   }
 
   //get sifely locks
   async getSifelyLocks(request: Request, response: Response) {
-    const deviceService = new DeviceService()
-    response.send(await deviceService.getSifelyLocks(request))
+    const deviceService = new DeviceService();
+    response.send(await deviceService.getSifelyLocks(request));
   }
 
   //get sifely lock info
   async getSifelyLockInfo(request: Request, response: Response) {
-    const deviceService = new DeviceService()
-    response.send(await deviceService.getSifelyLockInfo(request))
+    const deviceService = new DeviceService();
+    response.send(await deviceService.getSifelyLockInfo(request));
   }
 
+  async saveLockListingInfo(request: Request, response: Response) {
+      const deviceService = new DeviceService();
+    return response.send(await deviceService.saveLockListingInfo(request));
+  }
+
+  //get listings associated with the device
+  async getDeviceListings(request: Request, response: Response) {
+    const deviceService = new DeviceService();
+    response.send(await deviceService.getDeviceListings(request));
+  }
 }
