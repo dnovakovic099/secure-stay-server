@@ -10,6 +10,7 @@ import { UsersController } from "../controllers/UsersController";
 import { ListingController } from "../controllers/ListingController";
 import { UpSellController } from "../controllers/UpSellController";
 import { DeviceRoutes } from "./deviceRoutes";
+import { ListingRoutes } from "./listingRoutes";
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -24,6 +25,7 @@ export const AppRoutes = () => {
   const listingController = new ListingController();
   const upSellController = new UpSellController()
   const deviceRoutes = DeviceRoutes();
+  const listingRoutes=ListingRoutes();
 
   return [
     {
@@ -146,28 +148,6 @@ export const AppRoutes = () => {
       rawJson: false
     },
     {
-      path: "/listing/synchostawaylistings",
-      method: "get",
-      action: listingController.syncHostawayListing,
-      file: false,
-      rawJson: false
-    },
-    {
-      path: '/listing/getlistings',
-      method: "get",
-      action: listingController.getListings,
-      file: false,
-      rawJson: false
-    },
-    {
-      path: '/device/savelocklistinginfo',
-      method: "post",
-      action: listingController.saveLockListingInfo,
-      file: false,
-      rawJson: false
-    },
-    ,
-    {
       path: '/upsell/create',
       method: 'post',
       action: upSellController.createUpSell,
@@ -225,5 +205,6 @@ export const AppRoutes = () => {
       rawJson: false
     },
     ...deviceRoutes,
+    ...listingRoutes
   ];
 }

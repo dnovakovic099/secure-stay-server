@@ -1,15 +1,13 @@
+import { EntityManager, In, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Listing } from "../entity/Listing";
 import { ListingImage } from "../entity/ListingImage";
-import { ListingLockInfo } from "../entity/ListingLock";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
-  private listingLockInfoRepository =
-    appDatabase.getRepository(ListingLockInfo);
 
   //fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing() {
@@ -80,26 +78,11 @@ export class ListingService {
     }
   }
 
-  async saveLockListingInfo(request: Request) {
-    try {
-      let obj = {
-        ...request.body,
-        created_at: new Date(),
-        updated_at: new Date(),
-      };
-      const isExists = await this.listingLockInfoRepository.findOneBy({
-        lock_id: request.body.lock_id,
-        listing_id: request.body.listing_id,
-      });
-      if (!isExists) {
-        const result = await this.listingLockInfoRepository.save(obj);
-        return { success: true,message:'Device listing info saved successfully!', result };
-      } else {
-        return { success: false, message: "Device with the same listing already exists!" };
-      }
-    } catch (error) {
-      console.log(error);
-      throw error;
-    }
+  async getListingById(request: Request) {
+    const { listing_id } = request.params;
+    const result = await this.listingRepository.find({
+      where: { listingId: Number(listing_id) },
+    });
+    return result;
   }
 }
