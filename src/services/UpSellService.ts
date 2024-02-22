@@ -121,22 +121,22 @@ export class UpSellServices {
 
             if (invalidUpSellIds.length > 0) {
                 //error message for invalid upsell
-                response.status(400).send({
+                return {
                     status: false,
                     message: "Please provide valid upsells id",
                     invalidIds: invalidUpSellIds
-                });
+                };
             } else {
-                response.status(202).send({
+                return {
                     status: true,
                     message: "Data updated successfully!!!"
-                });
+                };
             }
         } else {
-            response.status(200).send({
+            return {
                 status: true,
                 message: "Please provide upsell in array!!!"
-            });
+            };
         }
 
     }
@@ -154,12 +154,21 @@ export class UpSellServices {
                     isActive: true
                 },
                 take: limit,
-                skip: offset
+                skip: offset,
+                order: {
+                    upSellId: "DESC"
+                }
+            })
+            const totalCount = await this.upSellRepository.count({
+                where: {
+                    isActive: true
+                }
             })
 
             return {
                 status: true,
-                data: upSellInfo[0]
+                data: upSellInfo[0],
+                length: totalCount
             }
         } catch (error) {
             throw new Error(error)
@@ -170,8 +179,6 @@ export class UpSellServices {
     async getUpSellById(request: Request, response: Response) {
         try {
             const upSellId: any = request.params.upSellId
-            let listing: object[] = []
-
             let upSellInfo = await this.upSellRepository.findOne({
                 where: {
                     upSellId: upSellId,
@@ -181,7 +188,7 @@ export class UpSellServices {
             if (upSellInfo) {
                 return {
                     status: true,
-                    data: upSellInfo[0]
+                    data: upSellInfo
                 }
             } else {
                 return {
@@ -320,6 +327,7 @@ export class UpSellServices {
                         const listingsInfo: any = await this.listingInfoRepository.find({
                             where: { listingId: data.listingId }
                         });
+                        listingsInfo[0].status = 1
                         upSellListing.push(listingsInfo[0])
                     }))
                     return {
