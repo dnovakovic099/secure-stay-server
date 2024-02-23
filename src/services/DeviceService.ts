@@ -5,6 +5,7 @@ import { appDatabase } from "../utils/database.util";
 import { ListingLockInfo } from "../entity/ListingLock";
 import { Listing } from "../entity/Listing";
 import { EntityManager, In, Not } from "typeorm";
+import CustomErrorHandler from "../middleware/customError.middleware";
 
 export class DeviceService {
   private seamConnect = new SeamConnect();
@@ -81,35 +82,35 @@ export class DeviceService {
 
   async saveLockListingInfo(request: Request) {
     try {
-      const { device_id, listing_id } = request.body;
+      const { device_id, listing_id } = request.body;      
+
+      //find the device listing_id if exists 
+      const result = await this.listingLockInfoRepository.findOne({ where: { listing_id: listing_id } })
+      if(result){
+        if (result.lock_id == device_id && result.status == 1) {
+          return {
+            success: true,
+            message: "Device listing info saved successfully",
+          };
+        }else{
+          return CustomErrorHandler.validationError('The selected listing has been already associated with other lock')
+        }
+      }
 
       await appDatabase.transaction(
         async (transactionalEntityManager: EntityManager) => {
-          if (Array.isArray(listing_id)) {
-            await transactionalEntityManager.update(ListingLockInfo, {lock_id: device_id }, { status: 0 })
-            await Promise.all(
-              listing_id.map(async (listingId: number) => {
-                const result = await this.listingLockInfoRepository.findOne({
-                  where: {
-                    listing_id: listingId,
-                    lock_id: device_id
-                  },
-                });
-                if (!result) {
-                  const lockListing = new ListingLockInfo();
-                  lockListing.listing_id = listingId;
-                  lockListing.lock_id = device_id;
-                  lockListing.created_at = new Date();
-                  lockListing.updated_at = new Date();
-                  await transactionalEntityManager.save(lockListing);
-                } else {
-                  await transactionalEntityManager.update(ListingLockInfo, { listing_id: listingId, lock_id: device_id }, { status: 1 })
-                }
-              })
-            );
-          }
+          //update the listing_id status to 0
+          await transactionalEntityManager.update(ListingLockInfo, { lock_id: device_id }, { status: 0 })
+
+          const listingLockInfo = new ListingLockInfo()
+          listingLockInfo.lock_id = device_id
+          listingLockInfo.listing_id = listing_id
+          listingLockInfo.created_at = new Date()
+          listingLockInfo.updated_at = new Date()
+          await transactionalEntityManager.save(listingLockInfo) 
         }
       );
+
       return {
         success: true,
         message: "Device listing info saved successfully!",
