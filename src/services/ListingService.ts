@@ -4,10 +4,12 @@ import { Listing } from "../entity/Listing";
 import { ListingImage } from "../entity/ListingImage";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
+import { ListingLockInfo } from "../entity/ListingLock";
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
+  private listingLockRepository = appDatabase.getRepository(ListingLockInfo)
 
   //fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing() {
@@ -98,5 +100,15 @@ export class ListingService {
       where: { listingId: Number(listing_id) },
     });
     return result;
+  }
+
+  async getDeviceIdByListingId(listing_id: number) {
+    const listing = await this.listingRepository.findOne({ where: { id: listing_id } })
+    if(listing){
+      const listingLockInfo = await this.listingLockRepository.findOne({ where: { listing_id: listing.listingId, status: 1 } })
+      return listingLockInfo?.lock_id
+    }else{
+      return null
+    }
   }
 }

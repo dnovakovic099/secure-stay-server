@@ -10,7 +10,8 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 export class DeviceService {
   private seamConnect = new SeamConnect();
   private sifelyClient = new SifelyClient();
-  private listingLockInfoRepository = appDatabase.getRepository(ListingLockInfo);
+  private listingLockInfoRepository =
+    appDatabase.getRepository(ListingLockInfo);
   private listingRepository = appDatabase.getRepository(Listing);
 
   async getDevicesInfo() {
@@ -82,42 +83,65 @@ export class DeviceService {
 
   async saveLockListingInfo(request: Request) {
     try {
-      const { device_id, listing_id } = request.body;      
+      const { device_id, listing_id } = request.body;
 
-      //find the device listing_id if exists 
-      const result = await this.listingLockInfoRepository.findOne({ where: { listing_id: listing_id } })
-      if(result){
+      if (listing_id == null) {
+
+        const result = await this.listingLockInfoRepository.findOne({ where: { lock_id: device_id, status: 1 } });
+        if (result) {
+          result.status = 0;
+          result.updated_at = new Date();
+          await this.listingLockInfoRepository.save(result)
+        }
+
+        return {
+          success: true,
+          message: "Device listing info saved successfully",
+        };
+      }
+
+      //find the device listing_id if exists
+      const result = await this.listingLockInfoRepository.findOne({ where: { listing_id: listing_id, status: 1 } });
+
+      if (result) {
         if (result.lock_id == device_id && result.status == 1) {
           return {
             success: true,
             message: "Device listing info saved successfully",
           };
-        }else{
-          return CustomErrorHandler.validationError('The selected listing has been already associated with other lock')
+        } else {
+          return CustomErrorHandler.validationError(
+            "The selected listing has been already associated with other lock"
+          );
         }
       }
 
-      await appDatabase.transaction(
-        async (transactionalEntityManager: EntityManager) => {
-          //update the listing_id status to 0
-          await transactionalEntityManager.update(ListingLockInfo, { lock_id: device_id }, { status: 0 })
+      await appDatabase.transaction(async (transactionalEntityManager: EntityManager) => {
 
-          const listingLockInfo = new ListingLockInfo()
-          listingLockInfo.lock_id = device_id
-          listingLockInfo.listing_id = listing_id
-          listingLockInfo.created_at = new Date()
-          listingLockInfo.updated_at = new Date()
-          await transactionalEntityManager.save(listingLockInfo) 
-        }
-      );
+        await transactionalEntityManager.update(ListingLockInfo, { lock_id: device_id }, { status: 0 });
+
+        const listingLockInfo = new ListingLockInfo();
+        listingLockInfo.lock_id = device_id;
+        listingLockInfo.listing_id = listing_id;
+        listingLockInfo.created_at = new Date();
+        listingLockInfo.updated_at = new Date();
+
+        await transactionalEntityManager.save(listingLockInfo);
+        
+      });
 
       return {
         success: true,
         message: "Device listing info saved successfully!",
       };
-    } catch (error) {
-      console.log(error);
+
+    }
+    catch (error) {
       throw error;
     }
+  }
+
+  async createCodesForSifelyDevice(device_id: string, name: string, code: number) {
+    return await this.seamConnect.createAccessCodes(device_id, name, code);
   }
 }
