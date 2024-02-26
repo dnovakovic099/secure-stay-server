@@ -44,7 +44,7 @@ export class ReservationService {
         return this.hostAwayClient.getListingInfo(reservation?.reservationInfo?.listingMapId);
     }
 
-    async getReservationList() {
+    async getHostawayReservationListStartingToday(){
         const currentDate=getCurrentDateInUTC()
         return await this.hostAwayClient.getReservationList(currentDate)
     }

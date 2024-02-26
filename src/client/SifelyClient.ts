@@ -1,6 +1,5 @@
 import axios from "axios";
 import { createHash } from "crypto";
-import CustomErrorHandler from "../middleware/customError.middleware";
 
 const clientId = process.env.SCIENER_CLIENT_ID;
 const clientSecret = process.env.SCIENER_CLIENT_SECRET;
@@ -20,7 +19,7 @@ export class SifelyClient {
       username,
       password: hashedPassword,
     };
-  
+
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -40,7 +39,7 @@ export class SifelyClient {
     const apiUrl = `https://euapi.sciener.com/v3/lock/list?clientId=${clientId}&accessToken=${access_token}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
 
     const result = await axios.get(apiUrl, config);
-    return result.data
+    return result.data;
   }
 
   public async getLockInfo(access_token: string, lockId: string, date: number) {
@@ -50,8 +49,39 @@ export class SifelyClient {
       },
     };
     const apiUrl = `https://euapi.sciener.com/v3/lock/detail?clientId=${clientId}&accessToken=${access_token}&lockId=${lockId}&date=${date}`;
-    const result = await axios.get(apiUrl, config)
-    return result.data
+    const result = await axios.get(apiUrl, config);
+    return result.data;
   }
 
+  public async createPasscode(accessToken: string, lockId: string, name: string, code: number) {
+    const config = {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    };
+
+    const body = {
+      clientId,
+      accessToken,
+      lockId,
+      keyboardPwdName: name,
+      keyboardPwd: code,
+    };
+
+    const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/add`;
+    const result = await axios.post(apiUrl, body, config);
+    return result.data;
+  }
+
+  public async getAllPassCode(accessToken: string, lockId: string, pageNo: number, pageSize: number, date: Date) {
+    const config = {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    };
+
+    const apiUrl = `https://euapi.sciener.com/v3/lock/listKeyboardPwd?clientId=${clientId}&accessToken=${accessToken}&lockId=${lockId}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
+    const result = await axios.get(apiUrl, config);
+    return result.data;
+  }
 }

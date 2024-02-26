@@ -112,6 +112,7 @@ export class SeamConnect {
   }
 
   public async createAccessCodes(device_id:string, name:string, code:number) {
+    
     const apiUrl = `https://connect.getseam.com/access_codes/create`;
     const config = {
       headers: {
@@ -119,12 +120,33 @@ export class SeamConnect {
         Authorization: `Bearer ${apiKey}`,
       },
     };
+
     try {
-      const result = await axios.post(apiUrl, { device_id, name, code }, config);
-      return result
+      const result = await axios.post(apiUrl,{ device_id, name, code },config);
+      return result;
     } catch (error) {
-      throw new Error(`Error creating code for ${name} of device ${device_id}`)
+      throw new Error(`Error creating code for ${name} of device ${device_id}`);
     }
+
+  }
+
+  public async getAccessCodes(device_id: string, name: string, code: number) {
+
+    const apiUrl = `https://connect.getseam.com/access_codes/list?device_id=${device_id}`;
+    const config = {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+    };
+
+    try {
+      const result = await axios.get(apiUrl, config);
+      return result.data?.access_codes;
+    } catch (error) {
+      throw new Error(`Error creating code for ${name} of device ${device_id}`);
+    }
+
   }
 
 }
