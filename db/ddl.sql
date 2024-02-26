@@ -220,8 +220,11 @@ CREATE TABLE `listing_info` (
   `listing_id` int NOT NULL AUTO_INCREMENT,
   `id` int NOT NULL,
   `name` varchar(255) NOT NULL,
+  `description` TEXT NOT NULL,
+  `propertyType` varchar(50) DEFAULT '',
   `externalListingName` varchar(255) NOT NULL,
-  `address` varchar(255) NOT NULL, NOT NULL,
+  `address` varchar(255) NOT NULL,
+  `guests` int(50),
   `price` float NOT NULL,
   `guestsIncluded` int NOT NULL,
   `priceForExtraPerson` float NOT NULL,
@@ -288,18 +291,6 @@ CREATE TABLE `upsell_listing` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
-CREATE TABLE `users_info` (
-  `user_id` int NOT NULL AUTO_INCREMENT,
-  `fullName` varchar(50) NOT NULL,
-  `email` varchar(100) NOT NULL,
-  `contact` bigint DEFAULT NULL,
-  `userType` varchar(50) NOT NULL,
-  `image` varchar(200) DEFAULT NULL,
-  `status` tinyint NOT NULL DEFAULT '1',
-  `isActive` tinyint NOT NULL DEFAULT '1',
-  `dialCode` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`user_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
@@ -307,3 +298,27 @@ CREATE TABLE `users_info` (
 /*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;
+
+
+
+-- SET FOREIGN_KEY_CHECKS = 0; 
+-- SELECT table_name
+-- FROM information_schema.tables
+-- WHERE table_schema = 'boarding-pass';
+-- SET @truncate_query = NULL;
+-- SELECT GROUP_CONCAT('TRUNCATE TABLE `', table_name, '`;') INTO @truncate_query
+-- FROM information_schema.tables
+-- WHERE table_schema = 'boarding-pass';
+-- SET @truncate_query = CONCAT('SET FOREIGN_KEY_CHECKS = 0;', @truncate_query, 'SET FOREIGN_KEY_CHECKS = 1;');
+-- PREPARE stmt FROM @truncate_query;
+-- EXECUTE stmt;
+-- DEALLOCATE PREPARE stmt;
+
+-- SET FOREIGN_KEY_CHECKS = 1; 
+-- SET SQL_SAFE_UPDATES = 1;
+
+-- SET SQL_SAFE_UPDATES = 0;
+-- DELETE FROM listing_info;
+
+-- SET FOREIGN_KEY_CHECKS = 1; 
+-- SET SQL_SAFE_UPDATES = 1;

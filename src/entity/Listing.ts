@@ -1,10 +1,5 @@
 // Import necessary modules from TypeORM
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  OneToMany,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from "typeorm";
 import { ListingImage } from "./ListingImage";
 
 @Entity("listing_info") // Specify the name of your MySQL table
@@ -17,6 +12,12 @@ export class Listing {
 
   @Column()
   name: string;
+
+  @Column({ type: "text" })
+  description: string;
+
+  @Column({ default: "(NOT SPECIFIED)" })
+  propertyType: string;
 
   @Column()
   externalListingName: string;
@@ -44,31 +45,31 @@ export class Listing {
 
   @Column()
   country: string;
-  
+
   @Column()
   countryCode: string;
-  
+
   @Column()
   state: string;
-  
+
   @Column()
   city: string;
-  
+
   @Column()
   street: string;
-  
+
   @Column()
   zipcode: string;
-  
+
   @Column("float")
   lat: number;
 
   @Column("float")
   lng: number;
-  
+
   @Column("int")
   checkInTimeStart: number;
-  
+
   @Column("int")
   checkInTimeEnd: number;
 
@@ -77,13 +78,13 @@ export class Listing {
 
   @Column()
   wifiUsername: string;
-  
+
   @Column()
   wifiPassword: string;
-  
+
   @Column()
   bookingcomPropertyRoomName: string;
 
+  @Column("int")
+  guests: number;
 }
-
-

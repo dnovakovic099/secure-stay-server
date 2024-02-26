@@ -110,21 +110,4 @@ export class SeamConnect {
       throw error;
     }
   }
-
-  public async createAccessCodes(device_id:string, name:string, code:number) {
-    const apiUrl = `https://connect.getseam.com/access_codes/create`;
-    const config = {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-    };
-    try {
-      const result = await axios.post(apiUrl, { device_id, name, code }, config);
-      return result
-    } catch (error) {
-      throw new Error(`Error creating code for ${name} of device ${device_id}`)
-    }
-  }
-
 }

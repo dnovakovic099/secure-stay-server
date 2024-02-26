@@ -4,16 +4,16 @@ import { Listing } from "../entity/Listing";
 import { ListingImage } from "../entity/ListingImage";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
-import { ListingLockInfo } from "../entity/ListingLock";
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
-  private listingLockRepository = appDatabase.getRepository(ListingLockInfo)
 
   //fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing() {
     const listing = await this.hostAwayClient.getListing();
+    console.log("------------------->>", listing[3]);
+
     try {
       await appDatabase.manager.transaction(
         async (transactionalEntityManager) => {
@@ -27,27 +27,47 @@ export class ListingService {
               const listingObj = {
                 id: listing[i]?.id,
                 name: listing[i]?.name,
+                description: listing[i]?.description,
                 externalListingName: listing[i]?.externalListingName,
                 address: listing[i]?.address,
+                guests: listing[i]?.personCapacity,
                 price: listing[i]?.price,
                 guestsIncluded: listing[i]?.guestsIncluded,
                 priceForExtraPerson: listing[i]?.priceForExtraPerson,
                 currencyCode: listing[i]?.currencyCode,
-                internalListingName: listing[i]?.internalListingName ? listing[i].internalListingName : "",
+                internalListingName: listing[i]?.internalListingName
+                  ? listing[i].internalListingName
+                  : "",
                 country: listing[i]?.country ? listing[i].country : "",
-                countryCode: listing[i]?.countryCode ? listing[i].countryCode : "",
+                countryCode: listing[i]?.countryCode
+                  ? listing[i].countryCode
+                  : "",
                 state: listing[i]?.state ? listing[i].state : "",
                 city: listing[i]?.city ? listing[i].city : "",
                 street: listing[i]?.street ? listing[i].street : "",
                 zipcode: listing[i]?.zipcode ? listing[i].zipcode : "",
                 lat: listing[i]?.lat ? listing[i].lat : 0,
                 lng: listing[i]?.lng ? listing[i].lng : 0,
-                checkInTimeStart: listing[i]?.checkInTimeStart ? listing[i].checkInTimeStart : 0,
-                checkInTimeEnd: listing[i]?.checkInTimeEnd ? listing[i].checkInTimeEnd : 0,
-                checkOutTime: listing[i]?.checkOutTime ? listing[i].checkOutTime : 0,
-                wifiUsername: listing[i]?.wifiUsername ? listing[i].wifiUsername : "",
-                wifiPassword: listing[i]?.wifiPassword ? listing[i].wifiPassword : "",
-                bookingcomPropertyRoomName: listing[i]?.bookingcomPropertyRoomName ? listing[i].bookingcomPropertyRoomName : "",
+                propertyType: listing[i]?.bookingcomPropertyRoomName,
+                checkInTimeStart: listing[i]?.checkInTimeStart
+                  ? listing[i].checkInTimeStart
+                  : 0,
+                checkInTimeEnd: listing[i]?.checkInTimeEnd
+                  ? listing[i].checkInTimeEnd
+                  : 0,
+                checkOutTime: listing[i]?.checkOutTime
+                  ? listing[i].checkOutTime
+                  : 0,
+                wifiUsername: listing[i]?.wifiUsername
+                  ? listing[i].wifiUsername
+                  : "",
+                wifiPassword: listing[i]?.wifiPassword
+                  ? listing[i].wifiPassword
+                  : "(NO PASSWORD)",
+                bookingcomPropertyRoomName: listing[i]
+                  ?.bookingcomPropertyRoomName
+                  ? listing[i].bookingcomPropertyRoomName
+                  : "",
               };
               const saveListing = await transactionalEntityManager.save(
                 Listing,
@@ -96,19 +116,12 @@ export class ListingService {
 
   async getListingById(request: Request) {
     const { listing_id } = request.params;
-    const result = await this.listingRepository.find({
-      where: { listingId: Number(listing_id) },
-    });
-    return result;
-  }
+    const result = await this.listingRepository
+      .createQueryBuilder("listing")
+      .leftJoinAndSelect("listing.images", "listingImages")
+      .where("listing.listingId = :id", { id: Number(listing_id) })
+      .getOne();
 
-  async getDeviceIdByListingId(listing_id: number) {
-    const listing = await this.listingRepository.findOne({ where: { id: listing_id } })
-    if(listing){
-      const listingLockInfo = await this.listingLockRepository.findOne({ where: { listing_id: listing.listingId, status: 1 } })
-      return listingLockInfo?.lock_id
-    }else{
-      return null
-    }
+    return result;
   }
 }

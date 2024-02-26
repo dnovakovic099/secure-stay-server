@@ -1,28 +1,28 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
 
-@Entity('checkin')
+@Entity("checkin")
 export class CheckIn {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column()
-    stepOrder: number;
+  @Column()
+  stepOrder: number;
 
-    @Column()
-    image: string;
+  @Column()
+  image: string;
 
-    @Column('text')
-    description: string;
+  @Column("text")
+  description: string;
 
-    @Column({ nullable: true })
-    pin: number | null;
+  @Column({ nullable: true })
+  pin: number | null;
 
-    @Column()
-    doesHavePin: boolean;
+  @Column()
+  doesHavePin: boolean;
 
-    @Column({ nullable: true })
-    pinAdditionalInfo: string | null;
+  @Column({ nullable: true })
+  pinAdditionalInfo: string | null;
 
-    @Column({ type: 'int', nullable: true })
-    listing_id: number;
+  @Column({ type: "int", nullable: true })
+  listing_id: number;
 }

@@ -9,11 +9,11 @@ export class ListingController {
 
   async getListings(request: Request, response: Response) {
     const listingService = new ListingService();
-    return response.send(await listingService.getListings())
+    return response.send(await listingService.getListings());
   }
 
-  async getListingById(request:Request,response:Response){
-    const listingService=new ListingService()
-    return response.send(await listingService.getListingById(request))
+  async getListingById(request: Request, response: Response) {
+    const listingService = new ListingService();
+    return response.send(await listingService.getListingById(request));
   }
 }
