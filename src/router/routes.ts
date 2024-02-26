@@ -11,6 +11,7 @@ import { ListingController } from "../controllers/ListingController";
 import { UpSellController } from "../controllers/UpSellController";
 import { DeviceRoutes } from "./deviceRoutes";
 import { ListingRoutes } from "./listingRoutes";
+import { UserRoutes } from "./userRoutes";
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -25,7 +26,8 @@ export const AppRoutes = () => {
   const listingController = new ListingController();
   const upSellController = new UpSellController()
   const deviceRoutes = DeviceRoutes();
-  const listingRoutes=ListingRoutes();
+  const listingRoutes = ListingRoutes();
+  const userRoutes = UserRoutes()
 
   return [
     {
@@ -205,6 +207,7 @@ export const AppRoutes = () => {
       rawJson: false
     },
     ...deviceRoutes,
-    ...listingRoutes
+    ...listingRoutes,
+    ...userRoutes
   ];
 }
