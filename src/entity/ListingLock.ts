@@ -12,6 +12,9 @@ export class ListingLockInfo {
   @Column()
   lock_id: string;
 
+  @Column()
+  type: string
+
   @Column({ default: 1, type: "tinyint" })
   status: number;
 

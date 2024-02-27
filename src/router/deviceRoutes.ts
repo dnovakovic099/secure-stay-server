@@ -32,9 +32,9 @@ export const DeviceRoutes = () => {
       rawJson: false,
     },
     {
-      path: "/device/getlistings/:device_id",
+      path: "/device/getlistings/:deviceId",
       method: "get",
-      action: devicesController.getDeviceListings,
+      action: devicesController.getDeviceListing,
       file: false,
       rawJson: false,
     },

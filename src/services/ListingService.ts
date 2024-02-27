@@ -9,7 +9,7 @@ import { ListingLockInfo } from "../entity/ListingLock";
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
-  private listingLockRepository = appDatabase.getRepository(ListingLockInfo)
+  private listingLockRepository = appDatabase.getRepository(ListingLockInfo);
 
   //fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing() {
@@ -102,13 +102,16 @@ export class ListingService {
     return result;
   }
 
-  async getDeviceIdByListingId(listing_id: number) {
-    const listing = await this.listingRepository.findOne({ where: { id: listing_id } })
-    if(listing){
-      const listingLockInfo = await this.listingLockRepository.findOne({ where: { listing_id: listing.listingId, status: 1 } })
-      return listingLockInfo?.lock_id
-    }else{
-      return null
+  async getLockInfoAssociatedWithListing(listing_id: number) {
+    const listing = await this.listingRepository.findOne({ where: { id: listing_id } });
+
+    if (listing) {
+      const listingLockInfo = await this.listingLockRepository.findOne({ where: { listing_id: listing.listingId, status: 1 } });
+      return { device_id: listingLockInfo?.lock_id, device_type: listingLockInfo?.type };
+    } else {
+      return null;
     }
   }
+
+  
 }
