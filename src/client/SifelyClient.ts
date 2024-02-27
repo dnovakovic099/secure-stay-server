@@ -1,10 +1,11 @@
 import axios from "axios";
 import { createHash } from "crypto";
-
-const clientId = process.env.SCIENER_CLIENT_ID;
-const clientSecret = process.env.SCIENER_CLIENT_SECRET;
+import { generateRandomNumber } from "../helpers/helpers";
 
 export class SifelyClient {
+
+  private clientId = process.env.SCIENER_CLIENT_ID;
+  private clientSecret = process.env.SCIENER_CLIENT_SECRET;
 
   public async getaccestoken(username: string, password: string) {
     // hash the password using md5
@@ -14,8 +15,8 @@ export class SifelyClient {
 
     const apiUrl = `https://euapi.ttlock.com/oauth2/token`;
     const body = {
-      clientId,
-      clientSecret,
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
       username,
       password: hashedPassword,
     };
@@ -36,10 +37,10 @@ export class SifelyClient {
         "Content-Type": "application/x-www-form-urlencoded",
       },
     };
-    const apiUrl = `https://euapi.sciener.com/v3/lock/list?clientId=${clientId}&accessToken=${access_token}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
+    const apiUrl = `https://euapi.sciener.com/v3/lock/list?clientId=${this.clientId}&accessToken=${access_token}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
 
     const result = await axios.get(apiUrl, config);
-    return result.data;
+    return result.data?.list;
   }
 
   public async getLockInfo(access_token: string, lockId: string, date: number) {
@@ -48,12 +49,12 @@ export class SifelyClient {
         "Content-Type": "application/x-www-form-urlencoded",
       },
     };
-    const apiUrl = `https://euapi.sciener.com/v3/lock/detail?clientId=${clientId}&accessToken=${access_token}&lockId=${lockId}&date=${date}`;
+    const apiUrl = `https://euapi.sciener.com/v3/lock/detail?clientId=${this.clientId}&accessToken=${access_token}&lockId=${lockId}&date=${date}`;
     const result = await axios.get(apiUrl, config);
     return result.data;
   }
 
-  public async createPasscode(accessToken: string, lockId: string, name: string, code: number) {
+  public async createPasscode(accessToken: string, lockId: number, name: string, code: number) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -61,11 +62,12 @@ export class SifelyClient {
     };
 
     const body = {
-      clientId,
+      clientId: this.clientId,
       accessToken,
       lockId,
       keyboardPwdName: name,
-      keyboardPwd: code,
+      keyboardPwd: code ? code : generateRandomNumber(4),
+      date: new Date().valueOf()
     };
 
     const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/add`;
@@ -73,15 +75,15 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async getAllPassCode(accessToken: string, lockId: string, pageNo: number, pageSize: number, date: Date) {
+  public async getAllPassCode(accessToken: string, lockId: number, pageNo: number, pageSize: number, date: number) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
     };
 
-    const apiUrl = `https://euapi.sciener.com/v3/lock/listKeyboardPwd?clientId=${clientId}&accessToken=${accessToken}&lockId=${lockId}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
+    const apiUrl = `https://euapi.sciener.com/v3/lock/listKeyboardPwd?clientId=${this.clientId}&accessToken=${accessToken}&lockId=${lockId}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
     const result = await axios.get(apiUrl, config);
-    return result.data;
+    return result.data?.list;
   }
 }

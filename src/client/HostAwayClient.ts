@@ -80,7 +80,7 @@ export class HostAwayClient {
         }
     }
 
-    public async getReservationList(currentDate) {
+    public async getReservationList(currentDate: string) {
         const url = `https://api.hostaway.com/v1/reservations?arrivalStartDate=${currentDate}&arrivalEndDate=${currentDate}`;
         try {
             const authResponse = await this.getAuthToken();

@@ -74,7 +74,7 @@ export class DevicesController {
       const deviceService = new DeviceService();
       const { accessToken, pageNo, pageSize } = request.body;
 
-      return response.send(await deviceService.getSifelyLocks(accessToken, pageNo, pageSize));
+      return response.send(await deviceService.getSifelyLocks());
 
     } catch (error) {
       throw error;
