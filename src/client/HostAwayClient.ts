@@ -78,4 +78,22 @@ export class HostAwayClient {
       throw error;
     }
   }
+
+  public async getReservationList(currentDate) {
+    const url = `https://api.hostaway.com/v1/reservations?arrivalStartDate=${currentDate}&arrivalEndDate=${currentDate}`;
+    try {
+      const authResponse = await this.getAuthToken();
+      this.accessToken = authResponse.data?.access_token;
+      const headerConfig = {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Cache-control": "no-cache",
+        },
+      };
+      const response = await axios.get(url, headerConfig);
+      return response.data.result;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
