@@ -288,6 +288,18 @@ CREATE TABLE `upsell_listing` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+CREATE TABLE `users_info` (
+  `user_id` int NOT NULL AUTO_INCREMENT,
+  `fullName` varchar(50) NOT NULL,
+  `email` varchar(100) NOT NULL,
+  `contact` bigint DEFAULT NULL,
+  `userType` varchar(50) NOT NULL,
+  `image` varchar(200) DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `isActive` tinyint NOT NULL DEFAULT '1',
+  `dialCode` varchar(10) DEFAULT NULL,
+  PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
