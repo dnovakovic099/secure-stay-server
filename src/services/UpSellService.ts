@@ -178,7 +178,7 @@ export class UpSellServices {
 
     async getUpSellById(request: Request, response: Response) {
         try {
-            const upSellId: any = request.params.upSellId
+            const upSellId: any = request.query.upSellId
             let upSellInfo = await this.upSellRepository.findOne({
                 where: {
                     upSellId: upSellId,
