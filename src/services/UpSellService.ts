@@ -150,7 +150,7 @@ export class UpSellServices {
 
             let upSellInfo = await this.upSellRepository.findAndCount({
                 where: {
-                    title: Like(`${title}%`),
+                    title: Like(`%${title}%`),
                     isActive: true
                 },
                 take: limit,
