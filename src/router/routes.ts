@@ -200,7 +200,7 @@ export const AppRoutes = () => {
       rawJson: false
     },
     {
-      path: '/upsell/:id',
+      path: '/upsell',
       method: 'get',
       action: upSellController.getUpSellById,
       file: false,
