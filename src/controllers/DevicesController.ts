@@ -117,4 +117,27 @@ export class DevicesController {
     }
   }
 
+  async getPassCodesOfSifelyDevice(request: Request, response: Response) {
+    try {
+      const deviceService = new DeviceService();
+      const queryObject = request.query;
+      const accessToken: string = queryObject.accessToken as string;
+      const deviceId: string = queryObject.deviceId as string;
+
+      return response.send(await deviceService.getCodesForSifelyDevice(accessToken, Number(deviceId)));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async createPassCode(request: Request, response: Response) {
+    try {
+      const deviceService = new DeviceService();
+      const { accessToken, deviceId, codeName, codeValue, timingOption, startDate, endDate } = request.body;
+      return response.send(await deviceService.createCodesForSifelyDevice(accessToken, deviceId, codeName, codeValue, timingOption, startDate, endDate));
+    } catch (error) {
+      throw error;
+    }
+  }
+
 }
