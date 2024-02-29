@@ -186,14 +186,14 @@ export class DeviceService {
 		return await this.seamConnect.getAccessCodes(device_id);
 	}
 
-	async createCodesForSifelyDevice(accessToken: string, lockId: number, name: string, code: number) {
+	async createCodesForSifelyDevice(accessToken: string, lockId: number, name: string, code: number, timingOption: number, startDate: string, endDate: string) {
 		const date = new Date().valueOf();
 		const codeList = await this.sifelyClient.getAllPassCode(accessToken, lockId, 1, 1000, date);
 
 		const isExist = codeList.some((code: { keyboardPwdName: string; }) => code?.keyboardPwdName === name);
 
 		if (!isExist) {
-			await this.sifelyClient.createPasscode(accessToken, lockId, name, code);
+			await this.sifelyClient.createPasscode(accessToken, lockId, name, code, timingOption, startDate, endDate);
 			console.log(`Code created for device:${lockId}`);
 		}
 	}
@@ -208,13 +208,13 @@ export class DeviceService {
 		return token?.accessToken || null;
 	}
 
-	async sendPassCodes(deviceId: string, deviceType: string, name: string, code: number) {
+	async sendPassCodes(deviceId: string, deviceType: string, name: string, code: number, access_token: string) {
 		switch (deviceType) {
 			case 'Seam':
 				return await this.createCodesForSeamDevice(deviceId, name, code);
 			case 'Sifely':
-				const token = await this.getSifelyLockAccessToken(deviceId);
-				return await this.createCodesForSifelyDevice(token, Number(deviceId), name, code);
+				// const token = await this.getSifelyLockAccessToken(deviceId);
+				return await this.createCodesForSifelyDevice(access_token, Number(deviceId), name, code, 2, null, null);
 			default:
 				return;
 		}

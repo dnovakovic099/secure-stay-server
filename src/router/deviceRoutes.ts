@@ -45,5 +45,19 @@ export const DeviceRoutes = () => {
       file: false,
       rawJson: false,
     },
+    {
+      path: '/device/sifely/getpasscodes',
+      method: "get",
+      action: devicesController.getPassCodesOfSifelyDevice,
+      file: false,
+      rawJson: false
+    },
+    {
+      path: '/device/sifely/createpasscode',
+      method: "post",
+      action: devicesController.createPassCode,
+      file: false,
+      rawJson: false
+    }
   ];
 };

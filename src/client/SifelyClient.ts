@@ -54,7 +54,7 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async createPasscode(accessToken: string, lockId: number, name: string, code: number) {
+  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: string, endDate: string) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -67,7 +67,10 @@ export class SifelyClient {
       lockId,
       keyboardPwdName: name,
       keyboardPwd: code ? code : generateRandomNumber(4),
-      date: new Date().valueOf()
+      date: new Date().valueOf(),
+      startDate: new Date(startDate).valueOf(),
+      endDate: new Date(endDate).valueOf(),
+      keyboardPwdType: timingOption
     };
 
     const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/add`;
