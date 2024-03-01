@@ -220,8 +220,11 @@ CREATE TABLE `listing_info` (
   `listing_id` int NOT NULL AUTO_INCREMENT,
   `id` int NOT NULL,
   `name` varchar(255) NOT NULL,
+  `description` TEXT NOT NULL,
+  `propertyType` varchar(50) DEFAULT '',
   `externalListingName` varchar(255) NOT NULL,
-  `address` varchar(255) NOT NULL, NOT NULL,
+  `address` varchar(255) NOT NULL,
+  `guests` int(50),
   `price` float NOT NULL,
   `guestsIncluded` int NOT NULL,
   `priceForExtraPerson` float NOT NULL,
@@ -300,6 +303,18 @@ CREATE TABLE `users_info` (
   `dialCode` varchar(10) DEFAULT NULL,
   PRIMARY KEY (`user_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `guidebook` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `listing_id` INT NOT NULL,
+  `photo` VARCHAR(255) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NOT NULL,
+    KEY `FK_9d46296bf4cb8bc590f5e6f5ade` (`listing_id`),
+  CONSTRAINT `FK_9d46296bf4cb8bc590f5e6f5ade` FOREIGN KEY (`listing_id`) REFERENCES `listing_info` (`listing_id`) ON DELETE CASCADE
+);
+
+
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
