@@ -54,7 +54,7 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: string, endDate: string) {
+  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: number, endDate: number) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -68,8 +68,8 @@ export class SifelyClient {
       keyboardPwdName: name,
       keyboardPwd: code ? code : generateRandomNumber(4),
       date: new Date().valueOf(),
-      startDate: new Date(startDate).valueOf(),
-      endDate: new Date(endDate).valueOf(),
+      startDate: startDate,
+      endDate: endDate,
       keyboardPwdType: timingOption
     };
 

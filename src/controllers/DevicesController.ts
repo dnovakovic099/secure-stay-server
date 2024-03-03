@@ -118,7 +118,10 @@ export class DevicesController {
       const deviceService = new DeviceService();
       const { accessToken, lockId, codeName, codeValue, timingOption, startDate, endDate } = request.body;
 
-      await deviceService.createCodesForSifelyDevice(accessToken, lockId, codeName, codeValue, timingOption, startDate, endDate);
+      const startDateTimestamp = timingOption !== 2 ? new Date(startDate).valueOf() : startDate;
+      const endDateTimestamp = timingOption !== 2 ? new Date(endDate).valueOf() : endDate;
+
+      await deviceService.createCodesForSifelyDevice(accessToken, lockId, codeName, codeValue, timingOption, startDateTimestamp, endDateTimestamp);
 
       return response.status(201).json(dataSaved('Passcode created successfully!!!'));
     } catch (error) {

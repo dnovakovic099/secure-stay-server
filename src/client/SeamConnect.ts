@@ -44,10 +44,12 @@ export class SeamConnect {
     return clientSession;
   }
 
-  public async createAccessCodes(device_id:string, name:string, code:number) {
+  public async createAccessCodes(device_id: string, name: string, code: number, startDate: string, endDate: string) {
     const apiKey: string = process.env.SEAM_API_KEY;
     const seam = new Seam({ apiKey: apiKey });
+
     const apiUrl = `https://connect.getseam.com/access_codes/create`;
+
     const config = {
       headers: {
         "Content-Type": "application/json",
@@ -55,8 +57,16 @@ export class SeamConnect {
       },
     };
 
+    const body = {
+      device_id,
+      name,
+      code,
+      starts_at: startDate,
+      ends_at: endDate,
+    }
+
     try {
-      const result = await axios.post(apiUrl,{ device_id, name, code },config);
+      const result = await axios.post(apiUrl,body, config);
       return result;
     } catch (error) {
       throw error;
