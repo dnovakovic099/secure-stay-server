@@ -1,6 +1,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import CustomErrorHandler from './customError.middleware';
+import { ValidationError } from 'joi';
 
 export const errorHandler = (err: Error, req: Request, res: Response, next: NextFunction) => {
 
@@ -16,6 +17,13 @@ export const errorHandler = (err: Error, req: Request, res: Response, next: Next
         statusCode = customError.status;
         data = {
             message: customError.message
+        };
+    }
+
+    if (err instanceof ValidationError) {
+        statusCode = 400;
+        data = {
+            message: err?.message
         };
     }
 

@@ -89,4 +89,25 @@ export class SifelyClient {
     const result = await axios.get(apiUrl, config);
     return result.data?.list;
   }
+
+  public async deletePassCode(accessToken: string, lockId: number, keyboardPwdId: number) {
+    const config = {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    };
+
+    const body = {
+      clientId: this.clientId,
+      accessToken,
+      lockId,
+      keyboardPwdId,
+      date: new Date().valueOf(),
+      deleteType: 2
+    };
+
+    const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/delete`;
+    const result = await axios.post(apiUrl, body, config);
+    return result.data;
+  }
 }
