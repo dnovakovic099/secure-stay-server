@@ -2,7 +2,8 @@ import dotenv from "dotenv";
 dotenv.config();
 import { DeviceService } from "../services/DeviceService";
 import { ReservationService } from "../services/ReservationService";
-import mysql from "mysql2/promise";
+import mysql, { RowDataPacket } from "mysql2/promise";
+import { getTimestamp } from "../helpers/date";
 
 const connection = mysql.createConnection({
   host: process.env.DATABASE_URL,
@@ -25,52 +26,30 @@ export async function sendCodes() {
     for (const reservation of reservations) {
       const phone = reservation?.phone?.toString();
       const code = phone?.substr(-4);
-      const guestName = reservation.guestName;
+      const guestName = `${reservation?.guestName}-${reservation?.arrivalDate}`;
+      const departureDate = reservation?.departureDate;
+      const checkOutTime = reservation?.checkOutTime;
+      const codeExpiry = getTimestamp(departureDate, checkOutTime, 0, 0);
 
-      const query = `
-                SELECT
-                    l.lock_id,
-                    l.type AS device_type,
-                    (CASE
-                        WHEN
-                            l.type = 'Sifely'
-                        THEN
-                            (SELECT
-                                    accessToken
-                                FROM
-                                    sifely_lock_info
-                                WHERE
-                                    lockId = l.lock_id AND status = 1)
-                        ELSE NULL
-                    END) AS access_token
-                FROM
-                    listing_lock_info AS l
-                    INNER JOIN listing_info as li on l.listing_id=li.listing_id
-                WHERE
-                    l.status = 1 AND li.id = ?
-            `;
+      const query = `SELECT l.lock_id, l.type AS device_type, 
+                     (CASE WHEN l.type = 'Sifely' THEN 
+                     (SELECT accessToken FROM sifely_lock_info WHERE lockId = l.lock_id AND status = 1) 
+                     ELSE NULL END) AS access_token FROM listing_lock_info AS l 
+                     WHERE l.status = 1 AND l.listing_id = ?`;
 
-      const output = await (
-        await connection
-      ).query(query, reservation.listingMapId);
+      const output = await (await connection).query(query, reservation.listingMapId);
+      const devices = output[0] as RowDataPacket[];
 
-      const lock_id = output[0] && output[0][0]?.lock_id;
-      const device_type = output[0] && output[0][0]?.device_type;
-      const access_token = output[0] && output[0][0]?.access_token;
+      //send code to each locks
+      devices.forEach(async (device) => {
+        const lock_id = device?.lock_id;
+        const device_type = device?.device_type;
+        const access_token = device?.access_token;
 
-      console.log(
-        `Listing ${reservation.listingMapId} has deviceId:${lock_id}`
-      );
+        console.log(`Listing ${reservation.listingMapId} has deviceId:${lock_id}`);
+        await deviceServices.sendPassCodes(lock_id, device_type, guestName, code, access_token, codeExpiry);
+      });
 
-      if (lock_id) {
-        await deviceServices.sendPassCodes(
-          lock_id,
-          device_type,
-          guestName,
-          code,
-          access_token
-        );
-      }
       console.log("---------------------");
     }
   } catch (error) {

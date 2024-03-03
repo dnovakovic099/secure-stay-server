@@ -46,6 +46,7 @@ export class ReservationService {
 
     async getHostawayReservationListStartingToday(){
         const currentDate=getCurrentDateInUTC()
-        return await this.hostAwayClient.getReservationList(currentDate)
+        const reservations = await this.hostAwayClient.getReservationList(currentDate);
+        return reservations.filter((reservation: { status: string; }) => reservation.status === 'new');
     }
 }

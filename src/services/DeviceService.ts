@@ -7,6 +7,7 @@ import { Listing } from "../entity/Listing";
 import { EntityManager, In, Not } from "typeorm";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { SifelyLock } from "../entity/SifelyLock";
+import { formatTimestamp } from "../helpers/date";
 
 export class DeviceService {
 
@@ -131,7 +132,7 @@ export class DeviceService {
 			if (existingLockInfo.lock_id === deviceId && existingLockInfo.status === 1) {
 				return;
 			} 
-			throw CustomErrorHandler.alreadyExists('The selected listing has already been associated with another lock');
+			// throw CustomErrorHandler.alreadyExists('The selected listing has already been associated with another lock');
 		}
 
 		await this.createNewLockInfoTransaction(deviceId, listingId, deviceType);
@@ -154,13 +155,17 @@ export class DeviceService {
 
 
 
-	async createCodesForSeamDevice(device_id: string, name: string, code: number) {
+	async createCodesForSeamDevice(device_id: string, name: string, code: number, codeExpiry: number) {
 		const codeList = await this.seamConnect.getAccessCodes(device_id);
 		
 		const isExist = codeList.some((code: { name: string; }) => code.name === name);
 
+		const startDateTimestamp = new Date().valueOf();
+		const startDate = formatTimestamp(startDateTimestamp);
+		const codeExpiryDate = formatTimestamp(codeExpiry);
+
 		if (!isExist) {
-			await this.seamConnect.createAccessCodes(device_id, name, code);
+			await this.seamConnect.createAccessCodes(device_id, name, code, startDate, codeExpiryDate);
 			console.log(`Code created for device:${device_id}`);
 		}
 	}
@@ -169,7 +174,7 @@ export class DeviceService {
 		return await this.seamConnect.getAccessCodes(device_id);
 	}
 
-	async createCodesForSifelyDevice(accessToken: string, lockId: number, name: string, code: number, timingOption: number, startDate: string, endDate: string) {
+	async createCodesForSifelyDevice(accessToken: string, lockId: number, name: string, code: number, timingOption: number, startDate: number, endDate: number) {
 		const date = new Date().valueOf();
 		const codeList = await this.sifelyClient.getAllPassCode(accessToken, lockId, 1, 1000, date);
 
@@ -191,13 +196,13 @@ export class DeviceService {
 		return token?.accessToken || null;
 	}
 
-	async sendPassCodes(deviceId: string, deviceType: string, name: string, code: number, access_token: string) {
+	async sendPassCodes(deviceId: string, deviceType: string, name: string, code: number, access_token: string, codeExpiry: number) {
 		switch (deviceType) {
 			case 'Seam':
-				return await this.createCodesForSeamDevice(deviceId, name, code);
+				return await this.createCodesForSeamDevice(deviceId, name, code, codeExpiry);
 			case 'Sifely':
-				// const token = await this.getSifelyLockAccessToken(deviceId);
-				return await this.createCodesForSifelyDevice(access_token, Number(deviceId), name, code, 2, null, null);
+				const startDate = new Date().valueOf();
+				return await this.createCodesForSifelyDevice(access_token, Number(deviceId), name, code, 3, startDate, codeExpiry);
 			default:
 				return;
 		}
