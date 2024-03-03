@@ -314,6 +314,26 @@ CREATE TABLE `guidebook` (
   CONSTRAINT `FK_9d46296bf4cb8bc590f5e6f5ade` FOREIGN KEY (`listing_id`) REFERENCES `listing_info` (`listing_id`) ON DELETE CASCADE
 );
 
+CREATE TABLE `sifely_lock_info` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `lockId` int NOT NULL,
+  `lockName` varchar(255) NOT NULL,
+  `lockAlias` varchar(255) NOT NULL,
+  `lockMac` varchar(255) NOT NULL,
+  `electricQuantity` int NOT NULL,
+  `featureValue` varchar(255) NOT NULL,
+  `hasGateway` int NOT NULL,
+  `groupId` int DEFAULT NULL,
+  `groupName` varchar(255) DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `createdAt` datetime NOT NULL,
+  `updatedAt` datetime NOT NULL,
+  `lockData` text NOT NULL,
+  `date` bigint NOT NULL,
+  `accessToken` text NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
 
 -- Data exporting was unselected.
 
