@@ -11,6 +11,7 @@ import { ListingController } from "../controllers/ListingController";
 import { UpSellController } from "../controllers/UpSellController";
 import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
+import { GuideBookRoutes } from "./guideBookRoutes";
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -23,9 +24,10 @@ export const AppRoutes = () => {
   const devicesController = new DevicesController();
   const usersController = new UsersController();
   const listingController = new ListingController();
-  const upSellController = new UpSellController()
+  const upSellController = new UpSellController();
   const listingRoutes = ListingRoutes();
-  const userRoutes = UserRoutes()
+  const userRoutes = UserRoutes();
+  const guideBookRoutes = GuideBookRoutes();
 
   return [
     {
@@ -33,143 +35,143 @@ export const AppRoutes = () => {
       method: "post",
       action: userVerificationController.verifyUser,
       file: true,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation-info/webhook",
       method: "post",
       action: reservationInfoController.saveReservation,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation/:reservationLink",
       method: "get",
       action: reservationController.getReservationListingInfo,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation/:reservationLink/status",
       method: "get",
       action: reservationController.getStatusForLink,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation/:reservationLink/faq",
       method: "get",
       action: faqController.getAllFaqByReservation,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation/:reservationLink/items",
       method: "get",
       action: itemController.getAllItemsByReservation,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/pay/reservation/:reservationLink",
       method: "post",
       action: payController.payReservation,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/pay/reservation/:reservationLink/item/:itemId",
       method: "post",
       action: payController.payItem,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/pay/verify/webhook",
       method: "post",
       action: payController.verifyPayment,
       file: false,
-      rawJson: true
+      rawJson: true,
     },
     {
       path: "/reservation/:reservationLink/checkIn/tips",
       method: "get",
       action: checkInController.getAllByReservationLink,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/reservation/:reservationLink/checkIn",
       method: "post",
       action: checkInController.checkIn,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
       path: "/users/create",
       method: "post",
       action: usersController.createUser,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/create',
-      method: 'post',
+      path: "/upsell/create",
+      method: "post",
       action: upSellController.createUpSell,
       file: true,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/update',
-      method: 'put',
+      path: "/upsell/update",
+      method: "put",
       action: upSellController.updateUpSell,
       file: true,
-      rawJson: false
-
+      rawJson: false,
     },
     {
-      path: '/upsell/upsellList',
-      method: 'get',
+      path: "/upsell/upsellList",
+      method: "get",
       action: upSellController.getUpSell,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/delete',
-      method: 'delete',
+      path: "/upsell/delete",
+      method: "delete",
       action: upSellController.deleteUpSell,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/listing',
-      method: 'get',
+      path: "/upsell/listing",
+      method: "get",
       action: upSellController.getAssociatedUpSellListing,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/delete-multiple',
-      method: 'post',
+      path: "/upsell/delete-multiple",
+      method: "post",
       action: upSellController.deleteMultipleUpSell,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell/update-multiple-status',
-      method: 'put',
+      path: "/upsell/update-multiple-status",
+      method: "put",
       action: upSellController.updateMultipleSellStatus,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     {
-      path: '/upsell',
-      method: 'get',
+      path: "/upsell",
+      method: "get",
       action: upSellController.getUpSellById,
       file: false,
-      rawJson: false
+      rawJson: false,
     },
     ...listingRoutes,
-    ...userRoutes
+    ...userRoutes,
+    ...guideBookRoutes,
   ];
-}
+};

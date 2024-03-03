@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 dotenv.config();
 import "reflect-metadata";
 import express from "express";
@@ -22,6 +22,6 @@ const main = async () => {
     await appDatabase.initialize();
 };
 
-main().catch(err => {
-    console.error(err);
+main().catch((err) => {
+  console.error(err, "-------------------------");
 });
