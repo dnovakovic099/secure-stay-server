@@ -12,6 +12,7 @@ import { UpSellController } from "../controllers/UpSellController";
 import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
+import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -28,6 +29,7 @@ export const AppRoutes = () => {
   const listingRoutes = ListingRoutes();
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
+  const automatedMessageRoutes = AutomatedMessageRoutes();
 
   return [
     {
@@ -173,5 +175,6 @@ export const AppRoutes = () => {
     ...listingRoutes,
     ...userRoutes,
     ...guideBookRoutes,
+    ...automatedMessageRoutes,
   ];
 };
