@@ -334,6 +334,11 @@ CREATE TABLE `sifely_lock_info` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+CREATE TABLE AutomatedMessage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    messageType VARCHAR(255) NOT NULL,
+    messageText TEXT NOT NULL
+);
 
 -- Data exporting was unselected.
 
