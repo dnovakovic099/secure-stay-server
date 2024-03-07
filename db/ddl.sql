@@ -340,6 +340,28 @@ CREATE TABLE AutomatedMessage (
     messageText TEXT NOT NULL
 );
 
+CREATE TABLE `messaging_email_info` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `email` varchar(255) NOT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `messaging_phone_number_info` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `country_code` varchar(255) NOT NULL,
+  `phone` varchar(255) NOT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  `supportsSMS` tinyint NOT NULL DEFAULT '0',
+  `supportsCalling` tinyint NOT NULL DEFAULT '0',
+  `supportsWhatsApp` tinyint NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;

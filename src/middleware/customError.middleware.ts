@@ -26,6 +26,10 @@ class CustomErrorHandler {
     static forbidden(message: string = "You do not have permission to access this resource"): CustomErrorHandler {
         return new CustomErrorHandler(403, message);
     }
+
+    static notFound(message: string = 'Not found') {
+        return new CustomErrorHandler(404, message);
+    }
 }
 
 export default CustomErrorHandler;

@@ -41,3 +41,9 @@ export const duplicateData = (message: string = 'Duplicate data Found') => {
     };
 };
 
+export const dataDeleted = (message: string = 'Data deleted successfully') => {
+    return {
+        success: true,
+        message: message
+    };
+};
