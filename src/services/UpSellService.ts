@@ -174,6 +174,7 @@ export class UpSellServices {
       });
       const totalCount = await this.upSellRepository.count({
         where: {
+          title: Like(`%${title}%`),
           isActive: true,
         },
       });
