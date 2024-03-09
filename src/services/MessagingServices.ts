@@ -25,6 +25,11 @@ export class MessagingService {
         return await this.messagingEmailInfoRepository.delete({ id });
     }
 
+    async getEmailList() {
+        const emails = await this.messagingEmailInfoRepository.find({ select: ['id', 'email'] });
+        return emails;
+    }
+
     async savePhoneNoInfo(countryCode: string, phoneNo: string, supportsSMS: boolean, supportsCalling: boolean, supportsWhatsApp: boolean) {
         const isExist = await this.messagingPhoneNoInfoRepository.findOne({ where: { phone: phoneNo } });
         if (isExist) {
@@ -61,5 +66,10 @@ export class MessagingService {
         phoneNoInfo.updated_at = new Date();
 
         return await this.messagingPhoneNoInfoRepository.save(phoneNoInfo);
+    }
+
+    async getPhoneNoList() {
+        const phoneNoList = await this.messagingPhoneNoInfoRepository.find({ select: ['id', 'country_code', 'phone', 'supportsSMS', 'supportsCalling', 'supportsWhatsApp'] });
+        return phoneNoList;
     }
 }
