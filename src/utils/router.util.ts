@@ -3,6 +3,7 @@ import { AppRoutes } from "../router/routes";
 import cors from "cors";
 import multer from "multer";
 import path from "path";
+// import verifySession from "../middleware/verifySession";
 
 export function createRouting(app: Express) {
   //hided for test the seam api call
@@ -25,7 +26,14 @@ export function createRouting(app: Express) {
   // app.use(cors(corsOptions));
 
   //added cors error hadling for localhost seam api call
-  app.options("*", cors());
+    app.options("*", cors());
+    // app.use((req, res, next) => {
+    //     if (req.path !== '/users/create') {
+    //         verifySession(req, res, next);
+    //     } else {
+    //         next();
+    //     }
+    // });
   app.use(
     cors({
       origin: "*",

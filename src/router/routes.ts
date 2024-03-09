@@ -13,6 +13,8 @@ import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
 import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
+import { PmRoutes } from "./pmRoutes";
+
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -30,6 +32,7 @@ export const AppRoutes = () => {
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
   const automatedMessageRoutes = AutomatedMessageRoutes();
+  const pmRoutes = PmRoutes()
 
   return [
     {
@@ -176,5 +179,6 @@ export const AppRoutes = () => {
     ...userRoutes,
     ...guideBookRoutes,
     ...automatedMessageRoutes,
+    ...pmRoutes
   ];
 };
