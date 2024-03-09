@@ -362,6 +362,18 @@ CREATE TABLE `messaging_phone_number_info` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+CREATE TABLE `connected_account_info` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `account` varchar(255) NOT NULL,
+  `clientId` varchar(255) DEFAULT NULL,
+  `clientSecret` varchar(255) DEFAULT NULL,
+  `apiKey` varchar(255) DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
 -- Data exporting was unselected.
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
