@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { MessagingService } from "../services/MessagingServices";
-import { dataDeleted, dataSaved, dataUpdated } from "../helpers/response";
+import { dataDeleted, dataNotFound, dataSaved, dataUpdated, successDataFetch } from "../helpers/response";
 
 export class MessagingController {
     async saveEmailInfo(request: Request, response: Response, next: NextFunction) {
@@ -24,6 +24,21 @@ export class MessagingController {
             await messagingService.deleteEmailInfo(Number(id));
 
             return response.status(200).json(dataDeleted('Email deleted successfully'));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getEmailList(request: Request, response: Response, next: NextFunction) {
+        try {
+            const messagingService = new MessagingService();
+
+            const emails = await messagingService.getEmailList();
+            if (emails.length == 0) {
+                return response.status(200).json(dataNotFound('Emails not found'));
+            }
+
+            return response.status(200).json(successDataFetch(emails));
         } catch (error) {
             return next(error);
         }
@@ -63,6 +78,21 @@ export class MessagingController {
             await messagingService.updatePhoneNoInfo(id, countryCode, phoneNo, supportsSMS, supportsCalling, supportsWhatsApp);
 
             return response.status(201).json(dataDeleted('Phone number info updated successfully'));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getPhoneNoList(request: Request, response: Response, next: NextFunction) {
+        try {
+            const messagingService = new MessagingService();
+
+            const phoneNos = await messagingService.getPhoneNoList();
+            if (phoneNos.length == 0) {
+                return response.status(200).json(dataNotFound('Phone numbers not found'));
+            }
+
+            return response.status(200).json(successDataFetch(phoneNos));
         } catch (error) {
             return next(error);
         }
