@@ -2,6 +2,7 @@ import express, { Express, Request, Response } from "express";
 import { AppRoutes } from "../router/routes";
 import cors from "cors";
 import multer from "multer";
+import fs from "fs";
 import path from "path";
 
 export function createRouting(app: Express) {
@@ -41,10 +42,15 @@ export function createRouting(app: Express) {
         let fileLocation = "uploads";
         var storage = multer.diskStorage({
           destination: function (req, file, cb) {
-            cb(null, "uploads");
+            // cb(null, "uploads");
+            fs.mkdir("uploads", (err) => {
+              cb(null, "uploads");
+            });
           },
           filename: function (req, file, cb) {
-            let name = `${file.originalname.split(" ")[0]}-${Date.now()}`;
+            let name = `${
+              file.originalname.split(" ").join("-").split(".")[0]
+            }-${Date.now()}`;
 
             const ext = file.mimetype.split("/")[1];
             const filename = [name, ext].join(".");

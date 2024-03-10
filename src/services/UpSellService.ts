@@ -12,7 +12,12 @@ export class UpSellServices {
 
   async saveUpSellInfo(request: Request, response: Response) {
     try {
-      const { listingIds, ...upSellInfo } = request.body;
+      let { listingIds, ...upSellInfo } = request.body;
+      if (request.file)
+        upSellInfo = {
+          ...upSellInfo,
+          image: request.file.filename,
+        };
 
       await appDatabase.transaction(async (transactionalEntityManager) => {
         await transactionalEntityManager.save(UpSellEntity, upSellInfo);
@@ -42,8 +47,12 @@ export class UpSellServices {
 
   async updateUpSellInfo(request: Request, response: Response) {
     try {
-      const { listingIds, ...upSellInfo } = request.body;
-
+      let { listingIds, ...upSellInfo } = request.body;
+      if (request.file)
+        upSellInfo = {
+          ...upSellInfo,
+          image: request.file.filename,
+        };
       //check for existing upsell
       const data = await this.upSellRepository.findOne({
         where: {

@@ -12,7 +12,7 @@ const main = async () => {
   const app = express();
   app.listen(process.env.PORT);
   app.use(errorHandler);
-  // app.use(express.static(path.join(__dirname, "uploads")));
+  app.use(express.static(path.join(__dirname, "../uploads"))); ///
 
   scheduleGetReservation();
   createRouting(app);
