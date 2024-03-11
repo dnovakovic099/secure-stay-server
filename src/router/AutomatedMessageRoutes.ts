@@ -30,7 +30,7 @@ export const AutomatedMessageRoutes = () => {
     },
     {
       path: "/automated-messages/:id",
-      method: "put",
+      method: "patch",
       action: automatedMessageController.updateAutomatedMessage,
       file: false,
       rawJson: true,
