@@ -12,4 +12,3 @@ export const appDatabase = new DataSource({
   subscribers: ["src/subscriber/*.ts"],
   migrations: ["src/migration/*.ts"],
 });
-
