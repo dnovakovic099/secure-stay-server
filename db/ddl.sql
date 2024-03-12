@@ -337,8 +337,11 @@ CREATE TABLE `sifely_lock_info` (
 CREATE TABLE AutomatedMessage (
     id INT AUTO_INCREMENT PRIMARY KEY,
     messageType VARCHAR(255) NOT NULL,
-    messageText TEXT NOT NULL
+    smsMessage TEXT NOT NULL,
+    emailMessage TEXT NOT NULL,
+    airBnbMessage TEXT NOT NULL
 );
+
 
 CREATE TABLE `messaging_email_info` (
   `id` int NOT NULL AUTO_INCREMENT,

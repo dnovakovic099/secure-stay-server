@@ -7,12 +7,15 @@ export class AutomatedMessageService {
     appDatabase.getRepository(AutomatedMessage);
 
   async createAutomatedMessage(request: Request) {
-    const { messageType, messageText } = request.body;
+    const { messageType, smsMessage, emailMessage, airBnbMessage } =
+      request.body;
     console.log(request.body);
 
     const newAutomatedMessage = new AutomatedMessage();
     newAutomatedMessage.messageType = messageType;
-    newAutomatedMessage.messageText = messageText;
+    newAutomatedMessage.smsMessage = smsMessage;
+    newAutomatedMessage.emailMessage = emailMessage;
+    newAutomatedMessage.airBnbMessage = airBnbMessage;
 
     return await this.automatedMessageRepository.save(newAutomatedMessage);
   }
@@ -28,7 +31,8 @@ export class AutomatedMessageService {
 
   async updateAutomatedMessage(request: Request) {
     const id = parseInt(request.params.id, 10);
-    const { messageType, messageText } = request.body;
+    const { messageType, smsMessage, emailMessage, airBnbMessage } =
+      request.body;
 
     const existingMessage = await this.automatedMessageRepository.findOne({
       where: { id: id },
@@ -42,8 +46,9 @@ export class AutomatedMessageService {
     }
 
     existingMessage.messageType = messageType;
-    existingMessage.messageText = messageText;
-
+    existingMessage.smsMessage = smsMessage;
+    existingMessage.emailMessage = emailMessage;
+    existingMessage.airBnbMessage = airBnbMessage;
     return await this.automatedMessageRepository.save(existingMessage);
   }
 
