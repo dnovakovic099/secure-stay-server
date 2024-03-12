@@ -9,5 +9,11 @@ export class AutomatedMessage {
   messageType: string;
 
   @Column("text")
-  messageText: string;
+  smsMessage: string;
+
+  @Column("text")
+  emailMessage: string;
+
+  @Column("text")
+  airBnbMessage: string;
 }

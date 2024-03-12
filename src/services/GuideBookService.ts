@@ -61,7 +61,7 @@ export class GuideBookService {
 
     if (!data) {
       return {
-        status: true,
+        status: false,
         message: "No guide data found or already deleted.",
       };
     }
