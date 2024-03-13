@@ -1,9 +1,8 @@
-class CustomErrorHandler extends Error {
+class CustomErrorHandler {
     status: number;
     message: string;
 
     constructor(status: number, msg: string) {
-        super();
         this.status = status;
         this.message=msg
     }
@@ -26,6 +25,10 @@ class CustomErrorHandler extends Error {
 
     static forbidden(message: string = "You do not have permission to access this resource"): CustomErrorHandler {
         return new CustomErrorHandler(403, message);
+    }
+
+    static notFound(message: string = 'Not found') {
+        return new CustomErrorHandler(404, message);
     }
 }
 

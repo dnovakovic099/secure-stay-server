@@ -1,63 +1,50 @@
 import { DevicesController } from "../controllers/DevicesController";
+import { Router } from "express";
+import {
+  validateCreatePasscodeRequest,
+  validateDeletePasscodeRequest,
+  validateGetAccessTokenRequest,
+  validateGetPasscodeRequest,
+  validateSaveLockListingRequest,
+} from "../middleware/validation/devices/device.validation";
 
-export const DeviceRoutes = () => {
-  const devicesController = new DevicesController();
-  return [
-    {
-      path: "/device/getclientsessiontoken",
-      method: "get",
-      action: devicesController.getClientSessionToken,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/sifely/getaccesstoken",
-      method: "post",
-      action: devicesController.getAccessToken,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/sifely/locklist",
-      method: "post",
-      action: devicesController.getSifelyLocks,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/sifely/lockinfo",
-      method: "post",
-      action: devicesController.getSifelyLockInfo,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/getlistings/:deviceId",
-      method: "get",
-      action: devicesController.getDeviceListing,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/savelocklistinginfo",
-      method: "post",
-      action: devicesController.saveLockListingInfo,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: '/device/sifely/getpasscodes',
-      method: "get",
-      action: devicesController.getPassCodesOfSifelyDevice,
-      file: false,
-      rawJson: false
-    },
-    {
-      path: '/device/sifely/createpasscode',
-      method: "post",
-      action: devicesController.createPassCode,
-      file: false,
-      rawJson: false
-    }
-  ];
-};
+const router = Router();
+const deviceController = new DevicesController();
+
+router
+  .route("/seam/getclientsessiontoken")
+  .get(deviceController.getClientSessionToken);
+
+router
+  .route("/seam/createconnectwebview")
+  .get(deviceController.createConnectWebView);
+
+router
+  .route("/sifely/getaccesstoken")
+  .post(validateGetAccessTokenRequest, deviceController.getAccessToken);
+
+router.route("/sifely/locklist").get(deviceController.getSifelyLocks);
+
+router
+  .route("/sifely/lockinfo/:lockId")
+  .get(deviceController.getSifelyLockInfo);
+
+router
+  .route("/sifely/getpasscodes")
+  .get(validateGetPasscodeRequest, deviceController.getPassCodesOfSifelyDevice);
+
+router
+  .route("/sifely/createpasscode")
+  .post(validateCreatePasscodeRequest, deviceController.createPassCode);
+
+router
+  .route("/sifely/deletepasscode")
+  .post(validateDeletePasscodeRequest, deviceController.deletePassCode);
+
+router.route("/getlistings/:lockId").get(deviceController.getDeviceListing);
+
+router
+  .route("/savelocklistinginfo")
+  .post(validateSaveLockListingRequest, deviceController.saveLockListingInfo);
+
+export default router;

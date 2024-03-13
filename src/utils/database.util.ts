@@ -12,12 +12,3 @@ export const appDatabase = new DataSource({
   subscribers: ["src/subscriber/*.ts"],
   migrations: ["src/migration/*.ts"],
 });
-
-appDatabase
-  .connect()
-  .then((connection) => {
-    console.log("Database connected successfully");
-  })
-  .catch((error) => {
-    console.error("Error connecting to the database:", error);
-  });

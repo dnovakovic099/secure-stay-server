@@ -9,6 +9,7 @@ export class UsersController{
     }
 
     async createNewUser(request: Request, response: Response) {
+        console.log(request.body);
 
         const createUserService = new UsersService();
         return response.send(await createUserService.createNewUser(request));
