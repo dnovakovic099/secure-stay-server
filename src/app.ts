@@ -6,16 +6,28 @@ import { scheduleGetReservation } from "./utils/scheduler.util";
 import { createRouting } from "./utils/router.util";
 import { appDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
+import appRoutes from "./router/appRoutes";
+import cors from "cors";
 import path from "path";
 
 const main = async () => {
   const app = express();
+  app.use(cors());
+  app.use(express.json());
+  app.use("/uploads", express.static("uploads"));
   app.listen(process.env.PORT);
-  app.use(errorHandler);
-  app.use(express.static(path.join(__dirname, "../uploads"))); ///
-
   scheduleGetReservation();
+  app.use(appRoutes);
+
   createRouting(app);
+
+  app.use("*", (req, res, next) => {
+    console.log("error occure");
+
+    next(new Error("invalid Route!"));
+  });
+
+  app.use(errorHandler);
   console.log(
     "Express application is up and running on port " + process.env.PORT
   );

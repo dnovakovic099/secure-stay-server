@@ -9,10 +9,12 @@ import { DevicesController } from "../controllers/DevicesController";
 import { UsersController } from "../controllers/UsersController";
 import { ListingController } from "../controllers/ListingController";
 import { UpSellController } from "../controllers/UpSellController";
-import { DeviceRoutes } from "./deviceRoutes";
 import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
+import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
+import { PmRoutes } from "./pmRoutes";
+
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
@@ -26,10 +28,11 @@ export const AppRoutes = () => {
   const usersController = new UsersController();
   const listingController = new ListingController();
   const upSellController = new UpSellController();
-  const deviceRoutes = DeviceRoutes();
   const listingRoutes = ListingRoutes();
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
+  const automatedMessageRoutes = AutomatedMessageRoutes();
+  const pmRoutes = PmRoutes()
 
   return [
     {
@@ -110,41 +113,6 @@ export const AppRoutes = () => {
       rawJson: false,
     },
     {
-      path: "/device/connectWebview",
-      method: "get",
-      action: devicesController.getDevicesInfo,
-      file: false,
-      rawJson: true,
-    },
-    {
-      path: "/device/deviceList",
-      method: "get",
-      action: devicesController.getConnectedList,
-      file: false,
-      rawJson: true,
-    },
-    {
-      path: "/device/deviceDetail",
-      method: "post",
-      action: devicesController.getDevicesDetaildata,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/lock_door",
-      method: "post",
-      action: devicesController.lockDevice,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/device/unlock_door",
-      method: "post",
-      action: devicesController.unlockDevice,
-      file: false,
-      rawJson: false,
-    },
-    {
       path: "/users/create",
       method: "post",
       action: usersController.createUser,
@@ -207,9 +175,10 @@ export const AppRoutes = () => {
       file: false,
       rawJson: false,
     },
-    ...deviceRoutes,
     ...listingRoutes,
     ...userRoutes,
     ...guideBookRoutes,
+    ...automatedMessageRoutes,
+    ...pmRoutes
   ];
 };

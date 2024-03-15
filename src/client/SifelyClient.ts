@@ -54,7 +54,7 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: string, endDate: string) {
+  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: number, endDate: number) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -68,8 +68,8 @@ export class SifelyClient {
       keyboardPwdName: name,
       keyboardPwd: code ? code : generateRandomNumber(4),
       date: new Date().valueOf(),
-      startDate: new Date(startDate).valueOf(),
-      endDate: new Date(endDate).valueOf(),
+      startDate: startDate,
+      endDate: endDate,
       keyboardPwdType: timingOption
     };
 
@@ -88,5 +88,26 @@ export class SifelyClient {
     const apiUrl = `https://euapi.sciener.com/v3/lock/listKeyboardPwd?clientId=${this.clientId}&accessToken=${accessToken}&lockId=${lockId}&pageNo=${pageNo}&pageSize=${pageSize}&date=${date}`;
     const result = await axios.get(apiUrl, config);
     return result.data?.list;
+  }
+
+  public async deletePassCode(accessToken: string, lockId: number, keyboardPwdId: number) {
+    const config = {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    };
+
+    const body = {
+      clientId: this.clientId,
+      accessToken,
+      lockId,
+      keyboardPwdId,
+      date: new Date().valueOf(),
+      deleteType: 2
+    };
+
+    const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/delete`;
+    const result = await axios.post(apiUrl, body, config);
+    return result.data;
   }
 }
