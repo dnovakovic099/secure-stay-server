@@ -16,7 +16,7 @@ export class UpSellServices {
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
-          image: request.file.filename,
+          image: `uploads/${request.file.filename}`,
         };
 
       await appDatabase.transaction(async (transactionalEntityManager) => {
@@ -51,7 +51,7 @@ export class UpSellServices {
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
-          image: request.file.filename,
+          image: `uploads/${request.file.filename}`,
         };
       //check for existing upsell
       const data = await this.upSellRepository.findOne({
@@ -190,6 +190,7 @@ export class UpSellServices {
 
       const totalActive = await this.upSellRepository.count({
         where: {
+          title: Like(`%${title}%`),
           isActive: true,
           status: true,
         },

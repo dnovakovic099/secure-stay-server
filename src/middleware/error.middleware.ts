@@ -1,9 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import CustomErrorHandler from "./customError.middleware";
-<<<<<<< HEAD
-=======
 import { ValidationError } from "joi";
->>>>>>> faaa5c9ea7fa184de63d21866351cc388516b701
 
 export const errorHandler = (
   err: Error,
@@ -28,8 +25,6 @@ export const errorHandler = (
     };
   }
 
-<<<<<<< HEAD
-=======
   if (err instanceof ValidationError) {
     statusCode = 400;
     data = {
@@ -37,6 +32,5 @@ export const errorHandler = (
     };
   }
 
->>>>>>> faaa5c9ea7fa184de63d21866351cc388516b701
   res.status(statusCode).json(data);
 };
