@@ -30,6 +30,7 @@ export class DeviceService {
   //get access token for sifely devices
   async getAccessToken(username: string, password: string) {
     const result = await this.sifelyClient.getaccestoken(username, password);
+
     if (result?.errcode) {
       throw CustomErrorHandler.validationError(result?.errmsg);
     }
@@ -46,6 +47,8 @@ export class DeviceService {
       1000,
       date
     );
+
+    console.log(lockList, "[[[]]]]");
 
     for (const lock of lockList) {
       const count = await this.sifelyLockRepository.count({
