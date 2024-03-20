@@ -3,7 +3,6 @@ import { createHash } from "crypto";
 import { generateRandomNumber } from "../helpers/helpers";
 
 export class SifelyClient {
-
   private clientId = process.env.SCIENER_CLIENT_ID;
   private clientSecret = process.env.SCIENER_CLIENT_SECRET;
 
@@ -27,11 +26,17 @@ export class SifelyClient {
       },
     };
     const result = await axios.post(apiUrl, body, config);
+    console.log(result);
 
     return result.data;
   }
 
-  public async getLockList(access_token: string, pageNo: number, pageSize: number, date: number) {
+  public async getLockList(
+    access_token: string,
+    pageNo: number,
+    pageSize: number,
+    date: number
+  ) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -54,7 +59,15 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async createPasscode(accessToken: string, lockId: number, name: string, code: number, timingOption: Number, startDate: number, endDate: number) {
+  public async createPasscode(
+    accessToken: string,
+    lockId: number,
+    name: string,
+    code: number,
+    timingOption: Number,
+    startDate: number,
+    endDate: number
+  ) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -70,7 +83,7 @@ export class SifelyClient {
       date: new Date().valueOf(),
       startDate: startDate,
       endDate: endDate,
-      keyboardPwdType: timingOption
+      keyboardPwdType: timingOption,
     };
 
     const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/add`;
@@ -78,7 +91,13 @@ export class SifelyClient {
     return result.data;
   }
 
-  public async getAllPassCode(accessToken: string, lockId: number, pageNo: number, pageSize: number, date: number) {
+  public async getAllPassCode(
+    accessToken: string,
+    lockId: number,
+    pageNo: number,
+    pageSize: number,
+    date: number
+  ) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -90,7 +109,11 @@ export class SifelyClient {
     return result.data?.list;
   }
 
-  public async deletePassCode(accessToken: string, lockId: number, keyboardPwdId: number) {
+  public async deletePassCode(
+    accessToken: string,
+    lockId: number,
+    keyboardPwdId: number
+  ) {
     const config = {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -103,7 +126,7 @@ export class SifelyClient {
       lockId,
       keyboardPwdId,
       date: new Date().valueOf(),
-      deleteType: 2
+      deleteType: 2,
     };
 
     const apiUrl = `https://euapi.sciener.com/v3/keyboardPwd/delete`;
