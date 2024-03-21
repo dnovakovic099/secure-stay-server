@@ -1,19 +1,19 @@
 import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 
-@Entity('user_subscription_checkout_session')
+@Entity("user_subscription_checkout_session")
 export class UserSubscriptionCheckoutSession {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column()
-    sessionId: string;
+  @Column()
+  sessionId: string;
 
-    @Column()
-    userId: string;
+  @Column()
+  userId: string;
 
-    @Column()
-    created_at: Date;
+  @Column()
+  created_at: Date;
 
-    @Column()
-    updated_at: Date;
+  @Column()
+  updated_at: Date;
 }
