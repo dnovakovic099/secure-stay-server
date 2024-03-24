@@ -1,4 +1,4 @@
-import {Request,Response} from "express";
+import { NextFunction, Request, Response } from "express";
 import { UsersService } from "../services/UsersService";
 
 export class UsersController{
@@ -6,6 +6,53 @@ export class UsersController{
     async createUser(request:Request,response:Response) {
             const usersService = new UsersService();
         return response.send(await usersService.createUser(request,response));
+    }
+
+    async checkUserForGoogleLogin(request: Request, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+
+            const email: string = request.query.email.toString();
+            const uid: string = request.query.uid.toString();
+
+            const data = await usersService.checkUserForGoogleLogin(email, uid);
+
+            return response.status(200).json({
+                success: data
+            });
+
+        } catch (error) {
+
+            return next(error);
+        }
+    }
+
+    async googleSignup(request: Request, response: Response, next: NextFunction) {
+        try {
+            const userData = request.body;
+
+            const usersService = new UsersService();
+            await usersService.googleLoginSingUp(userData);
+
+        } catch (error) {
+
+        }
+    }
+
+    async checkUserEmail(request: Request, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+
+            const email: string = request.query.email.toString();
+
+            const data = await usersService.checkUserEmail(email);
+
+            return response.status(200).json(data);
+
+        } catch (error) {
+
+            return next(error);
+        }
     }
 
     async createNewUser(request: Request, response: Response) {
