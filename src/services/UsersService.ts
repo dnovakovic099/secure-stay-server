@@ -11,11 +11,24 @@ export class UsersService {
 
     async createUser(request: Request, response: Response) {
         const userData =(request.body);
-        console.log("userData",userData);
+        // console.log("userData",userData);
 
         try {
+
+            const checkExistingUser = await this.usersRepository.findOne({
+                where: {
+                    email: userData?.email,
+                }
+            });
+
+            if (checkExistingUser) {
+                return response.status(409).json({
+                    message: 'Email has been already used!!!'
+                });
+            }
+
             const savedData = await this.usersRepository.save(userData);
-            console.log("savedData", savedData);
+            // console.log("savedData", savedData);
 
             return response.status(200).json({
                 message: 'User created successfully',
@@ -27,6 +40,50 @@ export class UsersService {
             throw error;
         }
     }
+
+
+    async checkUserForGoogleLogin(email: string, uid: string) {
+        const isExist = await this.usersRepository.findOne({
+            where: {
+                email: email,
+                uid: uid
+            }
+        });
+
+        if (!isExist) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    async checkUserEmail(email: string) {
+        const isExist = await this.usersRepository.findOne({
+            where: {
+                email: email
+            }
+        });
+
+        if (!isExist) {
+            return {
+                success: false,
+                message: 'Please provide valid user!!!'
+            };
+        }
+
+        return {
+            success: true,
+            message: 'Valid user!!!'
+        };
+    }
+
+
+    async googleLoginSingUp(userData: object) {
+
+        const data = await this.usersRepository.save(userData);
+        return data;
+    }
+
 
     async createNewUser(request: Request) {
 
