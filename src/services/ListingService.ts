@@ -5,15 +5,26 @@ import { ListingImage } from "../entity/ListingImage";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
 import { ListingLockInfo } from "../entity/ListingLock";
+import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
+import CustomErrorHandler from "../middleware/customError.middleware";
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
   private listingLockRepository = appDatabase.getRepository(ListingLockInfo);
+  private connectedAccountInfoRepository = appDatabase.getRepository(ConnectedAccountInfo);
 
   // Fetch listings from hostaway client and save in our database if not present
-  async syncHostawayListing() {
-    const listings = await this.hostAwayClient.getListing();
+  async syncHostawayListing(userId: string) {
+
+    const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({ where: { userId, account: "pm" } });
+    if (!hostawayCredentials) {
+      throw CustomErrorHandler.notFound('Hoastaway credentials not found');
+    }
+
+    const { clientId, clientSecret } = hostawayCredentials;
+
+    const listings = await this.hostAwayClient.getListing(clientId, clientSecret);
 
     try {
       await appDatabase.manager.transaction(
@@ -21,11 +32,11 @@ export class ListingService {
           for (let i = 0; i < listings.length; i++) {
             const existingListing = await transactionalEntityManager.findOneBy(
               Listing,
-              { id: listings[i]?.id }
+              { id: listings[i]?.id, userId }
             );
 
             if (!existingListing) {
-              const listingObj = this.createListingObject(listings[i]);
+              const listingObj = this.createListingObject(listings[i], userId);
               const savedListing = await transactionalEntityManager.save(
                 Listing,
                 listingObj
@@ -39,8 +50,7 @@ export class ListingService {
           }
         }
       );
-
-      return { success: true, message: "Listing synced successfully!" };
+      return 1;
     } catch (error) {
       console.error("Error syncing listings:", error);
       throw error;
@@ -48,7 +58,7 @@ export class ListingService {
   }
 
   // Create a listing object from hostaway client data
-  private createListingObject(data: any) {
+  private createListingObject(data: any, userId: string) {
     return {
       id: data?.id,
       name: data?.name,
@@ -76,6 +86,7 @@ export class ListingService {
       wifiUsername: data?.wifiUsername || "(NO WIFI)",
       wifiPassword: data?.wifiPassword || "(NO PASSWORD)",
       bookingcomPropertyRoomName: data?.bookingcomPropertyRoomName || "",
+      userId: userId
     };
   }
 
@@ -97,27 +108,23 @@ export class ListingService {
     await entityManager.save(ListingImage, imageObjs);
   }
 
-  // Fetch all available listings
-  async getListings() {
-    try {
+  async getListings(userId: string) {
       const listingsWithImages = await this.listingRepository
         .createQueryBuilder("listing")
         .leftJoinAndSelect("listing.images", "listingImages")
         .leftJoinAndSelect("listing.guideBook", "GuideBook")
+        .where("listing.userId = :userId", { userId })
         .getMany();
-      return { success: true, listings: listingsWithImages };
-    } catch (error) {
-      console.log(error);
-      throw error;
-    }
+
+    return listingsWithImages;
   }
 
-  async getListingById(request: Request) {
-    const { listing_id } = request.params;
+  async getListingById(listing_id: string, userId: string) {
     const result = await this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.images", "listingImages")
       .where("listing.listingId = :id", { id: Number(listing_id) })
+      .andWhere("listing.userId = :userId", { userId })
       .getOne();
 
     return result;

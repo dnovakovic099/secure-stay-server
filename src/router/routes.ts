@@ -5,11 +5,9 @@ import { ItemController } from "../controllers/ItemController";
 import { FaqController } from "../controllers/FaqController";
 import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
-import { DevicesController } from "../controllers/DevicesController";
 import { UsersController } from "../controllers/UsersController";
-import { ListingController } from "../controllers/ListingController";
 import { UpSellController } from "../controllers/UpSellController";
-import { ListingRoutes } from "./listingRoutes";
+// import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
 import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
@@ -24,11 +22,8 @@ export const AppRoutes = () => {
   const faqController = new FaqController();
   const payController = new PaymentController();
   const checkInController = new CheckInController();
-  const devicesController = new DevicesController();
   const usersController = new UsersController();
-  const listingController = new ListingController();
   const upSellController = new UpSellController();
-  const listingRoutes = ListingRoutes();
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
   const automatedMessageRoutes = AutomatedMessageRoutes();
@@ -175,7 +170,6 @@ export const AppRoutes = () => {
       file: false,
       rawJson: false,
     },
-    ...listingRoutes,
     ...userRoutes,
     ...guideBookRoutes,
     ...automatedMessageRoutes,

@@ -5,16 +5,17 @@ import { appDatabase } from "../utils/database.util";
 export class ConnectedAccountService {
     private connectedAccountInfoRepo = appDatabase.getRepository(ConnectedAccountInfo);
 
-    async savePmAccountInfo(account: string, clientId: string, clientSecret: string) {
-        const isExist = await this.connectedAccountInfoRepo.findOne({ where: { account } });
+    async savePmAccountInfo(clientId: string, clientSecret: string, userId: string) {
+        const isExist = await this.connectedAccountInfoRepo.findOne({ where: { account: 'pm', userId } });
         if (isExist) {
             throw CustomErrorHandler.alreadyExists('Account already connected');
         }
 
         const accountInfo = new ConnectedAccountInfo();
-        accountInfo.account = account.toLowerCase();
+        accountInfo.account = 'pm';
         accountInfo.clientId = clientId;
         accountInfo.clientSecret = clientSecret;
+        accountInfo.userId = userId;
         accountInfo.created_at = new Date();
         accountInfo.updated_at = new Date();
 
@@ -65,5 +66,22 @@ export class ConnectedAccountService {
         accountInfo.updated_at = new Date();
 
         return await this.connectedAccountInfoRepo.save(accountInfo);
+    }
+
+    async getConnectedAccountInfo(userId: string) {
+        const [isPmCredentialExist, isSeamCredentialExist, isSifelyCredentialExist, isStripeCredentialExist] =
+            await Promise.all([
+                this.connectedAccountInfoRepo.findOne({ where: { account: "pm", userId } }),
+                this.connectedAccountInfoRepo.findOne({ where: { account: "seam", userId } }),
+                this.connectedAccountInfoRepo.findOne({ where: { account: "sifely", userId } }),
+                this.connectedAccountInfoRepo.findOne({ where: { account: "stripe", userId } })
+            ]);
+
+        return {
+            pm: isPmCredentialExist ? true : false,
+            seam: isSeamCredentialExist ? true : false,
+            sifely: isSifelyCredentialExist ? true : false,
+            stripe: isStripeCredentialExist ? true : false
+        };
     }
 }

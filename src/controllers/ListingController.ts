@@ -1,19 +1,50 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { ListingService } from "../services/ListingService";
+import { dataSaved, successDataFetch } from "../helpers/response";
+
+interface CustomRequest extends Request {
+  user?: any;
+}
 
 export class ListingController {
-  async syncHostawayListing(request: Request, response: Response) {
-    const listingService = new ListingService();
-    return response.send(await listingService.syncHostawayListing());
+  async syncHostawayListing(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+
+      const listingService = new ListingService();
+      const userId = request.user.id;
+
+      await listingService.syncHostawayListing(userId);
+
+      return response.status(200).json(dataSaved('Listing synced successfully!!!'));
+    } catch (error) {
+      return next(error);
+    }
   }
 
-  async getListings(request: Request, response: Response) {
-    const listingService = new ListingService();
-    return response.send(await listingService.getListings())
+  async getListings(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+
+      const listings = await listingService.getListings(userId);
+
+      return response.status(200).json(successDataFetch(listings));
+    } catch (error) {
+      return next(error);
+    }
   }
 
-  async getListingById(request:Request,response:Response){
-    const listingService=new ListingService()
-    return response.send(await listingService.getListingById(request))
+  async getListingById(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+      const listing_id = request.params.listing_id;
+
+      const listing = await listingService.getListingById(listing_id, userId);
+
+      return response.status(200).json(successDataFetch(listing));
+    } catch (error) {
+      return next(error);
+    }
   }
 }
