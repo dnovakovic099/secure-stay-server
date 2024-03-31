@@ -97,4 +97,7 @@ export class Listing {
 
   @Column("int")
   guests: number;
+
+  @Column()
+  userId: string;
 }

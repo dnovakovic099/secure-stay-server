@@ -1,17 +1,21 @@
 import { request } from "http";
 import { ConnectedAccountService } from "../services/ConnectedAccountService";
 import { NextFunction, Request, Response } from "express";
-import { dataSaved } from "../helpers/response";
-
+import { dataSaved, successDataFetch } from "../helpers/response";
+interface CustomRequest extends Request {
+    user?: any;
+}
 export class ConnectedAccountController {
-    async savePmAccountInfo(request: Request, response: Response, next: NextFunction) {
+    async savePmAccountInfo(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const connectedAccountService = new ConnectedAccountService();
-            const { account, clientId, clientSecret } = request.body;
 
-            await connectedAccountService.savePmAccountInfo(account, clientId, clientSecret);
+            const { clientId, clientSecret } = request.body;
+            const userId = request.user.id;
 
-            return response.status(201).json(dataSaved(`${account.toUpperCase()} account info saved successfully`));
+            await connectedAccountService.savePmAccountInfo(clientId, clientSecret, userId);
+
+            return response.status(201).json(dataSaved(`PM account info saved successfully`));
         } catch (error) {
             return next(error);
         }
@@ -55,4 +59,17 @@ export class ConnectedAccountController {
             return next(error);
         }
     }
+
+    async getConnectedAccountInfo(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const connectedAccountService = new ConnectedAccountService();
+            const userId = request.user.id;
+
+            const connectedAccountInfo = await connectedAccountService.getConnectedAccountInfo(userId);
+
+            return response.status(200).json(successDataFetch(connectedAccountInfo));
+        } catch (error) {
+            return next(error);
+        }
+    };
 }

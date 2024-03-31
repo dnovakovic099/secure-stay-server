@@ -22,6 +22,25 @@ export class HostAwayClient {
     });
   }
 
+  private async getAccessToken(clientId: string, clientSecret: string) {
+    const url = "https://api.hostaway.com/v1/accessTokens";
+    const data = {
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: "general",
+    };
+
+    const response = await axios.post(url, new URLSearchParams(data).toString(), {
+      headers: {
+        "Cache-control": "no-cache",
+        "Content-type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    return response.data?.access_token;
+  }
+
   public async getReservationInfo(): Promise<void> {
     const url = "https://api.hostaway.com/v1/reservations";
 
@@ -61,15 +80,14 @@ export class HostAwayClient {
     }
   }
 
-  public async getListing() {
-    const url = `https://api.hostaway.com/v1/listings`;
+  public async getListing(clientId: string, clientSecret: string) {
     try {
-      const authResponse = await this.getAuthToken();
-      this.accessToken = authResponse.data?.access_token;
+      const url = `https://api.hostaway.com/v1/listings`;
+      const token = await this.getAccessToken(clientId, clientSecret);
 
       const response = await axios.get(url, {
         headers: {
-          Authorization: `Bearer ${this.accessToken}`,
+          Authorization: `Bearer ${token}`,
           "Cache-control": "no-cache",
         },
       });

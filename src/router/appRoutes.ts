@@ -4,6 +4,7 @@ import messagingRoutes from './messagingRoutes';
 import connectedAccountRoutes from './ConnectedAccountRoutes';
 import subscriptionRoutes from './userSubscriptionRoutes';
 import usersRoutes from "./usersRoutes";
+import listingRoutes from "./listingRoutes";
 
 const router = Router();
 
@@ -12,6 +13,7 @@ router.use('/messaging', messagingRoutes);
 router.use('/account', connectedAccountRoutes);
 router.use('/subscription', subscriptionRoutes);
 router.use('/users', usersRoutes)
+router.use('/listing', listingRoutes)
 
 export default router
 

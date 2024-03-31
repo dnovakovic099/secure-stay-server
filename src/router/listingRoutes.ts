@@ -1,30 +1,14 @@
 import { ListingController } from "../controllers/ListingController"
+import { Router } from "express";
+import verifySession from "../middleware/verifySession";
 
+const router = Router();
+const listingController = new ListingController();
 
-export const ListingRoutes=()=>{
-    const listingController=new ListingController()
+router.route('/getlistings').get(verifySession, listingController.getListings);
 
-    return [
-      {
-        path: "/listing/getlistings",
-        method: "get",
-        action: listingController.getListings,
-        file: false,
-        rawJson: false,
-      },
-      {
-        path: "/listing/getlisting/:listing_id",
-        method: "get",
-        action: listingController.getListingById,
-        file: false,
-        rawJson: false,
-      },
-      {
-        path: "/listing/synchostawaylistings",
-        method: "get",
-        action: listingController.syncHostawayListing,
-        file: false,
-        rawJson: false,
-      },
-    ];
-}
+router.route('/getlisting/:listing_id').get(verifySession, listingController.getListingById);
+
+router.route('/synchostawaylistings').get(verifySession, listingController.syncHostawayListing);
+
+export default router;

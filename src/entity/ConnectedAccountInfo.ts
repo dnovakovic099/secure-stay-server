@@ -17,6 +17,9 @@ export class ConnectedAccountInfo {
     @Column({ default: null })
     apiKey: string;
 
+    @Column()
+    userId: string;
+
     @Column({ default: true })
     status: boolean;
 
