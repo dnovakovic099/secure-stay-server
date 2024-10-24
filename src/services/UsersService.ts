@@ -3,11 +3,17 @@ import { appDatabase } from "../utils/database.util";
 import { UsersEntity } from "../entity/Users";
 import { UsersInfoEntity } from "../entity/UserInfo";
 import { EntityManager, Like } from "typeorm";
+import { UserApiKeyEntity } from "../entity/UserApiKey";
+import { generateAPIKey } from "../helpers/helpers";
 
+interface ApiKey {
+    apiKey: String;
+}
 export class UsersService {
 
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private userInfoRepository = appDatabase.getRepository(UsersInfoEntity);
+    private userApiKeyRepository = appDatabase.getRepository(UserApiKeyEntity);
 
     async createUser(request: Request, response: Response) {
         const userData =(request.body);
@@ -360,6 +366,29 @@ export class UsersService {
                 message: "Data deleted successfully!!!"
             };
 
+        } catch (error) {
+            throw new Error(error);
+        }
+    }
+
+    async getApiKey(userId: string): Promise<ApiKey> {
+        try {
+            const apiKey = await this.userApiKeyRepository.findOne({ where: { userId, isActive: true } });
+            if (!apiKey) {
+                //create a new api key and return it
+                return await this.generateApiKey(userId);
+            }
+            return { apiKey: apiKey.apiKey };
+        } catch (error) {
+            throw new Error(error);
+        }
+    }
+
+    async generateApiKey(userId: string): Promise<ApiKey> {
+        try {
+            const newApiKey = generateAPIKey();
+            const apiKey = await this.userApiKeyRepository.save({ userId, apiKey: newApiKey });
+            return { apiKey: apiKey.apiKey };
         } catch (error) {
             throw new Error(error);
         }

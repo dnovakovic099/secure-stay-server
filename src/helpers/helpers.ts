@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid';
+
 export function generateRandomNumber(length: number):number {
     if (length <= 0) {
         return null;
@@ -9,4 +11,8 @@ export function generateRandomNumber(length: number):number {
     }
 
     return Number(randomNumber);
+}
+
+export function generateAPIKey(): string {
+    return uuidv4();
 }
