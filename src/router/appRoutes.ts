@@ -5,6 +5,8 @@ import connectedAccountRoutes from './ConnectedAccountRoutes';
 import subscriptionRoutes from './userSubscriptionRoutes';
 import usersRoutes from "./usersRoutes";
 import listingRoutes from "./listingRoutes";
+import accountingRoutes from "./accountingRoutes";
+import categoryRoutes from "./categoryRoutes";
 
 const router = Router();
 
@@ -14,6 +16,8 @@ router.use('/account', connectedAccountRoutes);
 router.use('/subscription', subscriptionRoutes);
 router.use('/users', usersRoutes)
 router.use('/listing', listingRoutes)
+router.use('/accounting', accountingRoutes);
+router.use('/category', categoryRoutes)
 
 export default router
 

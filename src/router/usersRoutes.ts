@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { validateEmailForForgetPassword, validateUserForGoogleLogin, validationForGoogleSignUp } from '../middleware/validation/user/user.validation';
 import { UsersController } from '../controllers/UsersController';
+import verifySession from '../middleware/verifySession';
 
 const router = Router();
 
@@ -27,5 +28,13 @@ router
         validationForGoogleSignUp,
         usersController.googleSignup
     );
+
+router
+    .route('/getapikey')
+    .get(
+        verifySession,
+        usersController.getApiKey
+    );
+
 export default router
 

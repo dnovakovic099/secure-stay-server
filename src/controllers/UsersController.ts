@@ -1,6 +1,9 @@
 import { NextFunction, Request, Response } from "express";
 import { UsersService } from "../services/UsersService";
 
+interface CustomRequest extends Request {
+    user?: any;
+}
 export class UsersController{
 
     async createUser(request:Request,response:Response) {
@@ -106,6 +109,12 @@ export class UsersController{
     async updateMultipleUserStatus(request: Request, response: Response) {
         const multipleUserStatusService = new UsersService();
         return response.send(await multipleUserStatusService.updateMultipleUserStatus(request));
+    }
+
+    async getApiKey(request: CustomRequest, response: Response) {
+        const usersService = new UsersService();
+        const userId = request.user.id;
+        return response.send(await usersService.getApiKey(userId));
     }
 }
 
