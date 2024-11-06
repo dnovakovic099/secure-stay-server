@@ -84,4 +84,9 @@ export class ConnectedAccountService {
             stripe: isStripeCredentialExist ? true : false
         };
     }
+
+    async getPmAccountInfo(userId: string) {
+        const { clientId, clientSecret } = await this.connectedAccountInfoRepo.findOne({ where: { account: 'pm', userId } });
+        return { clientId, clientSecret };
+    }
 }

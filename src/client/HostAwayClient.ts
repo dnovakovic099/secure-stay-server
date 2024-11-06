@@ -146,4 +146,35 @@ export class HostAwayClient {
       return null;
     }
   }
+
+  public async getReservations(
+    clientId: string,
+    clientSecret: string,
+    listingId: number,
+    dateType: string,
+    startDate: string,
+    endDate: string,
+    limit: number,
+    offset: number
+  ): Promise<Object[]> {
+    const url = `https://api.hostaway.com/v1/reservations?listingId=${listingId}&${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDateDesc`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data?.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
 }
+
+
