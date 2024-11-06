@@ -3,10 +3,13 @@ import { ExpenseEntity } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
+import { Between, In } from "typeorm";
+import { Listing } from "../entity/Listing"
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private connectedAccountInfoRepo = appDatabase.getRepository(ConnectedAccountInfo);
+    private listingRepository = appDatabase.getRepository(Listing);
     private hostAwayClient = new HostAwayClient();
 
     async createExpense(request: Request, userId: string) {
@@ -73,6 +76,62 @@ export class ExpenseService {
                 return await this.expenseRepo.save(expense);
             }
         }
+    }
+
+    async getExpenseList(request: Request, userId: string) {
+        const { listingId, fromDate, toDate } = request.query;
+        const expenses = await this.expenseRepo.find({
+            where: {
+                userId,
+                ...(listingId && { listingMapId: Number(listingId) }),
+                expenseDate: Between(String(fromDate), String(toDate)),
+                isDeleted: 0,
+            }
+        });
+
+        const listingMapIds = expenses
+            .map(expense => expense.listingMapId)
+            .filter((id, index, self) => id != null && self.indexOf(id) === index);
+
+        const listings = await this.listingRepository.find({
+            where: { id: In(listingMapIds) }
+        });
+
+        const listingNameMap = listings.reduce((acc, listing) => {
+            acc[listing.id] = listing.name;
+            return acc;
+        }, {});
+
+        const columns = [
+            "Expense Id",
+            "Listing",
+            "Expense Date",
+            "Concept",
+            "Amount",
+            "Catgories",
+            "Contractor Name",
+            "Date of Work",
+            "Work Done",
+        ];
+
+        const rows = expenses.map((expense) => {
+            return [
+                expense.expenseId,
+                listingNameMap[expense.listingMapId] || 'N/A', ,
+                expense.expenseDate,
+                expense.concept,
+                expense.amount,
+                expense.categoriesNames,
+                expense.contractorName,
+                expense.dateOfWork,
+                expense.workDone
+            ];
+        });
+
+        return {
+            columns,
+            rows
+        };
     }
 
 }
