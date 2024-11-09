@@ -47,4 +47,18 @@ export class ListingController {
       return next(error);
     }
   }
+
+  async getListingAddresses(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+
+      const addresses = await listingService.getListingAddresses(userId);
+
+      return response.status(200).json(successDataFetch(addresses));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

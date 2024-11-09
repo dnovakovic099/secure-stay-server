@@ -33,10 +33,13 @@ export class ExpenseEntity {
     contractorName: string;
 
     @Column({ type: 'varchar' })
-    dateOfWork: string;
+    contractorNumber: string;
 
     @Column({ type: 'varchar' })
-    workDone: string;
+    dateOfWork: string;
+
+    @Column({ type: 'text' })
+    findings: string;
 
     @Column()
     userId: string;

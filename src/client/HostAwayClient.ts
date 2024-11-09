@@ -121,9 +121,6 @@ export class HostAwayClient {
     concept: string;
     amount: number;
     categories: string;
-    categoriesNames: string;
-    dateOfWork: string;
-    workDone: string;
   }, credentials: {
     clientId: string;
     clientSecret: string;

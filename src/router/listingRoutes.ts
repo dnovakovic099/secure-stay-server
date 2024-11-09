@@ -11,4 +11,6 @@ router.route('/getlisting/:listing_id').get(verifySession, listingController.get
 
 router.route('/synchostawaylistings').get(verifySession, listingController.syncHostawayListing);
 
+router.route('/getlistingaddresses').get(verifySession, listingController.getListingAddresses);
+
 export default router;

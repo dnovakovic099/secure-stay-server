@@ -143,6 +143,16 @@ export class ListingService {
       return null;
     }
   }
+
+  async getListingAddresses(userId: string) {
+    const listings = await this.listingRepository.find({
+      where: { userId },
+      select: ['id', 'address']
+    });
+
+    return listings;
+  }
+  
 }
 
 // import { EntityManager, In, Not } from 'typeorm';

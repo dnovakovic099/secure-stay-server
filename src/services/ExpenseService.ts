@@ -19,10 +19,10 @@ export class ExpenseService {
             concept,
             amount,
             categories,
-            categoriesNames,
             dateOfWork,
-            workDone,
-            contractorName
+            contractorName,
+            contractorNumber,
+            findings
         } = request.body;
 
 
@@ -33,10 +33,10 @@ export class ExpenseService {
         newExpense.amount = amount;
         newExpense.isDeleted = 0;
         newExpense.categories = JSON.stringify(categories);
-        newExpense.categoriesNames = JSON.stringify(categoriesNames);
         newExpense.contractorName = contractorName;
         newExpense.dateOfWork = dateOfWork;
-        newExpense.workDone = workDone;
+        newExpense.contractorNumber = contractorNumber;
+        newExpense.findings = findings;
         newExpense.userId = userId;
 
         const expense = await this.expenseRepo.save(newExpense);
@@ -48,9 +48,6 @@ export class ExpenseService {
                 concept,
                 amount,
                 categories,
-                categoriesNames,
-                dateOfWork,
-                workDone
             }, expense.id, userId);
             return hostawayExpense;
         }
@@ -62,9 +59,6 @@ export class ExpenseService {
         concept: string;
         amount: number;
         categories: string;
-        categoriesNames: string;
-        dateOfWork: string;
-        workDone: string;
     }, id: number, userId: string) {
         const { clientId, clientSecret } = await this.connectedAccountInfoRepo.findOne({ where: { userId, account: "pm" } });
         const hostawayExpense = await this.hostAwayClient.createExpense(requestBody, { clientId, clientSecret });
@@ -98,20 +92,20 @@ export class ExpenseService {
         });
 
         const listingNameMap = listings.reduce((acc, listing) => {
-            acc[listing.id] = listing.name;
+            acc[listing.id] = listing.address;
             return acc;
         }, {});
 
         const columns = [
             "Expense Id",
-            "Listing",
+            "Address",
             "Expense Date",
             "Concept",
             "Amount",
             "Catgories",
             "Contractor Name",
-            "Date of Work",
-            "Work Done",
+            "Contractor Number",
+            "Findings"
         ];
 
         const rows = expenses.map((expense) => {
@@ -123,8 +117,8 @@ export class ExpenseService {
                 expense.amount,
                 expense.categoriesNames,
                 expense.contractorName,
-                expense.dateOfWork,
-                expense.workDone
+                expense.contractorNumber,
+                expense.findings
             ];
         });
 
