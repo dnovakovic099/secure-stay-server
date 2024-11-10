@@ -5,6 +5,7 @@ import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import { Between, In } from "typeorm";
 import { Listing } from "../entity/Listing"
+import { CategoryService } from "./CategoryService";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -111,6 +112,9 @@ export class ExpenseService {
             "Attachments"
         ];
 
+        const categoryService = new CategoryService();
+        const categories = await categoryService.getAllCategories();
+
         const rows = expenses.map((expense) => {
             const fileLinks = expense.fileNames
                 ? expense.fileNames.split(',').map(fileName => {
@@ -118,7 +122,18 @@ export class ExpenseService {
                     const cleanFileName = fileName.replace(/[\[\]"]/g, '');
                     return `${cleanFileName}`;
                 }).join(', ')
-                : 'N/A';
+                : '';
+
+            const categoryNames = expense.fileNames
+                ? expense.categories.split(',').map(id => {
+                    const cleanId = id.replace(/[\[\]"]/g, '');
+                    // Find the category name matching the cleaned ID
+                    const category = categories.find(category => category.id === Number(cleanId));
+
+                    // Return the category name if found, otherwise return a placeholder
+                    return category ? category.categoryName : 'Unknown Category';
+                }).join(', ')
+                : '';
 
             return [
                 expense.expenseId,
@@ -126,7 +141,7 @@ export class ExpenseService {
                 expense.expenseDate,
                 expense.concept,
                 expense.amount,
-                expense.categoriesNames,
+                categoryNames,
                 expense.contractorName,
                 expense.contractorNumber,
                 expense.findings,
