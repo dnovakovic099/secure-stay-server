@@ -10,7 +10,10 @@ export class ExpenseController {
         try {
             const expenseService = new ExpenseService();
             const userId = request.user.id;
-            return response.send(await expenseService.createExpense(request, userId));
+            const fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            const expenseData = await expenseService.createExpense(request, userId, fileNames);
+
+            return response.send(expenseData);
         } catch (error) {
             return next(error);
         }

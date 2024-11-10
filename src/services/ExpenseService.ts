@@ -12,7 +12,7 @@ export class ExpenseService {
     private listingRepository = appDatabase.getRepository(Listing);
     private hostAwayClient = new HostAwayClient();
 
-    async createExpense(request: Request, userId: string) {
+    async createExpense(request: Request, userId: string, fileNames?: string[]) {
         const {
             listingMapId,
             expenseDate,
@@ -22,7 +22,7 @@ export class ExpenseService {
             dateOfWork,
             contractorName,
             contractorNumber,
-            findings
+            findings,
         } = request.body;
 
 
@@ -38,6 +38,8 @@ export class ExpenseService {
         newExpense.contractorNumber = contractorNumber;
         newExpense.findings = findings;
         newExpense.userId = userId;
+        newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
+
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -105,21 +107,31 @@ export class ExpenseService {
             "Catgories",
             "Contractor Name",
             "Contractor Number",
-            "Findings"
+            "Findings",
+            "Attachments"
         ];
 
         const rows = expenses.map((expense) => {
+            const fileLinks = expense.fileNames
+                ? expense.fileNames.split(',').map(fileName => {
+                    // Strip unwanted quotes and brackets and return a proper link
+                    const cleanFileName = fileName.replace(/[\[\]"]/g, '');
+                    return `${cleanFileName}`;
+                }).join(', ')
+                : 'N/A';
+
             return [
                 expense.expenseId,
-                listingNameMap[expense.listingMapId] || 'N/A', ,
+                listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
                 expense.concept,
                 expense.amount,
                 expense.categoriesNames,
                 expense.contractorName,
                 expense.contractorNumber,
-                expense.findings
-            ];
+                expense.findings,
+                fileLinks
+        ];
         });
 
         return {
@@ -127,5 +139,4 @@ export class ExpenseService {
             rows
         };
     }
-
 }

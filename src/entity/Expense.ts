@@ -41,6 +41,9 @@ export class ExpenseEntity {
     @Column({ type: 'text' })
     findings: string;
 
+    @Column({ type: 'text'})
+    fileNames: string;
+
     @Column()
     userId: string;
 }
