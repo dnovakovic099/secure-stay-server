@@ -43,18 +43,17 @@ export class ExpenseService {
 
 
         const expense = await this.expenseRepo.save(newExpense);
-        // if (expense.id) {
-        //     //create a new expense in hostaway
-        //     const hostawayExpense = await this.createHostawayExpense({
-        //         listingMapId,
-        //         expenseDate,
-        //         concept,
-        //         amount,
-        //         categories,
-        //     }, expense.id, userId);
-        //     return hostawayExpense;
-        // }
-        return expense;
+        if (expense.id) {
+            //create a new expense in hostaway
+            const hostawayExpense = await this.createHostawayExpense({
+                listingMapId,
+                expenseDate,
+                concept,
+                amount,
+                categories,
+            }, expense.id, userId);
+            return hostawayExpense;
+        }
     }
 
     private async createHostawayExpense(requestBody: {
