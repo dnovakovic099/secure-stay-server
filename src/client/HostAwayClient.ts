@@ -154,7 +154,11 @@ export class HostAwayClient {
     limit: number,
     offset: number
   ): Promise<Object[]> {
-    const url = `https://api.hostaway.com/v1/reservations?listingId=${listingId}&${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDateDesc`;
+    
+    let url = `https://api.hostaway.com/v1/reservations?listingId=${listingId}&${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+    if (String(listingId) == '') {
+      const url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+    }
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);

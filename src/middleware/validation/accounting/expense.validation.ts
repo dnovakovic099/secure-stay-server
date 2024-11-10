@@ -3,7 +3,7 @@ import Joi from "joi";
 
 export const validateCreateExpense = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        listingMapId: Joi.number().required(),
+        listingMapId: Joi.number().required().allow(''),
         expenseDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required(),
