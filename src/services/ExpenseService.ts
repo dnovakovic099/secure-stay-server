@@ -83,7 +83,8 @@ export class ExpenseService {
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
-            }
+            },
+            order: { id: "DESC" }
         });
 
         const listingMapIds = expenses
