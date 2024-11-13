@@ -1,5 +1,6 @@
 import { Request, NextFunction, Response } from "express";
 import Joi from "joi";
+import { ExpenseStatus } from "../../../entity/Expense";
 
 export const validateCreateExpense = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
@@ -30,6 +31,8 @@ export const validateCreateExpense = (request: Request, response: Response, next
         contractorName: Joi.string().required(),
         contractorNumber: Joi.string().required(),
         findings: Joi.string().required(),
+        status: Joi.string().required()
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
     });
 
     const { error } = schema.validate(request.body);
@@ -49,7 +52,9 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required(),
         page: Joi.number().required(),
-        limit: Joi.number().required()
+        limit: Joi.number().required(),
+        status: Joi.string().required()
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
     });
 
     const { error } = schema.validate(request.query);

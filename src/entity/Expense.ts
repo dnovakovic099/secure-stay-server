@@ -1,5 +1,12 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
+export enum ExpenseStatus {
+    PENDING = 'Pending Approval',
+    APPROVED = 'Approved',
+    PAID = 'Paid',
+    OVERDUE = 'Overdue'
+}
+
 @Entity('expense')
 export class ExpenseEntity {
     @PrimaryGeneratedColumn({ type: 'int' })
@@ -43,6 +50,9 @@ export class ExpenseEntity {
 
     @Column({ type: 'text'})
     fileNames: string;
+
+    @Column({ type: "enum", enum: ExpenseStatus, default: ExpenseStatus.PENDING })
+    status: ExpenseStatus;
 
     @Column()
     userId: string;

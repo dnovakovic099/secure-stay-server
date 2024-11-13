@@ -1,5 +1,5 @@
 import { appDatabase } from "../utils/database.util";
-import { ExpenseEntity } from "../entity/Expense";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
@@ -24,6 +24,7 @@ export class ExpenseService {
             contractorName,
             contractorNumber,
             findings,
+            status
         } = request.body;
 
 
@@ -40,7 +41,7 @@ export class ExpenseService {
         newExpense.findings = findings;
         newExpense.userId = userId;
         newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
-
+        newExpense.status = status;
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -76,15 +77,22 @@ export class ExpenseService {
     }
 
     async getExpenseList(request: Request, userId: string) {
-        const { listingId, fromDate, toDate } = request.query;
+        const { listingId, fromDate, toDate, status } = request.query;
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
         const expenses = await this.expenseRepo.find({
             where: {
                 userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
+                status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]),
             },
-            order: { id: "DESC" }
+            order: { id: "DESC" },
+            skip,
+            take: limit,
         });
 
         const listingMapIds = expenses
@@ -101,6 +109,7 @@ export class ExpenseService {
         }, {});
 
         const columns = [
+            "Status",
             "Expense Id",
             "Address",
             "Expense Date",
@@ -137,6 +146,7 @@ export class ExpenseService {
                 : '';
 
             return [
+                expense.status,
                 expense.expenseId,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
