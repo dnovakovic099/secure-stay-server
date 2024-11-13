@@ -7,6 +7,7 @@ import usersRoutes from "./usersRoutes";
 import listingRoutes from "./listingRoutes";
 import accountingRoutes from "./accountingRoutes";
 import categoryRoutes from "./categoryRoutes";
+import fileRoutes from './fileRoutes';
 
 const router = Router();
 
@@ -17,7 +18,8 @@ router.use('/subscription', subscriptionRoutes);
 router.use('/users', usersRoutes)
 router.use('/listing', listingRoutes)
 router.use('/accounting', accountingRoutes);
-router.use('/category', categoryRoutes)
+router.use('/category', categoryRoutes);
+router.use(fileRoutes);
 
 export default router
 
