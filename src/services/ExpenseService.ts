@@ -88,7 +88,7 @@ export class ExpenseService {
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
-                status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]),
+                ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
             },
             order: { id: "DESC" },
             skip,

@@ -55,6 +55,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         limit: Joi.number().required(),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            .allow('')
     });
 
     const { error } = schema.validate(request.query);
