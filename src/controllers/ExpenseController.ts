@@ -64,4 +64,15 @@ export class ExpenseController {
             return next(error);
         }
     };
+
+    async getExpenseById(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const id = parseInt(request.params.id);
+            return response.send(await expenseService.getExpenseById(id, userId));
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
