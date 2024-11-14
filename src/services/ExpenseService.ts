@@ -214,6 +214,19 @@ export class ExpenseService {
         return expense;
     }
 
+    async updateExpenseStatus(request: Request, userId: string,) {
+        const { id, status } = request.body;
+
+        const expense = await this.expenseRepo.findOne({ where: { id: id, userId } });
+        if (!expense) {
+            throw CustomErrorHandler.notFound('Expense not found.');
+        }
+
+        expense.status = status;
+        await this.expenseRepo.save(expense);
+        return expense;
+    }
+
     private async updateHostawayExpense(requestBody: {
         listingMapId: string;
         expenseDate: string;

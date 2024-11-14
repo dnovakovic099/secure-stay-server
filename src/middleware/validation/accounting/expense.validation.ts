@@ -84,6 +84,20 @@ export const validateUpdateExpense = (request: Request, response: Response, next
     next();
 };
 
+export const validateUpdateExpenseStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required()
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};
+
 export const validateGetExpenseList = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         listingId: Joi.number().required().allow(''),

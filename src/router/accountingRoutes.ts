@@ -1,7 +1,7 @@
 import { ExpenseController } from "../controllers/ExpenseController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateCreateExpense, validateGetExpenseList, validateUpdateExpense } from "../middleware/validation/accounting/expense.validation";
+import { validateCreateExpense, validateGetExpenseList, validateUpdateExpense, validateUpdateExpenseStatus } from "../middleware/validation/accounting/expense.validation";
 import { IncomeController } from "../controllers/IncomeControllers";
 import { validateGetIncomeStatement } from "../middleware/validation/accounting/income.validation";
 import fileUpload from "../utils/upload.util";
@@ -33,5 +33,12 @@ router.route('/updateexpense')
 router.route('/getexpenses').get(verifySession, validateGetExpenseList, expenseController.getExpenseList);
 
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
+
+router.route("/updateexpensestatus")
+    .put(
+        verifySession,
+        validateUpdateExpenseStatus,
+        expenseController.updateExpenseStatus
+    )
 
 export default router;

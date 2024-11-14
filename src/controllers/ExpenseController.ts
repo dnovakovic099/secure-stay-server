@@ -42,6 +42,19 @@ export class ExpenseController {
         }
     }
 
+    async updateExpenseStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+
+            const expenseData = await expenseService.updateExpenseStatus(request, userId);
+
+            return response.send(expenseData);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async getExpenseList(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();
