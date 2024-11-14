@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, In } from "typeorm";
+import { Between, In, Raw } from "typeorm";
 import { Listing } from "../entity/Listing"
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -90,6 +90,7 @@ export class ExpenseService {
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
                 ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
+                expenseId: Raw(alias => `${alias} IS NOT NULL`)
             },
             order: { id: "DESC" },
             skip,
@@ -177,7 +178,7 @@ export class ExpenseService {
 
     async updateExpense(request: Request, userId: string, fileNames?: string[]) {
         const {
-            id,
+            expenseId,
             listingMapId,
             expenseDate,
             concept,
@@ -190,7 +191,7 @@ export class ExpenseService {
             status
         } = request.body;
 
-        const expense = await this.expenseRepo.findOne({ where: { id: id } });
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
@@ -217,7 +218,7 @@ export class ExpenseService {
             concept,
             amount,
             categories,
-        }, id, userId, expense.expenseId);
+        }, userId, expense.expenseId);
 
         return expense;
     }
@@ -241,7 +242,7 @@ export class ExpenseService {
         concept: string;
         amount: number;
         categories: string;
-    }, id: number, userId: string, expenseId: number) {
+    }, userId: string, expenseId: number) {
         const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
         const hostawayExpense = await this.hostAwayClient.updateExpense(requestBody, { clientId, clientSecret }, expenseId);
         return hostawayExpense;

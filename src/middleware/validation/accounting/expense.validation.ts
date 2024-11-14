@@ -45,7 +45,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
 
 export const validateUpdateExpense = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        id: Joi.number().required(),
+        expenseId: Joi.number().required(),
         listingMapId: Joi.number().required().allow(''),
         expenseDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
@@ -86,7 +86,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
 
 export const validateUpdateExpenseStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        id: Joi.number().required(),
+        expenseId: Joi.number().required(),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
     });
