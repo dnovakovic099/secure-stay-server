@@ -69,8 +69,8 @@ export class ExpenseController {
         try {
             const expenseService = new ExpenseService();
             const userId = request.user.id;
-            const id = parseInt(request.params.id);
-            return response.send(await expenseService.getExpenseById(id, userId));
+            const expenseId = parseInt(request.params.expenseId);
+            return response.send(await expenseService.getExpenseById(expenseId, userId));
         } catch (error) {
             return next(error);
         }

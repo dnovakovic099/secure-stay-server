@@ -167,8 +167,8 @@ export class ExpenseService {
         };
     }
 
-    async getExpenseById(id: number, userId: string) {
-        const expense = await this.expenseRepo.findOne({ where: { id: id, userId } });
+    async getExpenseById(expenseId: number, userId: string) {
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId, userId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }

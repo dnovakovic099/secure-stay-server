@@ -32,7 +32,7 @@ router.route('/updateexpense')
 
 router.route('/getexpenses').get(verifySession, validateGetExpenseList, expenseController.getExpenseList);
 
-router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseById);
+router.route('/getexpense/:expenseId').get(verifySession, expenseController.getExpenseById);
 
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
 
