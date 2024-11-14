@@ -30,11 +30,8 @@ export class ExpenseEntity {
     @Column({ type: "int" })
     isDeleted: number;
 
-    @Column({ type: "json", nullable: true })
+    @Column({ type: "text", nullable: true })
     categories: string;
-
-    @Column({ type: "json", nullable: true })
-    categoriesNames: string;
 
     @Column({ type: 'varchar' })
     contractorName: string;

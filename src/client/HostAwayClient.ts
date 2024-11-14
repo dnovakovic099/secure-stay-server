@@ -144,6 +144,39 @@ export class HostAwayClient {
     }
   }
 
+  public async updateExpense(
+    requestBody: {
+      listingMapId: string;
+      expenseDate: string;
+      concept: string;
+      amount: number;
+      categories: string;
+    },
+    credentials: {
+      clientId: string;
+      clientSecret: string;
+    },
+    expenseId: number
+  ) {
+    try {
+      const { clientId, clientSecret } = credentials;
+      const url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.put(url, requestBody, {
+        headers: {
+          "Cache-control": "no-cache",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log(response.data);
+      return response.data?.result;
+    } catch (error) {
+      console.log(error?.response?.data);
+      return null;
+    }
+  }
+
   public async getReservations(
     clientId: string,
     clientSecret: string,

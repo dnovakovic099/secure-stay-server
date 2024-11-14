@@ -2,16 +2,17 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import { Between, In } from "typeorm";
 import { Listing } from "../entity/Listing"
 import { CategoryService } from "./CategoryService";
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { ConnectedAccountService } from "./ConnectedAccountService";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
-    private connectedAccountInfoRepo = appDatabase.getRepository(ConnectedAccountInfo);
     private listingRepository = appDatabase.getRepository(Listing);
     private hostAwayClient = new HostAwayClient();
+    private connectedAccountServices = new ConnectedAccountService();
 
     async createExpense(request: Request, userId: string, fileNames?: string[]) {
         const {
@@ -64,7 +65,7 @@ export class ExpenseService {
         amount: number;
         categories: string;
     }, id: number, userId: string) {
-        const { clientId, clientSecret } = await this.connectedAccountInfoRepo.findOne({ where: { userId, account: "pm" } });
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
         const hostawayExpense = await this.hostAwayClient.createExpense(requestBody, { clientId, clientSecret });
         if (hostawayExpense) {
             //update the local db with the hostaway expense id
@@ -134,7 +135,7 @@ export class ExpenseService {
                 }).join(', ')
                 : '';
 
-            const categoryNames = expense.fileNames
+            const categoryNames = expense.categories
                 ? expense.categories.split(',').map(id => {
                     const cleanId = id.replace(/[\[\]"]/g, '');
                     // Find the category name matching the cleaned ID
@@ -164,5 +165,64 @@ export class ExpenseService {
             columns,
             rows
         };
+    }
+
+    async updateExpense(request: Request, userId: string, fileNames?: string[]) {
+        const {
+            id,
+            listingMapId,
+            expenseDate,
+            concept,
+            amount,
+            categories,
+            dateOfWork,
+            contractorName,
+            contractorNumber,
+            findings,
+            status
+        } = request.body;
+
+        const expense = await this.expenseRepo.findOne({ where: { id: id } });
+        if (!expense) {
+            throw CustomErrorHandler.notFound('Expense not found.');
+        }
+        expense.listingMapId = listingMapId;
+        expense.expenseDate = expenseDate;
+        expense.concept = concept;
+        expense.amount = amount;
+        expense.categories = categories;
+        expense.dateOfWork = dateOfWork;
+        expense.contractorName = contractorName;
+        expense.contractorNumber = contractorNumber;
+        expense.findings = findings;
+        expense.status = status;
+        if (fileNames.length > 0) {
+            expense.fileNames = JSON.stringify(fileNames);
+        }
+
+        await this.expenseRepo.save(expense);
+
+        //update hostaway expense
+        expense.expenseId && this.updateHostawayExpense({
+            listingMapId,
+            expenseDate,
+            concept,
+            amount,
+            categories,
+        }, id, userId, expense.expenseId);
+
+        return expense;
+    }
+
+    private async updateHostawayExpense(requestBody: {
+        listingMapId: string;
+        expenseDate: string;
+        concept: string;
+        amount: number;
+        categories: string;
+    }, id: number, userId: string, expenseId: number) {
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        const hostawayExpense = await this.hostAwayClient.updateExpense(requestBody, { clientId, clientSecret }, expenseId);
+        return hostawayExpense;
     }
 }
