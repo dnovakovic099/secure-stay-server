@@ -49,4 +49,25 @@ export class ReservationService {
         const reservations = await this.hostAwayClient.getReservationList(currentDate);
         return reservations.filter((reservation: { status: string; }) => reservation.status === 'new');
     }
+
+    async getChannelList() {
+        const channels = [
+            { channelId: 2018, channelName: "airbnbOfficial" },
+            { channelId: 2002, channelName: "homeaway" },
+            { channelId: 2005, channelName: "bookingcom" },
+            { channelId: 2007, channelName: "expedia" },
+            { channelId: 2009, channelName: "homeawayical" },
+            { channelId: 2010, channelName: "vrboical" },
+            { channelId: 2000, channelName: "direct" },
+            { channelId: 2013, channelName: "bookingengine" },
+            { channelId: 2015, channelName: "customIcal" },
+            { channelId: 2016, channelName: "tripadvisorical" },
+            { channelId: 2017, channelName: "wordpress" },
+            { channelId: 2019, channelName: "marriott" },
+            { channelId: 2020, channelName: "partner" },
+            { channelId: 2021, channelName: "gds" },
+            { channelId: 2022, channelName: "google" }
+        ];
+        return channels;
+    }
 }

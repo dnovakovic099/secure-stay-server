@@ -8,6 +8,7 @@ import listingRoutes from "./listingRoutes";
 import accountingRoutes from "./accountingRoutes";
 import categoryRoutes from "./categoryRoutes";
 import fileRoutes from './fileRoutes';
+import reservationRoutes from "./reservationRoutes";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use('/listing', listingRoutes)
 router.use('/accounting', accountingRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
+router.use('/reservation', reservationRoutes);
 
 export default router
 
