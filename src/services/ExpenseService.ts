@@ -224,9 +224,9 @@ export class ExpenseService {
     }
 
     async updateExpenseStatus(request: Request, userId: string,) {
-        const { id, status } = request.body;
+        const { expenseId, status } = request.body;
 
-        const expense = await this.expenseRepo.findOne({ where: { id: id, userId } });
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId, userId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
