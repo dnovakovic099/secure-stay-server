@@ -180,17 +180,23 @@ export class HostAwayClient {
   public async getReservations(
     clientId: string,
     clientSecret: string,
-    listingId: number,
+    listingId: number | "",
     dateType: string,
     startDate: string,
     endDate: string,
     limit: number,
-    offset: number
+    offset: number,
+    channelId: number | ""
   ): Promise<Object[]> {
     
-    let url = `https://api.hostaway.com/v1/reservations?listingId=${listingId}&${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
-    if (String(listingId) == '') {
-      const url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+
+    if (listingId) {
+      url += `&listingId=${listingId}`;
+    }
+
+    if (channelId) {
+      url += `&channelId=${channelId}`;
     }
 
     try {

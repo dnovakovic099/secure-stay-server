@@ -7,7 +7,7 @@ export class IncomeService {
     private hostAwayClient = new HostAwayClient();
 
     async generateIncomeStatement(request: Request, userId: string) {
-        const { listingId, dateType, fromDate, toDate, page, limit } = request.body;
+        const { listingId, dateType, fromDate, toDate, page, limit, channelId } = request.body;
         const offset = (page - 1) * limit;
 
         const connectedAccountService = new ConnectedAccountService();
@@ -21,7 +21,8 @@ export class IncomeService {
             fromDate,
             toDate,
             limit,
-            offset
+            offset,
+            channelId
         );
 
         const validReservations = this.filterValidReservation(reservations);

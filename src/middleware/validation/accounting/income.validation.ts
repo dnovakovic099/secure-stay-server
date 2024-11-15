@@ -13,6 +13,7 @@ export const validateGetIncomeStatement = (request: Request, response: Response,
         }).required(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
+        channelId: Joi.number().required().allow("")
     });
 
     const { error } = schema.validate(request.body);
