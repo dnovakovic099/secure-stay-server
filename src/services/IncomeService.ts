@@ -29,6 +29,7 @@ export class IncomeService {
 
         const columns = [
             "Reservation ID",
+            "Status",
             "Listing",
             "Channel",
             "Guest",
@@ -47,6 +48,7 @@ export class IncomeService {
 
         const rows = validReservations.map((reservation: {
             id: number,
+            status: string,
             listingName: string,
             channelName: string,
             guestName: string,
@@ -64,6 +66,7 @@ export class IncomeService {
         }) => {
             return [
                 reservation.id,
+                reservation.status,
                 reservation.listingName,
                 reservation.channelName,
                 reservation.guestName,
@@ -89,7 +92,7 @@ export class IncomeService {
     }
 
     private filterValidReservation(reservations: Object[]): Object[] {
-        const validReservationStatus = ["new", "modified", "ownerStay"];
+        const validReservationStatus = ["new", "modified", "ownerStay","cancelled"];
         const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
         return filteredReservations;
     }
