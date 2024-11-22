@@ -1,6 +1,6 @@
 
 import { Router } from 'express';
-import { validateEmailForForgetPassword, validateUserForGoogleLogin, validationForGoogleSignUp } from '../middleware/validation/user/user.validation';
+import { validateCreateMobileUser, validateEmailForForgetPassword, validateGetMobileUsersList, validateUserForGoogleLogin, validationForGoogleSignUp } from '../middleware/validation/user/user.validation';
 import { UsersController } from '../controllers/UsersController';
 import verifySession from '../middleware/verifySession';
 
@@ -34,6 +34,29 @@ router
     .get(
         verifySession,
         usersController.getApiKey
+);
+
+router
+    .route('/gethostawayuser')
+    .get(
+        verifySession,
+        usersController.getHostawayUsersList
+    );
+
+router
+    .route('/createmobileuser')
+    .post(
+        verifySession,
+        validateCreateMobileUser,
+        usersController.createMobileUser
+    );
+
+router
+    .route('/getmobileusers')
+    .get(
+        verifySession,
+        validateGetMobileUsersList,
+        usersController.getMobileUsersList
     );
 
 export default router

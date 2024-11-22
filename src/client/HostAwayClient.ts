@@ -215,6 +215,26 @@ export class HostAwayClient {
       return null;
     }
   }
+
+  public async getUserList(clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/users`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
 }
 
 
