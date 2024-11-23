@@ -85,7 +85,7 @@ export class ExpenseService {
 
         const expenses = await this.expenseRepo.find({
             where: {
-                userId,
+                // userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
@@ -169,7 +169,7 @@ export class ExpenseService {
     }
 
     async getExpenseById(expenseId: number, userId: string) {
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId, userId } });
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
@@ -226,7 +226,7 @@ export class ExpenseService {
     async updateExpenseStatus(request: Request, userId: string,) {
         const { expenseId, status } = request.body;
 
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId, userId } });
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
