@@ -10,6 +10,8 @@ export class MobileUsersEntity {
   @Column({ type: 'int', nullable: false })
   hostawayId: number;
 
+  @Column({ type: 'varchar', length: 100, nullable: false })
+  uid: string;
 
   @Column({ type: 'varchar', length: 50, nullable: false })
   firstName: string;
@@ -19,8 +21,5 @@ export class MobileUsersEntity {
 
   @Column({ type: 'varchar', length: 100, nullable: false })
   email: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: false })
-  password: string;
 
 }
