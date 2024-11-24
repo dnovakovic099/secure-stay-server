@@ -1,12 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextFunction, Request, Response } from "express";
 import { appDatabase } from "../utils/database.util";
 import { UserApiKeyEntity } from "../entity/UserApiKey";
+import { supabase } from "../utils/supabase";
 
-const supabaseUrl = process?.env.SUPABASE_URL;
-const supabaseKey = process?.env.SUPABASE_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface CustomRequest extends Request {
   user?: any;
