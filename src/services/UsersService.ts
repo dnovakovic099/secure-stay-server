@@ -9,6 +9,8 @@ import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "../utils/supabase";
+
 
 interface ApiKey {
     apiKey: String;
@@ -415,6 +417,23 @@ export class UsersService {
         return users;
     }
 
+    async signUpUserInSupabase(email: string, firstName: string, lastName: string, password: string) {
+
+        const user = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                firstName,
+                lastName,
+                userType: 'mobileUser',
+            },
+        });
+
+        return user;
+
+    }
+
     async createMobileUser(userInfo: {
         hostawayId: number;
         firstName: string;
@@ -424,28 +443,40 @@ export class UsersService {
     }) {
         const { email, hostawayId, firstName, lastName, password } = userInfo;
 
-        const saltRounds = 10; // Recommended number of salt rounds
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        const userData = {
-            hostawayId,
-            firstName,
-            lastName,
-            email,
-            password: hashedPassword,
-        };
+        const { data, error } = await this.signUpUserInSupabase(email, firstName, lastName, password);
 
-        const user = await this.mobileUser.save(userData);
-        if (user) {
+        if (error) {
+            console.log(error.message);
+
             return {
-                status: true,
-                message: "Data saved successfully!!!",
+                status: false,
+                message: error.message ? error.message : "Unable to create user!!!",
             };
+        }
+
+        if (data) {
+            const userData = {
+                hostawayId,
+                uid: data && data.user && data.user.id ? data.user.id : '',
+                firstName,
+                lastName,
+                email,
+            };
+
+            const user = await this.mobileUser.save(userData);
+
+            if (user) {
+                return {
+                    status: true,
+                    message: "User created successfully!!!",
+                };
+            }
         }
 
         return {
             status: false,
-            message: "Unable to save data!!!",
+            message: "Unable to save data in server database!!!",
         };
 
 
@@ -460,6 +491,7 @@ export class UsersService {
         const users = await this.mobileUser.find({
             select: [
                 'id',
+                'uid',
                 'hostawayId',
                 'firstName',
                 'lastName',
