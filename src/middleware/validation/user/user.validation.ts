@@ -53,6 +53,7 @@ export const validateCreateMobileUser = (request: Request, response: Response, n
         email: Joi.string().email().required(),
         firstName: Joi.string().required(),
         lastName: Joi.string().allow('', null),
+        revenueSharing: Joi.number().required().allow(null),
         hostawayId: Joi.number().required(),
         password: Joi.string().required()
     });

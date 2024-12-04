@@ -436,12 +436,13 @@ export class UsersService {
 
     async createMobileUser(userInfo: {
         hostawayId: number;
+        revenueSharing: number;
         firstName: string;
         lastName: string | null;
         email: string;
         password: string;
     }) {
-        const { email, hostawayId, firstName, lastName, password } = userInfo;
+        const { email, hostawayId, firstName, lastName, password, revenueSharing } = userInfo;
 
 
         const { data, error } = await this.signUpUserInSupabase(email, firstName, lastName, password);
@@ -462,6 +463,7 @@ export class UsersService {
                 firstName,
                 lastName,
                 email,
+                revenueSharing
             };
 
             const user = await this.mobileUser.save(userData);
