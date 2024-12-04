@@ -14,7 +14,7 @@ router.route('/synchostawaylistings').get(verifySession, listingController.syncH
 
 router.route('/getlistingaddresses').get(verifySession, listingController.getListingAddresses);
 
-router.route('/savelisitngscore').post(
+router.route('/savelistingscore').post(
   verifySession,
   validateSaveListingScore,
   listingController.saveListingScore
