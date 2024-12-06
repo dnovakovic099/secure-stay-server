@@ -116,5 +116,33 @@ export class UsersController{
         const userId = request.user.id;
         return response.send(await usersService.getApiKey(userId));
     }
+
+    async getHostawayUsersList(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            const userId = request.user.id;
+            return response.send(await usersService.getHostawayUsersList(userId));
+        } catch (error) {
+            return next(error);
+        }
+    };
+
+    async createMobileUser(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            return response.send(await usersService.createMobileUser(request.body));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getMobileUsersList(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            return response.send(await usersService.getMobileUsers(request));
+        } catch (error) {
+            return next(error);
+        }
+    };
 }
 

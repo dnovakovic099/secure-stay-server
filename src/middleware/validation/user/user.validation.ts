@@ -47,3 +47,35 @@ export const validationForGoogleSignUp = (request: Request, response: Response, 
     next();
 
 };
+
+export const validateCreateMobileUser = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        email: Joi.string().email().required(),
+        firstName: Joi.string().required(),
+        lastName: Joi.string().allow('', null),
+        revenueSharing: Joi.number().required().allow(null),
+        hostawayId: Joi.number().required(),
+        password: Joi.string().required()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateGetMobileUsersList = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        email: Joi.string().required().allow('')
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

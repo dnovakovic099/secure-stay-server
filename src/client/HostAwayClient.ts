@@ -121,9 +121,6 @@ export class HostAwayClient {
     concept: string;
     amount: number;
     categories: string;
-    categoriesNames: string;
-    dateOfWork: string;
-    workDone: string;
   }, credentials: {
     clientId: string;
     clientSecret: string;
@@ -146,4 +143,98 @@ export class HostAwayClient {
       return null;
     }
   }
+
+  public async updateExpense(
+    requestBody: {
+      listingMapId: string;
+      expenseDate: string;
+      concept: string;
+      amount: number;
+      categories: string;
+    },
+    credentials: {
+      clientId: string;
+      clientSecret: string;
+    },
+    expenseId: number
+  ) {
+    try {
+      const { clientId, clientSecret } = credentials;
+      const url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.put(url, requestBody, {
+        headers: {
+          "Cache-control": "no-cache",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log(response.data);
+      return response.data?.result;
+    } catch (error) {
+      console.log(error?.response?.data);
+      return null;
+    }
+  }
+
+  public async getReservations(
+    clientId: string,
+    clientSecret: string,
+    listingId: number | "",
+    dateType: string,
+    startDate: string,
+    endDate: string,
+    limit: number,
+    offset: number,
+    channelId: number | ""
+  ): Promise<Object[]> {
+    
+    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+
+    if (listingId) {
+      url += `&listingId=${listingId}`;
+    }
+
+    if (channelId) {
+      url += `&channelId=${channelId}`;
+    }
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data?.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+
+  public async getUserList(clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/users`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
 }
+
+

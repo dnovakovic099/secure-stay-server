@@ -20,7 +20,7 @@ export class Listing {
   @Column()
   name: string;
 
-  @Column({ type: "text" })
+  @Column({ type: "text", nullable: true })
   description: string;
 
   @Column({ default: "(NOT SPECIFIED)" })

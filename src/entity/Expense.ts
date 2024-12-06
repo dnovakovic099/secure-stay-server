@@ -1,5 +1,12 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
+export enum ExpenseStatus {
+    PENDING = 'Pending Approval',
+    APPROVED = 'Approved',
+    PAID = 'Paid',
+    OVERDUE = 'Overdue'
+}
+
 @Entity('expense')
 export class ExpenseEntity {
     @PrimaryGeneratedColumn({ type: 'int' })
@@ -23,20 +30,26 @@ export class ExpenseEntity {
     @Column({ type: "int" })
     isDeleted: number;
 
-    @Column({ type: "json", nullable: true })
+    @Column({ type: "text", nullable: true })
     categories: string;
-
-    @Column({ type: "json", nullable: true })
-    categoriesNames: string;
 
     @Column({ type: 'varchar' })
     contractorName: string;
 
     @Column({ type: 'varchar' })
-    dateOfWork: string;
+    contractorNumber: string;
 
     @Column({ type: 'varchar' })
-    workDone: string;
+    dateOfWork: string;
+
+    @Column({ type: 'text' })
+    findings: string;
+
+    @Column({ type: 'text'})
+    fileNames: string;
+
+    @Column({ type: "enum", enum: ExpenseStatus, default: ExpenseStatus.PENDING })
+    status: ExpenseStatus;
 
     @Column()
     userId: string;

@@ -47,4 +47,45 @@ export class ListingController {
       return next(error);
     }
   }
+
+  async getListingAddresses(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+
+      const addresses = await listingService.getListingAddresses(userId);
+
+      return response.status(200).json(successDataFetch(addresses));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async saveListingScore(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingScore = await listingService.saveListingScore(request);
+      return response.status(200).json(listingScore);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getListingScore(request: Request, response: Response, next: NextFunction) {
+    {
+      try {
+        const listingService = new ListingService();
+        const listingId = Number(request.query.listingId);
+        const listingScore = await listingService.getListingScore(listingId);
+        return response.status(200).json({
+          success: true,
+          message: 'Data found successfully!!!',
+          data: listingScore
+        });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  }
+
 }

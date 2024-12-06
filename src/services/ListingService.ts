@@ -7,12 +7,14 @@ import { Request } from "express";
 import { ListingLockInfo } from "../entity/ListingLock";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { ListingScore } from "../entity/ListingScore";
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
   private listingRepository = appDatabase.getRepository(Listing);
   private listingLockRepository = appDatabase.getRepository(ListingLockInfo);
   private connectedAccountInfoRepository = appDatabase.getRepository(ConnectedAccountInfo);
+  private listingScore = appDatabase.getRepository(ListingScore)
 
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
@@ -143,6 +145,73 @@ export class ListingService {
       return null;
     }
   }
+
+  async getListingAddresses(userId: string) {
+    const listings = await this.listingRepository.find({
+      where: { userId },
+      select: ['id', 'address']
+    });
+
+    return listings;
+  }
+
+  async getListingScore(listingId: number) {
+    const listingScore = await this.listingScore.findOneBy({
+      listingId: listingId,
+    });
+
+    return listingScore;
+  }
+
+  async updateListingScore(scoreData: any) {
+    const listingScore = await this.listingScore.update(
+      { listingId: scoreData.listingId },
+      scoreData
+    );
+    return listingScore;
+  }
+
+  async saveListingScore(request: Request) {
+    const scoreData = request.body;
+
+    const checkListing = await this.getListingScore(scoreData.listingId);
+
+    if (checkListing) {
+      // Update the existing record
+      const updateResult = await this.updateListingScore(scoreData);
+
+      if (updateResult.affected > 0) {
+        return {
+          status: true,
+          message: "Data updated successfully!!!",
+        };
+      }
+
+      return {
+        status: false,
+        message: "Data not updated!!!",
+      };
+    }
+
+    // If no existing record, create a new one
+    const score = await this.listingScore.save(scoreData);
+
+    if (score) {
+      return {
+        status: true,
+        message: "Data saved successfully!!!",
+        data: score,
+      };
+    }
+
+    return {
+      status: false,
+      message: "Data not saved!!!",
+    };
+
+
+  }
+
 }
 
 // import { EntityManager, In, Not } from 'typeorm';

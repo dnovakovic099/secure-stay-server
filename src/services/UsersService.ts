@@ -5,6 +5,12 @@ import { UsersInfoEntity } from "../entity/UserInfo";
 import { EntityManager, Like } from "typeorm";
 import { UserApiKeyEntity } from "../entity/UserApiKey";
 import { generateAPIKey } from "../helpers/helpers";
+import { HostAwayClient } from "../client/HostAwayClient";
+import { ConnectedAccountService } from "./ConnectedAccountService";
+import { MobileUsersEntity } from "../entity/MoblieUsers";
+import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "../utils/supabase";
+
 
 interface ApiKey {
     apiKey: String;
@@ -14,6 +20,10 @@ export class UsersService {
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private userInfoRepository = appDatabase.getRepository(UsersInfoEntity);
     private userApiKeyRepository = appDatabase.getRepository(UserApiKeyEntity);
+    private hostAwayClient = new HostAwayClient();
+    private connectedAccountServices = new ConnectedAccountService();
+    private mobileUser = appDatabase.getRepository(MobileUsersEntity)
+
 
     async createUser(request: Request, response: Response) {
         const userData =(request.body);
@@ -393,6 +403,115 @@ export class UsersService {
             throw new Error(error);
         }
     }
+
+    async getHostawayUsersList(userId: string) {
+
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        const hostawayUsersList = await this.hostAwayClient.getUserList(clientId, clientSecret);
+        const users = hostawayUsersList.map(({ email, firstName, id, lastName }) => ({
+            hostawayId: id,
+            email,
+            firstName,
+            lastName,
+        }));
+        return users;
+    }
+
+    async signUpUserInSupabase(email: string, firstName: string, lastName: string, password: string) {
+
+        const user = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                firstName,
+                lastName,
+                userType: 'mobileUser',
+            },
+        });
+
+        return user;
+
+    }
+
+    async createMobileUser(userInfo: {
+        hostawayId: number;
+        revenueSharing: number;
+        firstName: string;
+        lastName: string | null;
+        email: string;
+        password: string;
+    }) {
+        const { email, hostawayId, firstName, lastName, password, revenueSharing } = userInfo;
+
+
+        const { data, error } = await this.signUpUserInSupabase(email, firstName, lastName, password);
+
+        if (error) {
+            console.log(error.message);
+
+            return {
+                status: false,
+                message: error.message ? error.message : "Unable to create user!!!",
+            };
+        }
+
+        if (data) {
+            const userData = {
+                hostawayId,
+                uid: data && data.user && data.user.id ? data.user.id : '',
+                firstName,
+                lastName,
+                email,
+                revenueSharing
+            };
+
+            const user = await this.mobileUser.save(userData);
+
+            if (user) {
+                return {
+                    status: true,
+                    message: "User created successfully!!!",
+                };
+            }
+        }
+
+        return {
+            status: false,
+            message: "Unable to save data in server database!!!",
+        };
+
+
+    }
+
+    async getMobileUsers(request: Request) {
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const email = typeof request.query.email === 'string' ? request.query.email : '';
+
+        const users = await this.mobileUser.find({
+            select: [
+                'id',
+                'uid',
+                'hostawayId',
+                'firstName',
+                'lastName',
+                'email',
+            ],
+            where: email ? { email } : undefined,
+            order: { id: 'DESC' },
+            skip: skip,
+            take: limit,
+        });
+
+        return {
+            status: false,
+            message: "Data not found!!!",
+            data: users
+        };
+    }
+
 }
 
 
