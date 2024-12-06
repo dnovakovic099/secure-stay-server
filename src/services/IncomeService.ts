@@ -91,8 +91,8 @@ export class IncomeService {
 
     }
 
-    private filterValidReservation(reservations: Object[]): Object[] {
-        const validReservationStatus = ["new", "modified", "ownerStay","cancelled"];
+    public filterValidReservation(reservations: Object[]): Object[] {
+        const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */];
         const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
         return filteredReservations;
     }

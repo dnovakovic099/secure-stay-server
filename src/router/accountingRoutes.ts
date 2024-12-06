@@ -5,10 +5,13 @@ import { validateCreateExpense, validateGetExpenseList, validateUpdateExpense, v
 import { IncomeController } from "../controllers/IncomeControllers";
 import { validateGetIncomeStatement } from "../middleware/validation/accounting/income.validation";
 import fileUpload from "../utils/upload.util";
+import { validatePrintExpenseIncomeStatement } from "../middleware/validation/accounting/accountingReport.validation";
+import { AccountingReportController } from "../controllers/AccountingReportController";
 
 const router = Router();
 const expenseController = new ExpenseController();
 const incomeController = new IncomeController();
+const accountingController = new AccountingReportController();
 
 router.route('/createexpense')
     .post(
@@ -41,6 +44,13 @@ router.route("/updateexpensestatus")
         verifySession,
         validateUpdateExpenseStatus,
         expenseController.updateExpenseStatus
+);
+
+router.route('/printexpenseincomestatement')
+    .get(
+        verifySession,
+        validatePrintExpenseIncomeStatement,
+        accountingController.printExpenseIncomeStatement
     )
 
 export default router;
