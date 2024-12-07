@@ -9,6 +9,7 @@ interface CustomRequest extends Request {
 interface TokenPayload extends JwtPayload {
     userId: string;
     email: string;
+    fullname: string;
 }
 
 const verifyMobileSession = async (
@@ -20,26 +21,26 @@ const verifyMobileSession = async (
 
     if (!authHeader) {
         console.warn(`{Api:${req.url}, Message:"Authorization header missing"}`);
-        return res.status(401).json("Authorization header missing");;
+        return res.status(401).json({ message: "Authorization header missing" });;
     }
 
     const parts = authHeader.split(' ');
 
     if (parts.length !== 2 || parts[0] !== 'Bearer') {
         console.warn(`{Api:${req.url}, Message:"Invalid Authorization header format"}`);
-        return res.status(401).json("Invalid Authorization header format");
+        return res.status(401).json({ message: "Invalid Authorization header format" });
     }
 
     const token = parts[1];
 
     try {
         const jwtServices = new JwtServices();
-        const { userId, email } = await jwtServices.verify(token) as TokenPayload;
-        req.user = { userId, email };
+        const { userId, email, name } = await jwtServices.verify(token) as TokenPayload;
+        req.user = { userId, email, name };
         next();
     } catch (error) {
         console.error(`{Api:${req.url}, Error:${error.message}, Stack:${error.stack} }`);
-        return res.status(401).json("Unauthorized");
+        return res.status(401).json({ message: "Unauthorized" });
     }
 
 };

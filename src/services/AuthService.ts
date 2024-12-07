@@ -20,7 +20,8 @@ export class AuthService {
         //generate jwt token
         const token = await this.jwtServices.sign({
             userId: user.id,
-            email
+            email,
+            name: `${user.firstName} ${user.lastName}`
         })
 
         return {

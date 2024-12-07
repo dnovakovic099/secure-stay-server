@@ -9,6 +9,7 @@
   "author": "Viktor",
   "license": "ISC",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.4",
     "@stripe/stripe-js": "^2.4.0",
     "@supabase/supabase-js": "^2.39.7",
     "@types/dotenv": "^8.2.0",
