@@ -114,11 +114,11 @@ export class ExpenseService {
 
         const columns = [
             "Status",
-            "Expense Id",
+            // "Expense Id",
+            "Amount",
             "Address",
             "Expense Date",
-            "Concept",
-            "Amount",
+            "Description",
             "Catgories",
             "Contractor Name",
             "Contractor Number",
@@ -151,11 +151,11 @@ export class ExpenseService {
 
             return [
                 expense.status,
-                expense.expenseId,
+                // expense.expenseId,
+                expense.amount,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
                 expense.concept,
-                expense.amount,
                 categoryNames,
                 expense.contractorName,
                 expense.contractorNumber,
