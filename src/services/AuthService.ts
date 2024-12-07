@@ -1,37 +1,30 @@
-import { supabase } from "../utils/supabase";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { appDatabase } from "../utils/database.util";
+import bcrypt from "bcryptjs";
+import { JwtServices } from "./JwtServices";
 
 export class AuthService {
     private mobileUserRepo = appDatabase.getRepository(MobileUsersEntity);
+    private jwtServices = new JwtServices();
+
 
     public async signin(email: string, password: string) {
 
         //check if user exists
         const user = await this.mobileUserRepo.findOne({ where: { email } });
-        if (!user) {
+        if (!user || !(await bcrypt.compare(password, user.password))) {
             throw CustomErrorHandler.unAthorized('Unauthorized');
         }
 
-        const { data, error }: any = await supabase.auth.signInWithPassword({
-            email: email ? email : "",
-            password: password ? password : "",
-        });
+        //generate jwt token
+        const token = await this.jwtServices.sign({
+            userId: user.id,
+            email
+        })
 
-        if (error) {
-            throw CustomErrorHandler.unAthorized(error.message);
-        }
-
-        const userMetaData = data.session.user.user_metadata;
-        userMetaData.revenueSharing = user.revenueSharing;
-        
-        if ('userType' in userMetaData) {
-            if (userMetaData.userType !== 'mobileUser') {
-                throw CustomErrorHandler.unAthorized('Invalid user');
-            }
-        }
-
-        return data.session;
+        return {
+            accessToken: token,
+        };
     }
 }

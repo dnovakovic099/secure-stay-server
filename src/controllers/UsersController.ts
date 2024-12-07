@@ -130,7 +130,8 @@ export class UsersController{
     async createMobileUser(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const usersService = new UsersService();
-            return response.send(await usersService.createMobileUser(request.body));
+            const userId = request.user.id;
+            return response.send(await usersService.createMobileUser(request.body, userId));
         } catch (error) {
             return next(error);
         }
