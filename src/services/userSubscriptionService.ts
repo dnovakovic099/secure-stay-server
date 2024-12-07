@@ -23,8 +23,8 @@ export class UserSubscriptionService {
           quantity: 1,
         },
       ],
-      success_url: "http://localhost:3000/subscription/success",
-      cancel_url: "http://localhost:3000/subscription/cancel",
+      success_url: `${process.env.CLIENT_URL}/subscription/success`,
+      cancel_url: `${process.env.CLIENT_URL}/subscription/cancel`,
     });
 
     return session;

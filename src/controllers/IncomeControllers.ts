@@ -42,7 +42,7 @@ export class IncomeController {
 
         `;
 
-            await sendEmail(subject, html, process.env.EMAIL_FROM, "prasannakb440@gmail.com");
+            await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
             return response.send({ message: "Request sent successfully" });
         } catch (error) {
             return next(error);
