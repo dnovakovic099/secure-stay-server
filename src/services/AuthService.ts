@@ -25,6 +25,7 @@ export class AuthService {
 
         return {
             accessToken: token,
+            revenueSharing: user.revenueSharing
         };
     }
 }
