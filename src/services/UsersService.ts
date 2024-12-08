@@ -441,47 +441,39 @@ export class UsersService {
         lastName: string | null;
         email: string;
         password: string;
-    }) {
+    }, userId: string) {
         const { email, hostawayId, firstName, lastName, password, revenueSharing } = userInfo;
 
+        //hash the password
+        const hashedPassword = await bcrypt.hash(password, 10);
 
-        const { data, error } = await this.signUpUserInSupabase(email, firstName, lastName, password);
-
-        if (error) {
-            console.log(error.message);
-
+        //check if user already exists
+        const existingUser = await this.mobileUser.findOne({ where: { email } });
+        if (existingUser) {
             return {
                 status: false,
-                message: error.message ? error.message : "Unable to create user!!!",
+                message: "User with this email already exists!!!",
             };
         }
 
-        if (data) {
-            const userData = {
-                hostawayId,
-                uid: data && data.user && data.user.id ? data.user.id : '',
-                firstName,
-                lastName,
-                email,
-                revenueSharing
-            };
-
-            const user = await this.mobileUser.save(userData);
-
-            if (user) {
-                return {
-                    status: true,
-                    message: "User created successfully!!!",
-                };
-            }
-        }
-
-        return {
-            status: false,
-            message: "Unable to save data in server database!!!",
+        const userData = {
+            hostawayId,
+            firstName,
+            lastName,
+            email,
+            password: hashedPassword,
+            revenueSharing,
+            user_id: userId
         };
 
+        const user = await this.mobileUser.save(userData);
 
+        if (user) {
+            return {
+                status: true,
+                message: "User created successfully!!!",
+            };
+        }
     }
 
     async getMobileUsers(request: Request) {
@@ -493,11 +485,11 @@ export class UsersService {
         const users = await this.mobileUser.find({
             select: [
                 'id',
-                'uid',
                 'hostawayId',
                 'firstName',
                 'lastName',
                 'email',
+                'revenueSharing'
             ],
             where: email ? { email } : undefined,
             order: { id: 'DESC' },

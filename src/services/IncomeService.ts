@@ -28,59 +28,59 @@ export class IncomeService {
         const validReservations = this.filterValidReservation(reservations);
 
         const columns = [
-            "Reservation ID",
-            "Status",
+            // "Reservation ID",
+            // "Status",
             "Listing",
             "Channel",
             "Guest",
+            "Amount",
             "Arrival Date",
             "Departure Date",
-            "Total Price",
-            "Remaining Balance",
-            "Tax Amount",
-            "Channel Commission Amount",
-            "Hostaway Commission Amount",
-            "Cleaning Fee",
-            "Security Deposit Fee",
-            "Currency",
-            "Reservation Coupon ID"
+            // "Remaining Balance",
+            // "Tax Amount",
+            // "Channel Commission Amount",
+            // "Hostaway Commission Amount",
+            // "Cleaning Fee",
+            // "Security Deposit Fee",
+            // "Currency",
+            // "Reservation Coupon ID"
         ];
 
         const rows = validReservations.map((reservation: {
-            id: number,
-            status: string,
+            // id: number,
+            // status: string,
             listingName: string,
             channelName: string,
             guestName: string,
+            totalPrice: number,
             arrivalDate: string,
             departureDate: string,
-            totalPrice: number,
-            remainingBalance: number | null,
-            taxAmount: number | null,
-            channelCommissionAmount: number | null,
-            hostawayCommissionAmount: number | null,
-            cleaningFee: number | null,
-            securityDepositFee: number | null,
-            currency: string,
-            reservationCouponId: string | null,
+            // remainingBalance: number | null,
+            // taxAmount: number | null,
+            // channelCommissionAmount: number | null,
+            // hostawayCommissionAmount: number | null,
+            // cleaningFee: number | null,
+            // securityDepositFee: number | null,
+            // currency: string,
+            // reservationCouponId: string | null,
         }) => {
             return [
-                reservation.id,
-                reservation.status,
+                // reservation.id,
+                // reservation.status,
                 reservation.listingName,
                 reservation.channelName,
                 reservation.guestName,
+                reservation.totalPrice,
                 reservation.arrivalDate,
                 reservation.departureDate,
-                reservation.totalPrice,
-                reservation.remainingBalance,
-                reservation.taxAmount,
-                reservation.channelCommissionAmount,
-                reservation.hostawayCommissionAmount,
-                reservation.cleaningFee,
-                reservation.securityDepositFee,
-                reservation.currency,
-                reservation.reservationCouponId,
+                // reservation.remainingBalance,
+                // reservation.taxAmount,
+                // reservation.channelCommissionAmount,
+                // reservation.hostawayCommissionAmount,
+                // reservation.cleaningFee,
+                // reservation.securityDepositFee,
+                // reservation.currency,
+                // reservation.reservationCouponId,
             ];
         });
 
@@ -91,8 +91,8 @@ export class IncomeService {
 
     }
 
-    private filterValidReservation(reservations: Object[]): Object[] {
-        const validReservationStatus = ["new", "modified", "ownerStay","cancelled"];
+    public filterValidReservation(reservations: Object[]): Object[] {
+        const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */];
         const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
         return filteredReservations;
     }

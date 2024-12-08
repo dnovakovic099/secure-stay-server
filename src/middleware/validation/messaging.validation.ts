@@ -46,3 +46,16 @@ export const validateUpdatePhoneNoInfoRequest = (request: Request, response: Res
     next();
 }
 
+
+export const validateSupportMessageRequest = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        message: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+}
+

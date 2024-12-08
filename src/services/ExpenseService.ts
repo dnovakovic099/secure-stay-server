@@ -7,12 +7,14 @@ import { Listing } from "../entity/Listing"
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
+import { MobileUsersEntity } from "../entity/MoblieUsers";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private listingRepository = appDatabase.getRepository(Listing);
     private hostAwayClient = new HostAwayClient();
     private connectedAccountServices = new ConnectedAccountService();
+    private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
 
     async createExpense(request: Request, userId: string, fileNames?: string[]) {
         const {
@@ -112,11 +114,11 @@ export class ExpenseService {
 
         const columns = [
             "Status",
-            "Expense Id",
+            // "Expense Id",
+            "Amount",
             "Address",
             "Expense Date",
-            "Concept",
-            "Amount",
+            "Description",
             "Catgories",
             "Contractor Name",
             "Contractor Number",
@@ -149,11 +151,11 @@ export class ExpenseService {
 
             return [
                 expense.status,
-                expense.expenseId,
+                // expense.expenseId,
+                expense.amount,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
                 expense.concept,
-                expense.amount,
                 categoryNames,
                 expense.contractorName,
                 expense.contractorNumber,
@@ -246,5 +248,32 @@ export class ExpenseService {
         const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
         const hostawayExpense = await this.hostAwayClient.updateExpense(requestBody, { clientId, clientSecret }, expenseId);
         return hostawayExpense;
+    }
+
+    public async getTotalExpenseByUserId(userId: number, listingId: number | null) {
+
+        const mobileUser = await this.mobileUserRepository.findOne({ where: { id: userId } });
+        if (!mobileUser) {
+            throw CustomErrorHandler.notFound('User not found');
+        }
+
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(mobileUser.user_id);
+
+        //fetch listings by hostaway user id
+        let listings = await this.hostAwayClient.getListingByUserId(mobileUser.hostawayId, clientId, clientSecret);
+        if (listingId) {
+            listings = listings.filter(listing => listing.id === listingId);
+        }
+
+        //fetch expenses from hostaway
+        const expenses = await this.hostAwayClient.getExpenses(clientId, clientSecret);
+
+        //filter expenses by listing map id
+        const filteredExpenses = expenses.filter(expense => listings.some(listing => expense.listingMapId === listing.id));
+
+        let totalExpense = filteredExpenses.reduce((sum, item) => sum + item.amount, 0) || 0;
+
+        return { totalExpense };
+
     }
 }

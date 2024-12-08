@@ -75,4 +75,15 @@ export class ExpenseController {
             return next(error);
         }
     }
+
+    async getTotalExpenseByUserId(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.userId;
+            const listingId = parseInt(request.params.listingId) || null;
+            return response.send(await expenseService.getTotalExpenseByUserId(userId, listingId));
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

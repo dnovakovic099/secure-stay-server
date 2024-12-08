@@ -6,7 +6,7 @@ export const appDatabase = new DataSource({
   port: Number(process.env.DATABASE_PORT),
   username: process.env.DATABASE_USERNAME,
   password: process.env.DATABASE_PASSWORD,
-  database: "boarding-pass",
+  database: process.env.DATABASE_NAME,
   synchronize: true,
   entities: ["src/entity/*.ts"],
   subscribers: ["src/subscriber/*.ts"],
