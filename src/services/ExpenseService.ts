@@ -113,8 +113,8 @@ export class ExpenseService {
         }, {});
 
         const columns = [
+            "Expense Id",
             "Status",
-            // "Expense Id",
             "Amount",
             "Address",
             "Expense Date",
@@ -150,8 +150,8 @@ export class ExpenseService {
                 : '';
 
             return [
+                expense.expenseId,
                 expense.status,
-                // expense.expenseId,
                 expense.amount,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
