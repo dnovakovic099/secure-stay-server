@@ -42,6 +42,20 @@ export class ExpenseController {
         }
     }
 
+    async deleteExpense(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const expenseId = parseInt(request.params.expenseId);
+
+            await expenseService.deleteExpense(expenseId, userId);
+
+            return response.send({ message: 'Expense deleted successfully' });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateExpenseStatus(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();

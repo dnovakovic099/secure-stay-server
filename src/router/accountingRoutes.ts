@@ -40,6 +40,8 @@ router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getT
 
 router.route('/getexpense/:expenseId').get(verifySession, expenseController.getExpenseById);
 
+router.route('/deleteexpense/:expenseId').delete(verifySession, expenseController.deleteExpense);
+
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
 
 router.route("/updateexpensestatus")

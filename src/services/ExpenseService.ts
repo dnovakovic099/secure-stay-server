@@ -238,6 +238,26 @@ export class ExpenseService {
         return expense;
     }
 
+    async deleteExpense(expenseId: number, userId: string) {
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        if (!expense) {
+            throw CustomErrorHandler.notFound('Expense not found.');
+        }
+
+        expense.isDeleted = 1;
+        await this.expenseRepo.save(expense);
+
+        //delete hostaway expense
+        expense.expenseId && this.deleteHostawayExpense(expense.expenseId, userId);
+
+        return expense;
+    }
+
+    private async deleteHostawayExpense(expenseId: number, userId: string) {
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        await this.hostAwayClient.deleteExpense(expenseId, clientId, clientSecret);
+    }
+
     private async updateHostawayExpense(requestBody: {
         listingMapId: string;
         expenseDate: string;
