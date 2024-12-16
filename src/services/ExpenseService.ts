@@ -80,10 +80,21 @@ export class ExpenseService {
     }
 
     async getExpenseList(request: Request, userId: string) {
-        const { listingId, fromDate, toDate, status } = request.query;
+        const {
+            listingId,
+            fromDate,
+            toDate,
+            status,
+            categories: categoryIds,
+            contractorName,
+            contractorNumber,
+            dateOfWork
+        } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
         const skip = (page - 1) * limit;
+
+        const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
         const expenses = await this.expenseRepo.find({
             where: {
@@ -92,7 +103,21 @@ export class ExpenseService {
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
                 ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
-                expenseId: Raw(alias => `${alias} IS NOT NULL`)
+                expenseId: Raw(alias => `${alias} IS NOT NULL`),
+                ...(contractorName && {
+                    contractorName: Raw(alias => `${alias} LIKE :contractorName`, {
+                        contractorName: `${contractorName}%`
+                    })
+                }),
+                ...(contractorNumber && {
+                    contractorNumber: Raw(alias => `${alias} LIKE :contractorNumber`, {
+                        contractorNumber: `${contractorNumber}%`
+                    })
+                }),
+                ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
+                ...(categoriesFilter.length > 0 && {
+                    categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
+                }),
             },
             order: { id: "DESC" },
             skip,
