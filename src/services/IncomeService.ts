@@ -68,7 +68,7 @@ export class IncomeService {
                 // reservation.id,
                 // reservation.status,
                 reservation.listingName,
-                reservation.channelName,
+                this.modifyChannelName(reservation.channelName),
                 reservation.guestName,
                 reservation.totalPrice,
                 reservation.arrivalDate,
@@ -95,6 +95,23 @@ export class IncomeService {
         const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */];
         const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
         return filteredReservations;
+    }
+
+    private modifyChannelName(channelName: string) {
+        switch (channelName) {
+            case "airbnbOfficial":
+                return "Airbnb";
+            case "homeaway":
+                return "Direct Booking";
+            case "bookingengine":
+                return "Direct Booking";
+            case "bookingcom":
+                return "Booking.com";
+            case "vrboical":
+                return "Vrbo";
+            default:
+                return channelName;
+        }
     }
 
 }

@@ -52,21 +52,21 @@ export class ReservationService {
 
     async getChannelList() {
         const channels = [
-            { channelId: 2018, channelName: "airbnbOfficial" },
-            { channelId: 2002, channelName: "homeaway" },
-            { channelId: 2005, channelName: "bookingcom" },
-            { channelId: 2007, channelName: "expedia" },
-            { channelId: 2009, channelName: "homeawayical" },
-            { channelId: 2010, channelName: "vrboical" },
-            { channelId: 2000, channelName: "direct" },
-            { channelId: 2013, channelName: "bookingengine" },
-            { channelId: 2015, channelName: "customIcal" },
-            { channelId: 2016, channelName: "tripadvisorical" },
-            { channelId: 2017, channelName: "wordpress" },
-            { channelId: 2019, channelName: "marriott" },
-            { channelId: 2020, channelName: "partner" },
+            { channelId: 2018, channelName: "Airbnb" },
+            { channelId: 2002, channelName: "Homeaway" },
+            { channelId: 2005, channelName: "Booking.com" },
+            { channelId: 2007, channelName: "Expedia" },
+            { channelId: 2009, channelName: "Homeawayical" },
+            { channelId: 2010, channelName: "Vrbo" },
+            { channelId: 2000, channelName: "Direct" },
+            { channelId: 2013, channelName: "Booking engine" },
+            { channelId: 2015, channelName: "CustomIcal" },
+            { channelId: 2016, channelName: "Tripadvisorical" },
+            { channelId: 2017, channelName: "Wordpress" },
+            { channelId: 2019, channelName: "Marriott" },
+            { channelId: 2020, channelName: "Partner" },
             { channelId: 2021, channelName: "gds" },
-            { channelId: 2022, channelName: "google" }
+            { channelId: 2022, channelName: "Google" }
         ];
         return channels;
     }
