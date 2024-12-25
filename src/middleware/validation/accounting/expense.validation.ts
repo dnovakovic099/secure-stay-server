@@ -32,7 +32,9 @@ export const validateCreateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required(),
         findings: Joi.string().required(),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+        paymentMethod: Joi.string().required().allow(null, "")
+            .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
     });
 
     const { error } = schema.validate(request.body);
@@ -74,7 +76,9 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required(),
         findings: Joi.string().required(),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+        paymentMethod: Joi.string().required().allow(null, "")
+            .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
     });
 
     const { error } = schema.validate(request.body);

@@ -27,7 +27,8 @@ export class ExpenseService {
             contractorName,
             contractorNumber,
             findings,
-            status
+            status,
+            paymentMethod,
         } = request.body;
 
 
@@ -45,6 +46,7 @@ export class ExpenseService {
         newExpense.userId = userId;
         newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
         newExpense.status = status;
+        newExpense.paymentMethod = paymentMethod;
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -148,7 +150,8 @@ export class ExpenseService {
             "Contractor Name",
             "Contractor Number",
             "Findings",
-            "Attachments"
+            "Payment Method",
+            "Attachments",
         ];
 
         const categoryService = new CategoryService();
@@ -185,7 +188,8 @@ export class ExpenseService {
                 expense.contractorName,
                 expense.contractorNumber,
                 expense.findings,
-                fileLinks
+                expense.paymentMethod,
+                fileLinks,
         ];
         });
 
@@ -215,7 +219,8 @@ export class ExpenseService {
             contractorName,
             contractorNumber,
             findings,
-            status
+            status,
+            paymentMethod
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -232,6 +237,7 @@ export class ExpenseService {
         expense.contractorNumber = contractorNumber;
         expense.findings = findings;
         expense.status = status;
+        expense.paymentMethod = paymentMethod;
         if (fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
