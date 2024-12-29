@@ -126,7 +126,7 @@ export class MessagingService {
             if (message && !message.answered) {
                 this.notifyUnansweredMessage(body, reservationId, date);
             }
-        }, 2 * 60 * 1000); // Check after 15 minutes
+        }, 15 * 60 * 1000); // Check after 15 minutes
     }
 
     private async notifyUnansweredMessage(body: string, reservationId: number, date: Date) {
