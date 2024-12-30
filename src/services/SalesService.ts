@@ -45,4 +45,7 @@ export class ClientService {
 
     return await this.clientRepository.save(newClient);
   }
+  async getAllClients() {
+    return await this.clientRepository.find();
+  }
 }

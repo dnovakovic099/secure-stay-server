@@ -6,4 +6,10 @@ export class SalesController {
     const clientService = new ClientService();
     return response.send(await clientService.createClient(request));
   }
+  async getAllClients(request: Request, response: Response) {
+    const automatedMessageService = new ClientService();
+    return response.json({
+      data: await automatedMessageService.getAllClients(),
+    });
+  }
 }
