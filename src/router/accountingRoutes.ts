@@ -5,7 +5,7 @@ import { validateCreateExpense, validateGetExpenseList, validateUpdateExpense, v
 import { IncomeController } from "../controllers/IncomeControllers";
 import { validateGetIncomeStatement, validateRevenueCalculationRequest } from "../middleware/validation/accounting/income.validation";
 import fileUpload from "../utils/upload.util";
-import { validatePrintExpenseIncomeStatement } from "../middleware/validation/accounting/accountingReport.validation";
+import { validateCreateOwnerStatement, validatePrintExpenseIncomeStatement } from "../middleware/validation/accounting/accountingReport.validation";
 import { AccountingReportController } from "../controllers/AccountingReportController";
 import verifyMobileSession from "../middleware/verifyMobileSession";
 
@@ -63,6 +63,13 @@ router.route('/requestrevenuecalculation')
         verifyMobileSession,
         validateRevenueCalculationRequest,
         incomeController.requestRevenueCalculation
+    )
+
+router.route('/createownerstatement')
+    .post(
+        verifySession,
+        validateCreateOwnerStatement,
+        accountingController.createOwnerStatement
     )
 
 export default router;

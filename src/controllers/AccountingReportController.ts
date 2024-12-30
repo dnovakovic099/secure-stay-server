@@ -17,4 +17,14 @@ export class AccountingReportController {
       return next(error);
     }
   }
+
+  async createOwnerStatement(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const accountingReportServicer = new AccountingReportService();
+      const userId = request.user.id;
+      return response.send(await accountingReportServicer.createOwnerStatement(request, userId));
+    } catch (error) {
+      next(error);
+    }
+  }
 }
