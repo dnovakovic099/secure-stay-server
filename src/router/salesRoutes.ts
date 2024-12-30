@@ -6,6 +6,8 @@ const router = Router();
 const salesController = new SalesController();
 
 router.route("/createClient").post(verifySession, salesController.createClient);
-router.route("/getAllClients").get(salesController.getAllClients);
+router
+  .route("/getAllClients")
+  .get(verifySession, salesController.getAllClients);
 
 export default router;
