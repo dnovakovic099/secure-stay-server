@@ -19,18 +19,6 @@ export class ClientService {
       commissionStatus,
     } = request.body;
 
-    if (
-      !leadStatus ||
-      !propertyAddress ||
-      !city ||
-      !state ||
-      !country ||
-      !ownerName ||
-      !salesCloser
-    ) {
-      throw new Error("ClientService: Missing required fields");
-    }
-
     const newClient = new ClientEntity();
     newClient.leadStatus = leadStatus;
     newClient.propertyAddress = propertyAddress;
