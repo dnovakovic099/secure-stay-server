@@ -17,6 +17,8 @@ router.route('/getphonenolist').get(messagingController.getPhoneNoList);
 
 router.route('/supportmessage').post(verifyMobileSession, validateSupportMessageRequest, messagingController.sendSupportMessage);
 
+router.route('/conversation-webhook').post(messagingController.handleConversation);
+
 export default router
 
 

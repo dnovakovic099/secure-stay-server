@@ -135,4 +135,17 @@ export class MessagingController {
             return next(error);
         }
     }
+
+    async handleConversation(request: Request, response: Response, next: NextFunction) {
+        try {
+            const messagingService = new MessagingService();
+
+            await messagingService.handleConversation(request.body);
+
+            return response.status(200).json(dataSaved('Conversation handled successfully'));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
 }

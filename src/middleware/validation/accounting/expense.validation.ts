@@ -32,7 +32,9 @@ export const validateCreateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required(),
         findings: Joi.string().required(),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+        paymentMethod: Joi.string().required().allow(null, "")
+            .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
     });
 
     const { error } = schema.validate(request.body);
@@ -74,7 +76,9 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required(),
         findings: Joi.string().required(),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+        paymentMethod: Joi.string().required().allow(null, "")
+            .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
     });
 
     const { error } = schema.validate(request.body);
@@ -111,7 +115,13 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         limit: Joi.number().required(),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
-            .allow('')
+            .allow(''),
+        categories: Joi.string().required().allow(''),
+        contractorName: Joi.string().required().allow(''),
+        contractorNumber: Joi.string().required().allow(''),
+        dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).required().allow(''),
     });
 
     const { error } = schema.validate(request.query);

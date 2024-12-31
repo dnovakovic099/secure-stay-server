@@ -276,6 +276,26 @@ export class HostAwayClient {
     }
   }
 
+  public async deleteExpense(expenseId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.delete(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+
 }
 
 

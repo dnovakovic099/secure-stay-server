@@ -27,7 +27,8 @@ export class ExpenseService {
             contractorName,
             contractorNumber,
             findings,
-            status
+            status,
+            paymentMethod,
         } = request.body;
 
 
@@ -45,6 +46,7 @@ export class ExpenseService {
         newExpense.userId = userId;
         newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
         newExpense.status = status;
+        newExpense.paymentMethod = paymentMethod;
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -80,10 +82,21 @@ export class ExpenseService {
     }
 
     async getExpenseList(request: Request, userId: string) {
-        const { listingId, fromDate, toDate, status } = request.query;
+        const {
+            listingId,
+            fromDate,
+            toDate,
+            status,
+            categories: categoryIds,
+            contractorName,
+            contractorNumber,
+            dateOfWork
+        } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
         const skip = (page - 1) * limit;
+
+        const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
         const expenses = await this.expenseRepo.find({
             where: {
@@ -92,7 +105,21 @@ export class ExpenseService {
                 expenseDate: Between(String(fromDate), String(toDate)),
                 isDeleted: 0,
                 ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
-                expenseId: Raw(alias => `${alias} IS NOT NULL`)
+                expenseId: Raw(alias => `${alias} IS NOT NULL`),
+                ...(contractorName && {
+                    contractorName: Raw(alias => `${alias} LIKE :contractorName`, {
+                        contractorName: `${contractorName}%`
+                    })
+                }),
+                ...(contractorNumber && {
+                    contractorNumber: Raw(alias => `${alias} LIKE :contractorNumber`, {
+                        contractorNumber: `${contractorNumber}%`
+                    })
+                }),
+                ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
+                ...(categoriesFilter.length > 0 && {
+                    categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
+                }),
             },
             order: { id: "DESC" },
             skip,
@@ -113,8 +140,8 @@ export class ExpenseService {
         }, {});
 
         const columns = [
+            "Expense Id",
             "Status",
-            // "Expense Id",
             "Amount",
             "Address",
             "Expense Date",
@@ -123,7 +150,8 @@ export class ExpenseService {
             "Contractor Name",
             "Contractor Number",
             "Findings",
-            "Attachments"
+            "Payment Method",
+            "Attachments",
         ];
 
         const categoryService = new CategoryService();
@@ -150,8 +178,8 @@ export class ExpenseService {
                 : '';
 
             return [
+                expense.expenseId,
                 expense.status,
-                // expense.expenseId,
                 expense.amount,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
@@ -160,7 +188,8 @@ export class ExpenseService {
                 expense.contractorName,
                 expense.contractorNumber,
                 expense.findings,
-                fileLinks
+                expense.paymentMethod,
+                fileLinks,
         ];
         });
 
@@ -190,7 +219,8 @@ export class ExpenseService {
             contractorName,
             contractorNumber,
             findings,
-            status
+            status,
+            paymentMethod
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -207,6 +237,7 @@ export class ExpenseService {
         expense.contractorNumber = contractorNumber;
         expense.findings = findings;
         expense.status = status;
+        expense.paymentMethod = paymentMethod;
         if (fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -236,6 +267,26 @@ export class ExpenseService {
         expense.status = status;
         await this.expenseRepo.save(expense);
         return expense;
+    }
+
+    async deleteExpense(expenseId: number, userId: string) {
+        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        if (!expense) {
+            throw CustomErrorHandler.notFound('Expense not found.');
+        }
+
+        expense.isDeleted = 1;
+        await this.expenseRepo.save(expense);
+
+        //delete hostaway expense
+        expense.expenseId && this.deleteHostawayExpense(expense.expenseId, userId);
+
+        return expense;
+    }
+
+    private async deleteHostawayExpense(expenseId: number, userId: string) {
+        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        await this.hostAwayClient.deleteExpense(expenseId, clientId, clientSecret);
     }
 
     private async updateHostawayExpense(requestBody: {

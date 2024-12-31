@@ -53,4 +53,7 @@ export class ExpenseEntity {
 
     @Column()
     userId: string;
+
+    @Column({ type: 'varchar', nullable: true })
+    paymentMethod: string;
 }
