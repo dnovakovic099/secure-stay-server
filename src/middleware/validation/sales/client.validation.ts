@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import Joi from "joi";
 
-export const validateCreateClientRequest = (
+export const validateClientRequest = (
   request: Request,
   response: Response,
   next: NextFunction

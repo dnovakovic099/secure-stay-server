@@ -399,7 +399,11 @@ CREATE TABLE IF NOT EXISTS `clients` (
     `salesCloser` VARCHAR(255),
     `airDnaRevenue` DECIMAL(10, 2),
     `commissionAmount` DECIMAL(10, 2),
-    `commissionStatus` VARCHAR(255)
+    `commissionStatus` VARCHAR(255),
+    `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updatedAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deletedAt` TIMESTAMP NULL,
+    `previewDocumentLink` VARCHAR(255) NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 

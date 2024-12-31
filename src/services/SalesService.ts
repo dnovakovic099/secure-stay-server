@@ -36,4 +36,17 @@ export class ClientService {
   async getAllClients() {
     return await this.clientRepository.find();
   }
+  async updateClient(clientId: number, updateData: Partial<ClientEntity>) {
+    const client = await this.clientRepository.findOne({
+      where: { id: clientId },
+    });
+
+    if (!client) {
+      return null;
+    }
+
+    Object.assign(client, updateData);
+
+    return await this.clientRepository.save(client);
+  }
 }
