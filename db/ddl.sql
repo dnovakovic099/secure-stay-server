@@ -388,6 +388,20 @@ CREATE TABLE IF NOT EXISTS `mobileUsers` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+CREATE TABLE IF NOT EXISTS `clients` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `leadStatus` VARCHAR(255),
+    `propertyAddress` VARCHAR(255),
+    `city` VARCHAR(255),
+    `state` VARCHAR(255),
+    `country` VARCHAR(255),
+    `ownerName` VARCHAR(255),
+    `salesCloser` VARCHAR(255),
+    `airDnaRevenue` DECIMAL(10, 2),
+    `commissionAmount` DECIMAL(10, 2),
+    `commissionStatus` VARCHAR(255)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- Data exporting was unselected.
 
