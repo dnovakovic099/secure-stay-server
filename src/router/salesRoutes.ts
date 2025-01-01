@@ -8,12 +8,14 @@ const salesController = new SalesController();
 
 router
   .route("/createClient")
-  .post(verifySession, validateClientRequest, salesController.createClient);
-router
-  .route("/getAllClients")
-  .get(verifySession, salesController.getAllClients);
+  .post(validateClientRequest, salesController.createClient);
+router.route("/getAllClients").get(salesController.getAllClients);
 router
   .route("/editClient/:client_id")
   .put(verifySession, validateClientRequest, salesController.updateClient);
+
+router
+  .route("/generatePerformanceReport/:client_id")
+  .get(salesController.generatePdfForClient);
 
 export default router;

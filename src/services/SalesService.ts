@@ -1,6 +1,7 @@
 import { Request } from "express";
 import { appDatabase } from "../utils/database.util";
 import { ClientEntity } from "../entity/Sales";
+import { scrapeAndForwardData } from "../web-scrapper/extractDataFromAirDna";
 
 export class ClientService {
   private clientRepository = appDatabase.getRepository(ClientEntity);
@@ -20,6 +21,7 @@ export class ClientService {
     } = request.body;
 
     const newClient = new ClientEntity();
+
     newClient.leadStatus = leadStatus;
     newClient.propertyAddress = propertyAddress;
     newClient.city = city;
@@ -56,5 +58,21 @@ export class ClientService {
     Object.assign(client, updatedClient);
 
     return await this.clientRepository.save(client);
+  }
+  async generatePdfForClient(clientId: number, data: Partial<ClientEntity>) {
+    const { propertyAddress, city, state, country } = data;
+    const completeAddress = `${propertyAddress}, ${city}, ${state}, ${country}`;
+
+    const pdfPath = await scrapeAndForwardData(completeAddress, clientId);
+    if (!pdfPath) {
+      return null;
+    }
+    const updatedData = {
+      ...data,
+      previewDocumentLink: pdfPath,
+      updatedAt: new Date(),
+    };
+
+    return await this.clientRepository.save(updatedData);
   }
 }
