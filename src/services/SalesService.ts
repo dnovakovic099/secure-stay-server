@@ -30,6 +30,8 @@ export class ClientService {
     newClient.airDnaRevenue = airDnaRevenue;
     newClient.commissionAmount = commissionAmount;
     newClient.commissionStatus = commissionStatus;
+    newClient.createdAt = new Date();
+    newClient.updatedAt = new Date();
 
     return await this.clientRepository.save(newClient);
   }
@@ -45,7 +47,13 @@ export class ClientService {
       return null;
     }
 
-    Object.assign(client, updateData);
+    const updatedClient = {
+      ...client,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+
+    Object.assign(client, updatedClient);
 
     return await this.clientRepository.save(client);
   }
