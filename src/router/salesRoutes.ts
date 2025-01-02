@@ -16,4 +16,7 @@ router
   .route("/editClient/:client_id")
   .put(verifySession, validateClientRequest, salesController.updateClient);
 
+router
+  .route("/getDetailsFromAddress")
+  .get(salesController.getDetailsFromAirDna);
 export default router;
