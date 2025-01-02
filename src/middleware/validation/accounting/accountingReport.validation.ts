@@ -26,3 +26,23 @@ export const validatePrintExpenseIncomeStatement = (request: Request, response: 
   }
   next();
 };
+
+
+export const validateCreateOwnerStatement = (request: Request, response: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+      'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+    }).required(),
+    toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+      'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+    }).required(),
+    dateType: Joi.string().required().valid("arrival", "departure"),
+    channelId: Joi.number().required().allow(""),
+  });
+
+  const { error } = schema.validate(request.body);
+  if (error) {
+    next(error);
+  }
+  next();
+};
