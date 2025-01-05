@@ -55,4 +55,13 @@ export class ClientEntity {
 
   @Column({ type: "varchar", length: 255, nullable: true })
   previewDocumentLink: string;
+
+  @Column({ type: "int" })
+  beds: number;
+
+  @Column({ type: "int" })
+  baths: number;
+
+  @Column({ type: "int" })
+  guests: number;
 }

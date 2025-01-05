@@ -17,6 +17,9 @@ export class ClientService {
       airDnaRevenue,
       commissionAmount,
       commissionStatus,
+      baths,
+      guests,
+      beds,
     } = request.body;
 
     const newClient = new ClientEntity();
@@ -30,6 +33,9 @@ export class ClientService {
     newClient.airDnaRevenue = airDnaRevenue;
     newClient.commissionAmount = commissionAmount;
     newClient.commissionStatus = commissionStatus;
+    newClient.baths = baths;
+    newClient.guests = guests;
+    newClient.beds = beds;
     newClient.createdAt = new Date();
     newClient.updatedAt = new Date();
 
