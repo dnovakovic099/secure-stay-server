@@ -15,6 +15,7 @@ import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
 import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
 import { removeNullValues } from "../helpers/helpers";
+import { ListingService } from "./ListingService";
 
 interface ReservationType {
   guestName: string;
@@ -433,6 +434,7 @@ export class AccountingReportService {
 
 
   async getOwnerStatements(userId: string) {
+
     const ownerStatements = await this.ownerStatementRepository
       .createQueryBuilder("owner_statements")
       .leftJoinAndSelect("owner_statements.income", "owner_statement_income")
@@ -440,16 +442,35 @@ export class AccountingReportService {
       .where("owner_statements.userId = :userId", { userId })
       .getMany();
 
-    const updatedStatements = ownerStatements.map(statement => {
-      const revenue = statement.income.reduce((sum: number, item: any) => sum + parseFloat(item.totalPaid || "0"), 0);
-      const expense = statement.expense.reduce((sum: number, item: any) => sum + parseFloat(item.amount || "0"), 0);
+    const updatedStatements = await Promise.all(
+      ownerStatements.map(async (statement) => {
+        // Calculate revenue and expense
+        const revenue = statement.income.reduce(
+          (sum: number, item: any) => sum + parseFloat(item.totalPaid || "0"),
+          0
+        );
+        const expense = statement.expense.reduce(
+          (sum: number, item: any) => sum + parseFloat(item.amount || "0"),
+          0
+        );
 
-      return {
-        ...statement,
-        revenue: revenue.toFixed(2),
-        expense: expense.toFixed(2),
-      };
-    });
+        const listing = await this.listingRepository
+          .createQueryBuilder("listing")
+          .where("listing.id = :id", { id: statement.listingId })
+          .andWhere("listing.userId = :userId", { userId })
+          .getOne();
+
+        return {
+          ...statement,
+          revenue: revenue.toFixed(2),
+          expenses: expense.toFixed(2),
+          listingName: listing?.name,
+          address: listing?.address,
+          city: listing?.city,
+          state: listing?.state,
+        };
+      })
+    );
 
     return updatedStatements;
   }
