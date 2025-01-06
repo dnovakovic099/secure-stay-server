@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Playwrite+AU+SA:wght@100..400&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --clr-page-bg: #fefcf5;
+
+        --clr-primary: #d6c27b;
+        --clr-primary-dark: rgb(154, 117, 62);
+
+        --font-body: "Open Sans", serif;
+        --font-cursive: "Playwrite AU SA", serif;
+      }
+
+      body {
+        font-size: 14px;
+        font-family: var(--font-body);
+      }
+
+      table {
+        width: 100%;
+      }
+
+      img {
+        max-width: 100%;
+      }
+
+      .page-1-text h1::after {
+        content: "";
+        height: 1px;
+        width: 70%;
+        background: linear-gradient(to bottom, var(--clr-primary), #fff);
+        display: block;
+        position: relative;
+        bottom: -8px;
+      }
+
+      .cursive-heading {
+        font-family: var(--font-cursive);
+        font-size: 27px;
+        line-height: normal;
+        color: var(--clr-primary-dark);
+        letter-spacing: -0.25px;
+        margin-bottom: 15px;
+      }
+
+      .page {
+        background-color: var(--clr-page-bg);
+        position: relative;
+        padding: 8px;
+      }
+
+      .page-content {
+        padding: 25px;
+      }
+
+      .box {
+        padding: 18px 25px;
+        border-radius: 25px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+
+        background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg))
+            padding-box,
+          linear-gradient(to right, var(--clr-primary), var(--clr-page-bg))
+            border-box;
+        border: 1px solid transparent;
+      }
+
+      p {
+        font-weight: 500;
+      }
+
+
+      .table-body-cell,.table-header-cell {
+        border: 1px solid #e7e7e7;
+      }
+      .table-body-cell {
+        background-color: #FFF;
+        padding: 8px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .styled-table tbody tr:last-child td{
+        border-bottom-right-radius: 18px;
+        border-bottom-left-radius: 18px;
+      }
+
+
+      @media print {
+        
+      }
+    </style>
+    <title>PDF Template</title>
+  </head>
+  <body>
+    <table
+      style="
+        max-width: 800px;
+        width: 100%;
+        margin: 0 auto;
+        color: var(--clr-primary-dark);
+      "
+    >
+      <tbody>
+        <tr>
+          <td class="page" id="page-1" style="background-color: white">
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="logo">
+                      <img src="../public/logo.PNG" alt="" />
+                      <h6 style="color: var(--clr-primary)">
+                        Property Performance Report (PPR)
+                      </h6>
+                    </div>
+
+                    <div class="page-1-text" style="padding-block: 50px">
+                      <h1
+                        style="
+                          color: black;
+                          font-family: var(--font-cursive);
+                          font-size: 44px;
+                          padding-bottom: 8px;
+                          margin-bottom: 8px;
+                        "
+                      >
+                        Let's Flamingo - Key West, FL
+                      </h1>
+                      <h2
+                        style="
+                          color: var(--clr-primary-dark);
+                          font-weight: 600;
+                          font-size: 28px;
+                        "
+                      >
+                        1121 WHITEHEAD ST, KEY WEST, FL 33040
+                      </h2>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <img
+                      style="width: 100%"
+                      src="../public/page-1-image.jpg"
+                      alt="reload page"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="page" id="page-2">
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="page-content">
+                      <h1 class="cursive-heading">
+                        Unlocking The Full Potential of your key west property
+                      </h1>
+
+                      <div class="bordered box">
+                        <p>
+                          Your property at 1121 Whitehead St holds remarkable
+                          promise in one of Florida’s most sought-after
+                          destinations. Key West's vibrant market offers immense
+                          opportunities, but fully capitalizing on them requires
+                          the right expertise and strategic approach. At Luxury
+                          Lodging, we specialize in transforming properties like
+                          yours into market leaders, leveraging tailored
+                          strategies to optimize revenue, occupancy, and guest
+                          experience.
+                        </p>
+                        <p>
+                          Together, we can ensure your property stands out,
+                          attracts the right guests, and achieves its maximum
+                          earning potential. This is the start of a successful
+                          partnership, and we are excited to work with you to
+                          elevate your property to new heights.
+                        </p>
+                      </div>
+                    </div>
+
+                    <img  
+                      src="../public/page-2-image.jpg"
+                      style="width: 100%"
+                      alt="reload page"
+                    />
+
+                    <img src="../public/logo.PNG" alt="reload page" style="position: absolute; bottom: 0; right: 0;">
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="page" id="page-3">
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="page-content">
+                      <h1 class="cursive-heading">
+                        Executive Summary
+                      </h1>
+
+                      <div class="bordered box">
+                        <p>
+                          Your property offers a unique opportunity to excel in Key West’s
+                          extended-stay market despite its 30-night minimum restriction. The
+                          property stands out with its distinct charm and untapped potential to
+                          rival competitors like "Casa Amelia - Key West." While competitors
+                          have an advantage in guest reviews and established performance
+                          metrics, Ellen’s property has the foundational strengths to achieve
+                          similar success. With a focused strategy on increasing guest reviews,
+                          optimizing long-term pricing, and establishing its unique features, the
+                          property is well-positioned to thrive.
+                        </p>
+                        <p>
+                          Our analysis highlights the growing demand for long-term rentals in
+                          the Key West market, paired with the property’s potential to achieve
+                          significant RevPAR growth and a strong revenue trajectory. Through
+                          enhanced guest experience, thoughtful pricing adjustments, and
+                          strategic marketing initiatives, we can unlock opportunities to attract
+                          high-quality tenants and secure positive feedback. These steps will
+                          bridge the gap with top competitors and establish your property as a
+                          leader in its niche.
+                        </p>
+                        <p>
+                          Luxury Lodging is committed to ensuring your property not only meets
+                          but surpasses its market potential. By leveraging our expertise in
+                          managing premium properties and building a strong reputation for our
+                          clients, we aim to transform this property into a cornerstone of success
+                          in the extended-stay market. The journey to establishing your property
+                          as a top contender begins now, and we are excited to be your partner
+                          in making that happen.
+                        </p>
+                      </div>
+                    </div>
+
+                    <img
+                      src="../public/page-3-image.jpg"
+                      style="width: 100%"
+                      alt="reload page"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td class="page" id="page-4">
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="page-content">
+                      <h1 class="cursive-heading">
+                        Revenue Projection
+                      </h1>
+
+
+                        <table class="styled-table" style="box-shadow: 0 4px 4px rgba(0,0,0,0.05);overflow: hidden; margin-bottom:18px; text-align: center; border-collapse: collapse; border-radius: 18px; border: 1px solid #e7e7e7;">
+                          <thead>
+                            <tr>
+                              <th class="table-header-cell" style="background-color: var(--clr-primary); font-size: 16px; color: white; font-weight: 600; text-transform: uppercase; padding: 4px;">MONTH</th>
+                              <th class="table-header-cell" style="background-color: var(--clr-primary); font-size: 16px; color: white; font-weight: 600; text-transform: uppercase; padding: 4px;">CLIENT</th>
+                              <th class="table-header-cell" style="background-color: var(--clr-primary); font-size: 16px; color: white; font-weight: 600; text-transform: uppercase; padding: 4px;">MARKET AVG</th>
+                              <th class="table-header-cell" style="background-color: var(--clr-primary); font-size: 16px; color: white; font-weight: 600; text-transform: uppercase; padding: 4px;">COMPETITOR <br>
+                                (Casa Amelia)</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            <tr>
+                              <td class="table-body-cell">
+                                January ’25
+                              </tdc>
+                              <td class="table-body-cell">
+                                <strong style="color: var(--clr-primary-dark);">
+                                  $10,700
+                                </strong>
+                              </td>
+                              <td class="table-body-cell">
+                                $15,300
+                              </td>
+                              <td class="table-body-cell">
+                                $12,500
+                              </td>
+                            </tr>
+                            <tr>
+                              <td class="table-body-cell" style="font-weight: 700; color: #000;">
+                                TOTAL
+                              </tdc>
+                              <td class="table-body-cell">
+                                <strong style="color: var(--clr-primary-dark); font-size: 18px;">
+                                  $131,300
+                                </strong>
+                              </td>
+                              <td class="table-body-cell">
+                                $187,400
+                              </td>
+                              <td class="table-body-cell">
+                                $153,600
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+
+                      <div class="bordered box" style="margin-bottom: 15px;">
+                        <p>
+                          This projection for your property is realistic given the extended-stay market
+                          dynamics in Key West and the 30-night minimum restriction. While the total
+                          projected revenue of $131,300 is below the market average of $187,400 and the
+                          competitor Casa Amelia at $153,600, the gap can be narrowed with strategic
+                          improvements. The key factors influencing the difference include fewer guest
+                          reviews and pricing that may not fully capitalize on high-demand months like
+                          February and March, where competitors excel. Your property has significant
+                          potential to close this gap by building a stronger review profile, optimizing pricing
+                          strategies for peak seasons, and establishing its unique features to appeal to
+                          extended-stay guests. With Luxury Lodging’s expertise, the property can achieve a
+                          higher ADR, attract more bookings, and move closer to or exceed the competitor’s
+                          performance, making these projections achievable and setting the foundation for
+                          long-term success.
+                          
+                        </p>
+                      </div>
+
+
+                      <div class="image-section" style="position: relative; background-color: #000;">
+                          <img src="../public/bg-section-image.jpg" alt="reload page" style="opacity: .8;">
+                          <h6 style="position: absolute; top: 50%; transform: translateY(-50%); text-align: right; font-family: var(--font-cursive); width: 100%; font-size: 28px; color: white; padding-right: 30px; line-height: 1.2; font-weight: 400;">
+                            continue to learn more <br>
+starting with market dat
+                          </h6>
+                      </div>
+                    </div>
+
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="page" id="page-5">
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="page-content">
+
+                      <table>
+                        <tbody>
+                          <tr>
+                            <td width="40%">
+                              <h1 class="cursive-heading" style="font-size: 40px; line-height: 1.3;">
+                                <span >Market</span> <br> 
+                                &nbsp;&nbsp;&nbsp;&nbsp; 
+                                <span > Overview</span> 
+                              </h1>
+                            </td>
+                            <td width="60%">
+                              <img  width="100%" src="../public/page-4-image-1.jpg" alt="reload page">
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <div class="diagonal-structure" style="margin-bottom: 40px; max-width: 100px; width: 100%; margin-inline: auto; display: flex; flex-direction: column; gap: 30px; white-space: nowrap;">
+                        
+                        <div class="circle-container" style="width: 100%;">
+                          <div class="single-circle-text" style="position: relative; width: 100%; display: flex; justify-content: end;">
+                            <div class="circle" style="height: 40px; width: 40px; border-radius: 100%; display: flex; align-items: center; justify-content: center; color: var(--clr-primary-dark); background-color: #FFF; border: 4px solid var(--clr-primary-dark);" >
+                              <i class="fa-solid fa-hand-holding-hand"></i>
+                            </div>
+
+                         
+                            <div class="circle-prop-svg" style="
+                              position: absolute;
+                              right: 50px;
+                              bottom: -50px;
+                              transform: rotate(40deg);
+                              background-color: var(--clr-primary-dark);
+                              height: 65px;
+                              width: 4px;
+                            ">
+                             
+                            </div>
+                            <div class="circle-text" style="position: absolute; left: -100%; top: 0;">
+                              <h6 style="    color: #000;
+                              font-weight: 700;
+                              font-size: 15px;
+                              line-height: 1;">Filter</h6>
+                              <p style="color: #000;">3 BR · 3 Bath · 8 Guests</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="circle-container" style="width: 100%;">
+                          <div class="single-circle-text" style="position: relative; width: 100%; display: flex; justify-content: start;">
+                            <div class="circle" style="height: 40px; width: 40px; border-radius: 100%; display: flex; align-items: center; justify-content: center; color: var(--clr-primary-dark); background-color: #FFF; border: 4px solid var(--clr-primary-dark);" >
+                              <i class="fa-solid fa-hand-holding-hand"></i>
+                            </div>
+
+                            <div class="circle-prop-svg" style="
+                            position: absolute;
+                            right: 48px;
+                            bottom: -50px;
+                            transform: rotate(-40deg);
+                            background-color: var(--clr-primary-dark);
+                            height: 65px;
+                            width: 4px;
+                          ">
+                           
+                          </div>
+                              
+
+
+                            <div class="circle-text" style="position: absolute; right: -100%; top: 0;">
+                              <h6 style="    color: #000;
+                              font-weight: 700;
+                              font-size: 15px;
+                              line-height: 1;">Filter</h6>
+                              <p style="color: #000;">3 BR · 3 Bath · 8 Guests</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="circle-container" style="width: 100%;">
+                          <div class="single-circle-text" style="position: relative; width: 100%; display: flex; justify-content: end;">
+                            <div class="circle" style="height: 40px; width: 40px; border-radius: 100%; display: flex; align-items: center; justify-content: center; color: var(--clr-primary-dark); background-color: #FFF; border: 4px solid var(--clr-primary-dark);" >
+                              <i class="fa-solid fa-hand-holding-hand"></i>
+                            </div>
+
+                         
+                            <div class="circle-prop-svg" style="
+                              position: absolute;
+                              right: 50px;
+                              bottom: -50px;
+                              transform: rotate(40deg);
+                              background-color: var(--clr-primary-dark);
+                              height: 65px;
+                              width: 4px;
+                            ">
+                             
+                            </div>
+                            <div class="circle-text" style="position: absolute; left: -100%; top: 0;">
+                              <h6 style="    color: #000;
+                              font-weight: 700;
+                              font-size: 15px;
+                              line-height: 1;">Filter</h6>
+                              <p style="color: #000;">3 BR · 3 Bath · 8 Guests</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="circle-container" style="width: 100%;">
+                          <div class="single-circle-text" style="position: relative; width: 100%; display: flex; justify-content: start;">
+                            <div class="circle" style="height: 40px; width: 40px; border-radius: 100%; display: flex; align-items: center; justify-content: center; color: var(--clr-primary-dark); background-color: #FFF; border: 4px solid var(--clr-primary-dark);" >
+                              <i class="fa-solid fa-hand-holding-hand"></i>
+                            </div>
+
+                            <!-- <div class="circle-prop-svg" style="
+                            position: absolute;
+                            right: 48px;
+                            bottom: -50px;
+                            transform: rotate(-40deg);
+                            background-color: var(--clr-primary-dark);
+                            height: 65px;
+                            width: 4px;
+                          ">
+                           
+                          </div> -->
+                              
+
+
+                            <div class="circle-text" style="position: absolute; right: -100%; top: 0;">
+                              <h6 style="    color: #000;
+                              font-weight: 700;
+                              font-size: 15px;
+                              line-height: 1;">Filter</h6>
+                              <p style="color: #000;">3 BR · 3 Bath · 8 Guests</p>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      <table>
+                        <tbody>
+                          <tr>
+                           <td style="padding-inline: 5px">
+                            <img src="../public/page-4-card-1.jpg" alt="reload page" style="width: 100%;">
+                           </td>
+                           <td style="padding-inline: 5px">
+                            <img src="../public/page-4-card-2.jpg" alt="reload page" style="width: 100%;">
+                           </td>
+                           <td style="padding-inline: 5px">
+                            <img src="../public/page-4-card-3.jpg" alt="reload page" style="width: 100%;">
+                           </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

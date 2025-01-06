@@ -56,7 +56,7 @@ export class SalesController {
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
-      // page.setDefaultTimeout(60000);
+      page.setDefaultTimeout(60000);
 
       const customUA = generateRandomUA();
 
@@ -65,8 +65,8 @@ export class SalesController {
 
       // await page.setViewport({ width: 1920, height: 1080 });
 
-      // Disable unnecessary resources
       // await page.setRequestInterception(true);
+      // Disable unnecessary resources
       // page.on("request", (request) => {
       //   if (["image", "stylesheet", "font"].includes(request.resourceType())) {
       //     request.abort();
@@ -99,9 +99,9 @@ export class SalesController {
       await listings[0].click();
       await page.waitForNetworkIdle();
       const apiResponse = await setBedBathGuestCounts(page, rest);
-      // const allElements = await scrapeAllDataFromSelectedListing(page);
+      const allElements = await scrapeAllDataFromSelectedListing(page);
 
-      // const processedData = transformData(allElements);
+      const processedData = transformData(allElements);
       await browser.close();
       if (!apiResponse.success) {
         return response.status(400).json({

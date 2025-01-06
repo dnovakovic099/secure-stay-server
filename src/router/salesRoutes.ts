@@ -9,9 +9,7 @@ import {
 const router = Router();
 const salesController = new SalesController();
 
-router
-  .route("/createClient")
-  .post(validateClientRequest, salesController.createClient);
+router.route("/createClient").post(salesController.createClient);
 router.route("/getAllClients").get(salesController.getAllClients);
 router
   .route("/editClient/:client_id")

@@ -141,15 +141,17 @@ export const setBedBathGuestCounts = async (
 
     // Wait for the API call to be made and check the response status
     const response = await page.waitForResponse(
-      (response) =>
-        response.url() ===
+      (resp) =>
+        resp.url() ===
           "https://api.airdna.co/api/explorer/v1/rentalizer/estimate/full" &&
-        response.status() === 200
+        resp.request().method() !== "OPTIONS" &&
+        resp.status() === 200
     );
-
+    if (!response.ok()) {
+      throw new Error(`Response failed with status: ${response.status()}`);
+    }
     // Extract the response body data
     const data = await response.json();
-    console.log("API Response:", data);
     responseData.success = true;
     responseData.data = data;
   } catch (error) {

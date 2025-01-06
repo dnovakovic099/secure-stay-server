@@ -47,7 +47,7 @@ export const validateClientRequest = (
       "number.min": "Bed count must be at least 1.",
       "any.required": "Bed count is required.",
     }),
-    baths: Joi.number().integer().min(1).required().messages({
+    baths: Joi.number().min(1).required().messages({
       "number.base": "Bath count must be a number.",
       "number.integer": "Bath count must be an integer.",
       "number.min": "Bath count must be at least 1.",
@@ -68,7 +68,7 @@ export const validateClientRequest = (
       }),
   });
 
-  const { error } = schema.validate(request.body);
+  const { error } = schema.validate(request.body, { allowUnknown: true });
   if (error) {
     return next(error);
   }
@@ -94,7 +94,7 @@ export const validateParamsWhenFetchingData = (
       "number.min": "Bed count must be at least 1.",
       "any.required": "Bed count is required.",
     }),
-    baths: Joi.number().integer().min(1).required().messages({
+    baths: Joi.number().min(1).required().messages({
       "number.base": "Bath count must be a number.",
       "number.integer": "Bath count must be an integer.",
       "number.min": "Bath count must be at least 1.",
@@ -108,11 +108,13 @@ export const validateParamsWhenFetchingData = (
     }),
   });
 
-  const { error } = schema.validate(request.query);
+  const { error, value } = schema.validate(request.query, {
+    convert: true,
+  });
 
   if (error) {
     return next(error);
   }
-
+  request.query = value;
   next();
 };
