@@ -256,13 +256,51 @@ export class HostAwayClient {
     }
   }
 
-  public async getExpenses(clientId: string, clientSecret: string){
-    let url = `https://api.hostaway.com/v1/expenses`;
+  public async getExpenses(clientId: string, clientSecret: string, limit: number = 500) {
+    let expenses: any[] = [];
+    let offset = 0;
+    let hasMoreData = true;
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);
 
-      const response = await axios.get(url, {
+      while (hasMoreData) {
+        const url = `https://api.hostaway.com/v1/expenses?limit=${limit}&offset=${offset}`;
+
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-control": "no-cache",
+          },
+        });
+
+        const fetchedExpenses = response.data.result;
+
+        // Add fetched expenses to the array
+        expenses = expenses.concat(fetchedExpenses);
+
+        // Check if there is more data
+        if (fetchedExpenses.length < limit) {
+          hasMoreData = false; // No more data if the last page contains less than `limit`
+        } else {
+          offset += limit; // Update offset for the next page
+        }
+      }
+
+      return expenses;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+  
+  public async deleteExpense(expenseId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.delete(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Cache-control": "no-cache",
@@ -275,14 +313,13 @@ export class HostAwayClient {
       return null;
     }
   }
-
-  public async deleteExpense(expenseId: number, clientId: string, clientSecret: string) {
-    let url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+  public async financeStandardField(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/financeStandardField/reservation/${reservationId}`;
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);
 
-      const response = await axios.delete(url, {
+      const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Cache-control": "no-cache",

@@ -88,4 +88,16 @@ export class ListingController {
     }
   }
 
+  async getListingNames(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+      const listingNames = await listingService.getListingNames(userId);
+
+      return response.status(200).json(successDataFetch(listingNames));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

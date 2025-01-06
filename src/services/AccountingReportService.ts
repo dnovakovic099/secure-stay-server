@@ -3,12 +3,38 @@ import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { appDatabase } from "../utils/database.util";
-import { Between, In, Raw } from "typeorm";
+import { Between, EntityManager, In, Raw } from "typeorm";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Listing } from "../entity/Listing";
 import { IncomeService } from "./IncomeService";
 import { CategoryEntity } from "../entity/Category";
 import { CategoryService } from "./CategoryService";
+import { OwnerStatementEntity } from "../entity/OwnerStatement";
+import { OwnerStatementIncomeEntity } from "../entity/OwnerStatementIncome";
+import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
+import { ReservationService } from "./ReservationService";
+import { ExpenseService } from "./ExpenseService";
+import { removeNullValues } from "../helpers/helpers";
+
+interface ReservationType {
+  guestName: string;
+  nights: number;
+  arrivalDate: string;
+  departureDate: string;
+  channelId: number;
+  totalPrice: number;
+  channelCommissionAmount: number;
+  taxAmount: number;
+}
+
+interface ExpenseType {
+  concept: string;
+  expenseDate: string;
+  categoriesNames: string[];
+  listingMapId: number;
+  reservationId: number;
+  amount: number;
+}
 
 export class AccountingReportService {
 
@@ -17,6 +43,7 @@ export class AccountingReportService {
   private listingRepository = appDatabase.getRepository(Listing);
   private incomeService = new IncomeService();
   private categories = appDatabase.getRepository(CategoryEntity);
+  private ownerStatementRepository = appDatabase.getRepository(OwnerStatementEntity);
 
   async printExpenseStatement(expenseData: any) {
     const { listingId, fromDate, toDate, status, page, limit } = expenseData;
@@ -250,22 +277,182 @@ export class AccountingReportService {
     return listingWithRevenueAndExpense;
   }
 
-  async createOwnerStatement(request: Request, userId: string) {
-    const { fromDate, toDate, dateType, channelId } = request.body;
+  private async saveOwnerStatement(transactionManager: EntityManager, { fromDate, toDate, dateType, channelId, listingId, userId }) {
+    const newOwnerStatement = new OwnerStatementEntity();
+    newOwnerStatement.fromDate = fromDate;
+    newOwnerStatement.toDate = toDate;
+    newOwnerStatement.dateType = dateType;
+    newOwnerStatement.channel = channelId;
+    newOwnerStatement.listingId = listingId;
+    newOwnerStatement.createdAt = new Date();
+    newOwnerStatement.updatedAt = new Date();
+    newOwnerStatement.userId = userId;
 
-    const listings = await this.fetchListings(userId);
-    if (!listings) {
-      throw new Error("Listing not found");
+    return await transactionManager.save(newOwnerStatement);
+  }
+
+  private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
+    const financeStandardField = await this.hostaWayClient.financeStandardField(reservationId, clientId, clientSecret);
+    if (!financeStandardField) {
+      throw new Error(`FinanceStandardField not found for reservationId: ${reservationId}`);
     }
+
+    const filteredFinanceStandardField = removeNullValues(financeStandardField);
+
+    const totalTax =
+      parseFloat(filteredFinanceStandardField?.vat || 0) +
+      parseFloat(filteredFinanceStandardField?.hotelTax || 0) +
+      parseFloat(filteredFinanceStandardField?.lodgingTax || 0) +
+      parseFloat(filteredFinanceStandardField?.salesTax || 0) +
+      parseFloat(filteredFinanceStandardField?.occupancyTax || 0) +
+      parseFloat(filteredFinanceStandardField?.cityTax || 0) +
+      parseFloat(filteredFinanceStandardField?.roomTax || 0) +
+      parseFloat(filteredFinanceStandardField?.otherTaxes || 0);
+
+    const directPayout =
+      parseFloat(filteredFinanceStandardField?.baseRate || 0) +
+      parseFloat(filteredFinanceStandardField?.cleaningFee || 0) +
+      totalTax +
+      parseFloat(filteredFinanceStandardField?.petFee || 0) +
+      parseFloat(filteredFinanceStandardField?.weeklyDiscount || 0) +
+      parseFloat(filteredFinanceStandardField?.couponDiscount || 0) +
+      parseFloat(filteredFinanceStandardField?.monthlyDiscount || 0) +
+      parseFloat(filteredFinanceStandardField?.cancellationPayout || 0) +
+      parseFloat(filteredFinanceStandardField?.otherFees || 0);
+
+    const ownerPayout = parseFloat(filteredFinanceStandardField?.airbnbPayoutSum || 0) + directPayout;
+    const paymentProcessing = directPayout * 0.03;
+    const airbnbCommission = parseFloat(filteredFinanceStandardField?.airbnbPayoutSum || 0) * 0.1;
+    const VRBOCommission = directPayout * 0.1;
+    const pmCommission = airbnbCommission + VRBOCommission;
+
+    return { ownerPayout, paymentProcessing, pmCommission };
+
+  }
+
+  private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string) {
+    for (const reservation of reservations) {
+
+      //calculate ownerPayout, paymentProcessing and pmCommission
+      const {
+        ownerPayout,
+        pmCommission,
+        paymentProcessing
+      } = await this.calculateFinancialFields(reservation.id, clientId, clientSecret);
+
+      const newIncome = new OwnerStatementIncomeEntity();
+      newIncome.ownerStatementId = ownerStatementId;
+      newIncome.guest = reservation.guestName;
+      newIncome.nights = reservation.nights;
+      newIncome.checkInDate = reservation.arrivalDate;
+      newIncome.checkOutDate = reservation.departureDate;
+      newIncome.channel = reservation.channelId;
+      newIncome.totalPaid = reservation.totalPrice;
+      newIncome.ownerPayout = ownerPayout;
+      newIncome.pmCommission = pmCommission;
+      newIncome.paymentProcessing = paymentProcessing;
+      newIncome.channelFee = reservation.channelCommissionAmount;
+      newIncome.totalTax = reservation.taxAmount;
+      newIncome.createdAt = new Date();
+      newIncome.updatedAt = new Date();
+
+      await transactionManager.save(newIncome);
+    }
+  }
+
+  private async saveOwnerStatementExpense(transactionManager: EntityManager, expenses: ExpenseType[], ownerStatementId: number) {
+    for (const expense of expenses) {
+      const newExpense = new OwnerStatementExpenseEntity();
+      newExpense.ownerStatementId = ownerStatementId;
+      newExpense.concept = expense.concept;
+      newExpense.date = expense.expenseDate;
+      newExpense.categories = JSON.stringify(expense.categoriesNames);
+      newExpense.listingId = expense.listingMapId;
+      newExpense.reservationId = expense.reservationId;
+      newExpense.amount = expense.amount;
+      newExpense.createdAt = new Date();
+      newExpense.updatedAt = new Date();
+
+      await transactionManager.save(newExpense);
+    }
+  }
+
+  private filterExpenses(expenses: ExpenseType[], fromDate: string, toDate: string, listingId: number) {
+    return expenses.filter((expense) => {
+      const expenseDate = new Date(expense.expenseDate);
+      const checkIn = new Date(fromDate);
+      const checkOut = new Date(toDate);
+      return expense.listingMapId === listingId && expenseDate >= checkIn && expenseDate <= checkOut;
+    });
+  }
+
+  async createOwnerStatement(request: Request, userId: string) {
+    const { fromDate, toDate, dateType, channelId, listingId } = request.body;
 
     const connectedAccountService = new ConnectedAccountService();
     const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
 
-    const listingsWithRevenue = await this.getListingsWithRevenue(listings, clientId, clientSecret, dateType, fromDate, toDate, channelId);
+    return await appDatabase.transaction(async (transactionManager: EntityManager) => {
+      // Save owner statement details
+      const newOwnerStatement = await this.saveOwnerStatement(transactionManager, {
+        fromDate,
+        toDate,
+        dateType,
+        channelId,
+        listingId,
+        userId
+      });
 
-    const listingWithRevenueAndExpense = await this.getListingsWithRevenueAndExpense(listingsWithRevenue, clientId, clientSecret);
+      // Save owner-statement-income
+      const reservationService = new ReservationService();
+      const reservations = await reservationService.fetchReservations(
+        clientId,
+        clientSecret,
+        listingId,
+        dateType,
+        fromDate,
+        toDate,
+        500,
+        0,
+        channelId
+      );
+      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret);
 
-    return listingWithRevenueAndExpense;
+      // Save owner-statement-expense
+      const expenseService = new ExpenseService();
+      const expenses = await expenseService.getExpensesFromHostaway(clientId, clientSecret);
+      const filteredExpenses = this.filterExpenses(expenses, fromDate, toDate, listingId);
+      await this.saveOwnerStatementExpense(transactionManager, filteredExpenses, newOwnerStatement.id);
+
+      return {
+        status: true,
+        message: "Owner statement created successfully!!!",
+      };
+    });
   }
+
+
+  async getOwnerStatements(userId: string) {
+    const ownerStatements = await this.ownerStatementRepository
+      .createQueryBuilder("owner_statements")
+      .leftJoinAndSelect("owner_statements.income", "owner_statement_income")
+      .leftJoinAndSelect("owner_statements.expense", "owner_statement_expense")
+      .where("owner_statements.userId = :userId", { userId })
+      .getMany();
+
+    const updatedStatements = ownerStatements.map(statement => {
+      const revenue = statement.income.reduce((sum: number, item: any) => sum + parseFloat(item.totalPaid || "0"), 0);
+      const expense = statement.expense.reduce((sum: number, item: any) => sum + parseFloat(item.amount || "0"), 0);
+
+      return {
+        ...statement,
+        revenue: revenue.toFixed(2),
+        expense: expense.toFixed(2),
+      };
+    });
+
+    return updatedStatements;
+  }
+
 
 }

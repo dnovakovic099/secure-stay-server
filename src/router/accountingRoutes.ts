@@ -72,4 +72,10 @@ router.route('/createownerstatement')
         accountingController.createOwnerStatement
     )
 
+router.route('/getownerstatements')
+    .get(
+        verifySession,
+        accountingController.getOwnerStatements
+    )
+
 export default router;
