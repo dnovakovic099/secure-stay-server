@@ -5,7 +5,9 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  OneToMany,
 } from "typeorm";
+import { ClientListingEntity } from "./ClientListings";
 
 @Entity("clients")
 export class ClientEntity {
@@ -64,4 +66,7 @@ export class ClientEntity {
 
   @Column({ type: "int" })
   guests: number;
+
+  @OneToMany(() => ClientListingEntity, (listing) => listing.client)
+  listings: ClientListingEntity[];
 }

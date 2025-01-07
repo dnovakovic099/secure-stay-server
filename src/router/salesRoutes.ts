@@ -5,6 +5,7 @@ import {
   validateClientRequest,
   validateParamsWhenFetchingData,
 } from "../middleware/validation/sales/client.validation";
+import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const salesController = new SalesController();
@@ -18,4 +19,11 @@ router
 router
   .route("/getDetailsFromAddress")
   .get(validateParamsWhenFetchingData, salesController.getDetailsFromAirDna);
+
+router
+  .route("/generatePdf/:client_id")
+  .get(
+    fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
+    salesController.generatePdf
+  );
 export default router;

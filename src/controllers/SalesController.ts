@@ -9,7 +9,13 @@ import {
   transformData,
 } from "../helpers/airdna";
 import puppeteer, { Browser } from "puppeteer";
-import { PUPPETEER_LAUNCH_OPTIONS } from "../constants";
+import {
+  PROPERTY_REVENUE_REPORT_PATH,
+  PUPPETEER_LAUNCH_OPTIONS,
+} from "../constants";
+import path from "path";
+import ejs from "ejs";
+import fs from "fs";
 
 export class SalesController {
   async createClient(request: Request, response: Response) {
@@ -101,7 +107,7 @@ export class SalesController {
       const apiResponse = await setBedBathGuestCounts(page, rest);
       const allElements = await scrapeAllDataFromSelectedListing(page);
 
-      const processedData = transformData(allElements);
+      const processedData = transformData(allElements); // Leaving this here incase we need to use it later for the pdf
       await browser.close();
       if (!apiResponse.success) {
         return response.status(400).json({
@@ -118,6 +124,70 @@ export class SalesController {
         error,
         message: "Failed to fetch details for the selected address.",
       });
+    }
+  }
+  async generatePdf(request: Request, response: Response) {
+    const clientId = parseInt(request.params.client_id);
+    // const attachments = request.files["attachments"] as Express.Multer.File[];
+    const clientService = new ClientService();
+    let browser: Browser;
+    try {
+      const fetchedListing = await clientService.getClientListing(clientId);
+      if (fetchedListing) {
+        const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
+        const html = await ejs.renderFile(templatePath, {
+          title: "Property Revenue Report",
+          listingData: fetchedListing,
+        });
+        browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: "load" });
+        const pdfBuffer = await page.pdf({
+          format: "A4",
+          printBackground: true,
+        });
+        const pdfFileName = `${clientId}/property-revenue-report-${Date.now()}.pdf`;
+        const pdfFilePath = path.resolve(__dirname, "public", pdfFileName);
+        const pdfDir = path.dirname(pdfFilePath);
+        if (!fs.existsSync(pdfDir)) {
+          fs.mkdirSync(pdfDir, { recursive: true });
+        }
+
+        fs.writeFileSync(pdfFilePath, pdfBuffer);
+        const pdfUrl = `/public/${pdfFileName}`;
+        const pdfSaved = await clientService.saveGeneratedPdfLink(
+          clientId,
+          pdfUrl
+        );
+        if (!pdfSaved) {
+          return response.status(404).json({ error: "Client not found" });
+        }
+        // console.log("attachments", attachments);
+
+        // let uploadedFiles;
+        // if (Array.isArray(attachments) && attachments.length > 0) {
+        //   uploadedFiles = attachments?.map((file) => ({
+        //     originalName: file.originalname,
+        //     storedPath: file.path,
+        //   }));
+        // }
+        await browser.close();
+        return response.status(200).json({
+          message: "PDF generated and saved successfully",
+          pdfUrl,
+          // uploadedFiles,
+        });
+      }
+      return response
+        .status(404)
+        .json({ error: "Listing for client not found" });
+    } catch (error) {
+      console.log("error", error);
+
+      if (browser) {
+        await browser.close();
+      }
+      return response.status(500).json({ error: "Unable to generate pdf" });
     }
   }
 }

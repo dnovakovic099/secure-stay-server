@@ -411,6 +411,7 @@ CREATE TABLE IF NOT EXISTS `clients` (
 
 CREATE TABLE IF NOT EXISTS `clientListings`(
  `id` INT AUTO_INCREMENT PRIMARY KEY,
+ `clientId` INT,
  `airdnaMarketName` VARCHAR(255)
  `marketType` VARCHAR(50),       
  `marketScore` DECIMAL(10, 2), 
@@ -418,7 +419,7 @@ CREATE TABLE IF NOT EXISTS `clientListings`(
  `lng` DECIMAL(10, 7),
  `occupancy` DECIMAL(3, 2),
  `address` VARCHAR(255),
- `cleaning_fee` DECIMAL(10, 7),
+ `cleaningFee` DECIMAL(10, 7),
  `revenue` INT,
  `totalComps` INT,
  `comps` JSON,

@@ -15,3 +15,6 @@ export const PUPPETEER_LAUNCH_OPTIONS = {
   args: ["--disable-setuid-sandbox", "--no-sandbox"],
   defaultViewport: null,
 };
+
+export const PROPERTY_REVENUE_REPORT_PATH =
+  "src/template/listing/propertyDetailRevenueReport.ejs";
