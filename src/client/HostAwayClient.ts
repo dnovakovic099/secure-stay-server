@@ -189,7 +189,7 @@ export class HostAwayClient {
     channelId: number | ""
   ): Promise<Object[]> {
     
-    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType == "arrival" ? "departure" : "arrival"}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
 
     if (listingId) {
       url += `&listingId=${listingId}`;
