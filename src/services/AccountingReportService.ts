@@ -16,6 +16,7 @@ import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
 import { removeNullValues } from "../helpers/helpers";
 import { ListingService } from "./ListingService";
+import { formatDate, getCurrentDateInUTC } from "../helpers/date";
 
 interface ReservationType {
   guestName: string;
@@ -35,6 +36,8 @@ interface ExpenseType {
   listingMapId: number;
   reservationId: number;
   amount: number;
+  guestName: string;
+  listingName: string;
 }
 
 export class AccountingReportService {
@@ -293,43 +296,20 @@ export class AccountingReportService {
   }
 
   private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
-    const financeStandardField = await this.hostaWayClient.financeStandardField(reservationId, clientId, clientSecret);
-    if (!financeStandardField) {
-      throw new Error(`FinanceStandardField not found for reservationId: ${reservationId}`);
+    const financeCalculatedField = await this.hostaWayClient.financeCalculatedField(reservationId, clientId, clientSecret);
+    if (!financeCalculatedField || financeCalculatedField?.length == 0) {
+      throw new Error(`FinanceCalculatedField not found for reservationId: ${reservationId}`);
     }
 
-    const filteredFinanceStandardField = removeNullValues(financeStandardField);
+    let ownerPayout = financeCalculatedField.find((obj) => obj?.formulaName == "ownerPayout").formulaResult || 0;
+    let pmCommission = financeCalculatedField.find((obj) => obj?.formulaName == "pmCommission").formulaResult || 0;
+    let paymentProcessing = financeCalculatedField.find((obj) => obj?.formulaName == "PaymentProcessing").formulaResult || 0;
+    let channelFee = financeCalculatedField.find((obj) => obj?.formulaName == "ChannelFee").formulaResult || 0;
+    let totalTax = financeCalculatedField.find((obj) => obj?.formulaName == "totalTax").formulaResult || 0;
 
-    const totalTax =
-      parseFloat(filteredFinanceStandardField?.vat || 0) +
-      parseFloat(filteredFinanceStandardField?.hotelTax || 0) +
-      parseFloat(filteredFinanceStandardField?.lodgingTax || 0) +
-      parseFloat(filteredFinanceStandardField?.salesTax || 0) +
-      parseFloat(filteredFinanceStandardField?.occupancyTax || 0) +
-      parseFloat(filteredFinanceStandardField?.cityTax || 0) +
-      parseFloat(filteredFinanceStandardField?.roomTax || 0) +
-      parseFloat(filteredFinanceStandardField?.otherTaxes || 0);
-
-    const directPayout =
-      parseFloat(filteredFinanceStandardField?.baseRate || 0) +
-      parseFloat(filteredFinanceStandardField?.cleaningFee || 0) +
-      totalTax +
-      parseFloat(filteredFinanceStandardField?.petFee || 0) +
-      parseFloat(filteredFinanceStandardField?.weeklyDiscount || 0) +
-      parseFloat(filteredFinanceStandardField?.couponDiscount || 0) +
-      parseFloat(filteredFinanceStandardField?.monthlyDiscount || 0) +
-      parseFloat(filteredFinanceStandardField?.cancellationPayout || 0) +
-      parseFloat(filteredFinanceStandardField?.otherFees || 0);
-
-    const ownerPayout = parseFloat(filteredFinanceStandardField?.airbnbPayoutSum || 0) + directPayout;
-    const paymentProcessing = directPayout * 0.03;
-    const airbnbCommission = parseFloat(filteredFinanceStandardField?.airbnbPayoutSum || 0) * 0.1;
-    const VRBOCommission = directPayout * 0.1;
-    const pmCommission = airbnbCommission + VRBOCommission;
-
-    return { ownerPayout, paymentProcessing, pmCommission };
-
+    return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
   }
+
 
   private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string) {
     for (const reservation of reservations) {
@@ -338,7 +318,9 @@ export class AccountingReportService {
       const {
         ownerPayout,
         pmCommission,
-        paymentProcessing
+        paymentProcessing,
+        channelFee,
+        totalTax
       } = await this.calculateFinancialFields(reservation.id, clientId, clientSecret);
 
       const newIncome = new OwnerStatementIncomeEntity();
@@ -352,8 +334,8 @@ export class AccountingReportService {
       newIncome.ownerPayout = ownerPayout;
       newIncome.pmCommission = pmCommission;
       newIncome.paymentProcessing = paymentProcessing;
-      newIncome.channelFee = reservation.channelCommissionAmount;
-      newIncome.totalTax = reservation.taxAmount;
+      newIncome.channelFee = channelFee;
+      newIncome.totalTax = totalTax;
       newIncome.createdAt = new Date();
       newIncome.updatedAt = new Date();
 
@@ -369,7 +351,9 @@ export class AccountingReportService {
       newExpense.date = expense.expenseDate;
       newExpense.categories = JSON.stringify(expense.categoriesNames);
       newExpense.listingId = expense.listingMapId;
+      newExpense.listingName = expense.listingName;
       newExpense.reservationId = expense.reservationId;
+      newExpense.guestName = expense.guestName;
       newExpense.amount = expense.amount;
       newExpense.createdAt = new Date();
       newExpense.updatedAt = new Date();
@@ -462,6 +446,9 @@ export class AccountingReportService {
 
         return {
           ...statement,
+          fromDate: formatDate(statement.fromDate),
+          toDate: formatDate(statement.toDate),
+          currentDate: formatDate(getCurrentDateInUTC()),
           revenue: revenue.toFixed(2),
           expenses: expense.toFixed(2),
           listingName: listing?.name,

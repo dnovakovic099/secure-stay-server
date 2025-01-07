@@ -28,11 +28,17 @@ export class OwnerStatementExpenseEntity {
     @Column({ nullable: true })
     categories: string;
 
-    @Column()
+    @Column({ nullable: true })
     listingId: number;
 
     @Column({ nullable: true })
+    listingName: string;
+
+    @Column({ nullable: true })
     reservationId: number;
+
+    @Column({ nullable: true })
+    guestName: string;
 
     @Column({ nullable: true })
     owner: string;
