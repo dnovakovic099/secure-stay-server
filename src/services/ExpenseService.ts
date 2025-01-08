@@ -330,4 +330,9 @@ export class ExpenseService {
         return { totalExpense };
 
     }
+
+    public async getExpensesFromHostaway(clientId: string, clientSecret: string) {
+        const expenses = await this.hostAwayClient.getExpenses(clientId, clientSecret);
+        return expenses;
+    }
 }

@@ -26,4 +26,10 @@ router.route('/getlistingscore').get(
   listingController.getListingScore
 )
 
+router.route('/getlistingnames')
+  .get(
+    verifySession,
+    listingController.getListingNames
+  )
+
 export default router;
