@@ -201,4 +201,71 @@ export class AccountingReportService {
 
   }
 
+  async fetchListings(userId: string) {
+    // fetch listing
+    const listings = await this.listingRepository.createQueryBuilder("listing_info")
+      .select(['listing_info.id', 'listing_info.name', 'listing_info.address', 'listing_info.state', 'listing_info.city']) // added selection
+      .where("listing_info.userId = :userId", { userId })
+      .getMany();
+
+    return listings;
+  }
+
+  async getListingsWithRevenue(listings: Listing[], clientId: string, clientSecret: string, dateType: string, fromDate: string, toDate: string, channelId: number) {
+    const listingsWithRevenue = await Promise.all(listings.map(async (listing) => {
+      // fetch reservations 
+      const reservations = await this.hostaWayClient.getReservations(
+        clientId,
+        clientSecret,
+        listing.id,
+        dateType,
+        fromDate,
+        toDate,
+        500,
+        0,
+        channelId
+      );
+
+      const revenue = reservations.reduce((acc, reservation: any) => {
+        return acc + reservation.totalPrice;
+      }, 0);
+
+      return { ...listing, revenue };
+    }));
+
+    return listingsWithRevenue;
+  }
+
+  async getListingsWithRevenueAndExpense(listingsWithRevenue: Listing[], clientId: string, clientSecret: string) {
+    const expenses = await this.hostaWayClient.getExpenses(clientId, clientSecret);
+
+    const listingWithRevenueAndExpense = listingsWithRevenue.map((listing: any) => {
+      const totalExpenses = expenses.filter(expense => expense.listingMapId === listing.id).reduce((acc, expense: any) => {
+        return acc + expense.amount;
+      }, 0);
+
+      return { ...listing, expense: totalExpenses };
+    });
+
+    return listingWithRevenueAndExpense;
+  }
+
+  async createOwnerStatement(request: Request, userId: string) {
+    const { fromDate, toDate, dateType, channelId } = request.body;
+
+    const listings = await this.fetchListings(userId);
+    if (!listings) {
+      throw new Error("Listing not found");
+    }
+
+    const connectedAccountService = new ConnectedAccountService();
+    const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
+
+    const listingsWithRevenue = await this.getListingsWithRevenue(listings, clientId, clientSecret, dateType, fromDate, toDate, channelId);
+
+    const listingWithRevenueAndExpense = await this.getListingsWithRevenueAndExpense(listingsWithRevenue, clientId, clientSecret);
+
+    return listingWithRevenueAndExpense;
+  }
+
 }
