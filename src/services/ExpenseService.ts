@@ -8,6 +8,7 @@ import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
+import { format } from 'date-fns'
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -151,6 +152,7 @@ export class ExpenseService {
             "Contractor Number",
             "Findings",
             "Payment Method",
+            "Created At",
             "Attachments",
         ];
 
@@ -189,6 +191,7 @@ export class ExpenseService {
                 expense.contractorNumber,
                 expense.findings,
                 expense.paymentMethod,
+                format(expense.createdAt, "yyyy-MM-dd"),
                 fileLinks,
         ];
         });
