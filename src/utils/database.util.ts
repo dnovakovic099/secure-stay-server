@@ -7,7 +7,7 @@ export const appDatabase = new DataSource({
   username: process.env.DATABASE_USERNAME,
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME,
-  synchronize: true,
+  // synchronize: true,
   entities: ["src/entity/*.ts"],
   subscribers: ["src/subscriber/*.ts"],
   migrations: ["src/migration/*.ts"],

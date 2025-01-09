@@ -10,6 +10,22 @@ import {
 } from "../helpers/airdna";
 import puppeteer, { Browser } from "puppeteer";
 import {
+  BG_SECTION_IMAGE,
+  LOGO_URL,
+  PAGE_10_IMG,
+  PAGE_12_IMG,
+  PAGE_14_IMG,
+  PAGE_1_IMAGE,
+  PAGE_2_IMAGE,
+  PAGE_3_IMAGE,
+  PAGE_4_CARD_1,
+  PAGE_4_CARD_2,
+  PAGE_4_CARD_3,
+  PAGE_4_IMAGE,
+  PAGE_6_IMG_1,
+  PAGE_7_IMG_1,
+  PAGE_7_IMG_2,
+  PAGE_9_IMG,
   PROPERTY_REVENUE_REPORT_PATH,
   PUPPETEER_LAUNCH_OPTIONS,
 } from "../constants";
@@ -62,7 +78,7 @@ export class SalesController {
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
-      page.setDefaultTimeout(60000);
+      // page.setDefaultTimeout(60000);
 
       const customUA = generateRandomUA();
 
@@ -135,29 +151,48 @@ export class SalesController {
       const fetchedListing = await clientService.getClientListing(clientId);
       if (fetchedListing) {
         const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
+
         const html = await ejs.renderFile(templatePath, {
           title: "Property Revenue Report",
           listingData: fetchedListing,
+          LOGO_URL,
+          PAGE_1_IMAGE,
+          PAGE_2_IMAGE,
+          PAGE_3_IMAGE,
+          PAGE_4_IMAGE,
+          BG_SECTION_IMAGE,
+          PAGE_4_CARD_1,
+          PAGE_4_CARD_2,
+          PAGE_4_CARD_3,
+          PAGE_6_IMG_1,
+          PAGE_7_IMG_1,
+          PAGE_7_IMG_2,
+          PAGE_9_IMG,
+          PAGE_10_IMG,
+          PAGE_12_IMG,
+          PAGE_14_IMG,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: "load" });
+        await page.setContent(html, { waitUntil: "networkidle0" });
         const pdfBuffer = await page.pdf({
           format: "A4",
           printBackground: true,
         });
-        const pdfFileName = `${clientId}/property-revenue-report-${Date.now()}.pdf`;
+        const pdfFileName = `../../../public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
         const pdfFilePath = path.resolve(__dirname, "public", pdfFileName);
         const pdfDir = path.dirname(pdfFilePath);
         if (!fs.existsSync(pdfDir)) {
           fs.mkdirSync(pdfDir, { recursive: true });
         }
-
+        const pdfPath = `${
+          process.env.BASE_URL
+        }/public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
         fs.writeFileSync(pdfFilePath, pdfBuffer);
-        const pdfUrl = `/public/${pdfFileName}`;
+
         const pdfSaved = await clientService.saveGeneratedPdfLink(
           clientId,
-          pdfUrl
+          pdfPath
         );
         if (!pdfSaved) {
           return response.status(404).json({ error: "Client not found" });
@@ -171,10 +206,10 @@ export class SalesController {
         //     storedPath: file.path,
         //   }));
         // }
-        await browser.close();
+        // await browser.close();
         return response.status(200).json({
           message: "PDF generated and saved successfully",
-          pdfUrl,
+          pdfPath,
           // uploadedFiles,
         });
       }
