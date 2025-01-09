@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 export enum ExpenseStatus {
     PENDING = 'Pending Approval',
@@ -56,4 +56,10 @@ export class ExpenseEntity {
 
     @Column({ type: 'varchar', nullable: true })
     paymentMethod: string;
+
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamp' })
+    updatedAt: Date;
 }

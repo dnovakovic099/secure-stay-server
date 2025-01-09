@@ -38,6 +38,7 @@ export const validateCreateOwnerStatement = (request: Request, response: Respons
     }).required(),
     dateType: Joi.string().required().valid("arrival", "departure"),
     channelId: Joi.number().required().allow(""),
+    listingId: Joi.number().required()
   });
 
   const { error } = schema.validate(request.body);

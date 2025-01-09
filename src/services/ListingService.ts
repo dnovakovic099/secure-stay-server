@@ -121,6 +121,16 @@ export class ListingService {
     return listingsWithImages;
   }
 
+  async getListingNames(userId: string) {
+    const listings = await this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name"])
+      .where("listing.userId = :userId", { userId })
+      .getMany();
+
+    return listings;
+  }
+
   async getListingById(listing_id: string, userId: string) {
     const result = await this.listingRepository
       .createQueryBuilder("listing")

@@ -16,3 +16,9 @@ export function generateRandomNumber(length: number):number {
 export function generateAPIKey(): string {
     return uuidv4();
 }
+
+export function removeNullValues(obj: Object) {
+    return Object.fromEntries(
+        Object.entries(obj).filter(([key, value]) => value !== null)
+    );
+}
