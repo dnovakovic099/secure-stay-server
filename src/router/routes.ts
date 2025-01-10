@@ -12,6 +12,7 @@ import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
 import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
 import { PmRoutes } from "./pmRoutes";
+import { UpsellOrdersRoutes } from './upsellOrdersRoutes';
 
 
 export const AppRoutes = () => {
@@ -28,6 +29,7 @@ export const AppRoutes = () => {
   const guideBookRoutes = GuideBookRoutes();
   const automatedMessageRoutes = AutomatedMessageRoutes();
   const pmRoutes = PmRoutes()
+  const upsellOrdersRoutes = UpsellOrdersRoutes()
 
   return [
     {
@@ -170,6 +172,7 @@ export const AppRoutes = () => {
       file: false,
       rawJson: false,
     },
+    ...upsellOrdersRoutes,
     ...userRoutes,
     ...guideBookRoutes,
     ...automatedMessageRoutes,
