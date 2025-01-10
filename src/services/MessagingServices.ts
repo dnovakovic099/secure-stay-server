@@ -167,21 +167,14 @@ export class MessagingService {
     }
 
     private async checkGuestMessageTime(msg: Message) {
-        const timeZoneOffset = -5 * 60; // UTC offset for America/New_York (Standard Time)
-        const now = new Date();
-
-        // Convert receivedAt (in America/New_York) to UTC
-        const receivedAt = new Date(msg.receivedAt);
-        const receivedAtUtc = new Date(receivedAt.getTime() - timeZoneOffset * 60 * 1000); // Convert to UTC
-
-        // Get current time in UTC
-        const nowUtc = new Date(now.getTime() + now.getTimezoneOffset() * 60000); // UTC time
+        const nowUtc = new Date(); // Current UTC time
+        const receivedAt = msg.receivedAt; // Already in UTC
 
         // Calculate the difference in milliseconds
-        const differenceInMilliseconds = nowUtc.getTime() - receivedAtUtc.getTime();
+        const differenceInMilliseconds = nowUtc.getTime() - receivedAt.getTime();
 
-        // Check if the difference is greater than 15 minutes
-        if (differenceInMilliseconds > 15 * 60 * 1000) {
+        // Check if the difference is greater than 10 minutes
+        if (differenceInMilliseconds > 10 * 60 * 1000) {
             await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
         }
     }

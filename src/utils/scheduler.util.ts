@@ -9,5 +9,5 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 0 * * *", sendCodes);
 
-  schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
+  schedule.scheduleJob("*/1 * * * *", checkUnasweredMessages);
 }
