@@ -333,6 +333,46 @@ export class HostAwayClient {
     }
   }
 
+
+  public async fetchConversationMessages(conversationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/conversations/${conversationId}/messages`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);      
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+
+  public async getReservation(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/reservations/${reservationId}`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
 }
 
 

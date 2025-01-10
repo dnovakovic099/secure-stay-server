@@ -6,6 +6,9 @@ export class Message {
     id: number;
 
     @Column()
+    messageId: number;
+
+    @Column()
     conversationId: number;
 
     @Column()
@@ -23,6 +26,9 @@ export class Message {
     @Column({ type: 'boolean', default: false })
     answered: boolean;
 
-    @UpdateDateColumn()
-    lastUpdated: Date;
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamp' })
+    updatedAt: Date;
 }
