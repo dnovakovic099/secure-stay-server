@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { ChargeAutomationService } from "./ChargeAutomationService";
 import { Between } from "typeorm";
+import { sendUpsellOrderEmail } from './UpsellEmailService';
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -9,7 +10,9 @@ export class UpsellOrderService {
 
     async createOrder(data: Partial<UpsellOrder>) {
         const order = this.upsellOrderRepo.create(data);
-        return await this.upsellOrderRepo.save(order);
+        const savedOrder = await this.upsellOrderRepo.save(order);
+        await sendUpsellOrderEmail(savedOrder);
+        return savedOrder;
     }
 
     async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '') {

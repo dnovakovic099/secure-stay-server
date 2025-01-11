@@ -1,6 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { UpsellPurchasedItem } from "../types/chargeAutomation";
+import { sendUpsellOrderEmail } from './UpsellEmailService';
 
 export class ChargeAutomationService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -57,6 +58,7 @@ export class ChargeAutomationService {
 
                 if (!existingOrder) {
                     await this.upsellOrderRepo.save(order);
+                    await sendUpsellOrderEmail(order);
                 }
             }
 
