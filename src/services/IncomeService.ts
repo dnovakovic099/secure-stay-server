@@ -2,9 +2,51 @@
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountService } from "./ConnectedAccountService";
+import { differenceInDays } from 'date-fns';
+
+interface Reservation {
+    // id: number,
+    // status: string,
+    listingName: string,
+    channelName: string,
+    guestName: string,
+    totalPrice: number,
+    arrivalDate: string,
+    departureDate: string,
+    // remainingBalance: number | null,
+    // taxAmount: number | null,
+    // channelCommissionAmount: number | null,
+    // hostawayCommissionAmount: number | null,
+    // cleaningFee: number | null,
+    // securityDepositFee: number | null,
+    // currency: string,
+    // reservationCouponId: string | null,
+}
 
 export class IncomeService {
     private hostAwayClient = new HostAwayClient();
+
+    private calculateProratedAmount(reservation: Reservation, fromDate: string, toDate: string): number {
+        const totalNights = differenceInDays(
+            new Date(reservation.departureDate),
+            new Date(reservation.arrivalDate)
+        );
+
+        const pricePerNight = reservation.totalPrice / totalNights;
+
+        const periodStart = new Date(Math.max(
+            new Date(reservation.arrivalDate).getTime(),
+            new Date(fromDate).getTime()
+        ));
+        const periodEnd = new Date(Math.min(
+            new Date(reservation.departureDate).getTime(),
+            new Date(toDate).getTime()
+        ));
+
+        const nightsInPeriod = differenceInDays(periodEnd, periodStart);
+
+        return pricePerNight * nightsInPeriod;
+    }
 
     async generateIncomeStatement(request: Request, userId: string) {
         const { listingId, dateType, fromDate, toDate, page, limit, channelId } = request.body;
@@ -13,11 +55,13 @@ export class IncomeService {
         const connectedAccountService = new ConnectedAccountService();
         const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
 
+        const hostAwayDateType = dateType === 'prorated' ? 'arrival' : dateType;
+
         const reservations = await this.hostAwayClient.getReservations(
             clientId,
             clientSecret,
             listingId,
-            dateType,
+            hostAwayDateType,
             fromDate,
             toDate,
             limit,
@@ -46,31 +90,17 @@ export class IncomeService {
             // "Reservation Coupon ID"
         ];
 
-        const rows = validReservations.map((reservation: {
-            // id: number,
-            // status: string,
-            listingName: string,
-            channelName: string,
-            guestName: string,
-            totalPrice: number,
-            arrivalDate: string,
-            departureDate: string,
-            // remainingBalance: number | null,
-            // taxAmount: number | null,
-            // channelCommissionAmount: number | null,
-            // hostawayCommissionAmount: number | null,
-            // cleaningFee: number | null,
-            // securityDepositFee: number | null,
-            // currency: string,
-            // reservationCouponId: string | null,
-        }) => {
+        const rows = validReservations.map((reservation: Reservation) => {
+            const amount = dateType === 'prorated' 
+                ? this.calculateProratedAmount(reservation, fromDate, toDate)
+                : reservation.totalPrice;
             return [
                 // reservation.id,
                 // reservation.status,
                 reservation.listingName,
                 this.modifyChannelName(reservation.channelName),
                 reservation.guestName,
-                reservation.totalPrice,
+                amount,
                 reservation.arrivalDate,
                 reservation.departureDate,
                 // reservation.remainingBalance,
