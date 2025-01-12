@@ -1,7 +1,7 @@
 import { ListingController } from "../controllers/ListingController"
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateGetListingScore, validateSaveListingScore } from "../middleware/validation/listings/listing.validation";
+import { validateGetListingScore, validateSaveListingScore, validateSaveListingUpdate } from "../middleware/validation/listings/listing.validation";
 
 const router = Router();
 const listingController = new ListingController();
@@ -30,6 +30,19 @@ router.route('/getlistingnames')
   .get(
     verifySession,
     listingController.getListingNames
+  )
+
+router.route('/savelistingupdate')
+  .post(
+    verifySession,
+    validateSaveListingUpdate,
+    listingController.saveListingUpdate
+  );
+
+router.route('/getlistingupdates/:listingId')
+  .get(
+    verifySession,
+    listingController.getListingUpdates
   )
 
 export default router;

@@ -4,7 +4,7 @@ import { MessagingPhoneNoInfo } from "../entity/MessagingPhoneNo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
-
+import { HostAwayClient } from "../client/HostAwayClient";
 interface MessageType {
     id: number;
     conversationId: number;
@@ -14,10 +14,19 @@ interface MessageType {
     date: Date;
 }
 
+interface MessageObj {
+    id: number;
+    conversationId: number;
+    reservationId: number;
+    isIncoming: number;
+    date: string;
+}
+
 export class MessagingService {
     private messagingEmailInfoRepository = appDatabase.getRepository(MessagingEmailInfo);
     private messagingPhoneNoInfoRepository = appDatabase.getRepository(MessagingPhoneNoInfo);
     private messageRepository = appDatabase.getRepository(Message);
+    private hostawayClient = new HostAwayClient();
 
     async saveEmailInfo(email: string) {
         const isExist = await this.messagingEmailInfoRepository.findOne({ where: { email } });
@@ -86,48 +95,111 @@ export class MessagingService {
     }
 
     async handleConversation(message: MessageType) {
+        const inquiryStatuses = [
+            "pending",
+            "awaitingPayment",
+            "inquiry",
+            "inquryPreapproved",
+            "inquiryDenied",
+            "inquiryTimeout",
+            "inquiryNotPossible"
+        ];
+        const reservationInfo = await this.hostawayClient.getReservation(
+            message.reservationId,
+            process.env.HOSTAWAY_CLIENT_ID,
+            process.env.HOSTAWAY_CLIENT_SECRET
+        );
+        if (!inquiryStatuses.includes(reservationInfo.status)) return;
+
         // save the message in the database only if isIncoming is 1; 
         if (message.isIncoming && message.isIncoming == 1) {
-            const incomingMessage = await this.handleIncomingMessage(message);
-            await this.trackUnansweredMessage(incomingMessage.id, message.body, message.reservationId, message.date);
-        } else {
-            // handle the agent reply messages
-            const guestMessage = await this.messageRepository.find({
-                where: { conversationId: message.conversationId },
-                order: { receivedAt: 'DESC' },
-                take: 1,
-            });
-
-            if (guestMessage.length > 0) {
-                guestMessage[0].answered = true;
-                guestMessage[0].lastUpdated = new Date();
-                await this.messageRepository.save(guestMessage[0]);
-            }
+            await this.saveIncomingGuestMessage(message);
+            console.log('Guest message saved successfully');
         }
         return;
     }
 
-    private async handleIncomingMessage(message: MessageType) {
+    private async saveIncomingGuestMessage(message: MessageType) {
         const newMessage = new Message();
+        newMessage.messageId = message.id;
         newMessage.conversationId = message.conversationId;
         newMessage.reservationId = message.reservationId;
         newMessage.body = message.body;
         newMessage.isIncoming = message.isIncoming;
         newMessage.receivedAt = message.date;
         newMessage.answered = false;
-        newMessage.lastUpdated = new Date();
 
         return await this.messageRepository.save(newMessage);
     }
 
-    private async trackUnansweredMessage(messageId: number, body: string, reservationId: number, date: Date) {
-        setTimeout(async () => {
-            const message = await this.messageRepository.findOne({ where: { id: messageId } });
-            if (message && !message.answered) {
-                this.notifyUnansweredMessage(body, reservationId, date);
-            }
-        }, 15 * 60 * 1000); // Check after 15 minutes
+    private async fetchGuestMessages() {
+        const messages = await this.messageRepository.find({
+            where: {
+                answered: false,
+            },
+        });
+
+        return messages;
     }
+
+    public async processUnanweredMessages() {
+        const unansweredMessages = await this.fetchGuestMessages();
+        if (unansweredMessages.length == 0) {
+            return;
+        }
+
+        for (const msg of unansweredMessages) {
+            //fetch the conversation messages from hostaway
+            const conversationMessages = await this.hostawayClient.fetchConversationMessages(
+                msg.conversationId,
+                process.env.HOSTAWAY_CLIENT_ID,
+                process.env.HOSTAWAY_CLIENT_SECRET
+            );
+
+            //check if conversation has been answered after the guest message
+            const isAnswered = this.checkUnasweredMessages(conversationMessages, msg);
+            if (!isAnswered) {
+                //check if the guest message received time has exceeded more than 15 minutes
+                await this.checkGuestMessageTime(msg);
+            }
+        }
+
+    }
+
+    private async checkGuestMessageTime(msg: Message) {
+        const nowUtc = new Date(); // Current UTC time
+        const receivedAt = msg.receivedAt; // Already in UTC
+
+        // Calculate the difference in milliseconds
+        const differenceInMilliseconds = nowUtc.getTime() - receivedAt.getTime();
+
+        // Check if the difference is greater than 10 minutes
+        if (differenceInMilliseconds > 10 * 60 * 1000) {
+            await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
+        }
+    }
+
+
+    private async checkUnasweredMessages(conversationMessages: MessageObj[], guestMessage: Message): Promise<Boolean> {
+        for (const msg of conversationMessages) {
+            const currentMessageDate = new Date(msg.date);
+            if (msg.isIncoming == 0 && (currentMessageDate > guestMessage.receivedAt)) {
+                await this.updateMessageAsAnswered(guestMessage);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private async updateMessageAsAnswered(guestMessage: Message) {
+        const message = await this.messageRepository.findOne({ where: { id: guestMessage.id } });
+        if (!message) {
+            console.log(`Could not find message with messageId:${guestMessage.messageId}`);
+        }
+
+        message.answered = true;
+        return await this.messageRepository.save(message);
+    };
 
     private async notifyUnansweredMessage(body: string, reservationId: number, date: Date) {
 
