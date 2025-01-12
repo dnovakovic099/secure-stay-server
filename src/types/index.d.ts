@@ -26,6 +26,8 @@ declare global {
     combined_market_info: CombinedMarketInfo;
     property_statistics: PropertyStatistics;
     for_sale_property_comps: ForSalePropertyComp[];
+    revenueGraphSS: string;
+    propertyStatisticsGraphSS: string;
   }
 
   /** Sub-interfaces for the 'payload' section */

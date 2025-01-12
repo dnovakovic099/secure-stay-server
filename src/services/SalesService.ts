@@ -26,55 +26,62 @@ export class ClientService {
       airDnaData,
     } = request.body;
 
-    const newClient = new ClientEntity();
-    newClient.leadStatus = leadStatus;
-    newClient.propertyAddress = propertyAddress;
-    newClient.city = city;
-    newClient.state = state;
-    newClient.country = country;
-    newClient.ownerName = ownerName;
-    newClient.salesCloser = salesCloser;
-    newClient.airDnaRevenue = airDnaRevenue;
-    newClient.commissionAmount = commissionAmount;
-    newClient.commissionStatus = commissionStatus;
-    newClient.baths = baths;
-    newClient.guests = guests;
-    newClient.beds = beds;
-    newClient.createdAt = new Date();
-    newClient.updatedAt = new Date();
+    const newClient = this.clientRepository.create({
+      leadStatus,
+      propertyAddress,
+      city,
+      state,
+      country,
+      ownerName,
+      salesCloser,
+      airDnaRevenue,
+      commissionAmount,
+      commissionStatus,
+      baths,
+      guests,
+      beds,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
     const savedClient = await this.clientRepository.save(newClient);
 
-    if (airDnaData) {
-      const {
-        combined_market_info,
-        comps,
-        compset_amenities,
-        for_sale_property_comps,
-        property_statistics,
-        property_details,
-      } = airDnaData as AirDnaScrappedDataResponse;
-      const listing = new ClientListingEntity();
-      listing.clientId = savedClient.id;
-      listing.airdnaMarketName = combined_market_info.airdna_market_name;
-      listing.marketType = combined_market_info.market_type;
-      listing.marketScore = combined_market_info.market_score;
-      listing.lat = property_details.location.lat;
-      listing.lng = property_details.location.lng;
-      listing.occupancy = property_statistics.occupancy.ltm;
-      listing.address = property_details.address;
-      listing.cleaningFee = property_statistics.cleaning_fee.ltm;
-      listing.revenue = property_statistics.revenue.ltm;
-      listing.totalComps = property_statistics.total_comps;
-      listing.comps = comps;
-      listing.forSalePropertyComps = for_sale_property_comps;
-      listing.compsetAmenities = compset_amenities;
-      listing.zipcode = property_details.zipcode;
-      listing.revenueRange = property_statistics.revenue_range;
-      listing.createdAt = new Date();
-      listing.updatedAt = new Date();
-      await this.clientListingRepository.save(listing);
-    }
+    const {
+      combined_market_info,
+      comps,
+      compset_amenities,
+      for_sale_property_comps,
+      property_statistics,
+      property_details,
+      revenueGraphSS,
+      propertyStatisticsGraphSS,
+    } = airDnaData as AirDnaScrappedDataResponse;
+
+    const listing = this.clientListingRepository.create({
+      clientId: savedClient.id,
+      airdnaMarketName: combined_market_info.airdna_market_name,
+      marketType: combined_market_info.market_type,
+      marketScore: combined_market_info.market_score,
+      lat: property_details.location.lat,
+      lng: property_details.location.lng,
+      occupancy: property_statistics.occupancy.ltm,
+      address: property_details.address,
+      cleaningFee: property_statistics.cleaning_fee.ltm,
+      revenue: property_statistics.revenue.ltm,
+      totalComps: property_statistics.total_comps,
+      comps,
+      forSalePropertyComps: for_sale_property_comps,
+      compsetAmenities: compset_amenities,
+      zipcode: property_details.zipcode,
+      revenueRange: property_statistics.revenue_range,
+      revenueGraphSS,
+      propertyStatisticsGraphSS,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await this.clientListingRepository.save(listing);
+
     return savedClient;
   }
   async getAllClients() {
@@ -104,10 +111,16 @@ export class ClientService {
     const listing = await this.clientListingRepository.findOne({
       where: { clientId },
     });
-    if (!listing) {
+    const client = await this.clientRepository.findOne({
+      where: { id: clientId },
+    });
+    if (!listing || !client) {
       return null;
     }
-    return listing;
+    return {
+      listing,
+      client,
+    };
   }
   async saveGeneratedPdfLink(
     clientId: number,

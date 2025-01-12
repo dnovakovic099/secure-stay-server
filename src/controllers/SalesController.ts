@@ -85,7 +85,7 @@ export class SalesController {
       // Set custom user agent
       await page.setUserAgent(customUA);
 
-      // await page.setViewport({ width: 1920, height: 1080 });
+      await page.setViewport({ width: 1920, height: 1080 });
 
       // await page.setRequestInterception(true);
       // Disable unnecessary resources
@@ -121,16 +121,55 @@ export class SalesController {
       await listings[0].click();
       await page.waitForNetworkIdle();
       const apiResponse = await setBedBathGuestCounts(page, rest);
-      const allElements = await scrapeAllDataFromSelectedListing(page);
 
-      const processedData = transformData(allElements); // Leaving this here incase we need to use it later for the pdf
+      const revenueGraphSelector = ".recharts-responsive-container";
+      await page.waitForSelector(revenueGraphSelector);
+      const revenueGraphElement = await page.$(revenueGraphSelector);
+
+      let revenueGraphSS = null;
+      if (revenueGraphElement) {
+        const screenshotBuffer = await revenueGraphElement.screenshot({
+          encoding: "base64",
+        });
+        revenueGraphSS = `data:image/png;base64,${screenshotBuffer}`;
+      }
+
+      const marketTypeATagSelector =
+        ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff";
+      const marketTypeElement = await page.$(marketTypeATagSelector);
+      await marketTypeElement?.click();
+      await page.waitForNetworkIdle();
+      const propertyStatisticsGraphSelector = ".MuiBox-root.css-1czpbid";
+      await page.waitForSelector(propertyStatisticsGraphSelector);
+      const marketTypeGraphElement = await page.$(
+        propertyStatisticsGraphSelector
+      );
+      let propertyStatisticsGraphSS = null;
+      if (marketTypeGraphElement) {
+        const screenshotBuffer = await marketTypeGraphElement.screenshot({
+          encoding: "base64",
+        });
+        propertyStatisticsGraphSS = `data:image/png;base64,${screenshotBuffer}`;
+      }
+
+      // const allElements = await scrapeAllDataFromSelectedListing(page);
+
+      // const processedData = transformData(allElements); // Leaving this here incase we need to use it later for the pdf
+
       await browser.close();
       if (!apiResponse.success) {
         return response.status(400).json({
           error: "The Listing doesn't have the required details.",
         });
       }
-      return response.json(apiResponse.data);
+
+      const responseData = {
+        ...apiResponse.data.payload,
+        revenueGraphSS,
+        propertyStatisticsGraphSS,
+      };
+
+      return response.json(responseData);
     } catch (error) {
       console.log("error", error);
       if (browser) {
@@ -149,17 +188,23 @@ export class SalesController {
     let browser: Browser;
     try {
       const fetchedListing = await clientService.getClientListing(clientId);
-      if (fetchedListing) {
+      if (fetchedListing.listing && fetchedListing.client) {
         const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
+        // console.log("fetchedListing", fetchedListing);
+        const { revenueRange, propertyStatisticsGraphSS } =
+          fetchedListing.listing;
 
+        const currentYear = new Date().getFullYear();
         const html = await ejs.renderFile(templatePath, {
-          title: "Property Revenue Report",
-          listingData: fetchedListing,
+          title: "Property Performance Report",
+          listingData: fetchedListing.listing,
+          clientData: fetchedListing.client,
+          currentYear,
           LOGO_URL,
           PAGE_1_IMAGE,
           PAGE_2_IMAGE,
           PAGE_3_IMAGE,
-          PAGE_4_IMAGE,
+          PAGE_4_IMAGE: propertyStatisticsGraphSS,
           BG_SECTION_IMAGE,
           PAGE_4_CARD_1,
           PAGE_4_CARD_2,
@@ -171,6 +216,7 @@ export class SalesController {
           PAGE_10_IMG,
           PAGE_12_IMG,
           PAGE_14_IMG,
+          revenueRange,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -206,7 +252,7 @@ export class SalesController {
         //     storedPath: file.path,
         //   }));
         // }
-        // await browser.close();
+        await browser.close();
         return response.status(200).json({
           message: "PDF generated and saved successfully",
           pdfPath,

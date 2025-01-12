@@ -185,7 +185,7 @@
                           font-size: 28px;
                         "
                       >
-                        1121 WHITEHEAD ST, KEY WEST, FL 33040
+                        <%= listingData.address %>
                       </h2>
                     </div>
                   </td>
@@ -215,15 +215,15 @@
                       </h1>
                       <div class="box">
                         <p>
-                          Your property at 1121 Whitehead St holds remarkable
-                          promise in one of Florida’s most sought-after
-                          destinations. Key West's vibrant market offers immense
-                          opportunities, but fully capitalizing on them requires
-                          the right expertise and strategic approach. At Luxury
-                          Lodging, we specialize in transforming properties like
-                          yours into market leaders, leveraging tailored
-                          strategies to optimize revenue, occupancy, and guest
-                          experience.
+                          Your property at <%= listingData.address %> holds
+                          remarkable promise in one of Florida’s most
+                          sought-after destinations. Key West's vibrant market
+                          offers immense opportunities, but fully capitalizing
+                          on them requires the right expertise and strategic
+                          approach. At Luxury Lodging, we specialize in
+                          transforming properties like yours into market
+                          leaders, leveraging tailored strategies to optimize
+                          revenue, occupancy, and guest experience.
                         </p>
                         <p>
                           Together, we can ensure your property stands out,
@@ -382,21 +382,37 @@
                               "
                             >
                               COMPETITOR <br />
-                              (Casa Amelia)
                             </th>
                           </tr>
                         </thead>
                         <tbody>
+                          <% const yearlyData =
+                          revenueRange[currentYear.toString()]; let totalClient
+                          = 0, totalMarketAvg = 0, totalCompetitor = 0;
+                          Object.entries(yearlyData).forEach(([month, data]) =>
+                          { const client = data.lower; const marketAvg =
+                          (data.upper + data.lower) / 2; const competitor =
+                          data.upper; totalClient += client; totalMarketAvg +=
+                          marketAvg; totalCompetitor += competitor; %>
                           <tr>
-                            <td class="table-body-cell">January ’25</td>
+                            <td class="table-body-cell">
+                              <%= new Date(currentYear, month -
+                              1).toLocaleString('default', { month: 'long' }) %>
+                              ’<%= currentYear.toString().slice(-2) %>
+                            </td>
                             <td class="table-body-cell">
                               <strong style="color: var(--clr-primary-dark)">
-                                $10,700
+                                $<%= client.toLocaleString() %>
                               </strong>
                             </td>
-                            <td class="table-body-cell">$15,300</td>
-                            <td class="table-body-cell">$12,500</td>
+                            <td class="table-body-cell">
+                              $<%= marketAvg.toFixed(2).toLocaleString() %>
+                            </td>
+                            <td class="table-body-cell">
+                              $<%= competitor.toLocaleString() %>
+                            </td>
                           </tr>
+                          <% }); %>
                           <tr>
                             <td
                               class="table-body-cell"
@@ -411,11 +427,15 @@
                                   font-size: 18px;
                                 "
                               >
-                                $131,300
+                                $<%= totalClient.toLocaleString() %>
                               </strong>
                             </td>
-                            <td class="table-body-cell">$187,400</td>
-                            <td class="table-body-cell">$153,600</td>
+                            <td class="table-body-cell">
+                              $<%= totalMarketAvg.toFixed(2).toLocaleString() %>
+                            </td>
+                            <td class="table-body-cell">
+                              $<%= totalCompetitor.toLocaleString() %>
+                            </td>
                           </tr>
                         </tbody>
                       </table>
@@ -507,6 +527,14 @@
                           </tr>
                         </tbody>
                       </table>
+                      <% const circleData = [ { justify: 'end', rotate: '40deg',
+                      textAlign: 'left', offset: 'right: 50px; bottom: -50px;'
+                      }, { justify: 'start', rotate: '-40deg', textAlign:
+                      'right', offset: 'right: 48px; bottom: -50px;' }, {
+                      justify: 'end', rotate: '40deg', textAlign: 'left',
+                      offset: 'right: 50px; bottom: -50px;' }, { justify:
+                      'start', rotate: '-40deg', textAlign: 'right', offset:
+                      'right: 48px; bottom: -50px;' } ]; %>
                       <div
                         class="diagonal-structure"
                         style="
@@ -573,7 +601,8 @@
                                 Filter
                               </h6>
                               <p style="color: #000">
-                                3 BR · 3 Bath · 8 Guests
+                                <%= clientData.beds %> BR · <%= clientData.baths
+                                %> Bath · <%= clientData.guests %> Guests
                               </p>
                             </div>
                           </div>
@@ -631,7 +660,8 @@
                                 Filter
                               </h6>
                               <p style="color: #000">
-                                3 BR · 3 Bath · 8 Guests
+                                <%= clientData.beds %> BR · <%= clientData.baths
+                                %> Bath · <%= clientData.guests %> Guests
                               </p>
                             </div>
                           </div>
@@ -689,7 +719,8 @@
                                 Filter
                               </h6>
                               <p style="color: #000">
-                                3 BR · 3 Bath · 8 Guests
+                                <%= clientData.beds %> BR · <%= clientData.baths
+                                %> Bath · <%= clientData.guests %> Guests
                               </p>
                             </div>
                           </div>
@@ -746,7 +777,8 @@
                                 Filter
                               </h6>
                               <p style="color: #000">
-                                3 BR · 3 Bath · 8 Guests
+                                <%= clientData.beds %> BR · <%= clientData.baths
+                                %> Bath · <%= clientData.guests %> Guests
                               </p>
                             </div>
                           </div>

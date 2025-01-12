@@ -66,6 +66,12 @@ export class ClientListingEntity {
   @Column({ type: "json", nullable: true })
   revenueRange: any;
 
+  @Column({ type: "longtext", nullable: true })
+  propertyStatisticsGraphSS: string;
+
+  @Column({ type: "longtext", nullable: true })
+  revenueGraphSS: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
