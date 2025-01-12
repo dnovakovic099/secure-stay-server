@@ -25,7 +25,7 @@ export class ReservationController {
 
   async getAllReservations(request: Request, response: Response) {
     const reservationService = new ReservationService();
-    return response.send(await reservationService.getHostawayReservationListStartingToday());
+    return response.send(await reservationService.getReservationInfo());
   }
 
   async updateReservationById(request: Request, response: Response) {
