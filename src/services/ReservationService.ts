@@ -50,6 +50,20 @@ export class ReservationService {
         return reservations.filter((reservation: { status: string; }) => reservation.status === 'new');
     }
 
+    async updateReservationById(request: Request) {
+        const reservationId = Number(request.params.id);
+        console.log(reservationId, "reservationId");
+        const reservation = await this.reservationRepository.findOne({ where: { reservationId } });
+        if (reservation === null) {
+            throw new Error("ReservationService: Reservation is null");
+        }
+        
+        // TODO: UPDATE ALL RESERVATION INFORMATION
+
+        await this.reservationRepository.save(reservation);
+        return reservation;
+    }
+
     async getChannelList() {
         const channels = [
             { channelId: 2018, channelName: "Airbnb" },
