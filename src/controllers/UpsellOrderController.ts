@@ -9,8 +9,10 @@ export class UpsellOrderController {
             const limit = parseInt(request.query.limit as string) || 10;
             const fromDate = request.query.fromDate as string || '';
             const toDate = request.query.toDate as string || '';
+            const status = request.query.status as string || ''; 
+            const listingId = request.query.listingId as string || ''; 
 
-            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate);
+            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId);
             
             return response.send({
                 status: true,

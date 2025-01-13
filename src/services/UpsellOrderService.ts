@@ -15,7 +15,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '') {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '') {
         await this.chargeAutomationService.fetchNewUpsellOrders();
 
         const queryOptions: any = {
@@ -31,6 +31,14 @@ export class UpsellOrderService {
                     new Date(toDate)
                 )
             };
+        }
+
+        if (status) {
+            queryOptions.where.status = status;
+        }   
+
+        if (listing_id) {
+            queryOptions.where.listing_id = listing_id;
         }
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);

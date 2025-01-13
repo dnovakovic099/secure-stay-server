@@ -18,7 +18,7 @@ export class UpsellOrder {
     @Column('decimal', { precision: 10, scale: 2 })
     cost: number;
 
-    @Column()
+    @Column({ type: 'date', nullable: true })
     order_date: Date;
 
     @Column()
