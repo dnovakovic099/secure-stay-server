@@ -10,11 +10,9 @@ import fileUpload from "../utils/upload.util";
 const router = Router();
 const salesController = new SalesController();
 
-router.route("/createClient").post(
-  // verifySession,
-  validateClientRequest,
-  salesController.createClient
-);
+router
+  .route("/createClient")
+  .post(verifySession, validateClientRequest, salesController.createClient);
 router.route("/getAllClients").get(
   // verifySession,
   salesController.getAllClients
@@ -29,10 +27,9 @@ router.route("/getDetailsFromAddress").get(
   salesController.getDetailsFromAirDna
 );
 
-router
-  .route("/generatePdf/:client_id")
-  .get(
-    fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
-    salesController.generatePdf
-  );
+router.route("/generatePdf/:client_id").get(
+  // verifySession,
+  fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
+  salesController.generatePdf
+);
 export default router;

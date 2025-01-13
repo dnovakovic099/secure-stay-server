@@ -159,6 +159,8 @@
         color: var(--clr-primary-dark);
       "
     >
+      <% function formatRevenue(revenue) { %> <%=
+      revenue.toLocaleString('en-US', { minimumFractionDigits: 2 }) %> <% } %>
       <tbody>
         <tr>
           <td class="page" id="page-1">
@@ -666,7 +668,7 @@
                                 Annual Revenue Projection
                               </h6>
                               <p style="color: #000">
-                                $ <%= listingData.revenue %>
+                                $ <%= formatRevenue(listingData.revenue) %>
                               </p>
                             </div>
                           </div>
@@ -781,11 +783,9 @@
                                   line-height: 2;
                                 "
                               >
-                                Annual Revenue Projection
+                                AVG Daily Rate
                               </h6>
-                              <p style="color: #000">
-                                $ <%= listingData.revenue %>
-                              </p>
+                              <p style="color: #000"><%= dailyRate %></p>
                             </div>
                           </div>
                         </div>
@@ -839,12 +839,9 @@
                                   line-height: 1;
                                 "
                               >
-                                AVG Occupancy Rate
+                                AVG RevPAR
                               </h6>
-                              <p style="color: #000">
-                                <%= clientData.beds %> BR · <%= clientData.baths
-                                %> Bath · <%= clientData.guests %> Guests
-                              </p>
+                              <p style="color: #000">$<%= revPar %></p>
                             </div>
                           </div>
                         </div>
@@ -887,11 +884,12 @@
                                   line-height: 1;
                                 "
                               >
-                                AVG Daily Rate
+                                Market Score
                               </h6>
                               <p style="color: #000">
-                                <%= clientData.beds %> BR · <%= clientData.baths
-                                %> Bath · <%= clientData.guests %> Guests
+                                <%= Math.round(listingData.marketScore) %> / 100
+                                <br />
+                                Indicating strong potential
                               </p>
                             </div>
                           </div>

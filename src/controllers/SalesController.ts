@@ -163,9 +163,10 @@ export class SalesController {
       if (fetchedListing.listing && fetchedListing.client) {
         const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
         // console.log("fetchedListing", fetchedListing);
-        const { revenueRange, propertyStatisticsGraphSS } =
+        const { revenueRange, propertyStatisticsGraphSS, revenue, occupancy } =
           fetchedListing.listing;
-
+        const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
+        const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
         const currentYear = new Date().getFullYear();
         const html = await ejs.renderFile(templatePath, {
           title: "Property Performance Report",
@@ -189,6 +190,8 @@ export class SalesController {
           PAGE_12_IMG,
           PAGE_14_IMG,
           revenueRange,
+          dailyRate,
+          revPar,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -197,24 +200,24 @@ export class SalesController {
           format: "A4",
           printBackground: true,
         });
-        const pdfFileName = `../../../public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
-        const pdfFilePath = path.resolve(__dirname, "public", pdfFileName);
-        const pdfDir = path.dirname(pdfFilePath);
-        if (!fs.existsSync(pdfDir)) {
-          fs.mkdirSync(pdfDir, { recursive: true });
-        }
-        const pdfPath = `${
-          process.env.BASE_URL
-        }/public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
-        fs.writeFileSync(pdfFilePath, pdfBuffer);
+        // const pdfFileName = `../../../public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
+        // const pdfFilePath = path.resolve(__dirname, "public", pdfFileName);
+        // const pdfDir = path.dirname(pdfFilePath);
+        // if (!fs.existsSync(pdfDir)) {
+        //   fs.mkdirSync(pdfDir, { recursive: true });
+        // }
+        // const pdfPath = `${
+        //   process.env.BASE_URL
+        // }/public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
+        // fs.writeFileSync(pdfFilePath, pdfBuffer);
 
-        const pdfSaved = await clientService.saveGeneratedPdfLink(
-          clientId,
-          pdfPath
-        );
-        if (!pdfSaved) {
-          return response.status(404).json({ error: "Client not found" });
-        }
+        // const pdfSaved = await clientService.saveGeneratedPdfLink(
+        //   clientId,
+        //   pdfPath
+        // );
+        // if (!pdfSaved) {
+        //   return response.status(404).json({ error: "Client not found" });
+        // }
         // console.log("attachments", attachments);
 
         // let uploadedFiles;
@@ -225,11 +228,11 @@ export class SalesController {
         //   }));
         // }
         await browser.close();
-        return response.status(200).json({
-          message: "PDF generated and saved successfully",
-          pdfPath,
-          // uploadedFiles,
+        response.set({
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="property-revenue-report-${clientId}.pdf"`,
         });
+        return response.status(200).send(pdfBuffer);
       }
       return response
         .status(404)
