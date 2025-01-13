@@ -95,13 +95,18 @@ export class ReservationService {
             channelId
         );
 
-        const validReservations = this.filterValidReservation(reservations);
+        const validReservations = this.filterValidReservation(reservations, fromDate);
         return validReservations;
     }
 
-    private filterValidReservation(reservations: Object[]): Object[] {
-        const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */];
-        const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
+    private filterValidReservation(reservations: Object[], fromDate: string): Object[] {
+        const validReservationStatus = ["new", "modified", "ownerStay"];
+
+        const filteredReservations = reservations.filter((reservation: { status: string; departureDate: string; }) => {
+            // Filter by status and exclude reservations ending on the `fromDate`
+            return validReservationStatus.includes(reservation.status) && reservation.departureDate !== fromDate;
+        });
+
         return filteredReservations;
     }
 }
