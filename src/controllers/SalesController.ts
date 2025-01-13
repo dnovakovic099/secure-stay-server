@@ -6,6 +6,7 @@ import {
   login,
   scrapeAllDataFromSelectedListing,
   setBedBathGuestCounts,
+  takeScreenShots,
   transformData,
 } from "../helpers/airdna";
 import puppeteer, { Browser } from "puppeteer";
@@ -108,7 +109,7 @@ export class SalesController {
       await page.type(searchInputSelector, address as string);
 
       const dropdownSelector = ".MuiAutocomplete-popper li";
-      await page.waitForSelector(dropdownSelector, { timeout: 6000 });
+      await page.waitForSelector(dropdownSelector);
 
       const listings = await page.$$(dropdownSelector);
       await page.waitForNetworkIdle();
@@ -122,35 +123,7 @@ export class SalesController {
       await page.waitForNetworkIdle();
       const apiResponse = await setBedBathGuestCounts(page, rest);
 
-      const revenueGraphSelector = ".recharts-responsive-container";
-      await page.waitForSelector(revenueGraphSelector);
-      const revenueGraphElement = await page.$(revenueGraphSelector);
-
-      let revenueGraphSS = null;
-      if (revenueGraphElement) {
-        const screenshotBuffer = await revenueGraphElement.screenshot({
-          encoding: "base64",
-        });
-        revenueGraphSS = `data:image/png;base64,${screenshotBuffer}`;
-      }
-
-      const marketTypeATagSelector =
-        ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff";
-      const marketTypeElement = await page.$(marketTypeATagSelector);
-      await marketTypeElement?.click();
-      await page.waitForNetworkIdle();
-      const propertyStatisticsGraphSelector = ".MuiBox-root.css-1czpbid";
-      await page.waitForSelector(propertyStatisticsGraphSelector);
-      const marketTypeGraphElement = await page.$(
-        propertyStatisticsGraphSelector
-      );
-      let propertyStatisticsGraphSS = null;
-      if (marketTypeGraphElement) {
-        const screenshotBuffer = await marketTypeGraphElement.screenshot({
-          encoding: "base64",
-        });
-        propertyStatisticsGraphSS = `data:image/png;base64,${screenshotBuffer}`;
-      }
+      const screenShots = await takeScreenShots(page);
 
       // const allElements = await scrapeAllDataFromSelectedListing(page);
 
@@ -165,8 +138,7 @@ export class SalesController {
 
       const responseData = {
         ...apiResponse.data.payload,
-        revenueGraphSS,
-        propertyStatisticsGraphSS,
+        ...screenShots,
       };
 
       return response.json(responseData);

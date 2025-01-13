@@ -22,75 +22,6 @@ export const generateRandomUA = () => {
   return USER_AGENTS[randomUAIndex];
 };
 
-// export const scrapeDataFromSelectedAddress = (page: Page) => {
-//   return page.evaluate(() => {
-//     const propertyAddressElement = document.querySelector(
-//       "h6.MuiTypography-titleXXS"
-//     );
-
-//     const marketElement = document.querySelector(
-//       "p.MuiTypography-root.css-1duvi1q"
-//     );
-//     const elements = document.querySelectorAll(
-//       "p.MuiTypography-root.css-wd00qg"
-//     );
-//     const marketScoreElement = elements[0];
-//     const propertyTypeElement = elements[1];
-
-//     const marketScore = marketScoreElement?.textContent.trim() || "";
-//     const propertyType = propertyTypeElement?.textContent.trim() || "";
-//     const bedCountElement = document.querySelector(
-//       "p.MuiTypography-root.css-1an2wsc"
-//     );
-//     const bathCountElement = document.querySelector(
-//       "p.MuiTypography-root.css-wd00qg"
-//     );
-//     const guestCountElement = document.querySelector(
-//       "p.MuiTypography-root.css-1an2wsc"
-//     );
-
-//     const projectedRevenueElements = document.querySelectorAll(
-//       "div.MuiBox-root.css-1abrbpw"
-//     );
-//     console.log(projectedRevenueElements, guestCountElement, bathCountElement);
-
-//     const projectedRevenue = Array.from(projectedRevenueElements).map(
-//       (element) => {
-//         const valueElement = element.querySelector(
-//           "h3.MuiTypography-root.MuiTypography-titleM.css-6xs9nt"
-//         );
-//         const descriptionElement = element.querySelector(
-//           "p.MuiTypography-root.MuiTypography-body2.css-1p8l434"
-//         );
-
-//         return {
-//           value: valueElement?.textContent.trim() || null,
-//           title: descriptionElement?.textContent.trim() || null,
-//         };
-//       }
-//     );
-
-//     const marketData = {
-//       market: marketElement ? marketElement.textContent : null,
-//       marketScore,
-//       marketType: propertyType,
-//     };
-//     const propertyOverviewData = {
-//       bedCount: bedCountElement ? bedCountElement.textContent : null,
-//       bathCount: bathCountElement ? bathCountElement.textContent : null,
-//       guestCount: guestCountElement ? guestCountElement.textContent : null,
-//     };
-//     return {
-//       propertyAddress: propertyAddressElement
-//         ? propertyAddressElement.textContent
-//         : null,
-//       marketData,
-//       propertyOverviewData,
-//       projectedRevenue: projectedRevenue.length ? projectedRevenue[0] : [],
-//     };
-//   });
-// };
-
 export const setBedBathGuestCounts = async (
   page: Page,
   params: {
@@ -262,4 +193,65 @@ export const transformData = (data: IListingPageElementData[]) => {
   });
 
   return transformedData;
+};
+
+export const takeScreenShots = async (page: Page) => {
+  const screenShots = {
+    revenueGraphSS: null,
+    propertyStatisticsGraphSS: null,
+    nearbyPropertyLisingSS: null,
+  };
+
+  const takeScreenshot = async (selector: string): Promise<string | null> => {
+    try {
+      await page.waitForSelector(selector, { timeout: 5000 });
+      const element = await page.$(selector);
+      if (element) {
+        const screenshotBuffer = await element.screenshot({
+          encoding: "base64",
+        });
+        return `data:image/png;base64,${screenshotBuffer}`;
+      }
+    } catch (error) {
+      console.error(
+        `Failed to take screenshot for selector: ${selector}`,
+        error
+      );
+    }
+    return null;
+  };
+
+  const revenueGraphSelector = ".recharts-responsive-container";
+  screenShots.revenueGraphSS = await takeScreenshot(revenueGraphSelector);
+
+  // Navigate to the market type section
+  const marketTypeLinkSelector =
+    ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff";
+  try {
+    const marketTypeLink = await page.$(marketTypeLinkSelector);
+    if (marketTypeLink) {
+      await marketTypeLink.click();
+      await page.waitForNetworkIdle();
+    } else {
+      console.warn(`Market type link not found: ${marketTypeLinkSelector}`);
+    }
+  } catch (error) {
+    console.error(
+      `Error clicking on market type link: ${marketTypeLinkSelector}`,
+      error
+    );
+  }
+
+  const propertyStatisticsGraphSelector = ".MuiBox-root.css-1czpbid";
+  screenShots.propertyStatisticsGraphSS = await takeScreenshot(
+    propertyStatisticsGraphSelector
+  );
+
+  const nearbyPropertyListingsSelector = ".MuiBox-root.css-18re3dh";
+
+  screenShots.nearbyPropertyLisingSS = await takeScreenshot(
+    nearbyPropertyListingsSelector
+  );
+
+  return screenShots;
 };
