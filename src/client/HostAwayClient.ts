@@ -1,5 +1,5 @@
 import axios, { AxiosResponse } from "axios";
-
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 export class HostAwayClient {
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -41,8 +41,11 @@ export class HostAwayClient {
     return response.data?.access_token;
   }
 
-  public async getReservationInfo(): Promise<void> {
-    const url = "https://api.hostaway.com/v1/reservations";
+  public async getReservationInfo(
+    limit?: number,
+    offset?: number,
+  ): Promise<{ offset: number, limit: number, result: ReservationInfoEntity[] }> {
+    let url = `https://api.hostaway.com/v1/reservations?limit=${limit}&offset=${offset}`;
 
     try {
       const authResponse = await this.getAuthToken();
@@ -54,7 +57,6 @@ export class HostAwayClient {
           "Cache-control": "no-cache",
         },
       });
-       console.log(response.data);
        return response.data;
     } catch (error) {
       throw error;

@@ -25,11 +25,16 @@ export class ReservationController {
 
   async getAllReservations(request: Request, response: Response) {
     const reservationService = new ReservationService();
-    return response.send(await reservationService.getReservationInfo());
+    return response.send(await reservationService.getReservationInfo(request));
   }
 
   async updateReservationById(request: Request, response: Response) {
     const reservationService = new ReservationService();
     return response.send(await reservationService.updateReservationById(request));
+  }
+
+  async exportReservationToExcel(request: Request, response: Response) {
+    const reservationService = new ReservationService();
+    return response.send(await reservationService.exportReservationToExcel(request));
   }
 }

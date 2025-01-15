@@ -3,13 +3,14 @@ import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany
 import {ReservationInfoEntity} from "./ReservationInfo";
 import {UserVerificationEntity} from "./UserVerification";
 import {PaymentEntity} from "./Payment";
+import { Issue } from './Issue';
 
 // Define the entity class
 @Entity({ name: 'reservation' })
 export class ReservationEntity {
     // Define the primary key column
     @PrimaryGeneratedColumn({ name: 'reservation_id' })
-    reservationId: number;
+    reservationId: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     reservationLink: string;
@@ -32,4 +33,7 @@ export class ReservationEntity {
     @OneToMany(() => PaymentEntity, payment => payment.reservation,{ eager:true })
     @JoinColumn({ name: 'reservation_fk' })
     payments: PaymentEntity[];
+
+    @OneToMany(() => Issue, issue => issue.reservation)
+    issues: Issue[];
 }

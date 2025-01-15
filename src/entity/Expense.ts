@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Issue } from './Issue';
 
 export enum ExpenseStatus {
     PENDING = 'Pending Approval',
@@ -62,4 +63,8 @@ export class ExpenseEntity {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
+
+    @ManyToOne(() => Issue, issue => issue.expenses, { eager: true, nullable: true })
+    @JoinColumn({ name: 'linked_issue_id' })
+    linkedIssue: Issue;
 }

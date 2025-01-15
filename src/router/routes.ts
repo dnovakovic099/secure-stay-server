@@ -12,12 +12,14 @@ import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
 import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
 import { PmRoutes } from "./pmRoutes";
+import { IssueController } from "../controllers/IssueController";
 
 
 export const AppRoutes = () => {
   const userVerificationController = new UserVerificationController();
   const reservationInfoController = new ReservationInfoController();
   const reservationController = new ReservationController();
+  const issueController = new IssueController();
   const itemController = new ItemController();
   const faqController = new FaqController();
   const payController = new PaymentController();
@@ -41,6 +43,13 @@ export const AppRoutes = () => {
       path: "/reservations",
       method: "get",
       action: reservationController.getAllReservations,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/reservations/export",
+      method: "get",
+      action: reservationController.exportReservationToExcel,
       file: false,
       rawJson: false,
     },
@@ -83,6 +92,27 @@ export const AppRoutes = () => {
       path: "/reservation/:reservationLink/items",
       method: "get",
       action: itemController.getAllItemsByReservation,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/issues/export",
+      method: "get",
+      action: issueController.exportIssueToExcel,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/issues",
+      method: "get",
+      action: issueController.getAllIssues,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/update-issue/:id",
+      method: "put",
+      action: issueController.updateIssueById,
       file: false,
       rawJson: false,
     },

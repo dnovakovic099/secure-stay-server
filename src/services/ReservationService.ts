@@ -3,6 +3,7 @@ import { ReservationEntity } from "../entity/Reservation";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { getCurrentDateInUTC } from "../helpers/date";
+import * as XLSX from 'xlsx';
 
 export class ReservationService {
 
@@ -50,19 +51,45 @@ export class ReservationService {
         return reservations.filter((reservation: { status: string; }) => reservation.status === 'new');
     }
 
-    async getReservationInfo() {
-        const reservations = await this.hostAwayClient.getReservationInfo();
-        return reservations;
+    async getReservationInfo(request: Request) {
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const offset = (page - 1) * limit;
+    
+        try {
+            const reservations = await this.hostAwayClient.getReservationInfo(limit, offset);   
+            return reservations;
+        } catch (error) {
+            console.error("Error fetching reservations:", error);
+            throw new Error("Failed to fetch reservation info.");
+        }
+    }
+    
+    async exportReservationToExcel(request: Request): Promise<Buffer> {
+    const reservations = await this.hostAwayClient.getReservationInfo();
+    const formattedData = reservations?.result?.map(reservation => ({
+      GuestName: reservation.guestName,
+      ChannelName: reservation.channelName,
+      CheckInDate: reservation.arrivalDate,
+      Amount: reservation.totalPrice,
+      Status: reservation.status,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+
+    return Buffer.from(csv, 'utf-8');
     }
 
     async updateReservationById(request: Request) {
-        const reservationId = Number(request.params.id);
+        const reservationId = request.params.id;
+        console.log("reservationId: ", reservationId);
         const reservation = await this.reservationRepository.findOne({ where: { reservationId } });
-        if (reservation === null) {
+        if (!reservation) {
             throw new Error("ReservationService: Reservation is null");
         }
         
-        // TODO: UPDATE ALL RESERVATION INFORMATION
+        // TODO: UPDATE RESERVATION INFORMATION
         reservation.reservationInfo.hostNote = request.body.notes;
         reservation.reservationInfo.doorCode = request.body.doorCode;
         
