@@ -157,7 +157,7 @@ export class MessagingService {
             );
 
             //check if conversation has been answered after the guest message
-            const isAnswered = this.checkUnasweredMessages(conversationMessages, msg);
+            const isAnswered = await this.checkUnasweredMessages(conversationMessages, msg);
             if (!isAnswered) {
                 //check if the guest message received time has exceeded more than 15 minutes
                 await this.checkGuestMessageTime(msg);
@@ -175,6 +175,7 @@ export class MessagingService {
 
         // Check if the difference is greater than 10 minutes
         if (differenceInMilliseconds > 10 * 60 * 1000) {
+            console.log(`Sending email notification for unanswered guest message conversationId: ${msg.conversationId}`)
             await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
         }
     }
@@ -183,7 +184,7 @@ export class MessagingService {
     private async checkUnasweredMessages(conversationMessages: MessageObj[], guestMessage: Message): Promise<Boolean> {
         for (const msg of conversationMessages) {
             const currentMessageDate = new Date(msg.date);
-            if (msg.isIncoming == 0 && (currentMessageDate > guestMessage.receivedAt)) {
+            if (msg.isIncoming == 0 && (currentMessageDate.getTime() > guestMessage.receivedAt.getTime())) {
                 await this.updateMessageAsAnswered(guestMessage);
                 return true;
             }
