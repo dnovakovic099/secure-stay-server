@@ -70,4 +70,43 @@ export class ReservationService {
         ];
         return channels;
     }
+
+    public async fetchReservations(
+        clientId: string,
+        clientSecret: string,
+        listingId: number,
+        dateType: string,
+        fromDate: string,
+        toDate: string,
+        limit: number,
+        offset: number,
+        channelId: number
+    ) {
+        //fetch reservations
+        const reservations = await this.hostAwayClient.getReservations(
+            clientId,
+            clientSecret,
+            listingId,
+            dateType,
+            fromDate,
+            toDate,
+            limit,
+            offset,
+            channelId
+        );
+
+        const validReservations = this.filterValidReservation(reservations, fromDate);
+        return validReservations;
+    }
+
+    private filterValidReservation(reservations: Object[], fromDate: string): Object[] {
+        const validReservationStatus = ["new", "modified", "ownerStay"];
+
+        const filteredReservations = reservations.filter((reservation: { status: string; departureDate: string; }) => {
+            // Filter by status and exclude reservations ending on the `fromDate`
+            return validReservationStatus.includes(reservation.status) && reservation.departureDate !== fromDate;
+        });
+
+        return filteredReservations;
+    }
 }

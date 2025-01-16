@@ -88,4 +88,44 @@ export class ListingController {
     }
   }
 
+  async getListingNames(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+      const listingNames = await listingService.getListingNames(userId);
+
+      return response.status(200).json(successDataFetch(listingNames));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async saveListingUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+      const listingUpdate = request.body;
+      await listingService.saveListingUpdate(listingUpdate, userId);
+
+      return response.status(200).json(dataSaved('Listing updates saved successfully!!!'));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getListingUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = Number(request.params.listingId);
+      const userId = request.user.id;
+      const page = Number(request.query.page);
+
+      const listingUpdates = await listingService.getListingUpdates(listingId, userId, page);
+
+      return response.status(200).json(successDataFetch(listingUpdates));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

@@ -410,7 +410,8 @@ export class UsersService {
         const hostawayUsersList = await this.hostAwayClient.getUserList(clientId, clientSecret);
         const users = hostawayUsersList.map(({ email, firstName, id, lastName }) => ({
             hostawayId: id,
-            email,
+            user: `${firstName}${lastName ? ' ' + lastName : ""} [${email}]`,
+            email: email,
             firstName,
             lastName,
         }));

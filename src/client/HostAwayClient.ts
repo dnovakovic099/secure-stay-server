@@ -191,6 +191,10 @@ export class HostAwayClient {
     
     let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
 
+    if (dateType == "prorated") {
+      url = `https://api.hostaway.com/v1/reservations?departureStartDate=${startDate}&arrivalEndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDateDesc`;
+    }
+
     if (listingId) {
       url += `&listingId=${listingId}`;
     }
@@ -256,26 +260,44 @@ export class HostAwayClient {
     }
   }
 
-  public async getExpenses(clientId: string, clientSecret: string){
-    let url = `https://api.hostaway.com/v1/expenses`;
+  public async getExpenses(clientId: string, clientSecret: string, limit: number = 500) {
+    let expenses: any[] = [];
+    let offset = 0;
+    let hasMoreData = true;
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);
 
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Cache-control": "no-cache",
-        },
-      });
+      while (hasMoreData) {
+        const url = `https://api.hostaway.com/v1/expenses?limit=${limit}&offset=${offset}`;
 
-      return response.data.result;
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-control": "no-cache",
+          },
+        });
+
+        const fetchedExpenses = response.data.result;
+
+        // Add fetched expenses to the array
+        expenses = expenses.concat(fetchedExpenses);
+
+        // Check if there is more data
+        if (fetchedExpenses.length < limit) {
+          hasMoreData = false; // No more data if the last page contains less than `limit`
+        } else {
+          offset += limit; // Update offset for the next page
+        }
+      }
+
+      return expenses;
     } catch (error) {
       console.log(error);
       return null;
     }
   }
-
+  
   public async deleteExpense(expenseId: number, clientId: string, clientSecret: string) {
     let url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
 
@@ -295,7 +317,66 @@ export class HostAwayClient {
       return null;
     }
   }
+  public async financeCalculatedField(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/financeCalculatedField/reservation/${reservationId}`;
 
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+
+
+  public async fetchConversationMessages(conversationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/conversations/${conversationId}/messages`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);      
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
+
+  public async getReservation(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/reservations/${reservationId}`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      console.log(error);
+      return null;
+    }
+  }
 }
 
 

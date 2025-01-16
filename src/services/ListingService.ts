@@ -8,6 +8,13 @@ import { ListingLockInfo } from "../entity/ListingLock";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ListingScore } from "../entity/ListingScore";
+import { ListingUpdateEntity } from "../entity/ListingUpdate";
+
+interface ListingUpdate {
+  listingId: number;
+  date: string;
+  action: string;
+}
 
 export class ListingService {
   private hostAwayClient = new HostAwayClient();
@@ -15,6 +22,7 @@ export class ListingService {
   private listingLockRepository = appDatabase.getRepository(ListingLockInfo);
   private connectedAccountInfoRepository = appDatabase.getRepository(ConnectedAccountInfo);
   private listingScore = appDatabase.getRepository(ListingScore)
+  private listingUpdateRepo = appDatabase.getRepository(ListingUpdateEntity);
 
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
@@ -121,6 +129,16 @@ export class ListingService {
     return listingsWithImages;
   }
 
+  async getListingNames(userId: string) {
+    const listings = await this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName"])
+      .where("listing.userId = :userId", { userId })
+      .getMany();
+
+    return listings;
+  }
+
   async getListingById(listing_id: string, userId: string) {
     const result = await this.listingRepository
       .createQueryBuilder("listing")
@@ -210,6 +228,28 @@ export class ListingService {
     };
 
 
+  }
+
+
+  public async saveListingUpdate(listingUpdate: ListingUpdate, userId: string) {
+    const newUpdate = new ListingUpdateEntity();
+    newUpdate.listingId = listingUpdate.listingId;
+    newUpdate.date = listingUpdate.date;
+    newUpdate.action = listingUpdate.action;
+    newUpdate.userId = userId;
+    return await this.listingUpdateRepo.save(newUpdate);
+  }
+
+  public async getListingUpdates(listingId: number, userId: string, page: number) {
+    const offset = page ? (page - 1) * 10 : 0;
+    const updates = await this.listingUpdateRepo.find({
+      where: { listingId, userId },
+      order: { id: 'DESC' },
+      take: 10,
+      skip: offset,
+    });
+
+    return updates;
   }
 
 }
