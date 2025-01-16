@@ -66,7 +66,6 @@ export async function sendUpsellOrderEmail(order: UpsellOrderEmail) {
             process.env.EMAIL_TO || 'admin@luxurylodgingpm.com' 
         );
 
-        console.log(`Email sent successfully for order ${order?.listing_id}`);
     } catch (error) {
         console.error('Error sending upsell order email:', error);
         throw new Error('Failed to send email notification');

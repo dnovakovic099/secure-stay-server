@@ -26,7 +26,6 @@ export class ChargeAutomationService {
             }
 
             const responseData = await response.json();
-            console.log('API Response:', responseData);
 
             if (responseData.status !== 'success') {
                 console.error('Unexpected API response format:', responseData);
