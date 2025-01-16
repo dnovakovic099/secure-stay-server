@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { UpsellPurchasedItem } from "../types/chargeAutomation";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
+import { Between } from 'typeorm';
 
 export class ChargeAutomationService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -48,10 +49,14 @@ export class ChargeAutomationService {
             }));
 
             for (const order of orders) {
+                const orderDate = new Date(order.order_date);
+                const startOfDay = new Date(orderDate.setHours(0, 0, 0, 0));
+                const endOfDay = new Date(orderDate.setHours(23, 59, 59, 999));
+
                 const existingOrder = await this.upsellOrderRepo.findOne({
                     where: {
                         listing_id: order.listing_id,
-                        order_date: order.order_date
+                        order_date: Between(startOfDay, endOfDay)
                     }
                 });
 
