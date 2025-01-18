@@ -31,7 +31,9 @@
     "seamapi": "^8.21.0",
     "stripe": "^14.13.0",
     "typeorm": "^0.3.19",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
