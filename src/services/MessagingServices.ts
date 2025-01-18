@@ -186,7 +186,7 @@ export class MessagingService {
         logger.info(`Difference in ms is ${differenceInMilliseconds} for messageId ${msg.messageId}`)
 
         // Check if the difference is greater than 10 minutes
-        if (differenceInMilliseconds > 10 * 60 * 1000) {
+        if (differenceInMilliseconds > 5 * 60 * 1000) {
             logger.info(`Sending email notification for unanswered guest message conversationId: ${msg.conversationId} messageId: ${msg.messageId}`)
             await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
         }
