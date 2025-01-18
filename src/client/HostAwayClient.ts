@@ -191,6 +191,10 @@ export class HostAwayClient {
     
     let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
 
+    if (dateType == "prorated") {
+      url = `https://api.hostaway.com/v1/reservations?departureStartDate=${startDate}&arrivalEndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDateDesc`;
+    }
+
     if (listingId) {
       url += `&listingId=${listingId}`;
     }

@@ -14,9 +14,7 @@ import { OwnerStatementIncomeEntity } from "../entity/OwnerStatementIncome";
 import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
 import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
-import { removeNullValues } from "../helpers/helpers";
-import { ListingService } from "./ListingService";
-import { formatDate, getCurrentDateInUTC } from "../helpers/date";
+import { getReservationDaysInRange, formatDate, getCurrentDateInUTC } from "../helpers/date";
 
 interface ReservationType {
   guestName: string;
@@ -310,12 +308,16 @@ export class AccountingReportService {
     return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
   }
 
+  private handleProratedCalculation(totalAmount: number, totalNights: number, calculableNights: number): number {
+    return (totalAmount / totalNights) * calculableNights;
+  }
 
-  private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string) {
+
+  private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string, dateType: string, fromDate: string, toDate: string) {
     for (const reservation of reservations) {
 
       //calculate ownerPayout, paymentProcessing and pmCommission
-      const {
+      let {
         ownerPayout,
         pmCommission,
         paymentProcessing,
@@ -323,14 +325,28 @@ export class AccountingReportService {
         totalTax
       } = await this.calculateFinancialFields(reservation.id, clientId, clientSecret);
 
+      let totalNights = reservation.nights;
+      let totalAmount = reservation.totalPrice;
+      let calculableNights = reservation.nights;
+
+      if (dateType == "prorated") {
+        calculableNights = getReservationDaysInRange(fromDate, toDate, reservation.arrivalDate, reservation.departureDate);
+        totalAmount = this.handleProratedCalculation(totalAmount, totalNights, calculableNights);
+        ownerPayout = this.handleProratedCalculation(ownerPayout, totalNights, calculableNights);
+        pmCommission = this.handleProratedCalculation(pmCommission, totalNights, calculableNights);
+        paymentProcessing = this.handleProratedCalculation(paymentProcessing, totalNights, calculableNights);
+        channelFee = this.handleProratedCalculation(channelFee, totalNights, calculableNights);
+        totalTax = this.handleProratedCalculation(totalTax, totalNights, calculableNights);
+      }
+
       const newIncome = new OwnerStatementIncomeEntity();
       newIncome.ownerStatementId = ownerStatementId;
       newIncome.guest = reservation.guestName;
-      newIncome.nights = reservation.nights;
+      newIncome.nights = calculableNights;
       newIncome.checkInDate = reservation.arrivalDate;
       newIncome.checkOutDate = reservation.departureDate;
       newIncome.channel = reservation.channelId;
-      newIncome.totalPaid = reservation.totalPrice;
+      newIncome.totalPaid = totalAmount;
       newIncome.ownerPayout = ownerPayout;
       newIncome.pmCommission = pmCommission;
       newIncome.paymentProcessing = paymentProcessing;
@@ -401,7 +417,7 @@ export class AccountingReportService {
         0,
         channelId
       );
-      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret);
+      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate);
 
       // Save owner-statement-expense
       const expenseService = new ExpenseService();
@@ -426,6 +442,9 @@ export class AccountingReportService {
       .where("owner_statements.userId = :userId", { userId })
       .getMany();
 
+    const reservationService = new ReservationService();
+    const channels = await reservationService.getChannelList();
+
     const updatedStatements = await Promise.all(
       ownerStatements.map(async (statement) => {
         // Calculate revenue and expense
@@ -438,6 +457,14 @@ export class AccountingReportService {
           0
         );
 
+        const updatedIncome = statement.income.map((item: any) => {
+          const channel = channels.find((ch) => ch.channelId === item.channel);
+          return {
+            ...item,
+            channelName: channel?.channelName || "Unknown",
+          };
+        });
+
         const listing = await this.listingRepository
           .createQueryBuilder("listing")
           .where("listing.id = :id", { id: statement.listingId })
@@ -446,6 +473,7 @@ export class AccountingReportService {
 
         return {
           ...statement,
+          income: updatedIncome,
           fromDate: formatDate(statement.fromDate),
           toDate: formatDate(statement.toDate),
           currentDate: formatDate(getCurrentDateInUTC()),

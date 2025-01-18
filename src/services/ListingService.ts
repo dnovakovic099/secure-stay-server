@@ -132,7 +132,7 @@ export class ListingService {
   async getListingNames(userId: string) {
     const listings = await this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.name"])
+      .select(["listing.id", "listing.name", "listing.internalListingName"])
       .where("listing.userId = :userId", { userId })
       .getMany();
 
