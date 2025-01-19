@@ -102,7 +102,7 @@ export class MessagingService {
             "pending",
             "awaitingPayment",
             "inquiry",
-            "inquryPreapproved",
+            "inquiryPreapproved",
             "inquiryDenied",
             "inquiryTimeout",
             "inquiryNotPossible"
