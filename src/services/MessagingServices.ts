@@ -104,7 +104,7 @@ export class MessagingService {
             "inquiry",
             "inquiryPreapproved",
             "inquiryDenied",
-            "inquiryTimeout",
+            "inquiryTimedout",
             "inquiryNotPossible"
         ];
         const reservationInfo = await this.hostawayClient.getReservation(
