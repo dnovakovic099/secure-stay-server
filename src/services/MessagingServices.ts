@@ -188,7 +188,8 @@ export class MessagingService {
         // Check if the difference is greater than 10 minutes
         if (differenceInMilliseconds > 5 * 60 * 1000) {
             logger.info(`Sending email notification for unanswered guest message conversationId: ${msg.conversationId} messageId: ${msg.messageId}`)
-            await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
+            const currentTimeStamp = nowUtc.getTime();
+            await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt, currentTimeStamp);
         }
     }
 
@@ -216,9 +217,9 @@ export class MessagingService {
         return await this.messageRepository.save(message);
     };
 
-    private async notifyUnansweredMessage(body: string, reservationId: number, date: Date) {
+    private async notifyUnansweredMessage(body: string, reservationId: number, date: Date, currentTimeStamp: number) {
 
-        const subject = "Action Required: Guest Message Waiting for Your Response";
+        const subject = `Action Required: Guest Message Waiting for Your Response-${currentTimeStamp}`;
         const html = `
                <html>
   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
