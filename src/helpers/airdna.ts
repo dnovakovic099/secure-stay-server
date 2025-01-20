@@ -1,6 +1,9 @@
 import { ElementHandle, Page } from "puppeteer";
 import { IListingPageElementData, LoginCredentials } from "../types";
 import { AIR_DNA_URL, USER_AGENTS } from "../constants";
+import path from "path";
+import fs from "fs";
+import { randomUUID } from "crypto";
 
 export const login = async (page: Page, credentials: LoginCredentials) => {
   try {
@@ -196,62 +199,140 @@ export const transformData = (data: IListingPageElementData[]) => {
 };
 
 export const takeScreenShots = async (page: Page) => {
-  const screenShots = {
-    revenueGraphSS: null,
-    propertyStatisticsGraphSS: null,
-    nearbyPropertyLisingSS: null,
+  const screenshotsDir = path.join("public");
+  const sessionId = randomUUID();
+  const sessionDir = path.join(screenshotsDir, sessionId);
+
+  const selectors = {
+    revenueGraph: ".recharts-responsive-container",
+    propertyStatisticsGraph: ".MuiBox-root.css-1czpbid",
+    nearbyPropertyListings: ".MuiBox-root.css-qebjua",
+    marketTypeLink:
+      ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff",
+    allListingLink:
+      ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
+    occupancySection: ".MuiBox-root.css-1loy98s",
+    // occupanyChart: ".MuiBox-root.css-68ddzu",
   };
 
-  const takeScreenshot = async (selector: string): Promise<string | null> => {
+  // Helper to take a screenshot for a given selector
+  const takeScreenshot = async (
+    element: ElementHandle<Element>,
+    imageName: string
+  ): Promise<string | null> => {
     try {
-      await page.waitForSelector(selector, { timeout: 5000 });
-      const element = await page.$(selector);
+      // await page.waitForSelector(selector, { timeout: 5000 });
+      // const element = await page.$(selector);
       if (element) {
         const screenshotBuffer = await element.screenshot({
-          encoding: "base64",
+          encoding: "binary",
         });
-        return `data:image/png;base64,${screenshotBuffer}`;
+
+        // Ensure the session directory exists
+        if (!fs.existsSync(sessionDir)) {
+          fs.mkdirSync(sessionDir, { recursive: true });
+        }
+
+        const filePath = path.join(sessionDir, `${imageName}.png`);
+        fs.writeFileSync(filePath, screenshotBuffer);
+        return filePath; // Return the file path
       }
     } catch (error) {
       console.error(
-        `Failed to take screenshot for selector: ${selector}`,
+        `Failed to take screenshot for selector: ${element}`,
         error
       );
     }
     return null;
   };
 
-  const revenueGraphSelector = ".recharts-responsive-container";
-  screenShots.revenueGraphSS = await takeScreenshot(revenueGraphSelector);
+  // Helper to click a link and wait for navigation or idle state
+  const clickAndWait = async (selector: string) => {
+    try {
+      await page.waitForSelector(selector, { timeout: 5000 });
+      const link = await page.$(selector);
+      if (link) {
+        await link.click();
+        await page.waitForNetworkIdle();
+      } else {
+        throw new Error(`Unable to find selector: ${selector}`);
+      }
+    } catch (error) {
+      console.error(`Error clicking on selector: ${selector}`, error);
+    }
+  };
 
-  // Navigate to the market type section
-  const marketTypeLinkSelector =
-    ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff";
+  // Capture screenshots
+  const screenShots = {
+    revenueGraphSS: null,
+    averageMonthlyOccupancyChartSS: null,
+    propertyStatisticsGraphSS: null,
+    occupancySectionSS: null,
+    nearbyPropertyLisingSS: null,
+  };
+
   try {
-    const marketTypeLink = await page.$(marketTypeLinkSelector);
-    if (marketTypeLink) {
-      await marketTypeLink.click();
+    // Step 1: Take Revenue Graph Screenshot
+    // screenShots.revenueGraphSS = await takeScreenshot(
+    //   selectors.revenueGraph,
+    //   "revenueGraph"
+    // );
+
+    // Step 2: Navigate to Market Type Section and Capture Screenshot
+    await clickAndWait(selectors.marketTypeLink);
+    await page.waitForSelector(selectors.propertyStatisticsGraph);
+    const propertyStatSelc = await page.$(selectors.propertyStatisticsGraph);
+    screenShots.propertyStatisticsGraphSS = await takeScreenshot(
+      propertyStatSelc,
+      "propertyStatisticsGraph"
+    );
+
+    await page.waitForSelector(".MuiBox-root.css-68ddzu");
+    const chartElements = await page.$$(".MuiBox-root.css-68ddzu");
+
+    // const chartElements = await page.$$(".MuiBox-root.css-10klw3m");
+    if (chartElements.length > 0) {
+      screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
+        chartElements[0],
+        "averageMonthlyOccupancyChart"
+      );
+
+      screenShots.revenueGraphSS = await takeScreenshot(
+        chartElements[5],
+        "revenueGraph"
+      );
+    }
+    const occupancySelec = await page.$(selectors.occupancySection);
+    await page.waitForSelector(selectors.occupancySection);
+    screenShots.occupancySectionSS = await takeScreenshot(
+      occupancySelec,
+      "occupancySection"
+    );
+
+    // Step 3: Navigate to All Listings Section and Capture Screenshot
+
+    const elements = await page.$$(selectors.allListingLink);
+    if (elements.length > 0) {
+      await elements[2].click();
       await page.waitForNetworkIdle();
     } else {
-      console.warn(`Market type link not found: ${marketTypeLinkSelector}`);
+      throw new Error(`No element found at index 3 for nearbyPropertyListings`);
     }
-  } catch (error) {
-    console.error(
-      `Error clicking on market type link: ${marketTypeLinkSelector}`,
-      error
+    await page.waitForSelector(selectors.nearbyPropertyListings);
+    const nearbyPropertySelec = await page.$(selectors.nearbyPropertyListings);
+
+    screenShots.nearbyPropertyLisingSS = await takeScreenshot(
+      nearbyPropertySelec,
+      "nearbyPropertyListings"
     );
+  } catch (error) {
+    console.error("Error taking screenshots:", error);
   }
 
-  const propertyStatisticsGraphSelector = ".MuiBox-root.css-1czpbid";
-  screenShots.propertyStatisticsGraphSS = await takeScreenshot(
-    propertyStatisticsGraphSelector
-  );
+  return { screenshotSessionId: sessionId, screenShots };
+};
 
-  const nearbyPropertyListingsSelector = ".MuiBox-root.css-18re3dh";
-
-  screenShots.nearbyPropertyLisingSS = await takeScreenshot(
-    nearbyPropertyListingsSelector
-  );
-
-  return screenShots;
+export const imageToBase64 = (imagePath: string): string => {
+  const file = fs.readFileSync(imagePath);
+  return `data:image/jpeg;base64,${file.toString("base64")}`;
 };

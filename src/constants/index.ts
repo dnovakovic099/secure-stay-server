@@ -17,6 +17,7 @@ export const PUPPETEER_LAUNCH_OPTIONS = {
     "--no-sandbox",
     "--allow-file-access-from-files",
     "--enable-local-file-accesses",
+    "--enable-gpu",
   ],
   defaultViewport: null,
 };

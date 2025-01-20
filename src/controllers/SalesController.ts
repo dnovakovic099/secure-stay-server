@@ -3,11 +3,10 @@ import { ClientService } from "../services/SalesService";
 import { LoginCredentials } from "../types";
 import {
   generateRandomUA,
+  imageToBase64,
   login,
-  scrapeAllDataFromSelectedListing,
   setBedBathGuestCounts,
   takeScreenShots,
-  transformData,
 } from "../helpers/airdna";
 import puppeteer, { Browser } from "puppeteer";
 import {
@@ -19,14 +18,8 @@ import {
   PAGE_1_IMAGE,
   PAGE_2_IMAGE,
   PAGE_3_IMAGE,
-  PAGE_4_CARD_1,
-  PAGE_4_CARD_2,
-  PAGE_4_CARD_3,
-  PAGE_4_IMAGE,
-  PAGE_6_IMG_1,
   PAGE_7_IMG_1,
   PAGE_7_IMG_2,
-  PAGE_9_IMG,
   PROPERTY_REVENUE_REPORT_PATH,
   PUPPETEER_LAUNCH_OPTIONS,
 } from "../constants";
@@ -47,14 +40,18 @@ export class SalesController {
   }
   async updateClient(request: Request, response: Response) {
     const clientId = parseInt(request.params.client_id);
+    const { airDnaData, ...rest } = request.body;
     const clientService = new ClientService();
     try {
-      const updatedClient = await clientService.updateClient(
-        clientId,
-        request.body
-      );
+      const updatedClient = await clientService.updateClient(clientId, rest);
       if (updatedClient) {
-        return response.json(updatedClient);
+        const updatedListing = await clientService.updateClientListing(
+          clientId,
+          airDnaData
+        );
+        if (updatedListing) {
+          return response.json(updatedClient);
+        }
       }
       return response.status(404).json({ error: "Client not found" });
     } catch (error) {
@@ -157,21 +154,54 @@ export class SalesController {
     const clientId = parseInt(request.params.client_id);
     // const attachments = request.files["attachments"] as Express.Multer.File[];
     const clientService = new ClientService();
+
     let browser: Browser;
+    const date = Date.now();
     try {
-      const fetchedListing = await clientService.getClientListing(clientId);
-      if (fetchedListing.listing && fetchedListing.client) {
+      const fetchedClient = await clientService.getClientListing(clientId);
+      const wasClientUpdated = await clientService.checkIfClientWasUpdated(
+        clientId
+      );
+
+      if (fetchedClient.client.previewDocumentLink && !wasClientUpdated) {
+        return response.status(200).send({
+          status: true,
+          message: "PDF generated successfully",
+          pdfPath: fetchedClient.client.previewDocumentLink,
+        });
+      }
+      if (fetchedClient.listing && fetchedClient.client) {
         const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
         // console.log("fetchedListing", fetchedListing);
-        const { revenueRange, propertyStatisticsGraphSS, revenue, occupancy } =
-          fetchedListing.listing;
+        const { revenueRange, revenue, occupancy, screenshotSessionId } =
+          fetchedClient.listing;
+
+        const screenshotFolderPath = path.resolve(
+          "public",
+          screenshotSessionId
+        );
+        const propertyStatisticsGraphSS = imageToBase64(
+          path.join(screenshotFolderPath, "propertyStatisticsGraph.png")
+        );
+        const revenueGraphSS = imageToBase64(
+          path.join(screenshotFolderPath, "revenueGraph.png")
+        );
+        const nearbyPropertyLisingSS = imageToBase64(
+          path.join(screenshotFolderPath, "nearbyPropertyListings.png")
+        );
+        const occupancySectionSS = imageToBase64(
+          path.join(screenshotFolderPath, "occupancySection.png")
+        );
+        const averageMonthlyOccupancyChartSS = imageToBase64(
+          path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
+        );
         const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
         const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
         const currentYear = new Date().getFullYear();
         const html = await ejs.renderFile(templatePath, {
           title: "Property Performance Report",
-          listingData: fetchedListing.listing,
-          clientData: fetchedListing.client,
+          listingData: fetchedClient.listing,
+          clientData: fetchedClient.client,
           currentYear,
           LOGO_URL,
           PAGE_1_IMAGE,
@@ -179,13 +209,12 @@ export class SalesController {
           PAGE_3_IMAGE,
           PAGE_4_IMAGE: propertyStatisticsGraphSS,
           BG_SECTION_IMAGE,
-          PAGE_4_CARD_1,
-          PAGE_4_CARD_2,
-          PAGE_4_CARD_3,
-          PAGE_6_IMG_1,
+          PAGE_4_CARD: occupancySectionSS,
+          PAGE_6_IMG_1: averageMonthlyOccupancyChartSS,
+          PAGE_6_IMG_2: revenueGraphSS,
           PAGE_7_IMG_1,
           PAGE_7_IMG_2,
-          PAGE_9_IMG,
+          PAGE_9_IMG: nearbyPropertyLisingSS,
           PAGE_10_IMG,
           PAGE_12_IMG,
           PAGE_14_IMG,
@@ -196,28 +225,29 @@ export class SalesController {
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
         await page.setContent(html, { waitUntil: "networkidle0" });
+        // const pdfFileName = `public/property-performance-report.pdf`;
         const pdfBuffer = await page.pdf({
           format: "A4",
           printBackground: true,
+          // path: pdfFileName,
+          timeout: 0,
         });
-        // const pdfFileName = `../../../public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
-        // const pdfFilePath = path.resolve(__dirname, "public", pdfFileName);
-        // const pdfDir = path.dirname(pdfFilePath);
-        // if (!fs.existsSync(pdfDir)) {
-        //   fs.mkdirSync(pdfDir, { recursive: true });
-        // }
-        // const pdfPath = `${
-        //   process.env.BASE_URL
-        // }/public/${clientId}/property-revenue-report-${Date.now()}.pdf`;
-        // fs.writeFileSync(pdfFilePath, pdfBuffer);
+        const pdfFileName = `${clientId}/property-performance-report-${date}.pdf`;
+        const pdfFilePath = path.resolve("public", pdfFileName);
+        const pdfDir = path.dirname(pdfFilePath);
+        if (!fs.existsSync(pdfDir)) {
+          fs.mkdirSync(pdfDir, { recursive: true });
+        }
+        const pdfPath = `${process.env.BASE_URL}/public/${clientId}/property-performance-report-${date}.pdf`;
+        fs.writeFileSync(pdfFilePath, pdfBuffer);
 
-        // const pdfSaved = await clientService.saveGeneratedPdfLink(
-        //   clientId,
-        //   pdfPath
-        // );
-        // if (!pdfSaved) {
-        //   return response.status(404).json({ error: "Client not found" });
-        // }
+        const pdfSaved = await clientService.saveGeneratedPdfLink(
+          clientId,
+          pdfPath
+        );
+        if (!pdfSaved) {
+          return response.status(404).json({ error: "Client not found" });
+        }
         // console.log("attachments", attachments);
 
         // let uploadedFiles;
@@ -227,12 +257,23 @@ export class SalesController {
         //     storedPath: file.path,
         //   }));
         // }
+
+        // Delete the screenshot folder after generating the PDF
+        if (fs.existsSync(screenshotFolderPath)) {
+          try {
+            // Remove the folder and its contents
+            fs.rmSync(screenshotFolderPath, { recursive: true, force: true });
+          } catch (err) {
+            console.log("Error deleting screenshot folder:", err);
+          }
+        }
+
         await browser.close();
-        response.set({
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="property-revenue-report-${clientId}.pdf"`,
+        return response.status(200).send({
+          status: true,
+          message: "PDF generated successfully",
+          pdfPath,
         });
-        return response.status(200).send(pdfBuffer);
       }
       return response
         .status(404)

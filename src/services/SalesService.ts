@@ -53,10 +53,9 @@ export class ClientService {
       for_sale_property_comps,
       property_statistics,
       property_details,
-      revenueGraphSS,
-      propertyStatisticsGraphSS,
+      screenshotSessionId,
     } = airDnaData as AirDnaScrappedDataResponse;
-
+    const currentDate = new Date();
     const listing = this.clientListingRepository.create({
       clientId: savedClient.id,
       airdnaMarketName: combined_market_info.airdna_market_name,
@@ -74,10 +73,9 @@ export class ClientService {
       compsetAmenities: compset_amenities,
       zipcode: property_details.zipcode,
       revenueRange: property_statistics.revenue_range,
-      revenueGraphSS,
-      propertyStatisticsGraphSS,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      screenshotSessionId,
+      createdAt: currentDate,
+      updatedAt: currentDate,
     });
 
     await this.clientListingRepository.save(listing);
@@ -105,6 +103,29 @@ export class ClientService {
     Object.assign(client, updatedClient);
 
     return await this.clientRepository.save(client);
+  }
+
+  async updateClientListing(
+    clientId: number,
+    updateData: Partial<ClientListingEntity>
+  ) {
+    const clientListing = await this.clientListingRepository.findOne({
+      where: { clientId },
+    });
+
+    if (!clientListing) {
+      return null;
+    }
+
+    const updatedListing = {
+      ...clientListing,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+
+    Object.assign(clientListing, updatedListing);
+
+    return await this.clientListingRepository.save(clientListing);
   }
 
   async getClientListing(clientId: number) {
@@ -139,5 +160,17 @@ export class ClientService {
     await this.clientRepository.save(client);
 
     return true;
+  }
+
+  async checkIfClientWasUpdated(clientId: number) {
+    const client = await this.clientRepository.findOne({
+      where: { id: clientId },
+    });
+
+    if (!client) {
+      return false;
+    }
+
+    return client.updatedAt > client.createdAt;
   }
 }

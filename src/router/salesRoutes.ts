@@ -12,14 +12,14 @@ const salesController = new SalesController();
 
 router
   .route("/createClient")
-  .post(verifySession, validateClientRequest, salesController.createClient);
+  .post(validateClientRequest, salesController.createClient);
 router.route("/getAllClients").get(
   // verifySession,
   salesController.getAllClients
 );
 router
   .route("/editClient/:client_id")
-  .put(verifySession, validateClientRequest, salesController.updateClient);
+  .put(validateClientRequest, salesController.updateClient);
 
 router.route("/getDetailsFromAddress").get(
   // verifySession,
