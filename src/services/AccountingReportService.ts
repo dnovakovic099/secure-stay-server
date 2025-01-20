@@ -15,6 +15,8 @@ import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
 import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
 import { getReservationDaysInRange, formatDate, getCurrentDateInUTC } from "../helpers/date";
+import { ListingService } from "./ListingService";
+import { ownerDetails } from "../constant";
 
 interface ReservationType {
   guestName: string;
@@ -293,19 +295,108 @@ export class AccountingReportService {
     return await transactionManager.save(newOwnerStatement);
   }
 
-  private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
-    const financeCalculatedField = await this.hostaWayClient.financeCalculatedField(reservationId, clientId, clientSecret);
-    if (!financeCalculatedField || financeCalculatedField?.length == 0) {
-      throw new Error(`FinanceCalculatedField not found for reservationId: ${reservationId}`);
+  // private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
+  //   const financeCalculatedField = await this.hostaWayClient.financeCalculatedField(reservationId, clientId, clientSecret);
+  //   if (!financeCalculatedField || financeCalculatedField?.length == 0) {
+  //     throw new Error(`FinanceCalculatedField not found for reservationId: ${reservationId}`);
+  //   }
+
+  //   let ownerPayout = financeCalculatedField.find((obj) => obj?.formulaName == "ownerPayout").formulaResult || 0;
+  //   let pmCommission = financeCalculatedField.find((obj) => obj?.formulaName == "pmCommission").formulaResult || 0;
+  //   let paymentProcessing = financeCalculatedField.find((obj) => obj?.formulaName == "PaymentProcessing").formulaResult || 0;
+  //   let channelFee = financeCalculatedField.find((obj) => obj?.formulaName == "ChannelFee").formulaResult || 0;
+  //   let totalTax = financeCalculatedField.find((obj) => obj?.formulaName == "totalTax").formulaResult || 0;
+
+  //   return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
+  // }
+
+  private async calculateFinancialFields(
+    reservation: {
+      id: number;
+      listingMapId: number;
+      channelId: number;
+    },
+    clientId: string,
+    clientSecret: string,
+    pmFee: number
+  ) {
+    // Fetch finance standard fields
+    const financeStandardField = await this.hostaWayClient.financeStandardField(
+      reservation.id,
+      clientId,
+      clientSecret
+    );
+
+    if (!financeStandardField) {
+      throw new Error(`financeStandardField not found for reservationId: ${reservation.id}`);
     }
 
-    let ownerPayout = financeCalculatedField.find((obj) => obj?.formulaName == "ownerPayout").formulaResult || 0;
-    let pmCommission = financeCalculatedField.find((obj) => obj?.formulaName == "pmCommission").formulaResult || 0;
-    let paymentProcessing = financeCalculatedField.find((obj) => obj?.formulaName == "PaymentProcessing").formulaResult || 0;
-    let channelFee = financeCalculatedField.find((obj) => obj?.formulaName == "ChannelFee").formulaResult || 0;
-    let totalTax = financeCalculatedField.find((obj) => obj?.formulaName == "totalTax").formulaResult || 0;
+    // Initialize financial variables
+    let channelFee = 0;
+    let airbnbPayoutSum = 0;
+    let totalTax = 0;
+    let directPayout = 0;
+    let ownerPayout = 0;
+    let paymentProcessing = 0;
+    let pmCommission = 0;
 
-    return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
+    // Constants for special listingMapId cases
+    const specialListingMapIds = [286718, 286720];
+
+    // Helper function to calculate PM Commission
+    const calculatePmCommission = (): number => {
+      const cleaningFeeAdjustment = financeStandardField.cleaningFeeValue - paymentProcessing + channelFee;
+      const adjustedOwnerPayout = specialListingMapIds.includes(reservation.listingMapId)
+        ? ownerPayout - cleaningFeeAdjustment
+        : ownerPayout;
+
+      return adjustedOwnerPayout * pmFee;
+    };
+
+    // Calculate financial fields based on channelId
+    if (reservation.channelId === 2018) {
+      airbnbPayoutSum = financeStandardField.airbnbPayoutSum;
+      ownerPayout = airbnbPayoutSum + directPayout;
+    } else {
+      channelFee = financeStandardField.hostChannelFee;
+
+      totalTax = [
+        financeStandardField.vat,
+        financeStandardField.hotelTax,
+        financeStandardField.lodgingTax,
+        financeStandardField.salesTax,
+        financeStandardField.transientOccupancyTax,
+        financeStandardField.cityTax,
+        financeStandardField.roomTax,
+        financeStandardField.otherTaxes,
+      ].reduce((sum, tax) => sum + tax, 0);
+
+      directPayout = [
+        financeStandardField.baseRate,
+        financeStandardField.cleaningFeeValue,
+        totalTax,
+        financeStandardField.petFee,
+        financeStandardField.weeklyDiscount,
+        financeStandardField.couponDiscount,
+        financeStandardField.monthlyDiscount,
+        financeStandardField.cancellationPayout,
+        financeStandardField.otherFees,
+      ].reduce((sum, field) => sum + field, 0);
+
+      paymentProcessing = directPayout * 0.03;
+      ownerPayout = airbnbPayoutSum + directPayout;
+    }
+
+    // Calculate PM Commission
+    pmCommission = calculatePmCommission();
+
+    return {
+      ownerPayout,
+      pmCommission,
+      paymentProcessing,
+      channelFee,
+      totalTax,
+    };
   }
 
   private handleProratedCalculation(totalAmount: number, totalNights: number, calculableNights: number): number {
@@ -313,8 +404,10 @@ export class AccountingReportService {
   }
 
 
-  private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string, dateType: string, fromDate: string, toDate: string) {
+  private async saveOwnerStatementIncome(transactionManager: EntityManager, reservations: any, ownerStatementId: number, clientId: string, clientSecret: string, dateType: string, fromDate: string, toDate: string, listingPmFee: { listingId: number, pmFee: number; }[]) {
     for (const reservation of reservations) {
+
+      let pmFee = (listingPmFee.find((listing) => listing.listingId == reservation.listingMapId)?.pmFee) / 100 || 0;
 
       //calculate ownerPayout, paymentProcessing and pmCommission
       let {
@@ -323,7 +416,7 @@ export class AccountingReportService {
         paymentProcessing,
         channelFee,
         totalTax
-      } = await this.calculateFinancialFields(reservation.id, clientId, clientSecret);
+      } = await this.calculateFinancialFields(reservation, clientId, clientSecret, pmFee);
 
       let totalNights = reservation.nights;
       let totalAmount = reservation.totalPrice;
@@ -331,12 +424,12 @@ export class AccountingReportService {
 
       if (dateType == "prorated") {
         calculableNights = getReservationDaysInRange(fromDate, toDate, reservation.arrivalDate, reservation.departureDate);
-        totalAmount = this.handleProratedCalculation(totalAmount, totalNights, calculableNights);
-        ownerPayout = this.handleProratedCalculation(ownerPayout, totalNights, calculableNights);
-        pmCommission = this.handleProratedCalculation(pmCommission, totalNights, calculableNights);
-        paymentProcessing = this.handleProratedCalculation(paymentProcessing, totalNights, calculableNights);
-        channelFee = this.handleProratedCalculation(channelFee, totalNights, calculableNights);
-        totalTax = this.handleProratedCalculation(totalTax, totalNights, calculableNights);
+        totalAmount = totalAmount != 0 && this.handleProratedCalculation(totalAmount, totalNights, calculableNights);
+        ownerPayout = ownerPayout != 0 && this.handleProratedCalculation(ownerPayout, totalNights, calculableNights);
+        pmCommission = pmCommission != 0 && this.handleProratedCalculation(pmCommission, totalNights, calculableNights);
+        paymentProcessing = paymentProcessing != 0 && this.handleProratedCalculation(paymentProcessing, totalNights, calculableNights);
+        channelFee = channelFee != 0 && this.handleProratedCalculation(channelFee, totalNights, calculableNights);
+        totalTax = totalTax != 0 && this.handleProratedCalculation(totalTax, totalNights, calculableNights);
       }
 
       const newIncome = new OwnerStatementIncomeEntity();
@@ -383,6 +476,12 @@ export class AccountingReportService {
       const expenseDate = new Date(expense.expenseDate);
       const checkIn = new Date(fromDate);
       const checkOut = new Date(toDate);
+      const flag = expense.categoriesNames.includes("Upsell") || expense.categoriesNames.includes("Resolutions");
+      if (flag) {
+        expense.amount = expense.amount < 0 ? expense.amount * -1 : expense.amount;
+      } else {
+        expense.amount = expense.amount < 0 ? expense.amount : expense.amount * -1;
+      }
       return expense.listingMapId === listingId && expenseDate >= checkIn && expenseDate <= checkOut;
     });
   }
@@ -392,6 +491,22 @@ export class AccountingReportService {
 
     const connectedAccountService = new ConnectedAccountService();
     const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
+
+    const reservationService = new ReservationService();
+    const reservations = await reservationService.fetchReservations(
+      clientId,
+      clientSecret,
+      listingId,
+      dateType,
+      fromDate,
+      toDate,
+      500,
+      0,
+      channelId
+    );
+
+    const listingService = new ListingService();
+    const listingPmFee = await listingService.getListingPmFee();
 
     return await appDatabase.transaction(async (transactionManager: EntityManager) => {
       // Save owner statement details
@@ -405,19 +520,7 @@ export class AccountingReportService {
       });
 
       // Save owner-statement-income
-      const reservationService = new ReservationService();
-      const reservations = await reservationService.fetchReservations(
-        clientId,
-        clientSecret,
-        listingId,
-        dateType,
-        fromDate,
-        toDate,
-        500,
-        0,
-        channelId
-      );
-      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate);
+      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate, listingPmFee);
 
       // Save owner-statement-expense
       const expenseService = new ExpenseService();
@@ -483,6 +586,8 @@ export class AccountingReportService {
           address: listing?.address,
           city: listing?.city,
           state: listing?.state,
+          invoiceNo: statement.id,
+          ownerDetails: ownerDetails[statement.listingId]
         };
       })
     );

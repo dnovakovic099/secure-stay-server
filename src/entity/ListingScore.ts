@@ -59,4 +59,7 @@ export class ListingScore {
 
   @Column({ type: "text", nullable: true })
   reviewAnalysis: string;
+
+  @Column({ default: 0 })
+  pmFee: number;
 }
