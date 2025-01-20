@@ -46,12 +46,6 @@ export class ListingService {
               { id: listings[i]?.id, userId }
             );
 
-            existingListing.ownerName = ownerDetails[existingListing.id]?.name || "";
-            existingListing.ownerEmail = ownerDetails[existingListing.id]?.email || "";
-            existingListing.ownerPhone = ownerDetails[existingListing.id]?.phone || "";
-
-            await transactionalEntityManager.save(existingListing)
-
             if (!existingListing) {
               const listingObj = this.createListingObject(listings[i], userId);
               const savedListing = await transactionalEntityManager.save(
@@ -63,6 +57,12 @@ export class ListingService {
                 listings[i]["listingImages"],
                 savedListing.listingId
               );
+            }else{
+              existingListing.ownerName = ownerDetails[existingListing.id]?.name || "";
+              existingListing.ownerEmail = ownerDetails[existingListing.id]?.email || "";
+              existingListing.ownerPhone = ownerDetails[existingListing.id]?.phone || "";
+
+              await transactionalEntityManager.save(existingListing)
             }
           }
         }
