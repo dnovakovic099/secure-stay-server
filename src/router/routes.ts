@@ -7,12 +7,12 @@ import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
 import { UsersController } from "../controllers/UsersController";
 import { UpSellController } from "../controllers/UpSellController";
+import { ChargeAutomationWebhookController } from '../controllers/ChargeAutomationWebhookController';
 // import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
 import { AutomatedMessageRoutes } from "./AutomatedMessageRoutes";
 import { PmRoutes } from "./pmRoutes";
-import { UpsellOrdersRoutes } from './upsellOrdersRoutes';
 
 
 export const AppRoutes = () => {
@@ -25,11 +25,11 @@ export const AppRoutes = () => {
   const checkInController = new CheckInController();
   const usersController = new UsersController();
   const upSellController = new UpSellController();
+  const chargeAutomationWebhookController = new ChargeAutomationWebhookController();
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
   const automatedMessageRoutes = AutomatedMessageRoutes();
   const pmRoutes = PmRoutes()
-  const upsellOrdersRoutes = UpsellOrdersRoutes()
 
   return [
     {
@@ -172,7 +172,13 @@ export const AppRoutes = () => {
       file: false,
       rawJson: false,
     },
-    ...upsellOrdersRoutes,
+    {
+      path: "/upsell/webhook",
+      method: "post",
+      action: chargeAutomationWebhookController.handleWebhook,
+      file: false,
+      rawJson: true
+    },
     ...userRoutes,
     ...guideBookRoutes,
     ...automatedMessageRoutes,
