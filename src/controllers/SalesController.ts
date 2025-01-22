@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { ClientService } from "../services/SalesService";
 import { LoginCredentials } from "../types";
 import {
@@ -28,9 +28,30 @@ import ejs from "ejs";
 import fs from "fs";
 
 export class SalesController {
-  async createClient(request: Request, response: Response) {
-    const clientService = new ClientService();
-    return response.send(await clientService.createClient(request));
+  async createClient(request: Request, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      console.log("request.files", request.files);
+
+      let fileNames: string[] = [];
+      if (
+        Array.isArray(request.files["attachments"]) &&
+        request.files["attachments"].length > 0
+      ) {
+        fileNames = (request.files["attachments"] as Express.Multer.File[]).map(
+          (file) => file.filename
+        );
+      }
+      console.log("fileNames", fileNames);
+      // return response.status(404).json({ error: "Client not found" });
+      return response.send(
+        await clientService.createClient(request, fileNames)
+      );
+    } catch (error) {
+      console.log("error", error);
+
+      next(error);
+    }
   }
   async getAllClients(request: Request, response: Response) {
     const clientService = new ClientService();

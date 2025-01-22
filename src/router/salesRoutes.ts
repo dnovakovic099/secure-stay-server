@@ -10,9 +10,12 @@ import fileUpload from "../utils/upload.util";
 const router = Router();
 const salesController = new SalesController();
 
-router
-  .route("/createClient")
-  .post(validateClientRequest, salesController.createClient);
+router.route("/createClient").post(
+  // verifySession,
+  fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
+  validateClientRequest,
+  salesController.createClient
+);
 router.route("/getAllClients").get(
   // verifySession,
   salesController.getAllClients

@@ -6,6 +6,9 @@ export const validateClientRequest = (
   response: Response,
   next: NextFunction
 ) => {
+  const body = JSON.parse(request.body.data);
+  // console.log("body", body);
+
   const schema = Joi.object({
     leadStatus: Joi.string().valid("Active", "Inactive").required().messages({
       "any.only": "leadStatus must be either 'Active' or 'Inactive'",
@@ -68,7 +71,7 @@ export const validateClientRequest = (
       }),
   });
 
-  const { error } = schema.validate(request.body, { allowUnknown: true });
+  const { error } = schema.validate(body, { allowUnknown: true });
   if (error) {
     return next(error);
   }

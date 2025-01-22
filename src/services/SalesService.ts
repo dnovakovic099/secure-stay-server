@@ -8,7 +8,10 @@ export class ClientService {
   private clientListingRepository =
     appDatabase.getRepository(ClientListingEntity);
 
-  async createClient(request: Request) {
+  async createClient(request: Request, fileNames?: string[]) {
+    console.log("fileNames", fileNames);
+
+    const body = JSON.parse(request.body.data);
     const {
       leadStatus,
       propertyAddress,
@@ -24,7 +27,7 @@ export class ClientService {
       guests,
       beds,
       airDnaData,
-    } = request.body;
+    } = body;
 
     const newClient = this.clientRepository.create({
       leadStatus,
@@ -74,6 +77,7 @@ export class ClientService {
       zipcode: property_details.zipcode,
       revenueRange: property_statistics.revenue_range,
       screenshotSessionId,
+      // fileNames: fileNames ? JSON.stringify(fileNames) : "",
       createdAt: currentDate,
       updatedAt: currentDate,
     });
