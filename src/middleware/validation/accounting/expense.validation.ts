@@ -27,10 +27,10 @@ export const validateCreateExpense = (request: Request, response: Response, next
         ).required(),
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required(),
+        }).required().allow(null, ""),
         contractorName: Joi.string().required(),
-        contractorNumber: Joi.string().required(),
-        findings: Joi.string().required(),
+        contractorNumber: Joi.string().required().allow(null),
+        findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
         paymentMethod: Joi.string().required().allow(null, "")
@@ -71,10 +71,10 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         ).required(),
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required(),
+        }).required().allow(null, ""),
         contractorName: Joi.string().required(),
-        contractorNumber: Joi.string().required(),
-        findings: Joi.string().required(),
+        contractorNumber: Joi.string().required().allow(null),
+        findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
         paymentMethod: Joi.string().required().allow(null, "")
