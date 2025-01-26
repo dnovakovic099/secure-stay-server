@@ -90,7 +90,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
 
 export const validateUpdateExpenseStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        expenseId: Joi.number().required(),
+        expenseId: Joi.array().items(Joi.number().required()).min(1).required(),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
     });
