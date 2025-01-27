@@ -190,8 +190,12 @@ export class HostAwayClient {
     offset: number,
     channelId: number | ""
   ): Promise<Object[]> {
-    
-    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+
+    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
+
+    if (dateType == "prorated") {
+      url = `https://api.hostaway.com/v1/reservations?departureStartDate=${startDate}&arrivalEndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
+    }
 
     if (listingId) {
       url += `&listingId=${listingId}`;
@@ -315,8 +319,8 @@ export class HostAwayClient {
       return null;
     }
   }
-  public async financeCalculatedField(reservationId: number, clientId: string, clientSecret: string) {
-    let url = `https://api.hostaway.com/v1/financeCalculatedField/reservation/${reservationId}`;
+  public async financeStandardField(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/financeStandardField/reservation/${reservationId}`;
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);

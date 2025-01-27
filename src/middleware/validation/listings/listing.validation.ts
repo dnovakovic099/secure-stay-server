@@ -28,6 +28,7 @@ export const validateSaveListingScore = (request: Request, response: Response, n
 
     reviewScore: Joi.number().integer().min(0).required(),
     reviewAnalysis: Joi.string().allow('').optional(),
+    pmFee: Joi.number().min(0).required(),
   });
 
 

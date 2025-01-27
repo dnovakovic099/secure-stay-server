@@ -9,6 +9,7 @@ import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
+import { ownerDetails } from "../constant";
 
 interface ListingUpdate {
   listingId: number;
@@ -56,6 +57,12 @@ export class ListingService {
                 listings[i]["listingImages"],
                 savedListing.listingId
               );
+            }else{
+              existingListing.ownerName = ownerDetails[existingListing.id]?.name || "";
+              existingListing.ownerEmail = ownerDetails[existingListing.id]?.email || "";
+              existingListing.ownerPhone = ownerDetails[existingListing.id]?.phone || "";
+
+              await transactionalEntityManager.save(existingListing)
             }
           }
         }
@@ -96,7 +103,10 @@ export class ListingService {
       wifiUsername: data?.wifiUsername || "(NO WIFI)",
       wifiPassword: data?.wifiPassword || "(NO PASSWORD)",
       bookingcomPropertyRoomName: data?.bookingcomPropertyRoomName || "",
-      userId: userId
+      userId: userId,
+      ownerName: ownerDetails[data.id]?.name || "",
+      ownerEmail: ownerDetails[data.id]?.email || "",
+      ownerPhone: ownerDetails[data.id]?.phone || "",
     };
   }
 
@@ -132,7 +142,7 @@ export class ListingService {
   async getListingNames(userId: string) {
     const listings = await this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.name"])
+      .select(["listing.id", "listing.name", "listing.internalListingName"])
       .where("listing.userId = :userId", { userId })
       .getMany();
 
@@ -228,6 +238,15 @@ export class ListingService {
     };
 
 
+  }
+
+  public async getListingPmFee(listingId?: number) {
+    const listingPmFee = await this.listingScore.find({
+      where: { listingId },
+      select: ['listingId', 'pmFee'],
+    });
+
+    return listingPmFee;
   }
 
 

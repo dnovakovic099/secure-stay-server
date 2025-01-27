@@ -56,3 +56,62 @@ export function formatDate(dateString: string) {
   // Return the formatted date
   return `${month} ${day}, ${year}`;
 }
+
+export function getReservationDaysInRange(
+  fromDate: string,
+  toDate: string,
+  reservationStartDate: string,
+  reservationEndDate: string
+): number {
+  // Convert strings to Date objects
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const reservationStart = new Date(reservationStartDate);
+  const reservationEnd = new Date(reservationEndDate);
+
+  // Validate the date objects
+  if (
+    isNaN(from.getTime()) ||
+    isNaN(to.getTime()) ||
+    isNaN(reservationStart.getTime()) ||
+    isNaN(reservationEnd.getTime())
+  ) {
+    throw new Error("Invalid date format. Please use 'yyyy-mm-dd'.");
+  }
+
+  // Adjust the reservation end date to exclude the check-out day
+  const adjustedReservationEnd = new Date(reservationEnd.getTime() - 24 * 60 * 60 * 1000);
+
+  // If the adjusted reservation end date is before the fromDate, it doesn't overlap
+  if (adjustedReservationEnd < from) {
+    return 0;
+  }
+
+  // Find the overlap between the reservation period (adjusted) and the date range
+  const overlapStart = new Date(Math.max(from.getTime(), reservationStart.getTime()));
+  const overlapEnd = new Date(Math.min(to.getTime(), adjustedReservationEnd.getTime()));
+
+  // If there is no overlap, return 0
+  if (overlapStart > overlapEnd) {
+    return 0;
+  }
+
+  // Calculate the number of nights in the overlap period
+  const diffInMilliseconds = overlapEnd.getTime() - overlapStart.getTime() + 1;
+  return Math.ceil(diffInMilliseconds / (1000 * 60 * 60 * 24));
+}
+
+
+export const getFormattedUTCDateTime = (): string => {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0"); // Months are 0-based
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  const hours = String(now.getUTCHours()).padStart(2, "0");
+  const minutes = String(now.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(now.getUTCSeconds()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+};
+
+

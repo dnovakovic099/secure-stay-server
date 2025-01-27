@@ -36,7 +36,7 @@ export const validateCreateOwnerStatement = (request: Request, response: Respons
     toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
       'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
     }).required(),
-    dateType: Joi.string().required().valid("arrival", "departure"),
+    dateType: Joi.string().required().valid("arrival", "departure", "prorated"),
     channelId: Joi.number().required().allow(""),
     listingId: Joi.number().required()
   });
