@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { Issue } from './Issue';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 export enum ExpenseStatus {
     PENDING = 'Pending Approval',
@@ -37,13 +36,13 @@ export class ExpenseEntity {
     @Column({ type: 'varchar' })
     contractorName: string;
 
-    @Column({ type: 'varchar', nullable: true })
+    @Column({ type: 'varchar' })
     contractorNumber: string;
 
-    @Column({ type: 'varchar', nullable: true })
+    @Column({ type: 'varchar' })
     dateOfWork: string;
 
-    @Column({ type: 'text', nullable: true })
+    @Column({ type: 'text' })
     findings: string;
 
     @Column({ type: 'text'})
@@ -63,8 +62,4 @@ export class ExpenseEntity {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
-
-    @ManyToOne(() => Issue, issue => issue.expenses, { eager: true, nullable: true })
-    @JoinColumn({ name: 'linked_issue_id' })
-    linkedIssue: Issue;
 }
