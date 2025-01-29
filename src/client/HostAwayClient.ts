@@ -45,7 +45,7 @@ export class HostAwayClient {
     limit?: number,
     offset?: number,
   ): Promise<{ offset: number, limit: number, result: ReservationInfoEntity[] }> {
-    let url = `https://api.hostaway.com/v1/reservations?limit=${limit}&offset=${offset}`;
+    let url = `https://api.hostaway.com/v1/reservations?sortOrder=arrivalDate`;
 
     try {
       const authResponse = await this.getAuthToken();

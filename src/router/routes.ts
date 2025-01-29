@@ -52,13 +52,6 @@ export const AppRoutes = () => {
       rawJson: false,
     },
     {
-      path: "/update-reservation/:id",
-      method: "put",
-      action: reservationController.updateReservationById,
-      file: false,
-      rawJson: false,
-    },
-    {
       path: "/reservation-info/webhook",
       method: "post",
       action: reservationInfoController.saveReservation,

@@ -11,6 +11,7 @@ import fileRoutes from "./fileRoutes";
 import reservationRoutes from "./reservationRoutes";
 import authRoutes from "./authRoutes";
 import salesRoutes from "./salesRoutes";
+import reservationDetailRoutes from "./reservationDetailRoutes";
 const router = Router();
 
 router.use("/device", deviceRoutes);
@@ -25,5 +26,6 @@ router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);
 router.use("/auth", authRoutes);
 router.use("/sales", salesRoutes);
+router.use("/reservation-detail", reservationDetailRoutes);
 
 export default router;

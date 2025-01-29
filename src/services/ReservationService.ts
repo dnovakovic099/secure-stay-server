@@ -52,13 +52,68 @@ export class ReservationService {
     }
 
     async getReservationInfo(request: Request) {
+        // Extract all query parameters with defaults
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
+        const listingName = String(request.query.listingName || '');
+        const date = String(request.query.date || '');
+        const status = String(request.query.status || '');
+        const channelName = String(request.query.channelName || '');
         const offset = (page - 1) * limit;
-    
+
         try {
-            const reservations = await this.hostAwayClient.getReservationInfo(limit, offset);   
-            return reservations;
+            const reservations = await this.hostAwayClient.getReservationInfo();
+
+
+            console.log(reservations);
+            
+            // Filter the results based on query parameters
+            let filteredReservations = reservations.result.filter(reservation => {
+                let matches = true;
+                
+                if (listingName && listingName.length > 0) {
+                    const reservationListingName = reservation.listingName || '';
+                    matches = matches && reservationListingName.toString().toLowerCase().includes(listingName.toLowerCase());
+                }
+                
+                if (date && date.length > 0) {
+                    matches = matches && new Date(reservation.arrivalDate).toISOString().split('T')[0] === date;
+                }
+                
+                if (status && status.length > 0) {
+                    matches = matches && reservation.paymentStatus.toLowerCase() === status.toLowerCase();
+                }
+                
+                if (channelName && channelName.length > 0) {
+                    matches = matches && reservation.channelName.toLowerCase().includes(channelName.toLowerCase());
+                }
+                
+                return matches;
+            });
+
+            // Sort reservations to prioritize today's arrivals
+            const today = new Date().toISOString().split('T')[0];
+            filteredReservations.sort((a, b) => {
+                const aIsToday = new Date(a.arrivalDate).toISOString().split('T')[0] === today;
+                const bIsToday = new Date(b.arrivalDate).toISOString().split('T')[0] === today;
+                
+                if (aIsToday && !bIsToday) return -1;
+                if (!aIsToday && bIsToday) return 1;
+                return 0;
+            });
+
+            // Apply pagination after filtering
+            const paginatedResults = filteredReservations.slice(offset, offset + limit);
+
+            // Return formatted response matching frontend expectations
+            return {
+                status: "success",
+                result: paginatedResults,
+                count: filteredReservations.length,
+                currentPage: page,
+                totalPages: Math.ceil(filteredReservations.length / limit)
+            };
+
         } catch (error) {
             console.error("Error fetching reservations:", error);
             throw new Error("Failed to fetch reservation info.");
@@ -73,28 +128,14 @@ export class ReservationService {
       CheckInDate: reservation.arrivalDate,
       Amount: reservation.totalPrice,
       Status: reservation.status,
+      ListingName: reservation.listingName || '',
+
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
     const csv = XLSX.utils.sheet_to_csv(worksheet);
 
     return Buffer.from(csv, 'utf-8');
-    }
-
-    async updateReservationById(request: Request) {
-        const reservationId = request.params.id;
-        console.log("reservationId: ", reservationId);
-        const reservation = await this.reservationRepository.findOne({ where: { reservationId } });
-        if (!reservation) {
-            throw new Error("ReservationService: Reservation is null");
-        }
-        
-        // TODO: UPDATE RESERVATION INFORMATION
-        reservation.reservationInfo.hostNote = request.body.notes;
-        reservation.reservationInfo.doorCode = request.body.doorCode;
-        
-        await this.reservationRepository.save(reservation);
-        return reservation;
     }
 
     async getChannelList() {
