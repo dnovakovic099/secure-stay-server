@@ -8,12 +8,10 @@ export class ReservationInfoEntity {
     @PrimaryGeneratedColumn({ name: 'reservations_id' })
     reservationsId: number;
 
+
     // Define other columns
     @Column({ type: 'int', nullable: true })
     listingMapId: number;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    listingName : string;
 
     @Column({ type: 'int', nullable: true })
     channelId: number;
@@ -23,7 +21,6 @@ export class ReservationInfoEntity {
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     channelName: string;
-    
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     reservationId: string;
@@ -198,9 +195,6 @@ export class ReservationInfoEntity {
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     paymentMethod: string;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    paymentStatus: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     stripeGuestId: string;

@@ -42,11 +42,26 @@ export class HostAwayClient {
   }
 
   public async getReservationInfo(
-    limit?: number,
-    offset?: number,
-  ): Promise<{ offset: number, limit: number, result: ReservationInfoEntity[] }> {
-    let url = `https://api.hostaway.com/v1/reservations?sortOrder=arrivalDate`;
+    params?: {
+      limit?: number;
+      offset?: number;
+      guestName?: string;
+      arrivalStartDate?: string;
+      arrivalEndDate?: string;
+      listingId?: number;
+    }
+  ): Promise<{ offset: number, limit: number, count: number, result: ReservationInfoEntity[] }> {
+    let url = `https://api.hostaway.com/v1/reservations?sortOrder=arrivalDateDesc`;
+    
+    // Add query parameters if they exist
+    if (params?.guestName && params.guestName !== 'undefined') url += `&match=${encodeURIComponent(params.guestName)}`;
+    if (params?.arrivalStartDate && params.arrivalStartDate !== 'undefined') url += `&arrivalStartDate=${params.arrivalStartDate}`;
+    if (params?.arrivalEndDate && params.arrivalEndDate !== 'undefined') url += `&arrivalEndDate=${params.arrivalEndDate}`;
+    if (params?.limit) url += `&limit=${params.limit}`;
+    if (params?.offset) url += `&offset=${params.offset}`;
+    if (params?.listingId) url += `&listingId=${params.listingId}`;
 
+    console.log(url);
     try {
       const authResponse = await this.getAuthToken();
       this.accessToken = authResponse.data?.access_token;
@@ -57,7 +72,7 @@ export class HostAwayClient {
           "Cache-control": "no-cache",
         },
       });
-       return response.data;
+      return response.data;
     } catch (error) {
       throw error;
     }

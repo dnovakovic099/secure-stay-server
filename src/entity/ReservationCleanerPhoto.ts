@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, JoinColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, JoinColumn } from "typeorm";
 import { ReservationDetail } from "./ReservationDetail";
 
 @Entity("reservation_cleaner_photos")
@@ -15,4 +15,7 @@ export class ReservationCleanerPhoto {
 
     @CreateDateColumn()
     createdAt: Date;
-} 
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+}

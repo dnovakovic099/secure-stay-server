@@ -52,66 +52,48 @@ export class ReservationService {
     }
 
     async getReservationInfo(request: Request) {
-        // Extract all query parameters with defaults
+        // Extract query parameters
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
-        const listingName = String(request.query.listingName || '');
-        const date = String(request.query.date || '');
-        const status = String(request.query.status || '');
-        const channelName = String(request.query.channelName || '');
+        const guestName = String(request.query.guestName || undefined);
+        const arrivalStartDate = String(request.query.arrivalStartDate) || undefined;
+        const listingId = request.query.listingId ? Number(request.query.listingId) : undefined;
         const offset = (page - 1) * limit;
 
         try {
-            const reservations = await this.hostAwayClient.getReservationInfo();
-
-
-            console.log(reservations);
-            
-            // Filter the results based on query parameters
-            let filteredReservations = reservations.result.filter(reservation => {
-                let matches = true;
-                
-                if (listingName && listingName.length > 0) {
-                    const reservationListingName = reservation.listingName || '';
-                    matches = matches && reservationListingName.toString().toLowerCase().includes(listingName.toLowerCase());
-                }
-                
-                if (date && date.length > 0) {
-                    matches = matches && new Date(reservation.arrivalDate).toISOString().split('T')[0] === date;
-                }
-                
-                if (status && status.length > 0) {
-                    matches = matches && reservation.paymentStatus.toLowerCase() === status.toLowerCase();
-                }
-                
-                if (channelName && channelName.length > 0) {
-                    matches = matches && reservation.channelName.toLowerCase().includes(channelName.toLowerCase());
-                }
-                
-                return matches;
-            });
-
-            // Sort reservations to prioritize today's arrivals
+            // Get today's reservations first
             const today = new Date().toISOString().split('T')[0];
-            filteredReservations.sort((a, b) => {
-                const aIsToday = new Date(a.arrivalDate).toISOString().split('T')[0] === today;
-                const bIsToday = new Date(b.arrivalDate).toISOString().split('T')[0] === today;
-                
-                if (aIsToday && !bIsToday) return -1;
-                if (!aIsToday && bIsToday) return 1;
-                return 0;
+            const todayReservations = await this.hostAwayClient.getReservationInfo({
+                arrivalStartDate: today,
+                arrivalEndDate: today,
             });
 
-            // Apply pagination after filtering
-            const paginatedResults = filteredReservations.slice(offset, offset + limit);
+            // Get regular filtered results
+            const regularReservations = await this.hostAwayClient.getReservationInfo({
+                limit,
+                offset,
+                guestName,
+                arrivalStartDate : arrivalStartDate || undefined,
+                listingId: listingId || undefined
+            });
 
-            // Return formatted response matching frontend expectations
+            // Combine results, removing duplicates
+            const todayResults = todayReservations.result || [];
+            const regularResults = regularReservations.result || [];
+
+            // Filter out today's reservations that might appear in regular results
+            const todayReservationIds = new Set(todayResults.map(r => r.reservationId));
+            const filteredRegularResults = regularResults.filter(r => !todayReservationIds.has(r.reservationId));
+
+            // Combine today's reservations with filtered regular results
+            const combinedResults = [...todayResults, ...filteredRegularResults];
+
             return {
                 status: "success",
-                result: paginatedResults,
-                count: filteredReservations.length,
+                result: combinedResults,
+                count: regularReservations.count,
                 currentPage: page,
-                totalPages: Math.ceil(filteredReservations.length / limit)
+                totalPages: Math.ceil(regularReservations.count / limit),
             };
 
         } catch (error) {
@@ -128,8 +110,7 @@ export class ReservationService {
       CheckInDate: reservation.arrivalDate,
       Amount: reservation.totalPrice,
       Status: reservation.status,
-      ListingName: reservation.listingName || '',
-
+      ListingId: reservation.listingMapId
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);

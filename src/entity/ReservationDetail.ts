@@ -1,4 +1,4 @@
-import { Entity, PrimaryColumn, Column, OneToMany } from "typeorm";
+import { Entity, PrimaryColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn } from "typeorm";
 import { ReservationCleanerPhoto } from "./ReservationCleanerPhoto";
 
 export enum DoorCodeStatus {
@@ -41,4 +41,10 @@ export class ReservationDetail {
 
     @OneToMany(() => ReservationCleanerPhoto, photo => photo.reservation)
     cleanerPhotos: ReservationCleanerPhoto[];
-} 
+
+    @CreateDateColumn()
+    createdAt: Date;
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+}
