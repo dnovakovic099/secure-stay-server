@@ -29,13 +29,21 @@ export class UpsellOrderController {
     async createOrder(request: Request, response: Response) {
         const upsellOrderService = new UpsellOrderService();
         try {
+
+            if (!request.body || Object.keys(request.body).length === 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: 'Request body is empty'
+                });
+            }
+
             const result = await upsellOrderService.createOrder(request.body);
-            return response.send({
+            return response.status(201).json({
                 status: true,
                 data: result
             });
         } catch (error) {
-            return response.send({
+            return response.status(400).json({
                 status: false,
                 message: error.message
             });
@@ -46,16 +54,32 @@ export class UpsellOrderController {
         const upsellOrderService = new UpsellOrderService();
         try {
             const { id } = request.params;
+
+            if (!id || isNaN(Number(id))) {
+                return response.status(400).json({
+                    status: false,
+                    message: 'Invalid order ID'
+                });
+            }
+
             const result = await upsellOrderService.updateOrder(Number(id), request.body);
+
+            if (!result) {
+                return response.status(404).json({
+                    status: false,
+                    message: 'Order not found'
+                });
+            }
+
             return response.send({
                 status: true,
                 data: result
             });
         } catch (error) {
-            return response.send({
+              return response.status(400).json({
                 status: false,
                 message: error.message
-            });
+              });
         }
     }
 

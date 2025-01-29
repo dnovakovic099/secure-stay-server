@@ -33,6 +33,18 @@ export class UpsellOrder {
     @Column('text')
     description: string;
 
+    @Column({ nullable: true })
+    booking_id: string;
+
+    @Column({ type: 'date', nullable: true })
+    arrival_date: Date;
+
+    @Column({ type: 'date', nullable: true })
+    departure_date: Date;
+
+    @Column({ nullable: true })
+    phone: string;
+
     @CreateDateColumn()
     created_at: Date;
 
