@@ -40,6 +40,20 @@ export const AppRoutes = () => {
       rawJson: false,
     },
     {
+      path: "/reservations",
+      method: "get",
+      action: reservationController.getAllReservations,
+      file: false,
+      rawJson: false,
+    },
+    {
+      path: "/reservations/export",
+      method: "get",
+      action: reservationController.exportReservationToExcel,
+      file: false,
+      rawJson: false,
+    },
+    {
       path: "/reservation-info/webhook",
       method: "post",
       action: reservationInfoController.saveReservation,

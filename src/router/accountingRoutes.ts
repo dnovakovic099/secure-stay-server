@@ -8,11 +8,14 @@ import fileUpload from "../utils/upload.util";
 import { validateCreateOwnerStatement, validatePrintExpenseIncomeStatement } from "../middleware/validation/accounting/accountingReport.validation";
 import { AccountingReportController } from "../controllers/AccountingReportController";
 import verifyMobileSession from "../middleware/verifyMobileSession";
+import { ContractorInfoController } from "../controllers/ContractorController";
+import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 
 const router = Router();
 const expenseController = new ExpenseController();
 const incomeController = new IncomeController();
 const accountingController = new AccountingReportController();
+const contractorInfoController = new ContractorInfoController();
 
 router.route('/createexpense')
     .post(
@@ -77,5 +80,18 @@ router.route('/getownerstatements')
         verifySession,
         accountingController.getOwnerStatements
     )
+
+router.route('/savecontractorinfo')
+    .post(
+        verifySession,
+        validateContractorInfo,
+        contractorInfoController.saveContractorInfo
+    );
+
+router.route('/getcontractors')
+    .get(
+        verifySession,
+        contractorInfoController.getContractors
+    )    
 
 export default router;
