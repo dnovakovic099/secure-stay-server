@@ -13,6 +13,7 @@ import authRoutes from "./authRoutes";
 import salesRoutes from "./salesRoutes";
 import reviewRoutes from "./reviewRoutes";
 import reservationDetailRoutes from "./reservationDetailRoutes";
+import webhookRoutes from "./webhookRoutes";
 const router = Router();
 
 router.use("/device", deviceRoutes);
@@ -29,5 +30,6 @@ router.use("/auth", authRoutes);
 router.use("/sales", salesRoutes);
 router.use("/review", reviewRoutes)
 router.use("/reservation-detail", reservationDetailRoutes);
+router.use('/webhook', webhookRoutes);
 
 export default router;
