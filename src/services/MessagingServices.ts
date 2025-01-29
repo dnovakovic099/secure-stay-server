@@ -5,6 +5,8 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
+import logger from "../utils/logger.utils";
+
 interface MessageType {
     id: number;
     conversationId: number;
@@ -95,13 +97,14 @@ export class MessagingService {
     }
 
     async handleConversation(message: MessageType) {
+        logger.info(`New message received from webhook: ${JSON.stringify(message)}`)
         const inquiryStatuses = [
             "pending",
             "awaitingPayment",
             "inquiry",
-            "inquryPreapproved",
+            "inquiryPreapproved",
             "inquiryDenied",
-            "inquiryTimeout",
+            "inquiryTimedout",
             "inquiryNotPossible"
         ];
         const reservationInfo = await this.hostawayClient.getReservation(
@@ -109,12 +112,16 @@ export class MessagingService {
             process.env.HOSTAWAY_CLIENT_ID,
             process.env.HOSTAWAY_CLIENT_SECRET
         );
-        if (!inquiryStatuses.includes(reservationInfo.status)) return;
+        if (!inquiryStatuses.includes(reservationInfo.status)) {
+            logger.info(`Message ${message.id} received from webhook does not comply with reservation(${reservationInfo?.status}) inquiry status`);
+            logger.info(`Skipping database save for the conversationId: ${message.conversationId} messageId:${message.id} `);
+            return;
+        };
 
         // save the message in the database only if isIncoming is 1; 
         if (message.isIncoming && message.isIncoming == 1) {
             await this.saveIncomingGuestMessage(message);
-            console.log('Guest message saved successfully');
+            logger.info(`Guest message saved successfully messageId: ${message.id} conversationId: ${message.conversationId}`);
         }
         return;
     }
@@ -145,10 +152,12 @@ export class MessagingService {
     public async processUnanweredMessages() {
         const unansweredMessages = await this.fetchGuestMessages();
         if (unansweredMessages.length == 0) {
+            logger.info('No unanswered messages found');
             return;
         }
 
         for (const msg of unansweredMessages) {
+            logger.info(`Checking whether answered or not for messageId ${msg.messageId}`)
             //fetch the conversation messages from hostaway
             const conversationMessages = await this.hostawayClient.fetchConversationMessages(
                 msg.conversationId,
@@ -158,12 +167,14 @@ export class MessagingService {
 
             //check if conversation has been answered after the guest message
             const isAnswered = await this.checkUnasweredMessages(conversationMessages, msg);
+            logger.info(`isAnswered is ${isAnswered} for messageId ${msg.messageId}`);
             if (!isAnswered) {
-                //check if the guest message received time has exceeded more than 15 minutes
+                //check if the guest message received time has exceeded more than 10 minutes
+                logger.info(`Checking if guest message ${msg.messageId} received time has exceeded more than 10 minutes`)
                 await this.checkGuestMessageTime(msg);
             }
         }
-
+        return;
     }
 
     private async checkGuestMessageTime(msg: Message) {
@@ -172,11 +183,13 @@ export class MessagingService {
 
         // Calculate the difference in milliseconds
         const differenceInMilliseconds = nowUtc.getTime() - receivedAt.getTime();
+        logger.info(`Difference in ms is ${differenceInMilliseconds} for messageId ${msg.messageId}`)
 
         // Check if the difference is greater than 10 minutes
-        if (differenceInMilliseconds > 10 * 60 * 1000) {
-            console.log(`Sending email notification for unanswered guest message conversationId: ${msg.conversationId}`)
-            await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt);
+        if (differenceInMilliseconds > 5 * 60 * 1000) {
+            logger.info(`Sending email notification for unanswered guest message conversationId: ${msg.conversationId} messageId: ${msg.messageId}`)
+            const currentTimeStamp = nowUtc.getTime();
+            await this.notifyUnansweredMessage(msg.body, msg.reservationId, msg.receivedAt, currentTimeStamp);
         }
     }
 
@@ -186,6 +199,7 @@ export class MessagingService {
             const currentMessageDate = new Date(msg.date);
             if (msg.isIncoming == 0 && (currentMessageDate.getTime() > guestMessage.receivedAt.getTime())) {
                 await this.updateMessageAsAnswered(guestMessage);
+                logger.info(`Updated messageId ${guestMessage.messageId} as answered`);
                 return true;
             }
         }
@@ -195,16 +209,17 @@ export class MessagingService {
     private async updateMessageAsAnswered(guestMessage: Message) {
         const message = await this.messageRepository.findOne({ where: { id: guestMessage.id } });
         if (!message) {
-            console.log(`Could not find message with messageId:${guestMessage.messageId}`);
+            logger.info(`Could not find message with messageId:${guestMessage.messageId}`);
+            return;
         }
 
         message.answered = true;
         return await this.messageRepository.save(message);
     };
 
-    private async notifyUnansweredMessage(body: string, reservationId: number, date: Date) {
+    private async notifyUnansweredMessage(body: string, reservationId: number, date: Date, currentTimeStamp: number) {
 
-        const subject = "Action Required: Guest Message Waiting for Your Response";
+        const subject = `Action Required: Guest Message Waiting for Your Response-${currentTimeStamp}`;
         const html = `
                <html>
   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">

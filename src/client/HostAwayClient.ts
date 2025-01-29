@@ -1,4 +1,5 @@
 import axios, { AxiosResponse } from "axios";
+import logger from "../utils/logger.utils";
 
 export class HostAwayClient {
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
@@ -188,11 +189,11 @@ export class HostAwayClient {
     offset: number,
     channelId: number | ""
   ): Promise<Object[]> {
-    
-    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=${dateType}DateDesc`;
+
+    let url = `https://api.hostaway.com/v1/reservations?${dateType}StartDate=${startDate}&${dateType}EndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
 
     if (dateType == "prorated") {
-      url = `https://api.hostaway.com/v1/reservations?departureStartDate=${startDate}&arrivalEndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDateDesc`;
+      url = `https://api.hostaway.com/v1/reservations?departureStartDate=${startDate}&arrivalEndDate=${endDate}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
     }
 
     if (listingId) {
@@ -317,8 +318,8 @@ export class HostAwayClient {
       return null;
     }
   }
-  public async financeCalculatedField(reservationId: number, clientId: string, clientSecret: string) {
-    let url = `https://api.hostaway.com/v1/financeCalculatedField/reservation/${reservationId}`;
+  public async financeStandardField(reservationId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/financeStandardField/reservation/${reservationId}`;
 
     try {
       const token = await this.getAccessToken(clientId, clientSecret);
@@ -376,6 +377,45 @@ export class HostAwayClient {
       console.log(error);
       return null;
     }
+  }
+
+  public async getReviews(clientId: string, clientSecret: string, limit: number = 500, listingId?: number) {
+    let reviews: any[] = [];
+    let offset = 0;
+    let hasMoreData = true;
+    const token = await this.getAccessToken(clientId, clientSecret);
+
+    while (hasMoreData) {
+      try {
+        let url = `https://api.hostaway.com/v1/reviews?limit=${limit}&offset=${offset}&type=guest-to-host&sortBy=arrivalDate&sortOrder=desc`;
+
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-control": "no-cache",
+          },
+        });
+
+        let fetchedReviews = response.data.result;
+
+        if (listingId) {
+          fetchedReviews = fetchedReviews.filter((reviews) => reviews?.listingMapId == listingId);
+        }
+        reviews = reviews.concat(fetchedReviews); // Add fetched reviews to the array
+
+        if (offset == 5000) {
+          hasMoreData = false;
+        } else {
+          offset += limit;
+        }
+
+      } catch (error) {
+        logger.error(error);
+        return null;
+      }
+
+    }
+    return reviews;
   }
 }
 

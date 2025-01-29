@@ -98,6 +98,15 @@ export class Listing {
   @Column("int")
   guests: number;
 
+  @Column({ nullable: true })
+  ownerName: string;
+
+  @Column({ nullable: true })
+  ownerEmail: string;
+
+  @Column({ nullable: true })
+  ownerPhone: string;
+
   @Column()
   userId: string;
 }

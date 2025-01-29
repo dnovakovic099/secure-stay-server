@@ -261,14 +261,14 @@ export class ExpenseService {
 
     async updateExpenseStatus(request: Request, userId: string,) {
         const { expenseId, status } = request.body;
-
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        const expense = await this.expenseRepo.find({ where: { expenseId: In(expenseId) } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
 
-        expense.status = status;
+        expense.forEach(element => element.status = status);
         await this.expenseRepo.save(expense);
+        
         return expense;
     }
 
