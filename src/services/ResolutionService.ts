@@ -1,5 +1,5 @@
-import { Between, In, Raw, FindOptionsWhere } from "typeorm";
-import { format, parse } from "date-fns";
+import { Between, In} from "typeorm";
+import { format } from "date-fns";
 import { Request } from "express";
 import { Resolution } from "../entity/Resolution";
 import { Listing } from "../entity/Listing";
@@ -9,7 +9,7 @@ interface ResolutionQuery {
     listingId?: string;
     fromDate?: string;
     toDate?: string;
-    category?: string;
+    categories?: string;
     guestName?: string;
     page?: string;
     limit?: string;
@@ -22,6 +22,18 @@ interface ResolutionData {
     claimDate: string;
     amount: number;
 }
+
+enum CategoryKey {
+    FULL_CLAIM = 'full_claim',
+    PARTIAL_CLAIM = 'partial_claim',
+    SECURITY_DEPOSIT = 'security_deposit'
+}
+
+const categoriesList: Record<CategoryKey, string> = {
+    [CategoryKey.FULL_CLAIM]: "Full Claim",
+    [CategoryKey.PARTIAL_CLAIM]: "Partial Claim",
+    [CategoryKey.SECURITY_DEPOSIT]: "Security Deposit",
+};
 
 export class ResolutionService {
     private resolutionRepo = appDatabase.getRepository(Resolution);
@@ -46,18 +58,24 @@ export class ResolutionService {
             listingId,
             fromDate,
             toDate,
-            category,
-            guestName
+            categories,
         } = request.query;
         
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
         const skip = (page - 1) * limit;
 
+        const categoryArray = categories 
+        ? categories.split(',').filter(cat => Object.values(CategoryKey).includes(cat as CategoryKey))
+        : null;
+
         const resolutions = await this.resolutionRepo.find({
             where: {
                 userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
+                ...(categoryArray?.length && { 
+                    category: In(categoryArray)
+                }),
                 ...(fromDate && toDate && {
                     claimDate: Between(
                         new Date(String(fromDate)),
@@ -96,7 +114,7 @@ export class ResolutionService {
 
         const rows = resolutions.map((resolution) => [
             resolution.id,
-            resolution.category,
+            categoriesList[resolution.category as CategoryKey] ?? 'Unknown Category',
             listingNameMap[resolution.listingMapId] || 'N/A',
             resolution.guestName,
             format(resolution.claimDate, "yyyy-MM-dd"),
