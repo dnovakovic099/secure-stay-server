@@ -22,4 +22,14 @@ export class ReservationController {
       return next(error);
     }
   }
+
+  async getAllReservations(request: Request, response: Response) {
+    const reservationService = new ReservationService();
+    return response.send(await reservationService.getReservationInfo(request));
+  }
+  
+  async exportReservationToExcel(request: Request, response: Response) {
+    const reservationService = new ReservationService();
+    return response.send(await reservationService.exportReservationToExcel(request));
+  }
 }
