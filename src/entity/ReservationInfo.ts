@@ -27,14 +27,14 @@ export class ReservationInfoEntity {
     @Column({ type: 'varchar', length: 50, nullable: true })
     reservationId: string;
 
-    @Column({ type: 'int', nullable: true })
-    hostawayReservationId: number;
+    @Column({ nullable: true })
+    hostawayReservationId: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     channelReservationId: string;
 
-    @Column({ type: 'int', nullable: true })
-    externalPropertyId: number;
+    @Column({ nullable: true })
+    externalPropertyId: string;
 
     @Column({ type: 'tinyint', nullable: true })
     isProcessed: boolean;
