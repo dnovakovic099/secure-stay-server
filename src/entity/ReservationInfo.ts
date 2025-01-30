@@ -1,17 +1,19 @@
 // Import necessary modules from TypeORM
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, PrimaryColumn } from 'typeorm';
 
 // Define the entity class
 @Entity({ name: 'reservation_info' })
 export class ReservationInfoEntity {
     // Define the primary key column
-    @PrimaryGeneratedColumn({ name: 'reservations_id' })
-    reservationsId: number;
-
+    @PrimaryColumn()
+    id: number;
 
     // Define other columns
     @Column({ type: 'int', nullable: true })
     listingMapId: number;
+
+    @Column({ nullable: true })
+    listingName: string;
 
     @Column({ type: 'int', nullable: true })
     channelId: number;
@@ -34,41 +36,11 @@ export class ReservationInfoEntity {
     @Column({ type: 'int', nullable: true })
     externalPropertyId: number;
 
-    @Column({ type: 'int', nullable: true })
-    externalRatePlanId: number;
-
-    @Column({ type: 'int', nullable: true })
-    externalUnitId: number;
-
-    @Column({ type: 'int', nullable: true })
-    assigneeUserId: number;
-
-    @Column({ type: 'int', nullable: true })
-    manualIcalId: number;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    manualIcalName: string;
-
     @Column({ type: 'tinyint', nullable: true })
     isProcessed: boolean;
 
-    @Column({ type: 'tinyint', nullable: true })
-    isInitial: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isManuallyChecked: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isInstantBooked: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    hasPullError: boolean;
-
     @Column({ type: 'datetime', nullable: true })
     reservationDate: Date;
-
-    @Column({ type: 'datetime', nullable: true })
-    pendingExpireDate: Date;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     guestName: string;
@@ -97,38 +69,8 @@ export class ReservationInfoEntity {
     @Column({ type: 'varchar', length: 100, nullable: true })
     guestEmail: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true })
+    @Column({ type: "text", nullable: true })
     guestPicture: string;
-
-    @Column({ type: 'int', nullable: true })
-    guestRecommendations: number;
-
-    @Column({ type: 'int', nullable: true })
-    guestTrips: number;
-
-    @Column({ type: 'varchar', length: 100, nullable: true })
-    guestWork: string;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestIdentityVerified: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByEmail: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByWorkEmail: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByFacebook: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByGovernmentId: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByPhone: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isGuestVerifiedByReviews: boolean;
 
     @Column({ type: 'int', nullable: true })
     numberOfGuests: number;
@@ -150,15 +92,6 @@ export class ReservationInfoEntity {
 
     @Column({ type: 'date', nullable: true })
     departureDate: Date;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isDatesUnspecified: boolean;
-
-    @Column({ type: 'date', nullable: true })
-    previousArrivalDate: Date;
-
-    @Column({ type: 'date', nullable: true })
-    previousDepartureDate: Date;
 
     @Column({ type: 'time', nullable: true })
     checkInTime: string;
@@ -193,47 +126,15 @@ export class ReservationInfoEntity {
     @Column({ type: 'tinyint', nullable: true })
     isPaid: boolean;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    paymentMethod: string;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    stripeGuestId: string;
-
     @Column({ type: 'varchar', length: 3, nullable: true })
     currency: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     status: string;
 
-    @Column({ type: 'datetime', nullable: true })
-    cancellationDate: Date;
-
-    @Column({ type: 'int', nullable: true })
-    cancelledBy: number;
-
     @Column({ type: 'text', nullable: true })
     hostNote: string;
 
-    @Column({ type: 'text', nullable: true })
-    guestNote: string;
-
-    @Column({ type: 'varchar', length: 10, nullable: true })
-    guestLocale: string;
-
-    @Column({ type: 'varchar', length: 10, nullable: true })
-    doorCode: string;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    doorCodeVendor: string;
-
-    @Column({ type: 'text', nullable: true })
-    doorCodeInstruction: string;
-
-    @Column({ type: 'text', nullable: true })
-    comment: string;
-
-    @Column({ type: 'varchar', length: 20, nullable: true })
-    confirmationCode: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     airbnbExpectedPayoutAmount: number;
@@ -267,28 +168,4 @@ export class ReservationInfoEntity {
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     airbnbCancellationPolicy: string;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isStarred: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isArchived: boolean;
-
-    @Column({ type: 'tinyint', nullable: true })
-    isPinned: boolean;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    originalChannel: string;
-
-    @Column({ type: 'int', nullable: true })
-    customerUserId: number;
-
-    @Column({ type: 'varchar', length: 255, nullable: true })
-    rentalAgreementFileUrl: string;
-
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    reservationAgreement: string;
-
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-    remainingBalance: number;
 }
