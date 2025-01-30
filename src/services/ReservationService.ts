@@ -3,6 +3,7 @@ import { ReservationEntity } from "../entity/Reservation";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { getCurrentDateInUTC } from "../helpers/date";
+import * as XLSX from 'xlsx';
 
 export class ReservationService {
 
@@ -48,6 +49,74 @@ export class ReservationService {
         const currentDate=getCurrentDateInUTC()
         const reservations = await this.hostAwayClient.getReservationList(currentDate);
         return reservations.filter((reservation: { status: string; }) => reservation.status === 'new');
+    }
+
+    async getReservationInfo(request: Request) {
+        // Extract query parameters
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const guestName = String(request.query.guestName || undefined);
+        const arrivalStartDate = String(request.query.arrivalStartDate) || undefined;
+        const listingId = request.query.listingId ? Number(request.query.listingId) : undefined;
+        const offset = (page - 1) * limit;
+
+        try {
+            // Get today's reservations first
+            const today = new Date().toISOString().split('T')[0];
+            const todayReservations = await this.hostAwayClient.getReservationInfo({
+                arrivalStartDate: today,
+                arrivalEndDate: today,
+            });
+
+            // Get regular filtered results
+            const regularReservations = await this.hostAwayClient.getReservationInfo({
+                limit,
+                offset,
+                guestName,
+                arrivalStartDate : arrivalStartDate || undefined,
+                listingId: listingId || undefined
+            });
+
+            // Combine results, removing duplicates
+            const todayResults = todayReservations.result || [];
+            const regularResults = regularReservations.result || [];
+
+            // Filter out today's reservations that might appear in regular results
+            const todayReservationIds = new Set(todayResults.map(r => r.reservationId));
+            const filteredRegularResults = regularResults.filter(r => !todayReservationIds.has(r.reservationId));
+
+            // Combine today's reservations with filtered regular results
+            const combinedResults = [...todayResults, ...filteredRegularResults];
+
+            return {
+                status: "success",
+                result: combinedResults,
+                count: regularReservations.count,
+                currentPage: page,
+                totalPages: Math.ceil(regularReservations.count / limit),
+            };
+
+        } catch (error) {
+            console.error("Error fetching reservations:", error);
+            throw new Error("Failed to fetch reservation info.");
+        }
+    }
+    
+    async exportReservationToExcel(request: Request): Promise<Buffer> {
+    const reservations = await this.hostAwayClient.getReservationInfo();
+    const formattedData = reservations?.result?.map(reservation => ({
+      GuestName: reservation.guestName,
+      ChannelName: reservation.channelName,
+      CheckInDate: reservation.arrivalDate,
+      Amount: reservation.totalPrice,
+      Status: reservation.status,
+      ListingId: reservation.listingMapId
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+
+    return Buffer.from(csv, 'utf-8');
     }
 
     async getChannelList() {

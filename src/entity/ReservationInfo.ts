@@ -8,6 +8,7 @@ export class ReservationInfoEntity {
     @PrimaryGeneratedColumn({ name: 'reservations_id' })
     reservationsId: number;
 
+
     // Define other columns
     @Column({ type: 'int', nullable: true })
     listingMapId: number;

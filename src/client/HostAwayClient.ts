@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from "axios";
 import logger from "../utils/logger.utils";
-
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 export class HostAwayClient {
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -42,9 +42,27 @@ export class HostAwayClient {
     return response.data?.access_token;
   }
 
-  public async getReservationInfo(): Promise<void> {
-    const url = "https://api.hostaway.com/v1/reservations";
+  public async getReservationInfo(
+    params?: {
+      limit?: number;
+      offset?: number;
+      guestName?: string;
+      arrivalStartDate?: string;
+      arrivalEndDate?: string;
+      listingId?: number;
+    }
+  ): Promise<{ offset: number, limit: number, count: number, result: ReservationInfoEntity[] }> {
+    let url = `https://api.hostaway.com/v1/reservations?sortOrder=arrivalDateDesc`;
+    
+    // Add query parameters if they exist
+    if (params?.guestName && params.guestName !== 'undefined') url += `&match=${encodeURIComponent(params.guestName)}`;
+    if (params?.arrivalStartDate && params.arrivalStartDate !== 'undefined') url += `&arrivalStartDate=${params.arrivalStartDate}`;
+    if (params?.arrivalEndDate && params.arrivalEndDate !== 'undefined') url += `&arrivalEndDate=${params.arrivalEndDate}`;
+    if (params?.limit) url += `&limit=${params.limit}`;
+    if (params?.offset) url += `&offset=${params.offset}`;
+    if (params?.listingId) url += `&listingId=${params.listingId}`;
 
+    console.log(url);
     try {
       const authResponse = await this.getAuthToken();
       this.accessToken = authResponse.data?.access_token;
@@ -55,8 +73,7 @@ export class HostAwayClient {
           "Cache-control": "no-cache",
         },
       });
-
-      console.log(response.data);
+      return response.data;
     } catch (error) {
       throw error;
     }

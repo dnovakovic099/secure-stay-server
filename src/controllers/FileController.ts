@@ -41,4 +41,42 @@ export class FileController {
             fs.createReadStream(filePath).pipe(response);
         });
     };
+
+    async getImage(request: Request, response: Response, next: NextFunction) {
+        const fileName = request.params.file;
+        const module = request.params.module;
+
+        if (!fileName) {
+            return response.status(400).json({ error: 'File name is required' });
+        }
+
+        const filePath = path.join(__dirname, `../../public/${module}`, fileName);
+
+        fs.access(filePath, fs.constants.F_OK, (err) => {
+            if (err) {
+                return response.status(404).json({ error: 'Image not found' });
+            }
+
+            // Check if the file is an image by its extension
+            const fileExtension = path.extname(fileName).toLowerCase();
+            const allowedImageTypes: { [key: string]: string } = {
+                '.jpeg': 'image/jpeg',
+                '.jpg': 'image/jpeg', 
+                '.png': 'image/png',
+                '.webp': 'image/webp',
+                '.heic': 'image/heic',
+                '.heif': 'image/heif'
+            }
+
+            if (!allowedImageTypes[fileExtension]) {
+                return response.status(400).json({ error: 'Invalid image format' });
+            }
+
+            // Set the content-type header for the image
+            response.setHeader('Content-Type', allowedImageTypes[fileExtension]);
+
+            // Stream the image file to the response
+            fs.createReadStream(filePath).pipe(response);
+        });
+    }
 }
