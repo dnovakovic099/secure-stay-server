@@ -22,4 +22,18 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async syncReviews(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            await reviewService.syncReviews();
+            return response.status(200).json({
+                success: true,
+                message: "Review synchronization completed successfully."
+            });
+        } catch (error) {
+            logger.error("Error syncing reviews:", error);
+            return next(error);
+        }
+    }
 }
