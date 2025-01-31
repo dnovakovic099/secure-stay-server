@@ -1,0 +1,147 @@
+import { Between, In} from "typeorm";
+import { format } from "date-fns";
+import { Request } from "express";
+import { Resolution } from "../entity/Resolution";
+import { Listing } from "../entity/Listing";
+import { appDatabase } from "../utils/database.util";
+
+interface ResolutionQuery {
+    listingId?: string;
+    fromDate?: string;
+    toDate?: string;
+    categories?: string;
+    guestName?: string;
+    page?: string;
+    limit?: string;
+}
+
+interface ResolutionData {
+    category: string;
+    listingMapId: number;
+    guestName: string;
+    claimDate: string;
+    amount: number;
+}
+
+enum CategoryKey {
+    FULL_CLAIM = 'full_claim',
+    PARTIAL_CLAIM = 'partial_claim',
+    SECURITY_DEPOSIT = 'security_deposit'
+}
+
+const categoriesList: Record<CategoryKey, string> = {
+    [CategoryKey.FULL_CLAIM]: "Full Claim",
+    [CategoryKey.PARTIAL_CLAIM]: "Partial Claim",
+    [CategoryKey.SECURITY_DEPOSIT]: "Security Deposit",
+};
+
+export class ResolutionService {
+    private resolutionRepo = appDatabase.getRepository(Resolution);
+    private listingRepository = appDatabase.getRepository(Listing);
+
+    async createResolution(data: ResolutionData, userId: string) {
+        const resolution = new Resolution();
+        resolution.category = data.category;
+        resolution.listingMapId = data.listingMapId;
+        resolution.guestName = data.guestName;
+        resolution.claimDate = new Date(data.claimDate);
+        resolution.amount = data.amount;
+        resolution.userId = userId;
+        resolution.createdAt = new Date();
+        resolution.updatedAt = new Date();
+
+        return await this.resolutionRepo.save(resolution);
+    }
+
+    async getResolutions(request: Request & { query: ResolutionQuery }, userId: string) {
+        const {
+            listingId,
+            fromDate,
+            toDate,
+            categories,
+        } = request.query;
+        
+        const page = Number(request.query.page) || 1;
+        const limit = Number(request.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const categoryArray = categories 
+        ? categories.split(',').filter(cat => Object.values(CategoryKey).includes(cat as CategoryKey))
+        : null;
+
+        const resolutions = await this.resolutionRepo.find({
+            where: {
+                userId,
+                ...(listingId && { listingMapId: Number(listingId) }),
+                ...(categoryArray?.length && { 
+                    category: In(categoryArray)
+                }),
+                ...(fromDate && toDate && {
+                    claimDate: Between(
+                        new Date(String(fromDate)),
+                        new Date(String(toDate))
+                    )
+                }),
+            },
+            order: { createdAt: "DESC" },
+            skip,
+            take: limit,
+        });
+
+        const listingMapIds = resolutions
+            .map(resolution => resolution.listingMapId)
+            .filter((id, index, self) => id != null && self.indexOf(id) === index);
+
+        const listings = await this.listingRepository.find({
+            select: ["id", "address"],
+            where: { id: In(listingMapIds) }
+        });
+
+        const listingNameMap = listings.reduce((acc, listing) => {
+            acc[listing.id] = listing.address;
+            return acc;
+        }, {});
+
+        const columns = [
+            "ID",
+            "Category",
+            "Address",
+            "Guest Name",
+            "Claim Date",
+            "Amount",
+            "Created At"
+        ];
+
+        const rows = resolutions.map((resolution) => [
+            resolution.id,
+            categoriesList[resolution.category as CategoryKey] ?? 'Unknown Category',
+            listingNameMap[resolution.listingMapId] || 'N/A',
+            resolution.guestName,
+            format(resolution.claimDate, "yyyy-MM-dd"),
+            Number(resolution.amount),
+            format(resolution.createdAt, "yyyy-MM-dd")
+        ]);
+
+        return {
+            columns,
+            rows
+        };
+    }
+
+    async getResolutionById(resolutionId: number, userId: string) {
+        const resolution = await this.resolutionRepo.findOne({
+            where: { id: resolutionId, userId }
+        });
+
+        if (!resolution) {
+            throw new Error('Resolution not found');
+        }
+
+        return resolution;
+    }
+
+    async deleteResolution(resolutionId: number, userId: string) {
+        const resolution = await this.getResolutionById(resolutionId, userId);
+        await this.resolutionRepo.remove(resolution);
+    }
+} 

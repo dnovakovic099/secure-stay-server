@@ -11,6 +11,7 @@ import fileRoutes from "./fileRoutes";
 import reservationRoutes from "./reservationRoutes";
 import authRoutes from "./authRoutes";
 import salesRoutes from "./salesRoutes";
+import upsellRoutes from "./upsellOrdersRoutes";
 import reviewRoutes from "./reviewRoutes";
 import reservationDetailRoutes from "./reservationDetailRoutes";
 import webhookRoutes from "./webhookRoutes";
@@ -19,14 +20,15 @@ import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAud
 
 const router = Router();
 
-router.use("/device", deviceRoutes);
-router.use("/messaging", messagingRoutes);
-router.use("/account", connectedAccountRoutes);
-router.use("/subscription", subscriptionRoutes);
-router.use("/users", usersRoutes);
-router.use("/listing", listingRoutes);
-router.use("/accounting", accountingRoutes);
-router.use("/category", categoryRoutes);
+router.use('/device', deviceRoutes);
+router.use('/messaging', messagingRoutes);
+router.use('/account', connectedAccountRoutes);
+router.use('/subscription', subscriptionRoutes);
+router.use('/users', usersRoutes)
+router.use('/listing', listingRoutes)
+router.use('/accounting', accountingRoutes);
+router.use('/upsell', upsellRoutes);
+router.use('/category', categoryRoutes);
 router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);
 router.use("/auth", authRoutes);
