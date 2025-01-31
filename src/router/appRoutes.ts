@@ -14,6 +14,9 @@ import salesRoutes from "./salesRoutes";
 import reviewRoutes from "./reviewRoutes";
 import reservationDetailRoutes from "./reservationDetailRoutes";
 import webhookRoutes from "./webhookRoutes";
+import reservationDetailPreStayAuditRoutes from "./reservationDetailPreStayAuditRoutes";
+import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAuditRoutes";
+
 const router = Router();
 
 router.use("/device", deviceRoutes);
@@ -31,5 +34,7 @@ router.use("/sales", salesRoutes);
 router.use("/review", reviewRoutes)
 router.use("/reservation-detail", reservationDetailRoutes);
 router.use('/webhook', webhookRoutes);
+router.use("/reservation-detail-pre-stay-audit", reservationDetailPreStayAuditRoutes);
+router.use("/reservation-detail-post-stay-audit", reservationDetailPostStayAuditRoutes);
 
 export default router;
