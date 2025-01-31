@@ -118,7 +118,7 @@ export class ResolutionService {
             listingNameMap[resolution.listingMapId] || 'N/A',
             resolution.guestName,
             format(resolution.claimDate, "yyyy-MM-dd"),
-            resolution.amount,
+            Number(resolution.amount),
             format(resolution.createdAt, "yyyy-MM-dd")
         ]);
 
