@@ -3,10 +3,10 @@ import {PaymentService} from "../services/PaymentService";
 
 export class PaymentController{
 
-    async payReservation(request:Request,response:Response){
-        const paymentService = new PaymentService();
-        return response.send(await paymentService.payReservation(request))
-    }
+    // async payReservation(request:Request,response:Response){
+    //     const paymentService = new PaymentService();
+    //     return response.send(await paymentService.payReservation(request))
+    // }
 
 
     async payItem(request:Request,response:Response){
