@@ -22,3 +22,7 @@ export function removeNullValues(obj: Object) {
         Object.entries(obj).filter(([key, value]) => value !== null)
     );
 }
+
+export function isReactionMessage(message) {
+    return /^.+ reacted .+ to your message /.test(message);
+}
