@@ -431,6 +431,42 @@ export class HostAwayClient {
     }
     return reviews;
   }
+
+  public async syncReservations(date: string, limit: number = 500) {
+    let reservations: any[] = [];
+    let offset = 0;
+    let hasMoreData = true;
+    const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+    while (hasMoreData) {
+      try {
+        let url = `https://api.hostaway.com/v1/reservations?departureStartDate=${date}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
+
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-control": "no-cache",
+          },
+        });
+
+        let fetchedReservations = response.data.result;
+
+        reservations = reservations.concat(fetchedReservations); // Add fetched reviews to the array
+
+        if (fetchedReservations.length < limit) {
+          hasMoreData = false;
+        } else {
+          offset += limit;
+        }
+
+      } catch (error) {
+        logger.error(error);
+        return null;
+      }
+
+    }
+    return reservations;
+  }
 }
 
 

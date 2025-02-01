@@ -1,8 +1,12 @@
+import { Between, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
+import { HostAwayClient } from "../client/HostAwayClient";
+import logger from "../utils/logger.utils";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+  private hostAwayClient = new HostAwayClient();
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
     const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
@@ -75,6 +79,58 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
 
     return await this.reservationInfoRepository.save(reservation);
+  }
+
+  async getReservations(fromDate: string, toDate: string, listingId: number, dateType: string, channelId?: number) {
+    const searchCondition: any = { listingMapId: listingId };
+
+    switch (dateType) {
+      case "arrival":
+        searchCondition.arrivalDate = Between(new Date(fromDate), new Date(toDate));
+        break;
+      case "departure":
+        searchCondition.departureDate = Between(new Date(fromDate), new Date(toDate));
+        break;
+      default:
+        searchCondition.arrivalDate = LessThanOrEqual(new Date(toDate));
+        searchCondition.departureDate = MoreThanOrEqual(new Date(fromDate));
+    }
+
+    if (channelId) {
+      searchCondition.channelId = channelId;
+    }
+
+    const reservations = await this.reservationInfoRepository.find({
+      where: searchCondition,
+      order: { arrivalDate: "ASC" },
+    });
+
+    const filteredReservations = this.filterValidReservation(reservations, fromDate);
+    return filteredReservations;
+  }
+
+  private filterValidReservation(reservations: ReservationInfoEntity[], fromDate: string): Object[] {
+    const validReservationStatus = ["new", "modified", "ownerStay"];
+
+    const filteredReservations = reservations.filter((reservation) => {
+      // Filter by status and exclude reservations ending on the `fromDate`
+      return validReservationStatus.includes(reservation.status) && reservation.departureDate !== new Date(fromDate);
+    });
+
+    return filteredReservations;
+  }
+
+
+  async syncReservations(startingDate: string) {
+    const reservations = await this.hostAwayClient.syncReservations(startingDate);
+    for (const reservation of reservations) {
+      logger.info(`ReservationID: ${reservation.id}`);
+      await this.saveReservationInfo(reservation);
+    }
+    return {
+      success: true,
+      message: `Reservations synced successfully. No. of reservation: ${reservations.length}`
+    };
   }
 
 }

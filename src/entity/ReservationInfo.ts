@@ -18,19 +18,19 @@ export class ReservationInfoEntity {
     @Column({ type: 'int', nullable: true })
     channelId: number;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     source: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     channelName: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     reservationId: string;
 
     @Column({ nullable: true })
     hostawayReservationId: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     channelReservationId: string;
 
     @Column({ nullable: true })
@@ -42,31 +42,31 @@ export class ReservationInfoEntity {
     @Column({ type: 'datetime', nullable: true })
     reservationDate: Date;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
+    @Column({ nullable: true })
     guestName: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     guestFirstName: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     guestLastName: string;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ nullable: true })
     guestExternalAccountId: string;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ nullable: true })
     guestZipCode: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true })
+    @Column({ nullable: true })
     guestAddress: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     guestCity: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     guestCountry: string;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
+    @Column({ nullable: true })
     guestEmail: string;
 
     @Column({ type: "text", nullable: true })
@@ -102,7 +102,7 @@ export class ReservationInfoEntity {
     @Column({ type: 'int', nullable: true })
     nights: number;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ nullable: true })
     phone: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
@@ -126,15 +126,14 @@ export class ReservationInfoEntity {
     @Column({ type: 'tinyint', nullable: true })
     isPaid: boolean;
 
-    @Column({ type: 'varchar', length: 3, nullable: true })
+    @Column({ nullable: true })
     currency: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ nullable: true })
     status: string;
 
     @Column({ type: 'text', nullable: true })
     hostNote: string;
-
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     airbnbExpectedPayoutAmount: number;
@@ -166,6 +165,6 @@ export class ReservationInfoEntity {
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     airbnbTransientOccupancyTaxPaidAmount: number;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ type: "text", nullable: true })
     airbnbCancellationPolicy: string;
 }
