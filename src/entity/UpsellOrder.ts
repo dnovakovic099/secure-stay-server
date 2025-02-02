@@ -15,6 +15,9 @@ export class UpsellOrder {
     @Column()
     listing_id: string;
 
+    @Column()
+    listing_name: string;
+
     @Column('decimal', { precision: 10, scale: 2 })
     cost: number;
 

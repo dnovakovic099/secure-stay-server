@@ -73,6 +73,7 @@ export class ChargeAutomationWebhookService {
                 const order = {
                     status: item.client_approval_status === 1 ? 'Approved' : 'Pending',
                     listing_id: reservationInfo.listingMapId,
+                    listing_name: reservationInfo.listingName,
                     cost: item.order_details.amount,
                     order_date: orderDate,
                     client_name: reservationInfo.guestName,
