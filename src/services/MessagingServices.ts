@@ -6,6 +6,7 @@ import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
+import { isReactionMessage } from "../helpers/helpers";
 
 interface MessageType {
     id: number;
@@ -169,12 +170,40 @@ export class MessagingService {
             const isAnswered = await this.checkUnasweredMessages(conversationMessages, msg);
             logger.info(`isAnswered is ${isAnswered} for messageId ${msg.messageId}`);
             if (!isAnswered) {
-                //check if the guest message received time has exceeded more than 10 minutes
-                logger.info(`Checking if guest message ${msg.messageId} received time has exceeded more than 10 minutes`)
-                await this.checkGuestMessageTime(msg);
+                const isReactionMsg = isReactionMessage(msg.body);
+                if (isReactionMsg) {
+                    await this.updateMessageAsAnswered(msg);
+                } else {
+                    const isValidInquiryMessage = await this.checkValidInquiryReservation(msg);
+                    if (isValidInquiryMessage) {
+                        logger.info(`Checking if guest message ${msg.messageId} received time has exceeded more than 5 minutes`);
+                        await this.checkGuestMessageTime(msg);
+                    } else {
+                        await this.updateMessageAsAnswered(msg);
+                    }
+                }
             }
         }
         return;
+    }
+
+    private async checkValidInquiryReservation(msg: Message) {
+        //check if inquiry message thread is moved to booked message thread
+        const reservation = await this.hostawayClient.getReservation(
+            msg.reservationId,
+            process.env.HOST_AWAY_CLIENT_ID,
+            process.env.HOST_AWAY_CLIENT_SECRET
+        );
+        const inquiryStatuses = [
+            "pending",
+            "awaitingPayment",
+            "inquiry",
+            "inquiryPreapproved",
+            "inquiryDenied",
+            "inquiryTimedout",
+            "inquiryNotPossible"
+        ];
+        return inquiryStatuses.includes(reservation.status);
     }
 
     private async checkGuestMessageTime(msg: Message) {

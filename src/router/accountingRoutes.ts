@@ -10,12 +10,15 @@ import { AccountingReportController } from "../controllers/AccountingReportContr
 import verifyMobileSession from "../middleware/verifyMobileSession";
 import { ContractorInfoController } from "../controllers/ContractorController";
 import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
+import { ResolutionController } from "../controllers/ResolutionController";
+import { validateCreateResolution } from '../middleware/validation/accounting/resolution.validation';
 
 const router = Router();
 const expenseController = new ExpenseController();
 const incomeController = new IncomeController();
 const accountingController = new AccountingReportController();
 const contractorInfoController = new ContractorInfoController();
+const resolutionController = new ResolutionController();
 
 router.route('/createexpense')
     .post(
@@ -93,5 +96,30 @@ router.route('/getcontractors')
         verifySession,
         contractorInfoController.getContractors
     )    
+
+router.route('/createresolution')
+    .post(
+        verifySession,
+        validateCreateResolution,
+        resolutionController.createResolution
+    );
+
+router.route('/getresolutions')
+    .get(
+        verifySession,
+        resolutionController.getResolutions
+    );
+
+router.route('/getresolution/:resolutionId')
+    .get(
+        verifySession,
+        resolutionController.getResolutionById
+    );
+
+router.route('/deleteresolution/:resolutionId')
+    .delete(
+        verifySession,
+        resolutionController.deleteResolution
+    );
 
 export default router;

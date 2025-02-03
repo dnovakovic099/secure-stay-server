@@ -8,15 +8,15 @@ export class FaqService {
 
   private reservationRepository = appDatabase.getRepository(ReservationEntity);
 
-  async getAllFaqByReservation(request: Request) {
-    const reservationLink = String(request.params.reservationLink);
-    const reservation = await this.reservationRepository.findOne({
-      where: { reservationLink },
-    });
-    const listing_id = reservation?.reservationInfo?.listingMapId;
-    if (listing_id === null) {
-      throw new Error("FaqService: Listing id is null");
-    }
-    return this.faqRepository.find({ where: { listing_id } });
-  }
+  // async getAllFaqByReservation(request: Request) {
+  //   const reservationLink = String(request.params.reservationLink);
+  //   const reservation = await this.reservationRepository.findOne({
+  //     where: { reservationLink },
+  //   });
+  //   const listing_id = reservation?.reservationInfo?.listingMapId;
+  //   if (listing_id === null) {
+  //     throw new Error("FaqService: Listing id is null");
+  //   }
+  //   return this.faqRepository.find({ where: { listing_id } });
+  // }
 }

@@ -11,16 +11,16 @@ export class ItemService {
     private reservationRepository = appDatabase
         .getRepository(ReservationEntity);
 
-    async getAllItemByReservation(request: Request) {
-        const reservationLink = String(request.params.reservationLink);
-        const reservation = await this.reservationRepository
-            .findOne({where: {reservationLink}});
-        const listing_id = reservation?.reservationInfo?.listingMapId;
-        if (listing_id === null) {
-            throw new Error("ItemService: Listing id is null")
-        }
+    // async getAllItemByReservation(request: Request) {
+    //     const reservationLink = String(request.params.reservationLink);
+    //     const reservation = await this.reservationRepository
+    //         .findOne({where: {reservationLink}});
+    //     const listing_id = reservation?.reservationInfo?.listingMapId;
+    //     if (listing_id === null) {
+    //         throw new Error("ItemService: Listing id is null")
+    //     }
 
-        return this.itemRepository.find({where: {listing_id}});
-    }
+    //     return this.itemRepository.find({where: {listing_id}});
+    // }
 
 }

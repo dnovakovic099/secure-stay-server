@@ -17,6 +17,11 @@ import { ExpenseService } from "./ExpenseService";
 import { getReservationDaysInRange, formatDate, getCurrentDateInUTC } from "../helpers/date";
 import { ListingService } from "./ListingService";
 import { ownerDetails } from "../constant";
+import { ResolutionService } from "./ResolutionService";
+import { UpsellOrderService } from "./UpsellOrderService";
+import { UpsellOrder } from "../entity/UpsellOrder";
+import { Resolution } from "../entity/Resolution";
+import { ReservationInfoService } from "./ReservationInfoService";
 
 interface ReservationType {
   guestName: string;
@@ -32,13 +37,22 @@ interface ReservationType {
 interface ExpenseType {
   concept: string;
   expenseDate: string;
-  categoriesNames: string[];
+  categories: string[];
   listingMapId: number;
-  reservationId: number;
   amount: number;
-  guestName: string;
-  listingName: string;
 }
+
+enum CategoryKey {
+  FULL_CLAIM = 'full_claim',
+  PARTIAL_CLAIM = 'partial_claim',
+  SECURITY_DEPOSIT = 'security_deposit'
+}
+
+const categoriesList: Record<CategoryKey, string> = {
+  [CategoryKey.FULL_CLAIM]: "Full Claim",
+  [CategoryKey.PARTIAL_CLAIM]: "Partial Claim",
+  [CategoryKey.SECURITY_DEPOSIT]: "Security Deposit",
+};
 
 export class AccountingReportService {
 
@@ -452,18 +466,30 @@ export class AccountingReportService {
     }
   }
 
-  private async saveOwnerStatementExpense(transactionManager: EntityManager, expenses: ExpenseType[], ownerStatementId: number) {
+  private async saveOwnerStatementExpense(transactionManager: EntityManager, expenses: Partial<ExpenseEntity[]>, listingNames: { id: number, name: string, internalListingName: string; }[], categories: CategoryEntity[], ownerStatementId: number) {
     for (const expense of expenses) {
       const newExpense = new OwnerStatementExpenseEntity();
+
+      const categoryNames = expense.categories
+        ? expense.categories.split(',').map(id => {
+          const cleanId = id.replace(/[\[\]"]/g, '');
+          // Find the category name matching the cleaned ID
+          const category = categories.find(category => category.id === Number(cleanId));
+
+          // Return the category name if found, otherwise return a placeholder
+          return category ? category.categoryName : 'Unknown Category';
+        }).join(', ')
+        : '';
+
       newExpense.ownerStatementId = ownerStatementId;
       newExpense.concept = expense.concept;
       newExpense.date = expense.expenseDate;
-      newExpense.categories = JSON.stringify(expense.categoriesNames);
+      newExpense.categories = categoryNames;
       newExpense.listingId = expense.listingMapId;
-      newExpense.listingName = expense.listingName;
-      newExpense.reservationId = expense.reservationId;
-      newExpense.guestName = expense.guestName;
-      newExpense.amount = expense.amount;
+      newExpense.listingName = listingNames.find(listing => listing.id == expense.listingMapId).internalListingName;
+      newExpense.reservationId = null;
+      newExpense.guestName = null;
+      newExpense.amount = expense.amount * -1;
       newExpense.createdAt = new Date();
       newExpense.updatedAt = new Date();
 
@@ -471,42 +497,119 @@ export class AccountingReportService {
     }
   }
 
-  private filterExpenses(expenses: ExpenseType[], fromDate: string, toDate: string, listingId: number) {
-    return expenses.filter((expense) => {
-      const expenseDate = new Date(expense.expenseDate);
-      const checkIn = new Date(fromDate);
-      const checkOut = new Date(toDate);
-      const flag = expense.categoriesNames.includes("Upsell") || expense.categoriesNames.includes("Resolutions");
-      if (flag) {
-        expense.amount = expense.amount < 0 ? expense.amount * -1 : expense.amount;
-      } else {
-        expense.amount = expense.amount < 0 ? expense.amount : expense.amount * -1;
-      }
-      return expense.listingMapId === listingId && expenseDate >= checkIn && expenseDate <= checkOut;
-    });
+  private async saveOwnerStatementResolution(transactionManager: EntityManager, resolutions: Resolution[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[]) {
+
+    for (const resolution of resolutions) {
+      const newResolution = new OwnerStatementExpenseEntity();
+      newResolution.ownerStatementId = ownerStatementId;
+      newResolution.concept = categoriesList[resolution.category as CategoryKey] ?? 'Resolutions';
+      newResolution.date = String(resolution.claimDate);
+      newResolution.categories = "Resolutions";
+      newResolution.listingId = resolution.listingMapId;
+      newResolution.listingName = listingNames.find(listing => listing.id == resolution.listingMapId).internalListingName;
+      newResolution.reservationId = null;
+      newResolution.guestName = resolution.guestName;
+      newResolution.amount = resolution.amount;
+      newResolution.createdAt = new Date();
+      newResolution.updatedAt = new Date();
+
+      await transactionManager.save(newResolution);
+    }
   }
+
+  private async saveOwnerStatementUpsell(transactionManager: EntityManager, upsells: UpsellOrder[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[]) {
+    for (const upsell of upsells) {
+      const newUpsell = new OwnerStatementExpenseEntity();
+      newUpsell.ownerStatementId = ownerStatementId;
+      newUpsell.concept = upsell.type;
+      newUpsell.date = String(upsell.order_date);
+      newUpsell.categories = "Upsell";
+      newUpsell.listingId = Number(upsell.listing_id);
+      newUpsell.listingName = listingNames.find(listing => listing.id == Number(upsell.listing_id)).internalListingName;
+      newUpsell.reservationId = Number(upsell.booking_id);
+      newUpsell.guestName = upsell.client_name;
+      newUpsell.amount = upsell.cost;
+      newUpsell.createdAt = new Date();
+      newUpsell.updatedAt = new Date();
+
+      await transactionManager.save(newUpsell);
+    }
+  }
+
+  // async createOwnerStatement(request: Request, userId: string) {
+  //   const { fromDate, toDate, dateType, channelId, listingId } = request.body;
+
+  //   const connectedAccountService = new ConnectedAccountService();
+  //   const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
+
+  //   const reservationInfoService = new ReservationInfoService();
+  //   const reservations = await reservationInfoService.getReservations(fromDate, toDate, listingId, dateType, channelId)
+
+  //   const listingService = new ListingService();
+  //   const listingPmFee = await listingService.getListingPmFee();
+  //   const listingNames = await listingService.getListingNames(userId);
+
+  //   const categoryService = new CategoryService();
+  //   const categoryNames = await categoryService.getAllCategories();
+
+  //   const expenseService = new ExpenseService();
+  //   const expenses = await expenseService.getExpenses(fromDate, toDate, listingId);
+
+  //   const resolutionService = new ResolutionService();
+  //   const resolutions = await resolutionService.getResolution(fromDate, toDate, listingId);
+
+  //   const upsellOrderService = new UpsellOrderService();
+  //   const upsells = await upsellOrderService.getUpsells(fromDate, toDate, listingId);
+
+  //   return await appDatabase.transaction(async (transactionManager: EntityManager) => {
+  //     // Save owner statement details
+  //     const newOwnerStatement = await this.saveOwnerStatement(transactionManager, {
+  //       fromDate,
+  //       toDate,
+  //       dateType,
+  //       channelId,
+  //       listingId,
+  //       userId
+  //     });
+
+  //     // Save owner-statement-income
+  //     await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate, listingPmFee);
+
+  //     // Save owner-statement expense, resolution and upsell
+  //     await this.saveOwnerStatementExpense(transactionManager, expenses, listingNames, categoryNames, newOwnerStatement.id);
+  //     await this.saveOwnerStatementResolution(transactionManager, resolutions, newOwnerStatement.id, listingNames);
+  //     await this.saveOwnerStatementUpsell(transactionManager, upsells, newOwnerStatement.id, listingNames);
+
+  //     return {
+  //       status: true,
+  //       message: "Owner statement created successfully!!!",
+  //     };
+  //   });
+  // }
 
   async createOwnerStatement(request: Request, userId: string) {
     const { fromDate, toDate, dateType, channelId, listingId } = request.body;
 
+    // Initialize services 
     const connectedAccountService = new ConnectedAccountService();
-    const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
-
-    const reservationService = new ReservationService();
-    const reservations = await reservationService.fetchReservations(
-      clientId,
-      clientSecret,
-      listingId,
-      dateType,
-      fromDate,
-      toDate,
-      500,
-      0,
-      channelId
-    );
-
+    const reservationInfoService = new ReservationInfoService();
     const listingService = new ListingService();
-    const listingPmFee = await listingService.getListingPmFee();
+    const categoryService = new CategoryService();
+    const expenseService = new ExpenseService();
+    const resolutionService = new ResolutionService();
+    const upsellOrderService = new UpsellOrderService();
+
+    const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
+    
+    const [reservations, listingPmFee, listingNames, categoryNames, expenses, resolutions, upsells] = await Promise.all([
+      reservationInfoService.getReservations(fromDate, toDate, listingId, dateType, channelId),
+      listingService.getListingPmFee(),
+      listingService.getListingNames(userId),
+      categoryService.getAllCategories(),
+      expenseService.getExpenses(fromDate, toDate, listingId),
+      resolutionService.getResolution(fromDate, toDate, listingId),
+      upsellOrderService.getUpsells(fromDate, toDate, listingId),
+    ]);
 
     return await appDatabase.transaction(async (transactionManager: EntityManager) => {
       // Save owner statement details
@@ -516,25 +619,22 @@ export class AccountingReportService {
         dateType,
         channelId,
         listingId,
-        userId
+        userId,
       });
 
-      // Save owner-statement-income
-      await this.saveOwnerStatementIncome(transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate, listingPmFee);
+      // Save owner-statement income, expense, resolution, and upsell in parallel
+      await Promise.all([
+        this.saveOwnerStatementIncome(
+          transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate, listingPmFee
+        ),
+        this.saveOwnerStatementExpense(transactionManager, expenses, listingNames, categoryNames, newOwnerStatement.id),
+        this.saveOwnerStatementResolution(transactionManager, resolutions, newOwnerStatement.id, listingNames),
+        this.saveOwnerStatementUpsell(transactionManager, upsells, newOwnerStatement.id, listingNames),
+      ]);
 
-      // Save owner-statement-expense
-      const expenseService = new ExpenseService();
-      const expenses = await expenseService.getExpensesFromHostaway(clientId, clientSecret);
-      const filteredExpenses = this.filterExpenses(expenses, fromDate, toDate, listingId);
-      await this.saveOwnerStatementExpense(transactionManager, filteredExpenses, newOwnerStatement.id);
-
-      return {
-        status: true,
-        message: "Owner statement created successfully!!!",
-      };
+      return { status: true, message: "Owner statement created successfully!!!" };
     });
   }
-
 
   async getOwnerStatements(userId: string) {
 

@@ -7,6 +7,7 @@ import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
 import { UsersController } from "../controllers/UsersController";
 import { UpSellController } from "../controllers/UpSellController";
+import { ChargeAutomationWebhookController } from '../controllers/ChargeAutomationWebhookController';
 // import { ListingRoutes } from "./listingRoutes";
 import { UserRoutes } from "./userRoutes";
 import { GuideBookRoutes } from "./guideBookRoutes";
@@ -24,6 +25,7 @@ export const AppRoutes = () => {
   const checkInController = new CheckInController();
   const usersController = new UsersController();
   const upSellController = new UpSellController();
+  const chargeAutomationWebhookController = new ChargeAutomationWebhookController();
   const userRoutes = UserRoutes();
   const guideBookRoutes = GuideBookRoutes();
   const automatedMessageRoutes = AutomatedMessageRoutes();
@@ -51,48 +53,48 @@ export const AppRoutes = () => {
       file: false,
       rawJson: false,
     },
-    {
-      path: "/reservation-info/webhook",
-      method: "post",
-      action: reservationInfoController.saveReservation,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/reservation/:reservationLink",
-      method: "get",
-      action: reservationController.getReservationListingInfo,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/reservation/:reservationLink/status",
-      method: "get",
-      action: reservationController.getStatusForLink,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/reservation/:reservationLink/faq",
-      method: "get",
-      action: faqController.getAllFaqByReservation,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/reservation/:reservationLink/items",
-      method: "get",
-      action: itemController.getAllItemsByReservation,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/pay/reservation/:reservationLink",
-      method: "post",
-      action: payController.payReservation,
-      file: false,
-      rawJson: false,
-    },
+    // {
+    //   path: "/reservation-info/webhook",
+    //   method: "post",
+    //   action: reservationInfoController.saveReservation,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/reservation/:reservationLink",
+    //   method: "get",
+    //   action: reservationController.getReservationListingInfo,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/reservation/:reservationLink/status",
+    //   method: "get",
+    //   action: reservationController.getStatusForLink,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/reservation/:reservationLink/faq",
+    //   method: "get",
+    //   action: faqController.getAllFaqByReservation,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/reservation/:reservationLink/items",
+    //   method: "get",
+    //   action: itemController.getAllItemsByReservation,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/pay/reservation/:reservationLink",
+    //   method: "post",
+    //   action: payController.payReservation,
+    //   file: false,
+    //   rawJson: false,
+    // },
     {
       path: "/pay/reservation/:reservationLink/item/:itemId",
       method: "post",
@@ -107,20 +109,20 @@ export const AppRoutes = () => {
       file: false,
       rawJson: true,
     },
-    {
-      path: "/reservation/:reservationLink/checkIn/tips",
-      method: "get",
-      action: checkInController.getAllByReservationLink,
-      file: false,
-      rawJson: false,
-    },
-    {
-      path: "/reservation/:reservationLink/checkIn",
-      method: "post",
-      action: checkInController.checkIn,
-      file: false,
-      rawJson: false,
-    },
+    // {
+    //   path: "/reservation/:reservationLink/checkIn/tips",
+    //   method: "get",
+    //   action: checkInController.getAllByReservationLink,
+    //   file: false,
+    //   rawJson: false,
+    // },
+    // {
+    //   path: "/reservation/:reservationLink/checkIn",
+    //   method: "post",
+    //   action: checkInController.checkIn,
+    //   file: false,
+    //   rawJson: false,
+    // },
     {
       path: "/users/create",
       method: "post",
@@ -183,6 +185,13 @@ export const AppRoutes = () => {
       action: upSellController.getUpSellById,
       file: false,
       rawJson: false,
+    },
+    {
+      path: "/upsell/webhook",
+      method: "post",
+      action: chargeAutomationWebhookController.handleWebhook,
+      file: false,
+      rawJson: true
     },
     ...userRoutes,
     ...guideBookRoutes,

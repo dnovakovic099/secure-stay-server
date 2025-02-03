@@ -396,7 +396,7 @@ export class HostAwayClient {
     }
   }
 
-  public async getReviews(clientId: string, clientSecret: string, limit: number = 500, listingId?: number) {
+  public async getAllReviews(clientId: string, clientSecret: string, limit: number = 500) {
     let reviews: any[] = [];
     let offset = 0;
     let hasMoreData = true;
@@ -404,7 +404,7 @@ export class HostAwayClient {
 
     while (hasMoreData) {
       try {
-        let url = `https://api.hostaway.com/v1/reviews?limit=${limit}&offset=${offset}&type=guest-to-host&sortBy=arrivalDate&sortOrder=desc`;
+        let url = `https://api.hostaway.com/v1/reviews?limit=${limit}&offset=${offset}&type=guest-to-host`;
 
         const response = await axios.get(url, {
           headers: {
@@ -415,12 +415,9 @@ export class HostAwayClient {
 
         let fetchedReviews = response.data.result;
 
-        if (listingId) {
-          fetchedReviews = fetchedReviews.filter((reviews) => reviews?.listingMapId == listingId);
-        }
         reviews = reviews.concat(fetchedReviews); // Add fetched reviews to the array
 
-        if (offset == 5000) {
+        if (fetchedReviews.length < limit) {
           hasMoreData = false;
         } else {
           offset += limit;
@@ -433,6 +430,42 @@ export class HostAwayClient {
 
     }
     return reviews;
+  }
+
+  public async syncReservations(date: string, limit: number = 500) {
+    let reservations: any[] = [];
+    let offset = 0;
+    let hasMoreData = true;
+    const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+    while (hasMoreData) {
+      try {
+        let url = `https://api.hostaway.com/v1/reservations?departureStartDate=${date}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
+
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-control": "no-cache",
+          },
+        });
+
+        let fetchedReservations = response.data.result;
+
+        reservations = reservations.concat(fetchedReservations); // Add fetched reviews to the array
+
+        if (fetchedReservations.length < limit) {
+          hasMoreData = false;
+        } else {
+          offset += limit;
+        }
+
+      } catch (error) {
+        logger.error(error);
+        return null;
+      }
+
+    }
+    return reservations;
   }
 }
 
