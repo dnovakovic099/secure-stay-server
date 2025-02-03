@@ -13,10 +13,20 @@ export class ReviewController {
             const reviewService = new ReviewService();
             const userId = request.user.id;
             const listingId = request.query.listingId;
-            const reviews = await reviewService.getReviews(userId, Number(listingId));
+            const page = request.query.page;
+            const limit = request.query.limit;
+
+            const { reviews, totalCount } = await reviewService.getReviews(
+                userId,
+                Number(listingId),
+                Number(page),
+                Number(limit)
+            );
+
             return response.status(200).json({
                 success: true,
-                data: reviews
+                data: reviews,
+                total: totalCount
             });
         } catch (error) {
             return next(error);
