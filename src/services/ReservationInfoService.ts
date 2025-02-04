@@ -203,8 +203,8 @@ export class ReservationInfoService {
     const finalResults = [...todaysReservations, ...paginated];
 
     for (const reservation of finalResults) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
@@ -252,8 +252,8 @@ export class ReservationInfoService {
       .getManyAndCount();
 
     for (const reservation of results) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
@@ -321,8 +321,8 @@ export class ReservationInfoService {
     const finalResults = [...todaysReservations, ...paginated];
 
     for (const reservation of finalResults) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
@@ -365,8 +365,8 @@ export class ReservationInfoService {
     const paginated = allReservations.slice(startIndex, endIndex);
 
     for (const reservation of paginated) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,

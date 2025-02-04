@@ -14,8 +14,8 @@ export enum PotentialReviewIssue {
 
 @Entity('reservation_detail_post_stay_audit')
 export class ReservationDetailPostStayAudit {
-    @PrimaryColumn({ type: 'varchar' })
-    reservationId: string;
+    @PrimaryColumn({ type: 'bigint' })
+    reservationId: number;
 
     @Column({ 
         type: 'text',

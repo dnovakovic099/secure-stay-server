@@ -10,8 +10,8 @@ export enum ReviewMediationStatus {
 
 @Entity("reservation_details")
 export class ReservationDetail {
-    @PrimaryColumn()
-    reservationId: string;
+    @PrimaryColumn({ type: 'bigint' })
+    reservationId: number;
 
     @Column({ type: "text", nullable: true })
     additionalNotes: string;

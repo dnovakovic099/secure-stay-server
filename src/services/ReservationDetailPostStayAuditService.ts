@@ -3,7 +3,7 @@ import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue } from "../entity/ReservationDetailPostStayAudit";
 
 interface ReservationDetailPostStayAuditDTO {
-    reservationId: string;
+    reservationId: number;
     maintenanceIssues?: string;
     cleaningIssues?: string;
     cleaningSupplies?: number;
@@ -20,11 +20,11 @@ export class ReservationDetailPostStayAuditService {
         this.postStayAuditRepository = appDatabase.getRepository(ReservationDetailPostStayAudit);
     }
 
-    async fetchAuditByReservationId(reservationId: string): Promise<ReservationDetailPostStayAudit | null> {
+    async fetchAuditByReservationId(reservationId: number): Promise<ReservationDetailPostStayAudit | null> {
         return await this.postStayAuditRepository.findOne({ where: { reservationId } });
     }
 
-    async fetchCompletionStatusByReservationId(reservationId: string): Promise<CompletionStatus | null> {
+    async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
         const audit = await this.fetchAuditByReservationId(reservationId);
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
@@ -77,9 +77,28 @@ export class ReservationDetailPostStayAuditService {
             if (value === null || value === undefined) return false;
             if (typeof value === 'number') return value > 0;
             if (value === 'unset') return false;
+            if(typeof value === 'string' && value.trim() === '') return false;
             return true;
         });
 
-        return hasValues ? CompletionStatus.COMPLETED : CompletionStatus.IN_PROGRESS;
+        const hasAnyValue = [
+            audit.maintenanceIssues,
+            audit.cleaningIssues,
+            audit.cleaningSupplies,
+            audit.refundForReview,
+            audit.airbnbReimbursement,
+            audit.luxuryLodgingReimbursement,
+            audit.potentialReviewIssue
+        ].some(value => {
+            if (value === null || value === undefined) return false;
+            if (typeof value === 'number') return value > 0;
+            if (value === 'unset') return false;
+            if(typeof value === 'string' && value.trim() === '') return false;
+            return true;
+        });
+
+        if (hasValues) return CompletionStatus.COMPLETED;
+        if (hasAnyValue) return CompletionStatus.IN_PROGRESS;
+        return CompletionStatus.NOT_STARTED;
     }
 } 
