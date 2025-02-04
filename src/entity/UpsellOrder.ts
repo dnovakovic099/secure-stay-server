@@ -8,12 +8,15 @@ export class UpsellOrder {
     @Column({
         type: "enum",
         enum: ["Ordered", "Pending", "Approved", "Denied"],
-        default: "Ordered"
+        default: "Approved"
     })
     status: string;
 
     @Column()
     listing_id: string;
+
+    @Column({ nullable: true })
+    listing_name: string;
 
     @Column('decimal', { precision: 10, scale: 2 })
     cost: number;

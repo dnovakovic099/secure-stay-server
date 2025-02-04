@@ -59,4 +59,16 @@ export class UpsellOrderService {
     async deleteOrder(id: number) {
         return await this.upsellOrderRepo.delete(id);
     }
+
+    async getUpsells(fromDate: string, toDate: string, listingId: number) {
+        return await this.upsellOrderRepo.find({
+            where: {
+                listing_id: String(listingId),
+                order_date: Between(
+                    new Date(fromDate),
+                    new Date(toDate)
+                )
+            }
+        });
+    }
 } 

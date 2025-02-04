@@ -1,4 +1,4 @@
-import { Between, In} from "typeorm";
+import { Between, In } from "typeorm";
 import { format } from "date-fns";
 import { Request } from "express";
 import { Resolution } from "../entity/Resolution";
@@ -143,5 +143,17 @@ export class ResolutionService {
     async deleteResolution(resolutionId: number, userId: string) {
         const resolution = await this.getResolutionById(resolutionId, userId);
         await this.resolutionRepo.remove(resolution);
+    }
+
+    async getResolution(fromDate: string, toDate: string, listingId: number) {
+        return await this.resolutionRepo.find({
+            where: {
+                claimDate: Between(
+                    new Date(fromDate),
+                    new Date(toDate)
+                ),
+                listingMapId: listingId
+            }
+        });
     }
 } 

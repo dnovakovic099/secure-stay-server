@@ -3,12 +3,12 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Between, In, Raw } from "typeorm";
-import { Listing } from "../entity/Listing"
+import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
-import { format } from 'date-fns'
+import { format } from 'date-fns';
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -193,7 +193,7 @@ export class ExpenseService {
                 expense.paymentMethod,
                 format(expense.createdAt, "yyyy-MM-dd"),
                 fileLinks,
-        ];
+            ];
         });
 
         return {
@@ -207,6 +207,18 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+        return expense;
+    }
+
+    async getExpenses(fromDate: string, toDate: string, listingId: number) {
+        const expense = await this.expenseRepo.find({
+            where: {
+                listingMapId: listingId,
+                expenseDate: Between(fromDate, toDate),
+                isDeleted: 0,
+            },
+            order: { id: "DESC" },
+        });
         return expense;
     }
 
