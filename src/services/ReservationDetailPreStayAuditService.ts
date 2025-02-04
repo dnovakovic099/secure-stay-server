@@ -50,6 +50,6 @@ export class ReservationDetailPreStayAuditService {
     }
 
     private determineCompletionStatus(doorCode?: DoorCodeStatus, amenitiesConfirmed?: string): CompletionStatus {
-        return (doorCode && amenitiesConfirmed) ? CompletionStatus.COMPLETED : CompletionStatus.IN_PROGRESS;
+        return (doorCode !== DoorCodeStatus.UNSET && amenitiesConfirmed) ? CompletionStatus.COMPLETED : CompletionStatus.IN_PROGRESS;
     }
 } 
