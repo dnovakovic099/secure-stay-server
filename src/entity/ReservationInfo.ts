@@ -1,39 +1,35 @@
-// Import necessary modules from TypeORM
 import { Entity, PrimaryGeneratedColumn, Column, PrimaryColumn } from 'typeorm';
 
-// Define the entity class
 @Entity({ name: 'reservation_info' })
 export class ReservationInfoEntity {
-    // Define the primary key column
     @PrimaryColumn()
     id: number;
 
-    // Define other columns
     @Column({ type: 'int', nullable: true })
     listingMapId: number;
 
-    @Column({ nullable: true })
+    @Column({ length: 100, nullable: true }) // Reduced length
     listingName: string;
 
     @Column({ type: 'int', nullable: true })
     channelId: number;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     source: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 100, nullable: true }) // Reduced length
     channelName: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true })
+    @Column({ length: 200, nullable: true }) // Reduced length
     reservationId: string;
 
-    @Column({ nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     hostawayReservationId: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true })
+    @Column({ length: 200, nullable: true }) // Reduced length
     channelReservationId: string;
 
-    @Column({ nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     externalPropertyId: string;
 
     @Column({ type: 'tinyint', nullable: true })
@@ -42,49 +38,49 @@ export class ReservationInfoEntity {
     @Column({ type: 'datetime', nullable: true })
     reservationDate: Date;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
+    @Column({ length: 100, nullable: true }) // Reduced length
     guestName: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     guestFirstName: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     guestLastName: string;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     guestExternalAccountId: string;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ length: 20, nullable: true }) // Reduced length
     guestZipCode: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true })
+    @Column({ length: 100, nullable: true }) // Reduced length
     guestAddress: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     guestCity: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     guestCountry: string;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
+    @Column({ length: 100, nullable: true }) // Reduced length
     guestEmail: string;
 
-    @Column({ type: "text", nullable: true })
+    @Column({ type: "text", nullable: true }) // Kept as TEXT
     guestPicture: string;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'tinyint', nullable: true }) // Reduced size
     numberOfGuests: number;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'tinyint', nullable: true }) // Reduced size
     adults: number;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'tinyint', nullable: true }) // Reduced size
     children: number;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'tinyint', nullable: true }) // Reduced size
     infants: number;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'tinyint', nullable: true }) // Reduced size
     pets: number;
 
     @Column({ type: 'date', nullable: true })
@@ -99,72 +95,72 @@ export class ReservationInfoEntity {
     @Column({ type: 'time', nullable: true })
     checkOutTime: string;
 
-    @Column({ type: 'int', nullable: true })
+    @Column({ type: 'int', nullable: true }) // Reduced size
     nights: number;
 
-    @Column({ type: 'varchar', length: 20, nullable: true })
+    @Column({ length: 20, nullable: true }) // Reduced length
     phone: string;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     totalPrice: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     taxAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     channelCommissionAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     hostawayCommissionAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     cleaningFee: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     securityDepositFee: number;
 
     @Column({ type: 'tinyint', nullable: true })
     isPaid: boolean;
 
-    @Column({ type: 'varchar', length: 3, nullable: true })
+    @Column({ length: 10, nullable: true }) // Reduced length
     currency: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ length: 50, nullable: true }) // Reduced length
     status: string;
 
-    @Column({ type: 'text', nullable: true })
+    @Column({ type: 'text', nullable: true }) // Kept as TEXT
     hostNote: string;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbExpectedPayoutAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingBasePrice: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingCancellationHostFee: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingCancellationPayout: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingCleaningFee: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingHostFee: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbListingSecurityPrice: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbOccupancyTaxAmountPaidToHost: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbTotalPaidAmount: number;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     airbnbTransientOccupancyTaxPaidAmount: number;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
+    @Column({ type: "text", nullable: true }) // Kept as TEXT
     airbnbCancellationPolicy: string;
 }
