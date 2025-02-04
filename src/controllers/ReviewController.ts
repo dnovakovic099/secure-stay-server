@@ -11,13 +11,11 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const userId = request.user.id;
-            const listingId = request.query.listingId;
-            const page = request.query.page;
-            const limit = request.query.limit;
+            const { fromDate, toDate, listingId, page, limit } = request.query;
 
             const { reviews, totalCount } = await reviewService.getReviews(
-                userId,
+                String(fromDate),
+                String(toDate),
                 Number(listingId),
                 Number(page),
                 Number(limit)

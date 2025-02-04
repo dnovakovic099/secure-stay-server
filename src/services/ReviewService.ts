@@ -1,4 +1,4 @@
-import { IsNull, Not } from "typeorm";
+import { Between, IsNull, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -9,13 +9,17 @@ export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
 
-    public async getReviews(userId: string, listingId?: number, page: number = 1, limit: number = 10) {
+    public async getReviews(fromDate?: string, toDate?: string, listingId?: number, page: number = 1, limit: number = 10) {
         try {
+            const condition: { listingMapId?: number, submittedAt?: any; } = {
+                ...(listingId ? { listingMapId: listingId } : {}),
+            };
+            if (fromDate !== "undefined" && toDate !== "undefined") {
+                condition.submittedAt = Between(fromDate, toDate);
+            }
+            
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
-                where: {
-                    ...(listingId ? { listingMapId: listingId } : {}),
-                    rating: Not(IsNull())
-                },
+                where: { ...condition, rating: Not(IsNull()), },
                 skip: (page - 1) * limit,
                 take: limit,
                 order: {
