@@ -1,0 +1,74 @@
+<tr>
+  <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
+  minimumFractionDigits: 2 }) %> <% } %>
+  <td class="page" id="page-3">
+    <table>
+      <tbody>
+        <tr>
+          <td>
+            <div class="page-content">
+              <h1 class="cursive-heading">Executive Summary</h1>
+              <div class="box">
+                <p>
+                  Your property at <%= listingData.address %> has strong
+                  potential in a market that demands strategic pricing and
+                  enhanced guest appeal. The projected annual revenue of $<%=
+                  formatRevenue(listingData.totalClient) %> places it ahead of
+                  the market average but slightly behind top competitors. By
+                  refining pricing strategies and increasing occupancy through
+                  optimized listings and targeted promotions, we can push
+                  revenue even higher. The market’s ADR and RevPAR trends
+                  indicate the need for a competitive but balanced approach,
+                  ensuring your property captures more bookings without
+                  undervaluing its potential. The Robbinsville market shows
+                  opportunity despite recent declines in occupancy and revenue
+                  growth. Competitors with similar offerings are leveraging
+                  amenities and optimized listings to command higher rates and
+                  secure more bookings. Your property’s positioning, guest
+                  experience, and pricing strategy will be key to outperforming
+                  them. Adjusting rates dynamically based on seasonality,
+                  implementing a structured booking strategy, and enhancing
+                  amenities can maximize your occupancy and revenue without
+                  sacrificing nightly rates. With Luxury Lodging’s expert
+                  revenue management and marketing strategies, your property
+                  will be positioned for success. We provide daily pricing
+                  adjustments, high-converting listing optimization, and
+                  datadriven strategies to ensure consistent bookings and high
+                  guest satisfaction. Our goal is to help you achieve sustained
+                  revenue growth while making management effortless. Together,
+                  we’ll turn your rental into a top performer in Robbinsville.
+                </p>
+                <p>
+                  Our analysis highlights the growing demand for long-term
+                  rentals in the Key West market, paired with the property’s
+                  potential to achieve significant RevPAR growth and a strong
+                  revenue trajectory. Through enhanced guest experience,
+                  thoughtful pricing adjustments, and strategic marketing
+                  initiatives, we can unlock opportunities to attract
+                  high-quality tenants and secure positive feedback. These steps
+                  will bridge the gap with top competitors and establish your
+                  property as a leader in its niche.
+                </p>
+                <p>
+                  Luxury Lodging is committed to ensuring your property not only
+                  meets but surpasses its market potential. By leveraging our
+                  expertise in managing premium properties and building a strong
+                  reputation for our clients, we aim to transform this property
+                  into a cornerstone of success in the extended-stay market. The
+                  journey to establishing your property as a top contender
+                  begins now, and we are excited to be your partner in making
+                  that happen.
+                </p>
+              </div>
+            </div>
+            <img
+              src="<%= PAGE_3_IMAGE %>"
+              style="width: 100%"
+              alt="reload page"
+            />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </td>
+</tr>

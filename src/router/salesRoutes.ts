@@ -12,7 +12,7 @@ const salesController = new SalesController();
 
 router.route("/createClient").post(
   // verifySession,
-  fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
+  // fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
   validateClientRequest,
   salesController.createClient
 );
@@ -32,7 +32,7 @@ router.route("/getDetailsFromAddress").get(
 
 router.route("/generatePdf/:client_id").get(
   // verifySession,
-  fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
+  // fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
   salesController.generatePdf
 );
 export default router;

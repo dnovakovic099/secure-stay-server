@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { ClientService } from "../services/SalesService";
 import { LoginCredentials } from "../types";
 import {
+  calculatingTotalProjectRevenue,
   generateRandomUA,
   imageToBase64,
   login,
@@ -31,22 +32,20 @@ export class SalesController {
   async createClient(request: Request, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
-      console.log("request.files", request.files);
+      // console.log("request.files", request.files);
 
-      let fileNames: string[] = [];
-      if (
-        Array.isArray(request.files["attachments"]) &&
-        request.files["attachments"].length > 0
-      ) {
-        fileNames = (request.files["attachments"] as Express.Multer.File[]).map(
-          (file) => file.filename
-        );
-      }
-      console.log("fileNames", fileNames);
+      // let fileNames: string[] = [];
+      // if (
+      //   Array.isArray(request.files["attachments"]) &&
+      //   request.files["attachments"].length > 0
+      // ) {
+      //   fileNames = (request.files["attachments"] as Express.Multer.File[]).map(
+      //     (file) => file.filename
+      //   );
+      // }
+      // console.log("fileNames", fileNames);
       // return response.status(404).json({ error: "Client not found" });
-      return response.send(
-        await clientService.createClient(request, fileNames)
-      );
+      return response.send(await clientService.createClient(request));
     } catch (error) {
       console.log("error", error);
 
@@ -216,12 +215,20 @@ export class SalesController {
         const averageMonthlyOccupancyChartSS = imageToBase64(
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
+        // Calculations for PDF
         const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
         const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
         const currentYear = new Date().getFullYear();
+        const { totalClient, totalCompetitor, totalMarketAvg } =
+          calculatingTotalProjectRevenue(revenueRange);
         const html = await ejs.renderFile(templatePath, {
           title: "Property Performance Report",
-          listingData: fetchedClient.listing,
+          listingData: {
+            ...fetchedClient.listing,
+            totalClient,
+            totalCompetitor,
+            totalMarketAvg,
+          },
           clientData: fetchedClient.client,
           currentYear,
           LOGO_URL,
@@ -240,6 +247,7 @@ export class SalesController {
           PAGE_12_IMG,
           PAGE_14_IMG,
           revenueRange,
+
           dailyRate,
           revPar,
         });
@@ -280,14 +288,14 @@ export class SalesController {
         // }
 
         // Delete the screenshot folder after generating the PDF
-        if (fs.existsSync(screenshotFolderPath)) {
-          try {
-            // Remove the folder and its contents
-            fs.rmSync(screenshotFolderPath, { recursive: true, force: true });
-          } catch (err) {
-            console.log("Error deleting screenshot folder:", err);
-          }
-        }
+        // if (fs.existsSync(screenshotFolderPath)) {
+        //   try {
+        //     // Remove the folder and its contents
+        //     fs.rmSync(screenshotFolderPath, { recursive: true, force: true });
+        //   } catch (err) {
+        //     console.log("Error deleting screenshot folder:", err);
+        //   }
+        // }
 
         await browser.close();
         return response.status(200).send({

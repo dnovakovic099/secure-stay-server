@@ -336,3 +336,26 @@ export const imageToBase64 = (imagePath: string): string => {
   const file = fs.readFileSync(imagePath);
   return `data:image/jpeg;base64,${file.toString("base64")}`;
 };
+
+export const calculatingTotalProjectRevenue = (revenueRange: RevenueRange) => {
+  const currentYear = new Date().getFullYear();
+  const yearlyData = revenueRange[currentYear.toString()];
+
+  let totalClient = 0;
+  let totalMarketAvg = 0;
+  let totalCompetitor = 0;
+
+  Object.entries(yearlyData).forEach(([month, data]) => {
+    const client = data.lower;
+    const marketAvg = (data.upper + data.lower) / 2;
+    const competitor = data.upper;
+    totalClient += client;
+    totalMarketAvg += marketAvg;
+    totalCompetitor += competitor;
+  });
+  return {
+    totalClient,
+    totalMarketAvg,
+    totalCompetitor,
+  };
+};

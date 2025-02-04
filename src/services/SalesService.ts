@@ -9,9 +9,9 @@ export class ClientService {
     appDatabase.getRepository(ClientListingEntity);
 
   async createClient(request: Request, fileNames?: string[]) {
-    console.log("fileNames", fileNames);
+    // console.log("fileNames", fileNames);
 
-    const body = JSON.parse(request.body.data);
+    // const body = Jrequest.body.data
     const {
       leadStatus,
       propertyAddress,
@@ -27,7 +27,7 @@ export class ClientService {
       guests,
       beds,
       airDnaData,
-    } = body;
+    } = request.body;
 
     const newClient = this.clientRepository.create({
       leadStatus,

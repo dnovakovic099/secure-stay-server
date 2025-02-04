@@ -6,7 +6,7 @@ export const validateClientRequest = (
   response: Response,
   next: NextFunction
 ) => {
-  const body = JSON.parse(request.body.data);
+  // const body = JSON.parse(request.body.data);
   // console.log("body", body);
 
   const schema = Joi.object({
@@ -71,7 +71,7 @@ export const validateClientRequest = (
       }),
   });
 
-  const { error } = schema.validate(body, { allowUnknown: true });
+  const { error } = schema.validate(request.body, { allowUnknown: true });
   if (error) {
     return next(error);
   }
