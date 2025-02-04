@@ -10,4 +10,9 @@ export class ReservationInfoController {
         }
         return response.send(result);
     }
+
+    async exportReservationToExcel(request: Request, response: Response) {
+        const reservationInfoService = new ReservationInfoService();
+        return response.send(await reservationInfoService.exportReservationToExcel(request));
+    }
 }

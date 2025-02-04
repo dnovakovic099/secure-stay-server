@@ -3,7 +3,7 @@ import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
 import { ReservationDetailPostStayAuditService } from "./ReservationDetailPostStayAuditService";
 import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStayAuditService";
-
+import * as XLSX from 'xlsx';
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
 
@@ -403,5 +403,23 @@ export class ReservationInfoService {
     }
 
     return qb;
+  }
+
+  async exportReservationToExcel(request: Request): Promise<Buffer> {
+    const reservations = await this.reservationInfoRepository.find();
+    const formattedData = reservations?.map(reservation => ({
+      GuestName: reservation.guestName,
+      ChannelName: reservation.channelName,
+      CheckInDate: reservation.arrivalDate,
+      Amount: reservation.totalPrice,
+      Status: reservation.status,
+      ListingId: reservation.listingMapId
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+
+    return Buffer.from(csv, 'utf-8');
+
   }
 }
