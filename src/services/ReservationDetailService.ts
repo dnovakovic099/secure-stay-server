@@ -1,5 +1,5 @@
 import { appDatabase } from "../utils/database.util";
-import { ReservationDetail, ReviewMediationStatus, DoorCodeStatus } from "../entity/ReservationDetail";
+import { ReservationDetail, ReviewMediationStatus } from "../entity/ReservationDetail";
 import { ReservationCleanerPhoto } from "../entity/ReservationCleanerPhoto";
 
 interface CreateReservationDetailDTO {
@@ -7,7 +7,6 @@ interface CreateReservationDetailDTO {
     additionalNotes?: string;
     specialRequest?: string;
     reviewMediationStatus?: ReviewMediationStatus;
-    doorCode?: DoorCodeStatus;
     photos?: Express.Multer.File[];
 }
 
@@ -16,7 +15,6 @@ interface UpdateReservationDetailDTO {
     photos?: Express.Multer.File[];
     additionalNotes?: string;
     specialRequest?: string;
-    doorCode?: DoorCodeStatus;
     reviewMediationStatus?: ReviewMediationStatus;
 }
 
@@ -33,7 +31,6 @@ export class ReservationDetailService {
             reservationDetail.reservationId = data.reservationId;
             reservationDetail.additionalNotes = data.additionalNotes || '';
             reservationDetail.specialRequest = data.specialRequest || '';
-            reservationDetail.doorCode = data.doorCode || DoorCodeStatus.UNSET;
             reservationDetail.reviewMediationStatus = data.reviewMediationStatus || ReviewMediationStatus.UNSET;
 
             // Save to ReservationDetail table
@@ -100,9 +97,6 @@ export class ReservationDetailService {
             }
             if (data.specialRequest) {
                 reservationDetail.specialRequest = data.specialRequest;
-            }
-            if (data.doorCode) {
-                reservationDetail.doorCode = data.doorCode;
             }
             if (data.reviewMediationStatus) {
                 reservationDetail.reviewMediationStatus = data.reviewMediationStatus;

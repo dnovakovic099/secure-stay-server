@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { ReservationDetailService } from '../services/ReservationDetailService';
 import { photoUpload } from '../utils/photoUpload.util';
 import { ReviewMediationStatus } from '../entity/ReservationDetail';
-import { DoorCodeStatus } from '../entity/ReservationDetail';
 
 export class ReservationDetailController {
     private reservationDetailService: ReservationDetailService;
@@ -22,7 +21,6 @@ export class ReservationDetailController {
                 reservationId: req.params.reservationId,
                 additionalNotes: req.body.additionalNotes || '',
                 specialRequest: req.body.specialRequest || '',
-                doorCode: req.body.doorCode || DoorCodeStatus.UNSET,
                 reviewMediationStatus: req.body.reviewMediationStatus || ReviewMediationStatus.UNSET,
                 photos: req.files as Express.Multer.File[]
             };

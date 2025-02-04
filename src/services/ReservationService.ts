@@ -4,6 +4,8 @@ import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { getCurrentDateInUTC } from "../helpers/date";
 import * as XLSX from 'xlsx';
+import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStayAuditService";
+import { ReservationDetailPostStayAuditService } from "./ReservationDetailPostStayAuditService";
 
 export class ReservationService {
 
@@ -11,7 +13,8 @@ export class ReservationService {
         .getRepository(ReservationEntity);
 
     private hostAwayClient = new HostAwayClient();
-
+    private preStayAuditService = new ReservationDetailPreStayAuditService();
+    private postStayAuditService = new ReservationDetailPostStayAuditService();
 
     // async getReservationStatusByLink(request: Request) {
     //     const reservationLink = String(request.params.reservationLink);
@@ -88,6 +91,17 @@ export class ReservationService {
             // Combine today's reservations with filtered regular results
             const combinedResults = [...todayResults, ...filteredRegularResults];
 
+            // Fetch audit statuses and append to each reservation
+            for (const reservation of combinedResults) {
+                const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+                const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+                const reservationWithAuditStatus = {
+                    ...reservation,
+                    preStayAuditStatus: preStayStatus,
+                    postStayAuditStatus: postStayStatus
+                };
+                Object.assign(reservation, reservationWithAuditStatus);
+            }
             return {
                 status: "success",
                 result: combinedResults,
