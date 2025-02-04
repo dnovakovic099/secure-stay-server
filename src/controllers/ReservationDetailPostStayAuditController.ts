@@ -20,7 +20,7 @@ export class ReservationDetailPostStayAuditController {
                 luxuryLodgingReimbursement,
                 potentialReviewIssue
             } = req.body;
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
 
             const audit = await this.postStayAuditService.createAudit({
                 reservationId,
@@ -50,7 +50,7 @@ export class ReservationDetailPostStayAuditController {
                 luxuryLodgingReimbursement,
                 potentialReviewIssue
             } = req.body;
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
 
             const audit = await this.postStayAuditService.updateAudit({
                 reservationId,
@@ -71,7 +71,7 @@ export class ReservationDetailPostStayAuditController {
 
     async getAuditByReservationId(req: Request, res: Response, next: NextFunction) {
         try {
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
             const audit = await this.postStayAuditService.fetchAuditByReservationId(reservationId);
             return res.status(200).json(audit);
         } catch (error) {

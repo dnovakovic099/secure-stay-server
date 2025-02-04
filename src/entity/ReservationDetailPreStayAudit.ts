@@ -14,8 +14,8 @@ export enum DoorCodeStatus {
 
 @Entity('reservation_detail_pre_stay_audit')
 export class ReservationDetailPreStayAudit {
-    @PrimaryColumn({ type: 'varchar' })
-    reservationId: string;
+    @PrimaryColumn({ type: 'bigint' })
+    reservationId: number;
 
     @Column({
         type: "enum",

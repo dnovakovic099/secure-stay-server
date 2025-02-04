@@ -3,7 +3,7 @@ import { ReservationDetail, ReviewMediationStatus } from "../entity/ReservationD
 import { ReservationCleanerPhoto } from "../entity/ReservationCleanerPhoto";
 
 interface CreateReservationDetailDTO {
-    reservationId: string;
+    reservationId: number;
     additionalNotes?: string;
     specialRequest?: string;
     reviewMediationStatus?: ReviewMediationStatus;
@@ -65,19 +65,19 @@ export class ReservationDetailService {
         }
     }
 
-    async getReservationDetail(reservationId: string) {
+    async getReservationDetail(reservationId: number) {
         // Fetch reservation detail with associated cleaner photos
         const reservationDetail = await appDatabase
             .getRepository(ReservationDetail)
             .findOne({
-                where: { reservationId },
+                where: { reservationId: reservationId},
                 relations: ['cleanerPhotos']
             });
 
         return reservationDetail;
     }
 
-    async updateReservationDetail(reservationId: string, data: UpdateReservationDetailDTO) {
+    async updateReservationDetail(reservationId: number, data: UpdateReservationDetailDTO) {
         const queryRunner = appDatabase.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -85,7 +85,7 @@ export class ReservationDetailService {
         try {
             const reservationDetail = await queryRunner.manager
                 .findOne(ReservationDetail, {
-                    where: { reservationId },
+                    where: { reservationId: reservationId },
                 });
 
             if (!reservationDetail) {
@@ -125,7 +125,7 @@ export class ReservationDetailService {
 
             // Fetch and return updated reservation detail with photos
             return await queryRunner.manager.findOne(ReservationDetail, {
-                where: { reservationId },
+                where: { reservationId: reservationId },
                 relations: ['cleanerPhotos']
             });
 

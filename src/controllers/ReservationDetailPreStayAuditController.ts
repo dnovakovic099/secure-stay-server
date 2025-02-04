@@ -12,7 +12,7 @@ export class ReservationDetailPreStayAuditController {
     async createAudit(req: Request, res: Response, next: NextFunction) {
         try {
             const { doorCode, amenitiesConfirmed } = req.body;
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
 
             const audit = await this.preStayAuditService.createAudit({
                 reservationId,
@@ -28,7 +28,7 @@ export class ReservationDetailPreStayAuditController {
     async updateAudit(req: Request, res: Response, next: NextFunction) {
         try {
             const { doorCode, amenitiesConfirmed } = req.body;
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
 
             const audit = await this.preStayAuditService.updateAudit({
                 reservationId,
@@ -43,7 +43,7 @@ export class ReservationDetailPreStayAuditController {
 
     async getAuditByReservationId(req: Request, res: Response, next: NextFunction) {
         try {
-            const { reservationId } = req.params;
+            const reservationId = Number(req.params.reservationId);
             const audit = await this.preStayAuditService.fetchAuditByReservationId(reservationId);
             return res.status(200).json(audit);
         } catch (error) {

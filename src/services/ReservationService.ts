@@ -93,8 +93,8 @@ export class ReservationService {
 
             // Fetch audit statuses and append to each reservation
             for (const reservation of combinedResults) {
-                const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
-                const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.reservationId);
+                const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+                const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
                 const reservationWithAuditStatus = {
                     ...reservation,
                     preStayAuditStatus: preStayStatus,

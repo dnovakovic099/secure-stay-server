@@ -3,7 +3,7 @@ import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPreStayAudit, CompletionStatus, DoorCodeStatus } from "../entity/ReservationDetailPreStayAudit";
 
 interface ReservationDetailPreStayAuditDTO {
-    reservationId: string;
+    reservationId: number;
     doorCode?: DoorCodeStatus;
     amenitiesConfirmed?: string;
 }
@@ -15,11 +15,11 @@ export class ReservationDetailPreStayAuditService {
         this.preStayAuditRepository = appDatabase.getRepository(ReservationDetailPreStayAudit);
     }
 
-    async fetchAuditByReservationId(reservationId: string): Promise<ReservationDetailPreStayAudit | null> {
-        return await this.preStayAuditRepository.findOne({ where: { reservationId } });
+    async fetchAuditByReservationId(reservationId: number): Promise<ReservationDetailPreStayAudit | null> {
+        return await this.preStayAuditRepository.findOne({ where: { reservationId: Number(reservationId) } });
     }
 
-    async fetchCompletionStatusByReservationId(reservationId: string): Promise<CompletionStatus | null> {
+    async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
         const audit = await this.fetchAuditByReservationId(reservationId);
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
@@ -50,6 +50,9 @@ export class ReservationDetailPreStayAuditService {
     }
 
     private determineCompletionStatus(doorCode?: DoorCodeStatus, amenitiesConfirmed?: string): CompletionStatus {
+        if (doorCode === DoorCodeStatus.UNSET && (!amenitiesConfirmed || amenitiesConfirmed.trim() === '')) {
+            return CompletionStatus.NOT_STARTED;
+        }
         return (doorCode !== DoorCodeStatus.UNSET && amenitiesConfirmed) ? CompletionStatus.COMPLETED : CompletionStatus.IN_PROGRESS;
     }
 } 

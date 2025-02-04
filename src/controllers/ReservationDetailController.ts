@@ -18,7 +18,7 @@ export class ReservationDetailController {
     async createWithPhotos(req: Request, res: Response) {
         try {
             const data = {
-                reservationId: req.params.reservationId,
+                reservationId: Number(req.params.reservationId),
                 additionalNotes: req.body.additionalNotes || '',
                 specialRequest: req.body.specialRequest || '',
                 reviewMediationStatus: req.body.reviewMediationStatus || ReviewMediationStatus.UNSET,
@@ -40,7 +40,7 @@ export class ReservationDetailController {
     }
 
     async getReservationDetail(req: Request, res: Response) {
-        const reservationId = req.params.reservationId;
+        const reservationId = Number(req.params.reservationId);
         const result = await this.reservationDetailService.getReservationDetail(reservationId);
         return res.status(200).json({
             success: true,
@@ -50,7 +50,7 @@ export class ReservationDetailController {
 
     async updateReservationDetail(req: Request, res: Response) {
         try {
-            const reservationId = req.params.reservationId;
+            const reservationId = Number(req.params.reservationId);
             const data = {
                 ...req.body,
                 photos: req.files as Express.Multer.File[],
