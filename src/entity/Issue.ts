@@ -15,6 +15,33 @@ export class Issue {
     @Column()
     listing_id: string;
 
+    @Column({ nullable: true })
+    reservation_id: string;
+
+    @Column({ type: 'date', nullable: true })
+    check_in_date: Date;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    reservation_amount: number;
+
+    @Column({ nullable: true })
+    channel: string;
+
+    @Column({ nullable: true })
+    guest_name: string;
+
+    @Column({ nullable: true })
+    guest_contact_number: string;
+
+    @Column({ type: 'text', nullable: true })
+    issue_description: string;
+
+    @Column({ type: 'text', nullable: true })
+    owner_notes: string;
+
+    @Column({ nullable: true })
+    creator: string;
+
     @Column({ type: 'date', nullable: true })
     date_time_reported: Date;
 
