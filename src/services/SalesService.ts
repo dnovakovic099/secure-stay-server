@@ -11,7 +11,7 @@ export class ClientService {
   async createClient(request: Request, fileNames?: string[]) {
     // console.log("fileNames", fileNames);
 
-    // const body = Jrequest.body.data
+    // const body = request.body.data
     const {
       leadStatus,
       propertyAddress,
