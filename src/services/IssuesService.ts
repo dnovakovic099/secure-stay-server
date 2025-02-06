@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between } from "typeorm";
+import { Between, Not } from "typeorm";
 import * as XLSX from 'xlsx';
 
 export class IssuesService {
@@ -12,30 +12,61 @@ export class IssuesService {
         return savedIssue;
     }
 
-    async getIssues(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '') {
-
+    async getIssues(
+        page: number = 1, 
+        limit: number = 10, 
+        fromDate: string = '', 
+        toDate: string = '', 
+        status: string = '', 
+        listingId: string = '',
+        isClaimOnly?: boolean,
+        claimAmount?: string,
+        guestName?: string
+    ) {
         const queryOptions: any = {
-            // order: { created_at: 'DESC' },
+            where: {},
+            order: { 
+                status: "ASC",
+                // created_at: 'DESC'
+            },
             skip: (page - 1) * limit,
             take: limit
         };
 
-        // if (fromDate && toDate) {
-        //     queryOptions.where = {
-        //         created_at: Between(
-        //             new Date(fromDate),
-        //             new Date(toDate)
-        //         )
-        //     };
-        // }
+        if (fromDate && toDate) {
+            const startDate = new Date(fromDate);
+            startDate.setHours(0, 0, 0, 0);
 
-        // if (status) {
-        //     queryOptions.where.status = status;
-        // }   
+            const endDate = new Date(toDate);
+            endDate.setHours(23, 59, 59, 999);
 
-        // if (listing_id) {
-        //     queryOptions.where.listing_id = listing_id;
-        // }
+            queryOptions.where = {
+                created_at: Between(
+                    startDate,
+                    endDate
+                )
+            };
+        }
+
+        if (status) {
+            queryOptions.where.status = status;
+        }   
+
+        if (listingId) {
+            queryOptions.where.listing_id = listingId;
+        }
+
+        if (isClaimOnly) {
+            queryOptions.where.claim_resolution_status = Not('N/A');
+        }
+
+        if (claimAmount) {
+            queryOptions.where.claim_resolution_amount = claimAmount;
+        }
+
+        if (guestName) {
+            queryOptions.where.guest_name = guestName;
+        }
 
         const [issues, total] = await this.issueRepo.findAndCount(queryOptions);
 

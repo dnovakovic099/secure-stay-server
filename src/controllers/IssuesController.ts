@@ -10,9 +10,22 @@ export class IssuesController {
             const fromDate = request.query.fromDate as string || '';
             const toDate = request.query.toDate as string || '';
             const status = request.query.status as string || ''; 
-            const listingId = request.query.listingId as string || ''; 
+            const listingId = request.query.listingId as string || '';
+            const isClaimOnly = request.query.isClaimOnly === 'true';
+            const claimAmount = request.query.claimAmount as string;
+            const guestName = request.query.guestName as string;
 
-            const result = await issuesService.getIssues(page, limit, fromDate, toDate, status, listingId);
+            const result = await issuesService.getIssues(
+                page, 
+                limit, 
+                fromDate, 
+                toDate, 
+                status, 
+                listingId,
+                isClaimOnly,
+                claimAmount,
+                guestName
+            );
             
             return response.send({
                 status: true,
