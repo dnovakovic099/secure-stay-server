@@ -90,7 +90,7 @@ export class Issue {
     @Column({ nullable: true })
     completed_by: string;
 
-    @Column({ type: 'datetime', nullable: true })
+    @Column({ type: 'date', nullable: true })
     completed_at: Date;
 
     @Column({
