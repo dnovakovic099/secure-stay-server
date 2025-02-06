@@ -99,4 +99,10 @@ export class IssuesController {
             });
         }
     }
+
+    async exportIssuesToExcel(request: Request, response: Response) {
+        const issuesService = new IssuesService();
+        const result = await issuesService.exportIssuesToExcel();
+        return response.send(result);
+    }
 } 

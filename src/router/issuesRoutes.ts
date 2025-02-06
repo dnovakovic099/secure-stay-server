@@ -25,4 +25,10 @@ router.route('/:id')
         issuesController.deleteIssue
     );
 
+router.route('/export')
+    .get(
+        verifySession,
+        issuesController.exportIssuesToExcel
+    );
+
 export default router;
