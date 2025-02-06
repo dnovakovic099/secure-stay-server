@@ -53,4 +53,10 @@ export class OwnerStatementEntity {
 
     @Column()
     userId: string;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
 }

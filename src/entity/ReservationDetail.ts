@@ -1,12 +1,6 @@
 import { Entity, PrimaryColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn } from "typeorm";
 import { ReservationCleanerPhoto } from "./ReservationCleanerPhoto";
 
-export enum DoorCodeStatus {
-    SET = 'set',
-    ISSUE = 'issue',
-    UNSET = 'unset'
-}
-
 export enum ReviewMediationStatus {
     UNSET = 'unset',
     NOT_STARTED = 'not started',
@@ -16,15 +10,8 @@ export enum ReviewMediationStatus {
 
 @Entity("reservation_details")
 export class ReservationDetail {
-    @PrimaryColumn()
-    reservationId: string;
-
-    @Column({
-        type: "enum",
-        enum: DoorCodeStatus,
-        default: DoorCodeStatus.UNSET
-    })
-    doorCode: DoorCodeStatus;
+    @PrimaryColumn({ type: 'bigint' })
+    reservationId: number;
 
     @Column({ type: "text", nullable: true })
     additionalNotes: string;
@@ -47,4 +34,10 @@ export class ReservationDetail {
 
     @UpdateDateColumn()
     updatedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
 }

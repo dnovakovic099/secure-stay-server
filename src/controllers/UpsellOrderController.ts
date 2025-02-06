@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import { UpsellOrderService } from "../services/UpsellOrderService";
 
+interface CustomRequest extends Request {
+    user?: any;
+}
 export class UpsellOrderController {
     async getOrders(request: Request, response: Response) {
         const upsellOrderService = new UpsellOrderService();
@@ -26,8 +29,9 @@ export class UpsellOrderController {
         }
     }
 
-    async createOrder(request: Request, response: Response) {
+    async createOrder(request: CustomRequest, response: Response) {
         const upsellOrderService = new UpsellOrderService();
+        const userId = request.user.id;
         try {
 
             if (!request.body || Object.keys(request.body).length === 0) {
@@ -37,7 +41,7 @@ export class UpsellOrderController {
                 });
             }
 
-            const result = await upsellOrderService.createOrder(request.body);
+            const result = await upsellOrderService.createOrder(request.body, userId);
             return response.status(201).json({
                 status: true,
                 data: result
@@ -50,8 +54,9 @@ export class UpsellOrderController {
         }
     }
 
-    async updateOrder(request: Request, response: Response) {
+    async updateOrder(request: CustomRequest, response: Response) {
         const upsellOrderService = new UpsellOrderService();
+        const userId = request.user.id;
         try {
             const { id } = request.params;
 
@@ -62,7 +67,7 @@ export class UpsellOrderController {
                 });
             }
 
-            const result = await upsellOrderService.updateOrder(Number(id), request.body);
+            const result = await upsellOrderService.updateOrder(Number(id), request.body, userId);
 
             if (!result) {
                 return response.status(404).json({

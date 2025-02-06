@@ -5,7 +5,7 @@ import { ClientEntity } from "../entity/Sales";
 export class ClientService {
   private clientRepository = appDatabase.getRepository(ClientEntity);
 
-  async createClient(request: Request) {
+  async createClient(request: Request, userId: string) {
     const {
       leadStatus,
       propertyAddress,
@@ -32,13 +32,14 @@ export class ClientService {
     newClient.commissionStatus = commissionStatus;
     newClient.createdAt = new Date();
     newClient.updatedAt = new Date();
+    newClient.createdBy = userId;
 
     return await this.clientRepository.save(newClient);
   }
   async getAllClients() {
     return await this.clientRepository.find();
   }
-  async updateClient(clientId: number, updateData: Partial<ClientEntity>) {
+  async updateClient(clientId: number, updateData: Partial<ClientEntity>, userId: string) {
     const client = await this.clientRepository.findOne({
       where: { id: clientId },
     });
@@ -51,6 +52,7 @@ export class ClientService {
       ...client,
       ...updateData,
       updatedAt: new Date(),
+      updatedBy: userId
     };
 
     Object.assign(client, updatedClient);

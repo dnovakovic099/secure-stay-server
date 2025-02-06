@@ -49,6 +49,7 @@ export class ResolutionService {
         resolution.userId = userId;
         resolution.createdAt = new Date();
         resolution.updatedAt = new Date();
+        resolution.createdBy = userId;
 
         return await this.resolutionRepo.save(resolution);
     }
