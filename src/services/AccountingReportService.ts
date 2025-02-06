@@ -305,6 +305,7 @@ export class AccountingReportService {
     newOwnerStatement.createdAt = new Date();
     newOwnerStatement.updatedAt = new Date();
     newOwnerStatement.userId = userId;
+    newOwnerStatement.createdBy = userId;
 
     return await transactionManager.save(newOwnerStatement);
   }
