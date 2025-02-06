@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import { ReservationDetailPostStayAuditService } from "../services/ReservationDetailPostStayAuditService";
 import { PotentialReviewIssue } from "../entity/ReservationDetailPostStayAudit";
 
+interface CustomRequest extends Request {
+    user?: any;
+}
+
 export class ReservationDetailPostStayAuditController {
     private postStayAuditService: ReservationDetailPostStayAuditService;
 
@@ -9,7 +13,7 @@ export class ReservationDetailPostStayAuditController {
         this.postStayAuditService = new ReservationDetailPostStayAuditService();
     }
 
-    async createAudit(req: Request, res: Response, next: NextFunction) {
+    async createAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const {
                 maintenanceIssues,
@@ -21,6 +25,7 @@ export class ReservationDetailPostStayAuditController {
                 potentialReviewIssue
             } = req.body;
             const reservationId = Number(req.params.reservationId);
+            const userId = req.user.id;
 
             const audit = await this.postStayAuditService.createAudit({
                 reservationId,
@@ -31,7 +36,7 @@ export class ReservationDetailPostStayAuditController {
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
                 potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue
-            });
+            }, userId);
 
             return res.status(201).json(audit);
         } catch (error) {
@@ -39,7 +44,7 @@ export class ReservationDetailPostStayAuditController {
         }
     }
 
-    async updateAudit(req: Request, res: Response, next: NextFunction) {
+    async updateAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const {
                 maintenanceIssues,
@@ -51,6 +56,7 @@ export class ReservationDetailPostStayAuditController {
                 potentialReviewIssue
             } = req.body;
             const reservationId = Number(req.params.reservationId);
+            const userId = req.user.id;
 
             const audit = await this.postStayAuditService.updateAudit({
                 reservationId,
@@ -61,7 +67,7 @@ export class ReservationDetailPostStayAuditController {
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
                 potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue
-            });
+            }, userId);
 
             return res.status(200).json(audit);
         } catch (error) {

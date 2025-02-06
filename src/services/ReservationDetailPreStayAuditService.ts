@@ -24,18 +24,19 @@ export class ReservationDetailPreStayAuditService {
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
 
-    async createAudit(dto: ReservationDetailPreStayAuditDTO): Promise<ReservationDetailPreStayAudit> {
+    async createAudit(dto: ReservationDetailPreStayAuditDTO, userId: string): Promise<ReservationDetailPreStayAudit> {
         const audit = this.preStayAuditRepository.create({
             reservationId: dto.reservationId,
             doorCode: dto.doorCode,
             amenitiesConfirmed: dto.amenitiesConfirmed,
-            completionStatus: this.determineCompletionStatus(dto.doorCode, dto.amenitiesConfirmed)
+            completionStatus: this.determineCompletionStatus(dto.doorCode, dto.amenitiesConfirmed),
+            createdBy: userId
         });
 
         return await this.preStayAuditRepository.save(audit);
     }
 
-    async updateAudit(dto: ReservationDetailPreStayAuditDTO): Promise<ReservationDetailPreStayAudit> {
+    async updateAudit(dto: ReservationDetailPreStayAuditDTO, userId: string): Promise<ReservationDetailPreStayAudit> {
         const audit = await this.fetchAuditByReservationId(dto.reservationId);
 
         if (!audit) {
@@ -45,6 +46,8 @@ export class ReservationDetailPreStayAuditService {
         audit.doorCode = dto.doorCode ?? audit.doorCode;
         audit.amenitiesConfirmed = dto.amenitiesConfirmed ?? audit.amenitiesConfirmed;
         audit.completionStatus = this.determineCompletionStatus(audit.doorCode, audit.amenitiesConfirmed);
+        audit.updatedBy = userId;
+        audit.updatedAt = new Date();
 
         return await this.preStayAuditRepository.save(audit);
     }

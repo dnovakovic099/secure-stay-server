@@ -42,4 +42,10 @@ export class ReservationDetailPreStayAudit {
 
     @UpdateDateColumn()
     updatedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
 }

@@ -3,6 +3,10 @@ import { ReservationDetailService } from '../services/ReservationDetailService';
 import { photoUpload } from '../utils/photoUpload.util';
 import { ReviewMediationStatus } from '../entity/ReservationDetail';
 
+interface CustomRequest extends Request {
+    user?: any;
+}
+
 export class ReservationDetailController {
     private reservationDetailService: ReservationDetailService;
 
@@ -15,7 +19,7 @@ export class ReservationDetailController {
         this.updateReservationDetail = this.updateReservationDetail.bind(this);
     }
 
-    async createWithPhotos(req: Request, res: Response) {
+    async createWithPhotos(req: CustomRequest, res: Response) {
         try {
             const data = {
                 reservationId: Number(req.params.reservationId),
@@ -24,7 +28,9 @@ export class ReservationDetailController {
                 reviewMediationStatus: req.body.reviewMediationStatus || ReviewMediationStatus.UNSET,
                 photos: req.files as Express.Multer.File[]
             };
-            const result = await this.reservationDetailService.createReservationDetailWithPhotos(data);
+            const userId = req.user.id;
+
+            const result = await this.reservationDetailService.createReservationDetailWithPhotos(data, userId);
 
             return res.status(201).json({
                 success: true,
@@ -48,7 +54,7 @@ export class ReservationDetailController {
         });
     }
 
-    async updateReservationDetail(req: Request, res: Response) {
+    async updateReservationDetail(req: CustomRequest, res: Response) {
         try {
             const reservationId = Number(req.params.reservationId);
             const data = {
@@ -56,8 +62,9 @@ export class ReservationDetailController {
                 photos: req.files as Express.Multer.File[],
                 photoIdsToRemove: req.body.photoIdsToRemove || [] // Array of photo IDs to remove
             };
+            const userId = req.user.id;
             
-            const result = await this.reservationDetailService.updateReservationDetail(reservationId, data);
+            const result = await this.reservationDetailService.updateReservationDetail(reservationId, data, userId);
             return res.status(200).json({
                 success: true,
                 data: result

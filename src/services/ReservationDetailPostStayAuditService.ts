@@ -29,7 +29,7 @@ export class ReservationDetailPostStayAuditService {
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
 
-    async createAudit(dto: ReservationDetailPostStayAuditDTO): Promise<ReservationDetailPostStayAudit> {
+    async createAudit(dto: ReservationDetailPostStayAuditDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
         const audit = this.postStayAuditRepository.create({
             reservationId: dto.reservationId,
             maintenanceIssues: dto.maintenanceIssues,
@@ -39,13 +39,14 @@ export class ReservationDetailPostStayAuditService {
             airbnbReimbursement: dto.airbnbReimbursement,
             luxuryLodgingReimbursement: dto.luxuryLodgingReimbursement,
             potentialReviewIssue: dto.potentialReviewIssue,
-            completionStatus: this.determineCompletionStatus(dto)
+            completionStatus: this.determineCompletionStatus(dto),
+            createdBy: userId
         });
 
         return await this.postStayAuditRepository.save(audit);
     }
 
-    async updateAudit(dto: ReservationDetailPostStayAuditDTO): Promise<ReservationDetailPostStayAudit> {
+    async updateAudit(dto: ReservationDetailPostStayAuditDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
         const audit = await this.fetchAuditByReservationId(dto.reservationId);
 
         if (!audit) {
@@ -60,6 +61,8 @@ export class ReservationDetailPostStayAuditService {
         audit.luxuryLodgingReimbursement = dto.luxuryLodgingReimbursement ?? audit.luxuryLodgingReimbursement;
         audit.potentialReviewIssue = dto.potentialReviewIssue ?? audit.potentialReviewIssue;
         audit.completionStatus = this.determineCompletionStatus(audit);
+        audit.updatedBy = userId;
+        audit.updatedAt = new Date();
 
         return await this.postStayAuditRepository.save(audit);
     }

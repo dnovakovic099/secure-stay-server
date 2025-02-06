@@ -34,4 +34,10 @@ export class ReservationDetail {
 
     @UpdateDateColumn()
     updatedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
 }

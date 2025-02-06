@@ -20,7 +20,7 @@ interface UpdateReservationDetailDTO {
 
 export class ReservationDetailService {
 
-    async createReservationDetailWithPhotos(data: CreateReservationDetailDTO) {
+    async createReservationDetailWithPhotos(data: CreateReservationDetailDTO, userId: string) {
         const queryRunner = appDatabase.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -32,6 +32,7 @@ export class ReservationDetailService {
             reservationDetail.additionalNotes = data.additionalNotes || '';
             reservationDetail.specialRequest = data.specialRequest || '';
             reservationDetail.reviewMediationStatus = data.reviewMediationStatus || ReviewMediationStatus.UNSET;
+            reservationDetail.createdBy = userId;
 
             // Save to ReservationDetail table
             const savedDetail = await queryRunner.manager.save(ReservationDetail, reservationDetail);
@@ -43,6 +44,7 @@ export class ReservationDetailService {
                     const photo = new ReservationCleanerPhoto();
                     photo.photoName = file.filename;
                     photo.reservation = savedDetail;
+                    photo.createdBy = userId;
                     
                     // Save to ReservationCleanerPhoto table
                     const savedPhoto = await queryRunner.manager.save(ReservationCleanerPhoto, photo);
@@ -77,7 +79,7 @@ export class ReservationDetailService {
         return reservationDetail;
     }
 
-    async updateReservationDetail(reservationId: number, data: UpdateReservationDetailDTO) {
+    async updateReservationDetail(reservationId: number, data: UpdateReservationDetailDTO, userId: string) {
         const queryRunner = appDatabase.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -102,6 +104,9 @@ export class ReservationDetailService {
                 reservationDetail.reviewMediationStatus = data.reviewMediationStatus;
             }
 
+            reservationDetail.updatedBy = userId;
+            reservationDetail.updatedAt = new Date();
+
             // Handle photo removals if any
             if (data.photoIdsToRemove && data.photoIdsToRemove.length > 0) {
                 await queryRunner.manager
@@ -117,6 +122,7 @@ export class ReservationDetailService {
                     const photo = new ReservationCleanerPhoto();
                     photo.photoName = file.filename;
                     photo.reservation = savedDetail;
+                    photo.createdBy = userId;
                     await queryRunner.manager.save(ReservationCleanerPhoto, photo);
                 }
             }
