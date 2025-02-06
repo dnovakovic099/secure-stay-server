@@ -67,6 +67,7 @@ export class IssuesController {
         const issuesService = new IssuesService();
         try {
             const { id } = request.params;
+            const userEmail = (request as any).user?.email 
 
             if (!id || isNaN(Number(id))) {
                 return response.status(400).json({
@@ -75,7 +76,7 @@ export class IssuesController {
                 });
             }
 
-            const result = await issuesService.updateIssue(Number(id), request.body);
+            const result = await issuesService.updateIssue(Number(id), request.body, userEmail);
 
             if (!result) {
                 return response.status(404).json({
@@ -89,10 +90,10 @@ export class IssuesController {
                 data: result
             });
         } catch (error) {
-              return response.status(400).json({
+            return response.status(400).json({
                 status: false,
                 message: error.message
-              });
+            });
         }
     }
 

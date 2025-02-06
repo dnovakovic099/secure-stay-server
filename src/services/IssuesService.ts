@@ -6,6 +6,13 @@ import * as XLSX from 'xlsx';
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
 
+    private formatDate(date: Date): string {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
     async createIssue(data: Partial<Issue>) {
         const issue = this.issueRepo.create(data);
         const savedIssue = await this.issueRepo.save(issue);
@@ -81,9 +88,22 @@ export class IssuesService {
         };
     }
 
-    async updateIssue(id: number, data: Partial<Issue>) {
+    async updateIssue(id: number, data: Partial<Issue>, userEmail: string) {
+        if (data.status === 'Completed') {
+            data.completed_at = this.formatDate(new Date()) as any;
+            data.completed_by = userEmail;
+        }
+
         await this.issueRepo.update(id, data);
-        return await this.issueRepo.findOne({ where: { id } });
+        return await this.issueRepo.findOne({ 
+            where: { id },
+            select: {
+                id: true,
+                status: true,
+                completed_by: true,
+                completed_at: true,
+            }
+        });
     }
 
     async deleteIssue(id: number) {
