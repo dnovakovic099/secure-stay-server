@@ -48,6 +48,7 @@ export class ExpenseService {
         newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
+        newExpense.createdBy = userId;
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -253,6 +254,9 @@ export class ExpenseService {
         expense.findings = findings;
         expense.status = status;
         expense.paymentMethod = paymentMethod;
+        expense.updatedBy = userId;
+        expense.updatedAt = new Date();
+
         if (fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -278,7 +282,11 @@ export class ExpenseService {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
 
-        expense.forEach(element => element.status = status);
+        expense.forEach((element) => {
+            element.status = status;
+            element.updatedBy = userId;
+            element.updatedAt = new Date();
+        });
         await this.expenseRepo.save(expense);
         
         return expense;
@@ -291,6 +299,8 @@ export class ExpenseService {
         }
 
         expense.isDeleted = 1;
+        expense.updatedBy = userId;
+        expense.updatedAt = new Date();
         await this.expenseRepo.save(expense);
 
         //delete hostaway expense
