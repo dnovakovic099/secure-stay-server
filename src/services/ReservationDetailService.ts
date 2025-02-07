@@ -1,13 +1,12 @@
 import { appDatabase } from "../utils/database.util";
-import { ReservationDetail, ReviewMediationStatus, DoorCodeStatus } from "../entity/ReservationDetail";
+import { ReservationDetail, ReviewMediationStatus } from "../entity/ReservationDetail";
 import { ReservationCleanerPhoto } from "../entity/ReservationCleanerPhoto";
 
 interface CreateReservationDetailDTO {
-    reservationId: string;
+    reservationId: number;
     additionalNotes?: string;
     specialRequest?: string;
     reviewMediationStatus?: ReviewMediationStatus;
-    doorCode?: DoorCodeStatus;
     photos?: Express.Multer.File[];
 }
 
@@ -16,13 +15,12 @@ interface UpdateReservationDetailDTO {
     photos?: Express.Multer.File[];
     additionalNotes?: string;
     specialRequest?: string;
-    doorCode?: DoorCodeStatus;
     reviewMediationStatus?: ReviewMediationStatus;
 }
 
 export class ReservationDetailService {
 
-    async createReservationDetailWithPhotos(data: CreateReservationDetailDTO) {
+    async createReservationDetailWithPhotos(data: CreateReservationDetailDTO, userId: string) {
         const queryRunner = appDatabase.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -33,8 +31,8 @@ export class ReservationDetailService {
             reservationDetail.reservationId = data.reservationId;
             reservationDetail.additionalNotes = data.additionalNotes || '';
             reservationDetail.specialRequest = data.specialRequest || '';
-            reservationDetail.doorCode = data.doorCode || DoorCodeStatus.UNSET;
             reservationDetail.reviewMediationStatus = data.reviewMediationStatus || ReviewMediationStatus.UNSET;
+            reservationDetail.createdBy = userId;
 
             // Save to ReservationDetail table
             const savedDetail = await queryRunner.manager.save(ReservationDetail, reservationDetail);
@@ -46,6 +44,7 @@ export class ReservationDetailService {
                     const photo = new ReservationCleanerPhoto();
                     photo.photoName = file.filename;
                     photo.reservation = savedDetail;
+                    photo.createdBy = userId;
                     
                     // Save to ReservationCleanerPhoto table
                     const savedPhoto = await queryRunner.manager.save(ReservationCleanerPhoto, photo);
@@ -68,19 +67,19 @@ export class ReservationDetailService {
         }
     }
 
-    async getReservationDetail(reservationId: string) {
+    async getReservationDetail(reservationId: number) {
         // Fetch reservation detail with associated cleaner photos
         const reservationDetail = await appDatabase
             .getRepository(ReservationDetail)
             .findOne({
-                where: { reservationId },
+                where: { reservationId: reservationId},
                 relations: ['cleanerPhotos']
             });
 
         return reservationDetail;
     }
 
-    async updateReservationDetail(reservationId: string, data: UpdateReservationDetailDTO) {
+    async updateReservationDetail(reservationId: number, data: UpdateReservationDetailDTO, userId: string) {
         const queryRunner = appDatabase.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -88,7 +87,7 @@ export class ReservationDetailService {
         try {
             const reservationDetail = await queryRunner.manager
                 .findOne(ReservationDetail, {
-                    where: { reservationId },
+                    where: { reservationId: reservationId },
                 });
 
             if (!reservationDetail) {
@@ -101,12 +100,12 @@ export class ReservationDetailService {
             if (data.specialRequest) {
                 reservationDetail.specialRequest = data.specialRequest;
             }
-            if (data.doorCode) {
-                reservationDetail.doorCode = data.doorCode;
-            }
             if (data.reviewMediationStatus) {
                 reservationDetail.reviewMediationStatus = data.reviewMediationStatus;
             }
+
+            reservationDetail.updatedBy = userId;
+            reservationDetail.updatedAt = new Date();
 
             // Handle photo removals if any
             if (data.photoIdsToRemove && data.photoIdsToRemove.length > 0) {
@@ -123,6 +122,7 @@ export class ReservationDetailService {
                     const photo = new ReservationCleanerPhoto();
                     photo.photoName = file.filename;
                     photo.reservation = savedDetail;
+                    photo.createdBy = userId;
                     await queryRunner.manager.save(ReservationCleanerPhoto, photo);
                 }
             }
@@ -131,7 +131,7 @@ export class ReservationDetailService {
 
             // Fetch and return updated reservation detail with photos
             return await queryRunner.manager.findOne(ReservationDetail, {
-                where: { reservationId },
+                where: { reservationId: reservationId },
                 relations: ['cleanerPhotos']
             });
 

@@ -2,7 +2,10 @@ import { Request, Response } from 'express';
 import { ReservationDetailService } from '../services/ReservationDetailService';
 import { photoUpload } from '../utils/photoUpload.util';
 import { ReviewMediationStatus } from '../entity/ReservationDetail';
-import { DoorCodeStatus } from '../entity/ReservationDetail';
+
+interface CustomRequest extends Request {
+    user?: any;
+}
 
 export class ReservationDetailController {
     private reservationDetailService: ReservationDetailService;
@@ -16,17 +19,18 @@ export class ReservationDetailController {
         this.updateReservationDetail = this.updateReservationDetail.bind(this);
     }
 
-    async createWithPhotos(req: Request, res: Response) {
+    async createWithPhotos(req: CustomRequest, res: Response) {
         try {
             const data = {
-                reservationId: req.params.reservationId,
+                reservationId: Number(req.params.reservationId),
                 additionalNotes: req.body.additionalNotes || '',
                 specialRequest: req.body.specialRequest || '',
-                doorCode: req.body.doorCode || DoorCodeStatus.UNSET,
                 reviewMediationStatus: req.body.reviewMediationStatus || ReviewMediationStatus.UNSET,
                 photos: req.files as Express.Multer.File[]
             };
-            const result = await this.reservationDetailService.createReservationDetailWithPhotos(data);
+            const userId = req.user.id;
+
+            const result = await this.reservationDetailService.createReservationDetailWithPhotos(data, userId);
 
             return res.status(201).json({
                 success: true,
@@ -42,7 +46,7 @@ export class ReservationDetailController {
     }
 
     async getReservationDetail(req: Request, res: Response) {
-        const reservationId = req.params.reservationId;
+        const reservationId = Number(req.params.reservationId);
         const result = await this.reservationDetailService.getReservationDetail(reservationId);
         return res.status(200).json({
             success: true,
@@ -50,16 +54,17 @@ export class ReservationDetailController {
         });
     }
 
-    async updateReservationDetail(req: Request, res: Response) {
+    async updateReservationDetail(req: CustomRequest, res: Response) {
         try {
-            const reservationId = req.params.reservationId;
+            const reservationId = Number(req.params.reservationId);
             const data = {
                 ...req.body,
                 photos: req.files as Express.Multer.File[],
                 photoIdsToRemove: req.body.photoIdsToRemove || [] // Array of photo IDs to remove
             };
+            const userId = req.user.id;
             
-            const result = await this.reservationDetailService.updateReservationDetail(reservationId, data);
+            const result = await this.reservationDetailService.updateReservationDetail(reservationId, data, userId);
             return res.status(200).json({
                 success: true,
                 data: result

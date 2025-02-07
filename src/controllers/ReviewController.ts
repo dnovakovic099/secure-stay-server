@@ -11,12 +11,20 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const userId = request.user.id;
-            const listingId = request.query.listingId;
-            const reviews = await reviewService.getReviews(userId, Number(listingId));
+            const { fromDate, toDate, listingId, page, limit } = request.query;
+
+            const { reviews, totalCount } = await reviewService.getReviews(
+                String(fromDate),
+                String(toDate),
+                Number(listingId),
+                Number(page),
+                Number(limit)
+            );
+
             return response.status(200).json({
                 success: true,
-                data: reviews
+                data: reviews,
+                total: totalCount
             });
         } catch (error) {
             return next(error);

@@ -6,8 +6,8 @@ import { sendUpsellOrderEmail } from './UpsellEmailService';
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
 
-    async createOrder(data: Partial<UpsellOrder>) {
-        const order = this.upsellOrderRepo.create(data);
+    async createOrder(data: Partial<UpsellOrder>, userId: string) {
+        const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
         const savedOrder = await this.upsellOrderRepo.save(order);
         await sendUpsellOrderEmail(savedOrder);
         return savedOrder;
@@ -51,8 +51,8 @@ export class UpsellOrderService {
         };
     }
 
-    async updateOrder(id: number, data: Partial<UpsellOrder>) {
-        await this.upsellOrderRepo.update(id, data);
+    async updateOrder(id: number, data: Partial<UpsellOrder>, userId: string) {
+        await this.upsellOrderRepo.update(id, { ...data, updated_by: userId, updated_at: new Date() });
         return await this.upsellOrderRepo.findOne({ where: { id } });
     }
 

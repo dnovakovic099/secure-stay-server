@@ -55,4 +55,10 @@ export class ClientEntity {
 
   @Column({ type: "varchar", length: 255, nullable: true })
   previewDocumentLink: string;
+
+  @Column({ nullable: true })
+  createdBy: string;
+
+  @Column({ nullable: true })
+  updatedBy: string;
 }
