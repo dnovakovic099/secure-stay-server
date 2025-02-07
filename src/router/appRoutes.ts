@@ -15,6 +15,7 @@ import upsellRoutes from "./upsellOrdersRoutes";
 import reviewRoutes from "./reviewRoutes";
 import reservationDetailRoutes from "./reservationDetailRoutes";
 import webhookRoutes from "./webhookRoutes";
+import issueRoutes from "./issuesRoutes";
 import reservationDetailPreStayAuditRoutes from "./reservationDetailPreStayAuditRoutes";
 import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAuditRoutes";
 import reservationInfoRoutes from "./reservationInfoRoutes";
@@ -29,6 +30,7 @@ router.use('/users', usersRoutes)
 router.use('/listing', listingRoutes)
 router.use('/accounting', accountingRoutes);
 router.use('/upsell', upsellRoutes);
+router.use('/issues', issueRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);
