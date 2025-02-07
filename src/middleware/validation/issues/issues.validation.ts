@@ -39,7 +39,8 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
             .valid('N/A', 'Pending', 'Completed', 'Denied')
             .default('N/A'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
-        next_steps: Joi.string().allow(null, '')
+        next_steps: Joi.string().allow(null, ''),
+        payment_information: Joi.string().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);
@@ -53,7 +54,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
     const schema = Joi.object({
         status: Joi.string()
             .valid("In Progress", "Overdue", "Completed", "Need Help"),
-        listing_id: Joi.string(),
+        listing_id: Joi.number(),
         reservation_id: Joi.string().allow(null, ''),
         check_in_date: Joi.date().allow(null),
         reservation_amount: Joi.number().precision(2).allow(null),
@@ -84,7 +85,8 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         claim_resolution_status: Joi.string()
             .valid('N/A', 'Pending', 'Completed', 'Denied'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
-        next_steps: Joi.string().allow(null, '')
+        next_steps: Joi.string().allow(null, ''),
+        payment_information: Joi.string().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);

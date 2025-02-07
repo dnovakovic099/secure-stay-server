@@ -39,6 +39,9 @@ export class Issue {
     @Column({ type: 'text', nullable: true })
     owner_notes: string;
 
+    @Column({ type: 'text', nullable: true })
+    payment_information: string;
+
     @Column({ nullable: true })
     creator: string;
 
