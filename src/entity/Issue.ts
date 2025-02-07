@@ -118,4 +118,10 @@ export class Issue {
 
     @UpdateDateColumn()
     updated_at: Date;
+
+    @Column({ nullable: true })
+    created_by: string;
+
+    @Column({ nullable: true })
+    updated_by: string;
 }
