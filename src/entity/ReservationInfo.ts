@@ -163,4 +163,7 @@ export class ReservationInfoEntity {
 
     @Column({ type: "text", nullable: true }) // Kept as TEXT
     airbnbCancellationPolicy: string;
+
+    @Column({ nullable: true })
+    paymentStatus: string;
 }
