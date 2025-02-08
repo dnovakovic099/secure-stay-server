@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, PrimaryColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, OneToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { ReviewDetailEntity } from './ReviewDetail';
 
 @Entity('reviews')
 export class ReviewEntity {
@@ -18,7 +19,7 @@ export class ReviewEntity {
     channelName: string;
 
     @Column({ type: "int", nullable: true })
-    rating: string;
+    rating: number;
 
     @Column({ nullable: true })
     externalReservationId: string;
@@ -43,6 +44,18 @@ export class ReviewEntity {
 
     @Column({ nullable: true })
     guestName: string;
+
+    @Column({ type: "tinyint" })
+    isHidden: number;
+
+    @Column({ nullable: true })
+    bookingAmount: number;
+
+    @Column({ type: "bigint", nullable: true })
+    reservationId: number;
+
+    @OneToOne(() => ReviewDetailEntity, reviewDetail => reviewDetail.review, { cascade: true })
+    reviewDetail: ReviewDetailEntity;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;

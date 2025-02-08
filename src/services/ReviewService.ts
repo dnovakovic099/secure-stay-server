@@ -1,4 +1,4 @@
-import { Between, IsNull, Not } from "typeorm";
+import { Between, LessThan } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -9,31 +9,46 @@ export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
 
-    public async getReviews(fromDate?: string, toDate?: string, listingId?: number, page: number = 1, limit: number = 10) {
+    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status }) {
         try {
-            const condition: { listingMapId?: number, submittedAt?: any; } = {
+            const condition: Record<string, any> = {
                 ...(listingId ? { listingMapId: listingId } : {}),
+                ...(rating !== undefined ? { rating: LessThan(rating) } : {}),
             };
-            if (fromDate !== "undefined" && toDate !== "undefined") {
+
+            if (fromDate !== undefined && toDate !== undefined) {
                 condition.submittedAt = Between(fromDate, toDate);
             }
-            
+
+            const reviewDetailCondition: Record<string, any> = {};
+            if (claimResolutionStatus !== undefined) {
+                reviewDetailCondition.claimResolutionStatus = claimResolutionStatus;
+            }
+            if (status !== undefined) {
+                reviewDetailCondition.status = status;
+            }
+
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
-                where: { ...condition, rating: Not(IsNull()), },
+                where: {
+                    ...condition,
+                    reviewDetail: reviewDetailCondition,
+                },
+                relations: ['reviewDetail'],
                 skip: (page - 1) * limit,
                 take: limit,
                 order: {
                     rating: 'ASC',
-                    departureDate: 'DESC',
-                }
+                    submittedAt: 'DESC',
+                },
             });
 
             return { reviews, totalCount };
         } catch (error) {
-            logger.error(`Failed to get review`, error);
+            logger.error(`Failed to get reviews`, error);
             throw error;
         }
     }
+
 
     // fetch all reviews from the hostaway and save it in the database
     public async syncReviews() {
@@ -78,7 +93,9 @@ export class ReviewService {
                         externalListingName: reviewData.externalListingName,
                         guestName: reviewData.guestName,
                         listingMapId: reviewData.listingMapId,
-                        channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName
+                        channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName,
+                        isHidden: reviewData?.isHidden || 0,
+                        reservationId: reviewData?.reservationId || null
                     });
 
                 } else {
@@ -97,7 +114,9 @@ export class ReviewService {
                         externalListingName: reviewData.externalListingName,
                         guestName: reviewData.guestName,
                         listingMapId: reviewData.listingMapId,
-                        channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName
+                        channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName,
+                        isHidden: reviewData?.isHidden || 0,
+                        reservationId: reviewData?.reservationId || null,
                     });
                     await this.reviewRepository.save(newReview);
                 }
