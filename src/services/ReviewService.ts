@@ -1,4 +1,4 @@
-import { Between, In, LessThan } from "typeorm";
+import { Between, In, LessThan, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -11,7 +11,7 @@ export class ReviewService {
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
     private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
 
-    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status }) {
+    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly }) {
         try {
             let listingIds = [];
             if (!listingId && owner) {
@@ -34,6 +34,11 @@ export class ReviewService {
             }
             if (status !== undefined) {
                 reviewDetailCondition.status = status;
+            }
+
+            // Apply isClaimOnly condition
+            if (isClaimOnly && claimResolutionStatus == undefined) {
+                reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
