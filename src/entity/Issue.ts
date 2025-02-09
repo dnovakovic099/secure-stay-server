@@ -127,4 +127,7 @@ export class Issue {
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({ type: 'text', nullable: true })
+    fileNames: string;
 }
