@@ -15,6 +15,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         rating: Joi.number().max(10).min(0).required(),
         owner: Joi.string().required().optional(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
+        isClaimOnly: Joi.boolean().optional(),
         status: Joi.string().optional().valid("active", "hidden"),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
