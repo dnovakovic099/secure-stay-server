@@ -84,7 +84,8 @@ export class ReservationInfoService {
     reservation.airbnbTotalPaidAmount = updateData.airbnbTotalPaidAmount;
     reservation.airbnbTransientOccupancyTaxPaidAmount = updateData.airbnbTransientOccupancyTaxPaidAmount;
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
-
+    reservation.paymentStatus = updateData.paymentStatus;
+    
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -481,5 +482,8 @@ export class ReservationInfoService {
     };
   }
 
+  async getReservationById(reservationId: number): Promise<ReservationInfoEntity> {
+    return await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
+  }
 
 }

@@ -15,9 +15,11 @@ import upsellRoutes from "./upsellOrdersRoutes";
 import reviewRoutes from "./reviewRoutes";
 import reservationDetailRoutes from "./reservationDetailRoutes";
 import webhookRoutes from "./webhookRoutes";
+import issueRoutes from "./issuesRoutes";
 import reservationDetailPreStayAuditRoutes from "./reservationDetailPreStayAuditRoutes";
 import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAuditRoutes";
 import reservationInfoRoutes from "./reservationInfoRoutes";
+import ownerInfoRoutes from "./ownerInfoRoutes";
 
 const router = Router();
 
@@ -29,6 +31,7 @@ router.use('/users', usersRoutes)
 router.use('/listing', listingRoutes)
 router.use('/accounting', accountingRoutes);
 router.use('/upsell', upsellRoutes);
+router.use('/issues', issueRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);
@@ -40,5 +43,6 @@ router.use('/webhook', webhookRoutes);
 router.use("/reservation-detail-pre-stay-audit", reservationDetailPreStayAuditRoutes);
 router.use("/reservation-detail-post-stay-audit", reservationDetailPostStayAuditRoutes);
 router.use("/reservation-info", reservationInfoRoutes);
+router.use("/owner", ownerInfoRoutes)
 
 export default router;
