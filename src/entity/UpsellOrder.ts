@@ -5,11 +5,7 @@ export class UpsellOrder {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({
-        type: "enum",
-        enum: ["Ordered", "Pending", "Approved", "Denied"],
-        default: "Approved"
-    })
+    @Column()
     status: string;
 
     @Column()
