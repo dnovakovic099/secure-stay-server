@@ -4,7 +4,11 @@ import { ReservationInfoController } from "../controllers/ReservationInfoControl
 import verifySession from "../middleware/verifySession";
 
 const router = Router();
-router.get("/",verifySession, new ReservationInfoController().getAllReservations);
+
+
+const reservationInfoController = new ReservationInfoController();
+
+router.get("/",verifySession, reservationInfoController.getAllReservations);
 export default router;
 
-router.get("/export",verifySession, new ReservationInfoController().exportReservationToExcel);
+router.get("/export",verifySession, reservationInfoController.exportReservationToExcel);
