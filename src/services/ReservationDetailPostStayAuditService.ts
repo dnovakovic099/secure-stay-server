@@ -1,6 +1,6 @@
 import { Repository } from "typeorm";
 import { appDatabase } from "../utils/database.util";
-import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue } from "../entity/ReservationDetailPostStayAudit";
+import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue, DamageReport, MissingItems, UtilityIssues } from "../entity/ReservationDetailPostStayAudit";
 
 interface ReservationDetailPostStayAuditDTO {
     reservationId: number;
@@ -11,7 +11,19 @@ interface ReservationDetailPostStayAuditDTO {
     airbnbReimbursement?: number;
     luxuryLodgingReimbursement?: number;
     potentialReviewIssue?: PotentialReviewIssue;
+    attachments?: string;
+    damageReport?: DamageReport;
+    damageReportNotes?: string;
+    missingItems?: MissingItems;
+    missingItemsNotes?: string;
+    utilityIssues?: UtilityIssues;
 }
+
+interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostStayAuditDTO {
+    deletedAttachments?: string;
+    newAttachments?: string;
+}
+
 
 export class ReservationDetailPostStayAuditService {
     private postStayAuditRepository: Repository<ReservationDetailPostStayAudit>;
@@ -40,26 +52,42 @@ export class ReservationDetailPostStayAuditService {
             luxuryLodgingReimbursement: dto.luxuryLodgingReimbursement,
             potentialReviewIssue: dto.potentialReviewIssue,
             completionStatus: this.determineCompletionStatus(dto),
-            createdBy: userId
+            createdBy: userId,
+            attachments: dto.attachments,
+            damageReport: dto.damageReport,
+            damageReportNotes: dto.damageReportNotes,
+            missingItems: dto.missingItems,
+            missingItemsNotes: dto.missingItemsNotes,
+            utilityIssues: dto.utilityIssues
         });
 
         return await this.postStayAuditRepository.save(audit);
     }
 
-    async updateAudit(dto: ReservationDetailPostStayAuditDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
+    async updateAudit(dto: ReservationDetailPostStayAuditUpdateDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
         const audit = await this.fetchAuditByReservationId(dto.reservationId);
 
         if (!audit) {
             throw new Error("Audit not found");
         }
 
+        const deletedAttachments = dto.deletedAttachments ? JSON.parse(dto.deletedAttachments) : [];
+        const updatedAttachments = JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment));
+        const finalAttachments = [...updatedAttachments, ...JSON.parse(dto.newAttachments)];
+
         audit.maintenanceIssues = dto.maintenanceIssues ?? audit.maintenanceIssues;
         audit.cleaningIssues = dto.cleaningIssues ?? audit.cleaningIssues;
         audit.cleaningSupplies = dto.cleaningSupplies ?? audit.cleaningSupplies;
         audit.refundForReview = dto.refundForReview ?? audit.refundForReview;
+        audit.attachments = JSON.stringify(finalAttachments) ?? '';
         audit.airbnbReimbursement = dto.airbnbReimbursement ?? audit.airbnbReimbursement;
         audit.luxuryLodgingReimbursement = dto.luxuryLodgingReimbursement ?? audit.luxuryLodgingReimbursement;
         audit.potentialReviewIssue = dto.potentialReviewIssue ?? audit.potentialReviewIssue;
+        audit.damageReport = dto.damageReport ?? audit.damageReport;
+        audit.damageReportNotes = dto.damageReportNotes ?? audit.damageReportNotes;
+        audit.missingItems = dto.missingItems ?? audit.missingItems;
+        audit.missingItemsNotes = dto.missingItemsNotes ?? audit.missingItemsNotes;
+        audit.utilityIssues = dto.utilityIssues ?? audit.utilityIssues;
         audit.completionStatus = this.determineCompletionStatus(audit);
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
@@ -67,7 +95,21 @@ export class ReservationDetailPostStayAuditService {
         return await this.postStayAuditRepository.save(audit);
     }
 
-    private determineCompletionStatus(audit: Partial<ReservationDetailPostStayAuditDTO>): CompletionStatus {
+    private determineCompletionStatus(audit: Partial<ReservationDetailPostStayAuditDTO | ReservationDetailPostStayAuditUpdateDTO>): CompletionStatus {
+        const isDamageReportFilled = () => {
+            if (audit.damageReport === 'yes') {
+                return audit.damageReportNotes && audit.damageReportNotes.trim() !== '';
+            }
+            return audit.damageReport === 'no';
+        };
+
+        const isMissingItemsFilled = () => {
+            if (audit.missingItems === 'yes') {
+                return audit.missingItemsNotes && audit.missingItemsNotes.trim() !== '';
+            }
+            return audit.missingItems === 'no';
+        };
+
         const hasValues = [
             audit.maintenanceIssues,
             audit.cleaningIssues,
@@ -75,7 +117,10 @@ export class ReservationDetailPostStayAuditService {
             audit.refundForReview,
             audit.airbnbReimbursement,
             audit.luxuryLodgingReimbursement,
-            audit.potentialReviewIssue
+            audit.potentialReviewIssue,
+            isDamageReportFilled(),
+            isMissingItemsFilled(),
+            audit.utilityIssues
         ].every(value => {
             if (value === null || value === undefined) return false;
             if (typeof value === 'number') return value > 0;
@@ -91,7 +136,10 @@ export class ReservationDetailPostStayAuditService {
             audit.refundForReview,
             audit.airbnbReimbursement,
             audit.luxuryLodgingReimbursement,
-            audit.potentialReviewIssue
+            audit.potentialReviewIssue,
+            isDamageReportFilled(),
+            isMissingItemsFilled(),
+            audit.utilityIssues
         ].some(value => {
             if (value === null || value === undefined) return false;
             if (typeof value === 'number') return value > 0;

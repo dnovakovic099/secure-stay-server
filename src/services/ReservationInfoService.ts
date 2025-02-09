@@ -143,7 +143,6 @@ export class ReservationInfoService {
         return await this.getCase3(arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
       }
       // CASE 1 (and 5 with filters): No start/end date
-      console.log("CASE 1: No start/end date");
       return await this.getCase1Default(listingMapId, guestName, pageNumber, pageSize);
 
     } catch (error) {

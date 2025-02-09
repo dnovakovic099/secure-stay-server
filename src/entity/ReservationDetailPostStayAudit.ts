@@ -12,6 +12,26 @@ export enum PotentialReviewIssue {
     UNSET = 'unset'
 }
 
+export enum DamageReport{
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
+
+
+export enum MissingItems{
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
+
+export enum UtilityIssues{
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
+
+
 @Entity('reservation_detail_post_stay_audit')
 export class ReservationDetailPostStayAudit {
     @PrimaryColumn({ type: 'bigint' })
@@ -74,6 +94,45 @@ export class ReservationDetailPostStayAudit {
         default: CompletionStatus.NOT_STARTED
     })
     completionStatus: CompletionStatus;
+
+    @Column({
+        type: "enum",
+        enum: DamageReport,
+        default: DamageReport.UNSET,
+        nullable: true
+    })
+    damageReport: DamageReport;
+
+    @Column({
+        type: 'text',
+        nullable: true
+    })
+    damageReportNotes: string;
+
+    @Column({
+        type: "enum",
+        enum: MissingItems,
+        default: MissingItems.UNSET,
+        nullable: true
+    })
+    missingItems: MissingItems;
+
+    @Column({
+        type: 'text',
+        nullable: true
+    })
+    missingItemsNotes: string;
+
+    @Column({
+        type: "enum",
+        enum: UtilityIssues,
+        default: UtilityIssues.UNSET,
+        nullable: true
+    })
+    utilityIssues: UtilityIssues;
+
+    @Column({ nullable: true , type: 'text' })
+    attachments: string;
 
     @CreateDateColumn()
     createdAt: Date;
