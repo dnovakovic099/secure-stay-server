@@ -2,483 +2,338 @@
   <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
   minimumFractionDigits: 2 }) %> <% } %>
   <td class="page" id="page-5">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <div class="page-content">
-              <table>
-                <tbody>
-                  <tr>
-                    <td width="40%">
-                      <h1
-                        class="cursive-heading"
-                        style="font-size: 40px; line-height: 1.3"
-                      >
-                        <span>Market</span> <br />
-                        &nbsp;&nbsp;&nbsp;&nbsp;
-                        <span> Overview</span>
-                      </h1>
-                    </td>
-                    <td width="60%">
-                      <img
-                        width="100%"
-                        src="<%= PAGE_4_IMAGE %>"
-                        alt="reload page"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <% function circleData() { %> [ { iconClass: "fa-solid
-              fa-hand-holding-hand", circleSize: 60, justify: "end", offset:
-              "right: 50px; bottom: -50px;", rotate: "40deg", textPosition:
-              "left: -100%; top: 0", title: "Filter", content: "<%=
-              clientData.beds %> BR · <%= clientData.baths %> Bath · <%=
-              clientData.guests %> Guests" }, { iconClass: "fa-solid
-              fa-hand-holding-hand", circleSize: 40, justify: "start", offset:
-              "right: 48px; bottom: -50px;", rotate: "-40deg", textPosition:
-              "right: -160%; top: 0", title: "Annual Revenue Projection",
-              content: "$ <%= formatRevenue(listingData.revenue) %>" }, {
-              iconClass: "fa-solid fa-hand-holding-hand", circleSize: 40,
-              justify: "end", offset: "right: 50px; bottom: -50px;", rotate:
-              "40deg", textPosition: "left: -100%; top: 0", title: "AVG
-              Occupancy Rate", content: "<%= (listingData.occupancy *
-              100).toFixed(2) %> %" }, { iconClass: "fa-solid
-              fa-hand-holding-hand", circleSize: 40, justify: "start", offset:
-              "right: 48px; bottom: -50px;", rotate: "-40deg", textPosition:
-              "right: -100%; top: 0", title: "AVG Daily Rate", content: "<%=
-              dailyRate %>" }, { iconClass: "fa-solid fa-hand-holding-hand",
-              circleSize: 40, justify: "end", offset: "right: 50px; bottom:
-              -50px;", rotate: "40deg", textPosition: "left: -100%; top: 0",
-              title: "AVG RevPAR", content: "$<%= revPar %>" }, { iconClass:
-              "fa-solid fa-hand-holding-hand", circleSize: 40, justify: "start",
-              offset: "", rotate: "", textPosition: "right: -140%; top: 0",
-              title: "Market Score", content: "<%=
-              Math.round(listingData.marketScore) %> / 100\nIndicating strong
-              potential" } ] <% } %>
-              <div
-                class="diagonal-structure"
-                style="
-                  margin-bottom: 40px;
-                  max-width: 100px;
-                  width: 100%;
-                  margin-inline: auto;
-                  display: flex;
-                  flex-direction: column;
-                  gap: 30px;
-                  white-space: nowrap;
-                "
+    <div class="page-content">
+      <table>
+        <tbody>
+          <tr>
+            <td width="40%">
+              <h1
+                class="cursive-heading"
+                style="font-size: 4.5rem; line-height: 1.2; margin-top: 40px"
               >
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: end;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 60px;
-                        width: 60px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-                    <div
-                      class="circle-prop-svg"
-                      style="
-                        position: absolute;
-                        right: 50px;
-                        bottom: -50px;
-                        transform: rotate(40deg);
-                        background-color: var(--clr-primary-dark);
-                        height: 65px;
-                        width: 4px;
-                      "
-                    ></div>
-                    <div
-                      class="circle-text"
-                      style="position: absolute; left: -100%; top: 0"
-                    >
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 1;
-                        "
-                      >
-                        Filter
-                      </h6>
-                      <p style="color: #000">
-                        <%= clientData.beds %> BR · <%= clientData.baths %> Bath
-                        · <%= clientData.guests %> Guests
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: start;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 40px;
-                        width: 40px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-                    <div
-                      class="circle-prop-svg"
-                      style="
-                        position: absolute;
-                        right: 48px;
-                        bottom: -50px;
-                        transform: rotate(-40deg);
-                        background-color: var(--clr-primary-dark);
-                        height: 65px;
-                        width: 4px;
-                      "
-                    ></div>
-                    <div
-                      class="circle-text"
-                      style="position: absolute; right: -160%; top: 0"
-                    >
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 2;
-                        "
-                      >
-                        Annual Revenue Projection
-                      </h6>
-                      <p style="color: #000">
-                        $ <%= formatRevenue(listingData.revenue) %>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: end;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 40px;
-                        width: 40px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-                    <div
-                      class="circle-prop-svg"
-                      style="
-                        position: absolute;
-                        right: 50px;
-                        bottom: -50px;
-                        transform: rotate(40deg);
-                        background-color: var(--clr-primary-dark);
-                        height: 65px;
-                        width: 4px;
-                      "
-                    ></div>
-                    <div
-                      class="circle-text"
-                      style="position: absolute; left: -100%; top: 0"
-                    >
-                      <% const occupancyRate = listingData.occupancy*100 %>
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 1;
-                        "
-                      >
-                        AVG Occupancy Rate
-                      </h6>
-                      <p style="color: #000">
-                        <%= occupancyRate.toFixed(2) %> %
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: start;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 40px;
-                        width: 40px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-                    <div
-                      class="circle-prop-svg"
-                      style="
-                        position: absolute;
-                        right: 48px;
-                        bottom: -50px;
-                        transform: rotate(-40deg);
-                        background-color: var(--clr-primary-dark);
-                        height: 65px;
-                        width: 4px;
-                      "
-                    ></div>
-                    <div
-                      class="circle-text"
-                      style="position: absolute; right: -100%; top: 0"
-                    >
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 2;
-                        "
-                      >
-                        AVG Daily Rate
-                      </h6>
-                      <p style="color: #000"><%= dailyRate %></p>
-                    </div>
-                  </div>
-                </div>
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: end;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 40px;
-                        width: 40px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-                    <div
-                      class="circle-prop-svg"
-                      style="
-                        position: absolute;
-                        right: 50px;
-                        bottom: -50px;
-                        transform: rotate(40deg);
-                        background-color: var(--clr-primary-dark);
-                        height: 65px;
-                        width: 4px;
-                      "
-                    ></div>
-                    <div
-                      class="circle-text"
-                      style="position: absolute; left: -100%; top: 0"
-                    >
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 1;
-                        "
-                      >
-                        AVG RevPAR
-                      </h6>
-                      <p style="color: #000">$<%= revPar %></p>
-                    </div>
-                  </div>
-                </div>
-                <div class="circle-container" style="width: 100%">
-                  <div
-                    class="single-circle-text"
-                    style="
-                      position: relative;
-                      width: 100%;
-                      display: flex;
-                      justify-content: start;
-                    "
-                  >
-                    <div
-                      class="circle"
-                      style="
-                        height: 40px;
-                        width: 40px;
-                        border-radius: 100%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: var(--clr-primary-dark);
-                        background-color: #fff;
-                        border: 4px solid var(--clr-primary-dark);
-                      "
-                    >
-                      <i class="fa-solid fa-hand-holding-hand"></i>
-                    </div>
-
-                    <div
-                      class="circle-text"
-                      style="position: absolute; right: -140%; top: 0"
-                    >
-                      <h6
-                        style="
-                          color: #000;
-                          font-weight: 700;
-                          font-size: 15px;
-                          line-height: 1;
-                        "
-                      >
-                        Market Score
-                      </h6>
-                      <p style="color: #000">
-                        <%= Math.round(listingData.marketScore) %> / 100
-                        <br />
-                        Indicating strong potential
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <span>Market</span> <br />
+                &nbsp;&nbsp;&nbsp;&nbsp;
+                <span> Overview</span>
+              </h1>
+            </td>
+            <td width="40%">
+              <div style="position: relative; display: inline-block">
+                <img width="100%" src="<%= MAC_BOOK_IMAGE %>" alt="MacBook" />
+                <div
+                  style="
+                    position: absolute;
+                    top: 5%;
+                    left: 13%;
+                    width: 74%;
+                    height: 64%;
+                    background-image: url('<%= PAGE_4_IMAGE %>');
+                    background-position: center;
+                    background-repeat: no-repeat;
+                    background-color: white;
+                    background-size: 100%;
+                  "
+                ></div>
               </div>
-              <table>
-                <tbody>
-                  <tr>
-                    <td style="padding-inline: 5px">
-                      <img
-                        src="<%= PAGE_4_CARD %>"
-                        alt="reload page"
-                        style="width: 100%"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <% function circleData() { %> [ { iconClass: "fa-solid
+      fa-hand-holding-hand", circleSize: 60, justify: "end", offset: "right:
+      50px; bottom: -50px;", rotate: "40deg", textPosition: "left: -100%; top:
+      0", title: "Filter", content: "<%= clientData.beds %> BR · <%=
+      clientData.baths %> Bath · <%= clientData.guests %> Guests" }, {
+      iconClass: "fa-solid fa-hand-holding-hand", circleSize: 40, justify:
+      "start", offset: "right: 48px; bottom: -50px;", rotate: "-40deg",
+      textPosition: "right: -160%; top: 0", title: "Annual Revenue Projection",
+      content: "$ <%= formatRevenue(listingData.revenue) %>" }, { iconClass:
+      "fa-solid fa-hand-holding-hand", circleSize: 40, justify: "end", offset:
+      "right: 50px; bottom: -50px;", rotate: "40deg", textPosition: "left:
+      -100%; top: 0", title: "AVG Occupancy Rate", content: "<%=
+      (listingData.occupancy * 100).toFixed(2) %> %" }, { iconClass: "fa-solid
+      fa-hand-holding-hand", circleSize: 40, justify: "start", offset: "right:
+      48px; bottom: -50px;", rotate: "-40deg", textPosition: "right: -100%; top:
+      0", title: "AVG Daily Rate", content: "<%= dailyRate %>" }, { iconClass:
+      "fa-solid fa-hand-holding-hand", circleSize: 40, justify: "end", offset:
+      "right: 50px; bottom: -50px;", rotate: "40deg", textPosition: "left:
+      -100%; top: 0", title: "AVG RevPAR", content: "$<%= revPar %>" }, {
+      iconClass: "fa-solid fa-hand-holding-hand", circleSize: 40, justify:
+      "start", offset: "", rotate: "", textPosition: "right: -140%; top: 0",
+      title: "Market Score", content: "<%= Math.round(listingData.marketScore)
+      %> / 100\nIndicating strong potential" } ] <% } %>
+      <div
+        class="revenue-container"
+        style="
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+        "
+      >
+        <div style="position: relative">
+          <img src="<%= REVENUE_ICONS %>" style="width: 200px" />
+          <div
+            style="
+              position: absolute;
+              top: 30px;
+              right: 100%;
+              width: max-content;
+              text-align: right;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              Filter
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              <%= clientData.beds %> BR · <%= clientData.baths %> Bath · <%=
+              clientData.guests %> Guests
+            </p>
+          </div>
+          <div
+            style="
+              position: absolute;
+              top: 130px;
+              left: 100%;
+              width: max-content;
+              text-align: left;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              Annual Revenue Projection
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              $ <%= formatRevenue(listingData.revenue) %>
+            </p>
+          </div>
+          <div
+            style="
+              position: absolute;
+              top: 240px;
+              right: 100%;
+              width: max-content;
+              text-align: right;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              <% const occupancyRate=listingData.occupancy*100 %> AVG Occupancy
+              Rate
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              <%= occupancyRate.toFixed(2) %> %
+            </p>
+          </div>
+          <div
+            style="
+              position: absolute;
+              top: 340px;
+              left: 100%;
+              width: max-content;
+              text-align: left;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              AVG Daily Rate
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              <%= dailyRate %>
+            </p>
+          </div>
+          <div
+            style="
+              position: absolute;
+              top: 440px;
+              right: 100%;
+              width: max-content;
+              text-align: right;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              AVG RevPAR
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              $<%= revPar %>
+            </p>
+          </div>
+          <div
+            style="
+              position: absolute;
+              top: 540px;
+              left: 100%;
+              width: max-content;
+              text-align: left;
+            "
+          >
+            <h6
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1.2rem;
+                font-weight: 600;
+                line-height: 1;
+                margin-bottom: 8px;
+              "
+            >
+              Market Score
+            </h6>
+            <p
+              style="
+                color: black;
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+              "
+            >
+              <%= Math.round(listingData.marketScore) %> / 100
+              <br />
+              Indicating strong potential
+            </p>
+          </div>
+        </div>
+      </div>
+      <table>
+        <tbody>
+          <tr>
+            <td style="padding-inline: 5px">
+              <img
+                src="<%= PAGE_4_CARD %>"
+                alt="reload page"
+                style="width: 100%"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </td>
 </tr>
 <tr>
   <td class="page" id="page-6">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <div class="page-content" style="padding-bottom: 100px">
-              <h1 class="cursive-heading">Market Overview</h1>
-              <div class="box white" style="margin-bottom: 30px">
-                <span class="box-label"> Revenue </span>
-                <img src="<%= PAGE_6_IMG_2 %>" alt="reload page" />
-                <p>
-                  The market’s revenue analysis displays signs of fluctuating
-                  demand and pricing inefficiencies. Despite some peak months
-                  showing revenue growth, the inconsistency highlights a gap in
-                  optimized rate adjustments and occupancy management. The
-                  correlation with occupancy trends suggests that while some
-                  bookings are being secured, pricing may not be competitive
-                  enough to sustain revenue across all months. Luxury Lodging
-                  will address this by implementing a demand-based pricing
-                  strategy, ensuring rates are adjusted dynamically to capture
-                  peak demand while driving higher occupancy in slower periods,
-                  resulting in steadier revenue performance year-round.
-                </p>
-              </div>
-              <div class="box white" style="margin-bottom: 15px">
-                <span class="box-label"> Occupancy </span>
-                <img src="<%= PAGE_6_IMG_1 %>" alt="reload page" />
-                <p>
-                  ADR has shown fluctuations, indicating that seasonality plays
-                  a large role in revenue generation.. While maintaining strong
-                  ADR is essential for profitability, it must be balanced with
-                  competitive positioning. The shorter booking lead time and
-                  declining length of stay suggest that guests are more
-                  price-sensitive and opting for shorter visits, which affects
-                  total revenue generation. Luxury Lodging will refine pricing
-                  strategies by leveraging micro-adjustments, length-of-stay
-                  incentives, and targeted promotions to ensure ADR remains
-                  strong while improving conversion rates, ultimately maximizing
-                  revenue potential.
-                </p>
-              </div>
-              <img
-                src="<%= LOGO_URL %>"
-                alt="reload page"
-                style="position: absolute; bottom: 0; right: 0"
-              />
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="page-content">
+      <h1 class="cursive-heading">Market Overview</h1>
+      <div class="box white">
+        <span class="box-label"> Revenue </span>
+        <img
+          style="height: 190px; object-fit: cover"
+          src="<%= PAGE_6_IMG_2 %>"
+          alt="reload page"
+        />
+        <p style="font-size: 0.9rem">
+          The market’s revenue analysis displays signs of fluctuating demand and
+          pricing inefficiencies. Despite some peak months showing revenue
+          growth, the inconsistency highlights a gap in optimized rate
+          adjustments and occupancy management. The correlation with occupancy
+          trends suggests that while some bookings are being secured, pricing
+          may not be competitive enough to sustain revenue across all months.
+          Luxury Lodging will address this by implementing a demand-based
+          pricing strategy, ensuring rates are adjusted dynamically to capture
+          peak demand while driving higher occupancy in slower periods,
+          resulting in steadier revenue performance year-round.
+        </p>
+      </div>
+      <div class="box white">
+        <span class="box-label"> Average Daily Rate </span>
+        <img
+          style="height: 190px; object-fit: cover"
+          src="<%= PAGE_6_IMG_1 %>"
+          alt="reload page"
+        />
+        <p style="font-size: 0.9rem">
+          ADR has shown fluctuations, indicating that seasonality plays a large
+          role in revenue generation. While maintaining strong ADR is essential
+          for profitability, it must be balanced with competitive positioning.
+          The shorter booking lead time and declining length of stay suggest
+          that guests are more price-sensitive and opting for shorter visits,
+          which affects total revenue generation. Luxury Lodging will refine
+          pricing strategies by leveraging micro-adjustments, length-of-stay
+          incentives, and targeted promotions to ensure ADR remains strong while
+          improving conversion rates, ultimately maximizing revenue potential.
+        </p>
+      </div>
+      <img
+        src="<%= LOGO_URL %>"
+        alt="reload page"
+        style="margin-left: auto; display: block"
+      />
+    </div>
   </td>
 </tr>

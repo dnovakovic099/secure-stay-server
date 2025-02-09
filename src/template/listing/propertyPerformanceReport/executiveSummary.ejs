@@ -1,7 +1,7 @@
 <tr>
   <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
   minimumFractionDigits: 2 }) %> <% } %>
-  <td class="page" id="page-3">
+  <td class="page" id="page-3" style="overflow: hidden">
     <table>
       <tbody>
         <tr>
@@ -61,9 +61,34 @@
                 </p>
               </div>
             </div>
-            <img
+            <!-- <img
               src="<%= PAGE_3_IMAGE %>"
               style="width: 100%"
+              alt="reload page"
+            /> -->
+
+            <div style="position: relative">
+              <img
+                src="<%= PAGE_1_IMAGE %>"
+                class="border-image"
+                style="
+                  width: 400px;
+                  height: 400px;
+                  position: absolute;
+                  top: 20px;
+                  right: 0;
+                "
+                alt="reload page"
+              />
+              <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+              293px; top: 6px; rotate: 89deg; transform: scale(.9);" " /> <img
+              src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+              -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " />
+            </div>
+
+            <img
+              style="position: absolute; bottom: 0; left: 0"
+              src="<%= LOGO_URL %>"
               alt="reload page"
             />
           </td>

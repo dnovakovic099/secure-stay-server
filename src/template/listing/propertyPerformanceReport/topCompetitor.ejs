@@ -1,45 +1,71 @@
 <tr>
   <td class="page" id="page-9">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <div class="page-content" style="padding-bottom: 100px">
-              <h1 class="cursive-heading">Top Competitor</h1>
+    <div class="page-content">
+      <div>
+        <h1 class="cursive-heading" style="margin-bottom: 20px">
+          Top Competitor
+        </h1>
 
-              <div class="box white" style="margin-bottom: 15px">
-                <img src="<%= PAGE_9_IMG %>" alt="reload page" />
-              </div>
+        <div class="box white" style="margin-bottom: 15px">
+          <img src="<%= PAGE_9_IMG %>" alt="reload page" />
+        </div>
 
-              <div class="box">
-                <p>
-                  Your property at 1121 Whitehead St holds remarkable promise in
-                  one of Florida’s most sought-after destinations. Key West's
-                  vibrant market offers immense opportunities, but fully
-                  capitalizing on them requires the right expertise and
-                  strategic approach. At Luxury Lodging, we specialize in
-                  transforming properties like yours into market leaders,
-                  leveraging tailored strategies to optimize revenue, occupancy,
-                  and guest experience.
-                </p>
-                <p>
-                  Additionally, highlighting your property’s proximity to
-                  popular attractions such as Duval Street, Higgs Beach, and
-                  local dining options in your listings can significantly
-                  attract travelers seeking convenience and an immersive
-                  experience. Expanding availability to align with the
-                  competition and leveraging dynamic pricing strategies will
-                  allow your property to maximize revenue during high-demand
-                  periods while maintaining competitiveness year-round. With
-                  strategic upgrades, tailored marketing, and Luxury Lodging’s
-                  expertise, your property has the opportunity to become a
-                  leading choice in the Key West rental market.
-                </p>
-              </div>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+        <div class="box">
+          <% if (revPar > listingData.totalMarketAvg) { %>
+          <p>
+            The prospect’s property is well-positioned within the Robbinsville
+            market, competing with listings that feature high-end amenities.
+            While competitors such as the Rustic Luxurious A-Frame and Lakefront
+            Sunset Cottage leverage high-end amenities and scenic locations, our
+            prospect’s potential lies in optimizing its pricing strategy,
+            enhancing listing presentation, and highlighting unique features
+            like nearby attractions or exclusive guest experiences. Many
+            competitors maintain moderate occupancy rates but have opportunities
+            for revenue growth through better ADR management and
+            seasonality-driven pricing.
+          </p>
+          <p>
+            To close the gap or maintain a competitive edge, we will focus on
+            maximizing RevPAR through dynamic pricing, improving guest
+            experience with targeted amenity enhancements, and optimizing the
+            listing with high-quality content and strategic marketing.
+            Leveraging seasonal trends and length-of-stay adjustments will
+            ensure sustained revenue growth while keeping occupancy levels
+            stable. Our approach will position the property as a standout choice
+            in this market.
+          </p>
+
+          <% } else { %>
+          <p>
+            The prospect’s property is underperforming within the Robbinsville
+            market, competing with listings that feature high-end amenities.
+            Competitors such as the Rustic Luxurious A-Frame and Lakefront
+            Sunset Cottage leverage high-end amenities, our prospect’s potential
+            lies in optimizing its pricing strategy, enhancing listing
+            presentation, and highlighting unique features like nearby
+            attractions or exclusive guest experiences. Many competitors
+            maintain moderate occupancy rates but have opportunities for revenue
+            growth through better ADR management and seasonality-driven pricing.
+          </p>
+          <p>
+            To close the gap or maintain a competitive edge, we will focus on
+            maximizing RevPAR through dynamic pricing, improving guest
+            experience with targeted amenity enhancements, and optimizing the
+            listing with high-quality content and strategic marketing.
+            Leveraging seasonal trends and length-of-stay adjustments will
+            ensure sustained revenue growth while keeping occupancy levels
+            stable. Our approach will position the property as a standout choice
+            in this market.
+          </p>
+          <% } %>
+        </div>
+      </div>
+
+      <img
+        style="position: absolute; bottom: 0; right: 0"
+        src="<%= LOGO_URL %>"
+        alt="reload page"
+      />
+    </div>
   </td>
 </tr>

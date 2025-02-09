@@ -12,7 +12,11 @@ import {
 import puppeteer, { Browser } from "puppeteer";
 import {
   BG_SECTION_IMAGE,
+  BORDER_IMAGE,
   LOGO_URL,
+  LOGO_WHITE_URL,
+  MAC_BOOK_IMAGE,
+  OVERLAY_IMAGE,
   PAGE_10_IMG,
   PAGE_12_IMG,
   PAGE_14_IMG,
@@ -23,6 +27,7 @@ import {
   PAGE_7_IMG_2,
   PROPERTY_REVENUE_REPORT_PATH,
   PUPPETEER_LAUNCH_OPTIONS,
+  REVENUE_ICONS,
 } from "../constants";
 import path from "path";
 import ejs from "ejs";
@@ -231,7 +236,11 @@ export class SalesController {
           },
           clientData: fetchedClient.client,
           currentYear,
+          LOGO_WHITE_URL,
           LOGO_URL,
+          REVENUE_ICONS,
+          OVERLAY_IMAGE,
+          BORDER_IMAGE,
           PAGE_1_IMAGE,
           PAGE_2_IMAGE,
           PAGE_3_IMAGE,
@@ -247,9 +256,9 @@ export class SalesController {
           PAGE_12_IMG,
           PAGE_14_IMG,
           revenueRange,
-
           dailyRate,
           revPar,
+          MAC_BOOK_IMAGE,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();

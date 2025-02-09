@@ -21,6 +21,23 @@
       referrerpolicy="no-referrer"
     />
     <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("/public/fonts/Open_Sans/OpenSans-VariableFont_wdth,wght.ttf")
+          format("truetype");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: "Great Vibes";
+        src: url("/public/fonts/Great_Vibes/GreatVibes-Regular.ttf")
+          format("truetype");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
       * {
         margin: 0;
         padding: 0;
@@ -35,8 +52,7 @@
         --font-cursive: "Great Vibes", serif;
       }
       body {
-        font-size: 14px;
-        font-family: var(--font-body);
+        font-size: 1rem;
         background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg))
             padding-box,
           linear-gradient(to right, var(--clr-primary), var(--clr-page-bg))
@@ -68,19 +84,32 @@
       }
       .cursive-heading {
         font-family: var(--font-cursive);
-        font-size: 34px;
+        font-size: 3rem;
         line-height: normal;
         color: var(--clr-primary-dark);
         letter-spacing: -0.25px;
-        margin-bottom: 15px;
       }
       .page {
         background-color: var(--clr-page-bg);
         position: relative;
         padding: 8px;
-        height: 10in;
+        /* 11.6inches is matching pdf page (A4) height */
+        height: 11.6in;
         page-break-before: always;
+        overflow: hidden;
+        display: flex;
       }
+
+      .page-content {
+        position: relative;
+        width: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        justify-content: space-between;
+      }
+
       .box {
         padding: 18px 25px;
         border-radius: 25px;
@@ -92,6 +121,9 @@
           linear-gradient(to right, var(--clr-primary), var(--clr-page-bg))
             border-box;
         border: 1px solid transparent;
+      }
+      .box:last-child {
+        margin-bottom: 0 !important;
       }
       .box.white {
         background: #fff;
@@ -148,12 +180,16 @@
       .table-body-cell {
         background-color: #fff;
         padding: 8px;
-        font-size: 16px;
+        font-size: 1.2rem;
         font-weight: 600;
       }
       .styled-table tbody tr:last-child td {
         border-bottom-right-radius: 18px;
         border-bottom-left-radius: 18px;
+      }
+      .border-image {
+        border-radius: 100%;
+        border: 14px solid #b79c5f;
       }
       @media print {
       }
@@ -173,1582 +209,756 @@
         <%- include('./intro') %>
         <tr>
           <td class="page" id="page-2">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <h1 class="cursive-heading">
-                        Elevating Your Rental into a Guest Magnet
-                      </h1>
-                      <div class="box">
-                        <p>
-                          At Luxury Lodging, we see more than just a vacation
-                          rental—we see an opportunity to elevate your
-                          property’s success and maximize its earning potential.
-                          Your home at <%= listingData.address %> has the
-                          foundation of a strongperforming rental, but with the
-                          right strategy, it can outperform market expectations
-                          and deliver higher returns. Our expertise in dynamic
-                          pricing, market positioning, and guest experience
-                          optimization will ensure that every available night is
-                          booked at the best possible rate. Partnering with us
-                          means gaining access to a proven system that balances
-                          occupancy and revenue, adapts to market trends, and
-                          sets your listing apart from competitors. Together,
-                          we’ll transform your property into a top-performing
-                          short-term rental. Let’s get started on this journey
-                          to greater success!
-                        </p>
-                        <p>
-                          Together, we can ensure your property stands out,
-                          attracts the right guests, and achieves its maximum
-                          earning potential. This is the start of a successful
-                          partnership, and we are excited to work with you to
-                          elevate your property to new heights.
-                        </p>
-                      </div>
-                    </div>
-                    <img
-                      src="<%= PAGE_2_IMAGE %>"
-                      style="width: 100%"
-                      alt="reload page"
-                    />
-                    <img
-                      src="<%= LOGO_URL %>"
-                      alt="reload page"
-                      style="position: absolute; bottom: 0; right: 0"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="page-content" style="position: relative">
+              <h1 class="cursive-heading">
+                Elevating Your Rental into a Guest Magnet
+              </h1>
+              <div class="box">
+                <p>
+                  At Luxury Lodging, we see more than just a vacation rental—we
+                  see an opportunity to elevate your property’s success and
+                  maximize its earning potential. Your home at <%=
+                  listingData.address %> has the foundation of a
+                  strongperforming rental, but with the right strategy, it can
+                  outperform market expectations and deliver higher returns. Our
+                  expertise in dynamic pricing, market positioning, and guest
+                  experience optimization will ensure that every available night
+                  is booked at the best possible rate.
+                </p>
+                <p>
+                  Partnering with us means gaining access to a proven system
+                  that balances occupancy and revenue, adapts to market trends,
+                  and sets your listing apart from competitors. Together, we’ll
+                  transform your property into a top-performing short-term
+                  rental. Let’s get started on this journey to greater success!
+                </p>
+              </div>
+
+              <div
+                style="
+                  display: flex;
+                  min-height: 610px;
+                  align-items: end;
+                  position: relative;
+                  bottom: 0;
+                "
+              >
+                <div style="position: relative; overflow: hidden">
+                  <!-- Page 2 Image here -->
+                  <img
+                    src="<%= PAGE_1_IMAGE %>"
+                    class="border-image"
+                    style="
+                      width: 500px;
+                      height: 500px;
+                      position: relative;
+                      left: -100px;
+                      bottom: -60px;
+                    "
+                    alt="reload page"
+                  />
+                </div>
+                <div style="position: relative">
+                  <img
+                    src="<%= PAGE_1_IMAGE %>"
+                    class="border-image"
+                    style="
+                      width: 300px;
+                      height: 300px;
+                      position: relative;
+                      left: -167px;
+                      top: -260px;
+                    "
+                    alt="reload page"
+                  />
+                  <img src="<%= BORDER_IMAGE %>" style=" position: absolute;
+                  right: 100px; top: -247px; left: 80px;" " />
+                </div>
+              </div>
+              <img
+                style="position: absolute; bottom: 0; right: 0"
+                src="<%= LOGO_URL %>"
+                alt="reload page"
+              />
+            </div>
           </td>
         </tr>
         <%- include('./executiveSummary') %> <%- include('./revenueProjection')
-        %> <%- include('./marketOverview') %>
-
-        <tr>
-          <td class="page" id="page-7">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <h1 class="cursive-heading">
-                        Prospect Property Overview
-                      </h1>
-                      <h2
-                        style="
-                          margin-bottom: 25px;
-                          text-decoration: underline;
-                          font-size: 24px;
-                          color: rgba(215, 196, 128);
-                          font-weight: 600;
-                        "
-                      >
-                        <%= listingData.address %>
-                      </h2>
-                      <div
-                        class="box white text-black"
-                        style="margin-bottom: 25px"
-                      >
-                        <table>
-                          <tbody>
-                            <tr>
-                              <td>
-                                <img
-                                  style="width: 100%"
-                                  src="<%= PAGE_7_IMG_1 %>"
-                                  alt="reload page"
-                                />
-                              </td>
-                              <td>
-                                <img
-                                  style="width: 100%"
-                                  src="<%= PAGE_7_IMG_2 %>"
-                                  alt="reload page"
-                                />
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                        <table>
-                          <tbody>
-                            <tr>
-                              <td colspan="100%">
-                                <h6
-                                  style="
-                                    font-size: 14px;
-                                    color: #000;
-                                    font-weight: 700;
-                                  "
-                                >
-                                  Short Term Renting list overview
-                                </h6>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td colspan="100%" style="padding-bottom: 12px">
-                                <small
-                                  style="
-                                    color: #000;
-                                    line-height: 0.6;
-                                    font-size: 10px;
-                                  "
-                                >
-                                  Lorem ipsum, dolor sit amet consectetur <br />
-                                  adipisicing elit. Adipisci eum, similique
-                                </small>
-                              </td>
-                            </tr>
-                            <tr style="text-align: center">
-                              <td style="padding: 12px; border-radius: 4px">
-                                <strong
-                                  style="
-                                    font-size: 24px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  190
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      <table>
-                        <tbody>
-                          <tr>
-                            <td width="50%">
-                              <div
-                                class="box-label"
-                                style="
-                                  height: 60px;
-                                  display: flex;
-                                  align-items: center;
-                                  gap: 10px;
-                                  max-width: 100%;
-                                "
-                              >
-                                <span
-                                  style="
-                                    background-color: white;
-                                    color: var(--clr-primary);
-                                    font-weight: 400;
-                                    padding: 8px;
-                                    border-radius: 100%;
-                                  "
-                                >
-                                  <i class="fa-solid fa-hand-holding-hand"></i>
-                                </span>
-                                <strong>RevPAR: $<%= revPar %></strong>
-                              </div>
-                            </td>
-                            <td width="50%">
-                              <div
-                                class="box-label"
-                                style="
-                                  height: 60px;
-                                  display: flex;
-                                  align-items: center;
-                                  gap: 10px;
-                                  max-width: 100%;
-                                "
-                              >
-                                <span
-                                  style="
-                                    background-color: white;
-                                    color: var(--clr-primary);
-                                    font-weight: 400;
-                                    padding: 8px;
-                                    border-radius: 100%;
-                                  "
-                                >
-                                  <i class="fa-solid fa-hand-holding-hand"></i>
-                                </span>
-                                <strong>Listing Rating: 8.6/10 (vrbo) </strong>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <div
-                      class="image-section"
-                      style="position: relative; background-color: #000"
-                    >
-                      <img
-                        src="<%= BG_SECTION_IMAGE %>"
-                        alt="reload page"
-                        style="opacity: 0.3; height: 440px; object-fit: cover"
-                      />
-                      <div
-                        class="box tinted"
-                        style="
-                          position: absolute;
-                          top: 50%;
-                          left: 50%;
-                          transform: translate(-50%, -50%);
-                          width: 95%;
-                        "
-                      >
-                        <p>
-                          The property presents strong foundational potential
-                          with an annual revenue of $54K, an occupancy rate of
-                          69%, and an ADR of $409.40, as reflected on both
-                          Airbnb and VRBO platforms. However, compared to the
-                          Key West market averages, particularly the market
-                          RevPAR of $603.40, there is substantial room to
-                          optimize performance. The limited availability of 190
-                          days significantly impacts revenue potential, creating
-                          an opportunity to expand booking windows through
-                          refined scheduling and seasonal marketing efforts
-                        </p>
-                        <p>
-                          The current listing, while positioned well with
-                          appealing amenities, can further benefit from enhanced
-                          staging and improved photography to elevate its
-                          perceived value. Optimized pricing strategies tailored
-                          to Key West’s seasonality trends, as well as a
-                          stronger focus on off-peak bookings, can increase both
-                          ADR and occupancy. Integrating these enhancements will
-                          position your property as a leading competitor in the
-                          Key West market, ensuring it meets its true earning
-                          potential.
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <td class="page" id="page-8">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content" style="padding-bottom: 100px">
-                      <h1 class="cursive-heading">Client Property Overview</h1>
-                      <table style="margin-bottom: 25px">
-                        <tbody>
-                          <tr>
-                            <td style="padding-bottom: 25px" colspan="100%">
-                              <h4
-                                style="
-                                  font-size: 24px;
-                                  color: rgba(215, 196, 128);
-                                "
-                              >
-                                Listing Notes
-                              </h4>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td>
-                              <div
-                                class="box"
-                                style="
-                                  position: relative;
-                                  padding: 12px;
-                                  border: 1px solid #ddd;
-                                  min-height: 350px;
-                                  display: flex;
-                                  align-items: center;
-                                  justify-content: center;
-                                  text-align: center;
-                                "
-                              >
-                                <span
-                                  style="
-                                    position: absolute;
-                                    top: -8px;
-                                    left: 20px;
-                                    font-size: 19px;
-                                    font-weight: 700;
-                                  "
-                                  >01</span
-                                >
-                                <h6
-                                  style="
-                                    color: var(--clr-primary-dark);
-                                    font-size: 18px;
-                                  "
-                                >
-                                  Guest Reviews
-                                </h6>
-                                <p style="font-size: 16px">
-                                  With few reviews listed, the property lacks
-                                  the social proof needed to build trust with
-                                  potential guests; strategies to increase
-                                  bookings and gather positive feedback are
-                                  essential.
-                                </p>
-                              </div>
-                            </td>
-                            <td style="padding-inline: 12px">
-                              <div
-                                class="box"
-                                style="
-                                  position: relative;
-                                  padding: 12px;
-                                  border: 1px solid #ddd;
-                                  min-height: 350px;
-                                  display: flex;
-                                  align-items: center;
-                                  justify-content: center;
-                                  text-align: center;
-                                "
-                              >
-                                <span
-                                  style="
-                                    position: absolute;
-                                    top: -8px;
-                                    left: 20px;
-                                    font-size: 19px;
-                                    font-weight: 700;
-                                  "
-                                  >02</span
-                                >
-                                <h6
-                                  style="
-                                    color: var(--clr-primary-dark);
-                                    font-size: 18px;
-                                  "
-                                >
-                                  Outdoor Spaces:
-                                </h6>
-                                <p style="font-size: 16px">
-                                  With few reviews The property’s outdoor areas,
-                                  such as the pool and surrounding greenery,
-                                  could be staged more invitingly to highlight
-                                  their full potential as a relaxing Key West
-                                  retreat.
-                                </p>
-                              </div>
-                            </td>
-                            <td>
-                              <div
-                                class="box"
-                                style="
-                                  position: relative;
-                                  padding: 12px;
-                                  border: 1px solid #ddd;
-                                  min-height: 350px;
-                                  display: flex;
-                                  align-items: center;
-                                  justify-content: center;
-                                  text-align: center;
-                                "
-                              >
-                                <span
-                                  style="
-                                    position: absolute;
-                                    top: -8px;
-                                    left: 20px;
-                                    font-size: 19px;
-                                    font-weight: 700;
-                                  "
-                                  >03</span
-                                >
-                                <h6
-                                  style="
-                                    color: var(--clr-primary-dark);
-                                    font-size: 18px;
-                                  "
-                                >
-                                  Listing Description:
-                                </h6>
-                                <p style="font-size: 16px">
-                                  With few reviews The current description does
-                                  not fully emphasize the property’s proximity
-                                  to local attractions or its unique features,
-                                  missing an opportunity to captivate potential
-                                  guests.
-                                </p>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                      <table style="margin-bottom: 25px">
-                        <tbody>
-                          <tr>
-                            <td style="padding-bottom: 25px" colspan="100%">
-                              <h4
-                                style="
-                                  font-size: 24px;
-                                  color: rgba(215, 196, 128);
-                                "
-                              >
-                                Opportunities
-                              </h4>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td>
-                              <div
-                                style="position: relative; padding-right: 20px"
-                              >
-                                <div
-                                  style="
-                                    background-color: rgba(209, 189, 120, 1);
-                                    z-index: 3;
-                                    border-radius: 30px 12px 0px 30px;
-                                    height: 60px;
-                                    width: 80%;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-                                <div
-                                  style="
-                                    background-color: rgba(209, 189, 120, 1);
-                                    z-index: 1;
-                                    border-radius: 10px 10px 10px 10px;
-                                    height: 320px;
-                                    width: 35px;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-
-                                <span
-                                  style="
-                                    height: 80px;
-                                    width: 80px;
-                                    border-radius: 100%;
-                                    border: 1px solid #e7e7e7;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    position: absolute;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    top: 30px;
-                                    font-size: 24px;
-                                    z-index: 3;
-                                    background-color: #fff;
-                                    box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <i class="fa fa-user"></i>
-                                </span>
-                                <div
-                                  class="box white"
-                                  style="
-                                    position: relative;
-                                    z-index: 2;
-                                    padding: 12px;
-                                    padding-bottom: 25px;
-                                    border: 1px solid #e7e7e7;
-                                    min-height: 360px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: end;
-                                    text-align: center;
-                                    box-shadow: 10px 8px 10px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <h6
-                                    style="
-                                      color: var(--clr-primary-dark);
-                                      font-size: 18px;
-                                    "
-                                  >
-                                    Guest Reviews
-                                  </h6>
-                                  <p style="font-size: 16px">
-                                    With few reviews listed, the property lacks
-                                    the social proof needed to build trust with
-                                    potential guests; strategies to increase
-                                    bookings and gather positive feedback are
-                                    essential.
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td style="padding-inline: 25px">
-                              <div
-                                style="position: relative; padding-right: 20px"
-                              >
-                                <div
-                                  style="
-                                    background-color: #9a753e;
-                                    z-index: 3;
-                                    border-radius: 30px 12px 0px 30px;
-                                    height: 60px;
-                                    width: 80%;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-                                <div
-                                  style="
-                                    background-color: #9a753e;
-                                    z-index: 1;
-                                    border-radius: 10px 10px 10px 10px;
-                                    height: 320px;
-                                    width: 35px;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-
-                                <span
-                                  style="
-                                    height: 80px;
-                                    width: 80px;
-                                    border-radius: 100%;
-                                    border: 1px solid #e7e7e7;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    position: absolute;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    top: 30px;
-                                    font-size: 24px;
-                                    z-index: 3;
-                                    background-color: #fff;
-                                    box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <i class="fa fa-user"></i>
-                                </span>
-                                <div
-                                  class="box white"
-                                  style="
-                                    position: relative;
-                                    z-index: 2;
-                                    padding: 12px;
-                                    padding-bottom: 25px;
-                                    border: 1px solid #e7e7e7;
-                                    min-height: 360px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: end;
-                                    text-align: center;
-                                    box-shadow: 10px 8px 10px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <h6
-                                    style="
-                                      color: var(--clr-primary-dark);
-                                      font-size: 18px;
-                                    "
-                                  >
-                                    Guest Reviews
-                                  </h6>
-                                  <p style="font-size: 16px">
-                                    With few reviews listed, the property lacks
-                                    the social proof needed to build trust with
-                                    potential guests; strategies to increase
-                                    bookings and gather positive feedback are
-                                    essential.
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <div
-                                style="position: relative; padding-right: 20px"
-                              >
-                                <div
-                                  style="
-                                    background-color: rgba(209, 189, 120, 1);
-                                    z-index: 3;
-                                    border-radius: 30px 12px 0px 30px;
-                                    height: 60px;
-                                    width: 80%;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-                                <div
-                                  style="
-                                    background-color: rgba(209, 189, 120, 1);
-                                    z-index: 1;
-                                    border-radius: 10px 10px 10px 10px;
-                                    height: 320px;
-                                    width: 35px;
-                                    position: absolute;
-                                    top: 40px;
-                                    right: 0;
-                                  "
-                                ></div>
-
-                                <span
-                                  style="
-                                    height: 80px;
-                                    width: 80px;
-                                    border-radius: 100%;
-                                    border: 1px solid #e7e7e7;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    position: absolute;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    top: 30px;
-                                    font-size: 24px;
-                                    z-index: 3;
-                                    background-color: #fff;
-                                    box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <i class="fa fa-user"></i>
-                                </span>
-                                <div
-                                  class="box white"
-                                  style="
-                                    position: relative;
-                                    z-index: 2;
-                                    padding: 12px;
-                                    padding-bottom: 25px;
-                                    border: 1px solid #e7e7e7;
-                                    min-height: 360px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: end;
-                                    text-align: center;
-                                    box-shadow: 10px 8px 10px rgba(0, 0, 0, 0.4);
-                                  "
-                                >
-                                  <h6
-                                    style="
-                                      color: var(--clr-primary-dark);
-                                      font-size: 18px;
-                                    "
-                                  >
-                                    Guest Reviews
-                                  </h6>
-                                  <p style="font-size: 16px">
-                                    With few reviews listed, the property lacks
-                                    the social proof needed to build trust with
-                                    potential guests; strategies to increase
-                                    bookings and gather positive feedback are
-                                    essential.
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-
-                      <div
-                        class="image-section"
-                        style="position: relative; background-color: #000"
-                      >
-                        <img
-                          src="<%= BG_SECTION_IMAGE %>"
-                          alt="reload page"
-                          style="
-                            opacity: 0.7;
-                            height: 200px;
-                            width: 100%;
-                            object-fit: cover;
-                          "
-                        />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
-
-        <%- include('./topCompetitor') %>
+        %> <%- include('./marketOverview') %> <%-
+        include('./prospectPropertyOverview') %> <%- include('./topCompetitor')
+        %>
 
         <tr>
           <td class="page" id="page-10">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <h1 class="cursive-heading">Specific Competitor</h1>
-                      <h2
+            <div class="page-content">
+              <h1 class="cursive-heading">Specific Competitor</h1>
+              <h2
+                style="
+                  text-decoration: underline;
+                  font-size: 24px;
+                  color: rgba(215, 196, 128);
+                  font-weight: 600;
+                "
+              >
+                Santeetlah Lake Retreat w/ Dock: Walk to Water!
+              </h2>
+              <div class="box white text-black">
+                <table>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <img
+                          style="width: 100%"
+                          src="<%= PAGE_10_IMG %>"
+                          alt="reload page"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table>
+                  <tbody>
+                    <tr>
+                      <td colspan="100%">
+                        <h6
+                          style="font-size: 14px; color: #000; font-weight: 700"
+                        >
+                          Short Term Renting list overview
+                        </h6>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colspan="100%" style="padding-bottom: 12px">
+                        <small
+                          style="color: #000; line-height: 0.6; font-size: 10px"
+                        >
+                          Santeetlah Lake Retreat w/ Dock: Walk to Water!
+                        </small>
+                      </td>
+                    </tr>
+                    <tr style="text-align: center">
+                      <td style="padding: 12px; border-radius: 4px">
+                        <strong
+                          style="
+                            font-size: 24px;
+                            margin-bottom: 0px;
+                            display: block;
+                            font-weight: 700;
+                            color: #000;
+                          "
+                        >
+                          $80k
+                        </strong>
+                        <small style="font-size: 10px">Revenue Potential</small>
+                      </td>
+                      <td
                         style="
-                          margin-bottom: 25px;
-                          text-decoration: underline;
-                          font-size: 24px;
-                          color: rgba(215, 196, 128);
-                          font-weight: 600;
+                          padding: 12px;
+                          border-radius: 4px;
+                          border: 1px solid #e7e7e7;
                         "
                       >
-                        *Casa-Amelia-Key-West* 1/2 block off Duval Street
-                      </h2>
-                      <div
-                        class="box white text-black"
-                        style="margin-bottom: 25px"
-                      >
-                        <table>
-                          <tbody>
-                            <tr>
-                              <td>
-                                <img
-                                  style="width: 100%"
-                                  src="<%= PAGE_10_IMG %>"
-                                  alt="reload page"
-                                />
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                        <table>
-                          <tbody>
-                            <tr>
-                              <td colspan="100%">
-                                <h6
-                                  style="
-                                    font-size: 14px;
-                                    color: #000;
-                                    font-weight: 700;
-                                  "
-                                >
-                                  Short Term Renting list overview
-                                </h6>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td colspan="100%" style="padding-bottom: 12px">
-                                <small
-                                  style="
-                                    color: #000;
-                                    line-height: 0.6;
-                                    font-size: 10px;
-                                  "
-                                >
-                                  Lorem ipsum, dolor sit amet consectetur <br />
-                                  adipisicing elit. Adipisci eum, similique
-                                </small>
-                              </td>
-                            </tr>
-                            <tr style="text-align: center">
-                              <td style="padding: 12px; border-radius: 4px">
-                                <strong
-                                  style="
-                                    font-size: 24px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  190
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                              <td
-                                style="
-                                  padding: 12px;
-                                  border-radius: 4px;
-                                  border: 1px solid #e7e7e7;
-                                "
-                              >
-                                <strong
-                                  style="
-                                    font-size: 14px;
-                                    margin-bottom: 0px;
-                                    display: block;
-                                    font-weight: 700;
-                                    color: #000;
-                                  "
-                                >
-                                  $80k
-                                </strong>
-                                <small style="font-size: 10px"
-                                  >Revenue Potential</small
-                                >
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      <table>
-                        <tbody>
-                          <tr>
-                            <td width="50%">
-                              <div
-                                class="box-label"
-                                style="
-                                  height: 60px;
-                                  display: flex;
-                                  align-items: center;
-                                  gap: 10px;
-                                  max-width: 100%;
-                                "
-                              >
-                                <span
-                                  style="
-                                    background-color: white;
-                                    color: var(--clr-primary);
-                                    font-weight: 400;
-                                    padding: 8px;
-                                    border-radius: 100%;
-                                  "
-                                >
-                                  <i class="fa-solid fa-hand-holding-hand"></i>
-                                </span>
-                                <strong>RevPAR: $282.49 </strong>
-                              </div>
-                            </td>
-                            <td width="50%">
-                              <div
-                                class="box-label"
-                                style="
-                                  height: 60px;
-                                  display: flex;
-                                  align-items: center;
-                                  gap: 10px;
-                                  max-width: 100%;
-                                "
-                              >
-                                <span
-                                  style="
-                                    background-color: white;
-                                    color: var(--clr-primary);
-                                    font-weight: 400;
-                                    padding: 8px;
-                                    border-radius: 100%;
-                                  "
-                                >
-                                  <i class="fa-solid fa-hand-holding-hand"></i>
-                                </span>
-                                <strong>Listing Rating: 8.6/10 (vrbo) </strong>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-
-                      <div class="box" style="margin-bottom: 25px">
-                        <p>
-                          While "Casa Amelia - Key West" currently benefits from
-                          more established guest reviews and a RevPAR of
-                          $493.12, your property is poised to compete
-                          effectively with its strong foundational metrics. The
-                          key differentiator lies in building a comparable
-                          reputation through an increased volume of guest
-                          reviews and establishing a unique theme for guests to
-                          enjoy.
-                        </p>
-                        <p>
-                          To elevate your property further, we can focus on
-                          encouraging initial bookings by offering strategic
-                          discounts that attract high-quality guests and drive
-                          positive reviews. This will create a ripple effect,
-                          boosting both visibility and trust in the marketplace.
-                          Combined with a tailored pricing strategy, your
-                          property can capture the attention of long-term
-                          renters and establish itself as a premier choice in
-                          Key West.
-                        </p>
-                      </div>
-
-                      <div
-                        class="image-section"
-                        style="position: relative; background-color: #000"
-                      >
-                        <img
-                          src="<%= BG_SECTION_IMAGE %>"
-                          alt="reload page"
+                        <strong
                           style="
-                            opacity: 0.7;
-                            height: 200px;
-                            width: 100%;
-                            object-fit: cover;
+                            font-size: 14px;
+                            margin-bottom: 0px;
+                            display: block;
+                            font-weight: 700;
+                            color: #000;
                           "
-                        />
+                        >
+                          190
+                        </strong>
+                        <small style="font-size: 10px">Revenue Potential</small>
+                      </td>
+                      <td
+                        style="
+                          padding: 12px;
+                          border-radius: 4px;
+                          border: 1px solid #e7e7e7;
+                        "
+                      >
+                        <strong
+                          style="
+                            font-size: 14px;
+                            margin-bottom: 0px;
+                            display: block;
+                            font-weight: 700;
+                            color: #000;
+                          "
+                        >
+                          $80k
+                        </strong>
+                        <small style="font-size: 10px">Revenue Potential</small>
+                      </td>
+                      <td
+                        style="
+                          padding: 12px;
+                          border-radius: 4px;
+                          border: 1px solid #e7e7e7;
+                        "
+                      >
+                        <strong
+                          style="
+                            font-size: 14px;
+                            margin-bottom: 0px;
+                            display: block;
+                            font-weight: 700;
+                            color: #000;
+                          "
+                        >
+                          $80k
+                        </strong>
+                        <small style="font-size: 10px">Revenue Potential</small>
+                      </td>
+                      <td
+                        style="
+                          padding: 12px;
+                          border-radius: 4px;
+                          border: 1px solid #e7e7e7;
+                        "
+                      >
+                        <strong
+                          style="
+                            font-size: 14px;
+                            margin-bottom: 0px;
+                            display: block;
+                            font-weight: 700;
+                            color: #000;
+                          "
+                        >
+                          $80k
+                        </strong>
+                        <small style="font-size: 10px">Revenue Potential</small>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <table>
+                <tbody>
+                  <tr>
+                    <td width="50%">
+                      <div
+                        class="box-label"
+                        style="
+                          height: 60px;
+                          display: flex;
+                          align-items: center;
+                          gap: 10px;
+                          max-width: 100%;
+                        "
+                      >
+                        <span
+                          style="
+                            background-color: white;
+                            color: var(--clr-primary);
+                            font-weight: 400;
+                            padding: 8px;
+                            border-radius: 100%;
+                          "
+                        >
+                          <i class="fa-solid fa-hand-holding-hand"></i>
+                        </span>
+                        <strong>RevPAR: $282.49 </strong>
                       </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                    <td width="50%">
+                      <div
+                        class="box-label"
+                        style="
+                          height: 60px;
+                          display: flex;
+                          align-items: center;
+                          gap: 10px;
+                          max-width: 100%;
+                        "
+                      >
+                        <span
+                          style="
+                            background-color: white;
+                            color: var(--clr-primary);
+                            font-weight: 400;
+                            padding: 8px;
+                            border-radius: 100%;
+                          "
+                        >
+                          <i class="fa-solid fa-hand-holding-hand"></i>
+                        </span>
+                        <strong>Listing Rating: 8.6/10 (vrbo) </strong>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="box">
+                <p>
+                  The Snowbird Creek Cabin competes well in the Robbinsville
+                  market with a strong occupancy rate and solid annual revenue.
+                  However , its market positioning is largely reliant on high
+                  availability rather than premium pricing. While it benefits
+                  from a scenic location and a high rating, its ADR is moderate,
+                  and there is an opportunity to optimize pricing strategies to
+                  further increase RevPAR.
+                </p>
+                <p>
+                  To outperform this competitor, we will focus on strategic ADR
+                  adjustments, leveraging dynamic pricing to align with peak
+                  booking periods while maintaining competitive occupancy.
+                  Additionally, we can enhance listing appeal by highlighting
+                  unique features, optimizing the booking lead time, and oﬀering
+                  curated guest experiences to drive higher nightly rates and
+                  stronger revenue performance.
+                </p>
+              </div>
+
+              <div
+                class="image-section"
+                style="position: relative; background-color: #000"
+              >
+                <img
+                  src="<%= BG_SECTION_IMAGE %>"
+                  alt="reload page"
+                  style="
+                    opacity: 0.7;
+                    height: 200px;
+                    width: 100%;
+                    object-fit: cover;
+                  "
+                />
+
+                <img
+                  style="position: absolute; bottom: 0; left: 0"
+                  src="<%= LOGO_WHITE_URL %>"
+                  alt="reload page"
+                />
+              </div>
+            </div>
           </td>
         </tr>
 
         <tr>
           <td class="page" id="page-11">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <div
-                        class="image-section"
-                        style="position: relative; background-color: #000"
-                      >
-                        <h1
-                          style="
-                            text-transform: uppercase;
-                            color: white;
-                            position: absolute;
-                            top: 30px;
-                            left: 40px;
-                          "
-                        >
-                          Recommendations
-                        </h1>
-                        <img
-                          src="<%= BG_SECTION_IMAGE %>"
-                          alt="reload page"
-                          style="
-                            opacity: 0.2;
-                            height: 200px;
-                            width: 100%;
-                            object-fit: cover;
-                          "
-                        />
-                      </div>
+            <div class="page-content">
+              <div
+                class="image-section"
+                style="position: relative; background-color: #000"
+              >
+                <h1
+                  style="
+                    text-transform: uppercase;
+                    color: white;
+                    position: absolute;
+                    top: 30px;
+                    left: 40px;
+                  "
+                >
+                  Recommendations
+                </h1>
+                <img
+                  src="<%= BG_SECTION_IMAGE %>"
+                  alt="reload page"
+                  style="
+                    opacity: 0.2;
+                    height: 200px;
+                    width: 100%;
+                    object-fit: cover;
+                  "
+                />
+              </div>
 
-                      <div style="padding-block: 20px">
-                        <div class="box white" style="margin-bottom: 30px">
-                          <div
-                            style="
-                              margin-bottom: 15px;
-                              display: flex;
-                              align-items: center;
-                              max-width: 500px;
-                              gap: 20px;
-                            "
-                          >
-                            <span
-                              style="
-                                background: linear-gradient(
-                                  -45deg,
-                                  var(--clr-primary-dark),
-                                  var(--clr-primary)
-                                );
-                                color: #eae7e7;
-                                font-weight: 400;
-                                flex-shrink: 0;
-                                border-radius: 100%;
-                                height: 60px;
-                                width: 60px;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                font-size: 25px;
-                              "
-                            >
-                              <i class="fa-solid fa-hand-holding-hand"></i>
-                            </span>
-                            <div
-                              class="box-label"
-                              style="
-                                height: 60px;
-                                display: flex;
-                                align-items: center;
-                                gap: 10px;
-                                max-width: 100%;
-                                margin: 0;
-                                border-radius: 40px;
-                              "
-                            >
-                              <strong>Maximize Revenue and Engagement </strong>
-                            </div>
-                          </div>
+              <div class="box white">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    max-width: 500px;
+                    gap: 20px;
+                  "
+                >
+                  <span
+                    style="
+                      background: linear-gradient(
+                        -45deg,
+                        var(--clr-primary-dark),
+                        var(--clr-primary)
+                      );
+                      color: #eae7e7;
+                      font-weight: 400;
+                      flex-shrink: 0;
+                      border-radius: 100%;
+                      height: 40px;
+                      width: 40px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 25px;
+                    "
+                  >
+                    <i class="fa-solid fa-hand-holding-hand"></i>
+                  </span>
+                  <div
+                    class="box-label"
+                    style="
+                      height: 40px;
+                      display: flex;
+                      align-items: center;
+                      gap: 10px;
+                      max-width: 100%;
+                      margin: 0;
+                      border-radius: 40px;
+                    "
+                  >
+                    <strong>Maximize Revenue and Engagement </strong>
+                  </div>
+                </div>
 
-                          <ul
-                            style="
-                              list-style: none;
-                              color: var(--clr-primary-dark);
-                              line-height: 1.2;
-                              display: flex;
-                              flex-direction: column;
-                              gap: 10px;
-                            "
-                          >
-                            <li>
-                              <strong> Introduce a Themed Design: </strong>
-                              Revamp the property's interiors with a cohesive
-                              Key West-inspired theme to stand out in the market
-                              and attract guests seeking a memorable experience.
-                            </li>
-                            <li>
-                              <strong> Highlight Nearby Attractions: </strong>
-                              Showcase proximity to popular locations like Duval
-                              Street and Higgs Beach in listings, appealing to
-                              travelers looking for convenience and
-                              accessibility.
-                            </li>
-                            <li>
-                              <strong> Optimize Availability: </strong>
-                              Extend the property’s availability by adjusting
-                              maintenance schedules to capitalize on peak travel
-                              seasons and ensure consistent bookings.
-                            </li>
-                            <li>
-                              <strong> Implement Dynamic Pricing: </strong>
-                              Use data-driven pricing models to adjust rates for
-                              peak and offpeak periods, maximizing revenue while
-                              staying competitive against top-performing
-                              listings.
-                            </li>
-                            <li>
-                              <strong> Enhance Listing Descriptions: </strong>
-                              Rewrite and optimize listing details to emphasize
-                              the property’s unique features while integrating
-                              professional photos to captivate potential guests.
-                            </li>
-                          </ul>
-                        </div>
-                        <div class="box white"">
+                <ul
+                  style="
+                    list-style: none;
+                    color: var(--clr-primary-dark);
+                    line-height: 1.2;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-size: 0.9rem;
+                  "
+                >
+                  <li>
+                    <strong> Introduce a Themed Design: </strong>
+                    Revamp the property's interiors with a cohesive Key
+                    West-inspired theme to stand out in the market and attract
+                    guests seeking a memorable experience.
+                  </li>
+                  <li>
+                    <strong> Highlight Nearby Attractions: </strong>
+                    Showcase proximity to popular locations like Duval Street
+                    and Higgs Beach in listings, appealing to travelers looking
+                    for convenience and accessibility.
+                  </li>
+                  <li>
+                    <strong> Optimize Availability: </strong>
+                    Extend the property’s availability by adjusting maintenance
+                    schedules to capitalize on peak travel seasons and ensure
+                    consistent bookings.
+                  </li>
+                  <li>
+                    <strong> Implement Dynamic Pricing: </strong>
+                    Use data-driven pricing models to adjust rates for peak and
+                    offpeak periods, maximizing revenue while staying
+                    competitive against top-performing listings.
+                  </li>
+                  <li>
+                    <strong> Enhance Listing Descriptions: </strong>
+                    Rewrite and optimize listing details to emphasize the
+                    property’s unique features while integrating professional
+                    photos to captivate potential guests.
+                  </li>
+                </ul>
+              </div>
+              <div class="box white">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    max-width: 500px;
+                    gap: 20px;
+                  "
+                >
+                  <span
+                    style="
+                      background: linear-gradient(
+                        -45deg,
+                        var(--clr-primary-dark),
+                        var(--clr-primary)
+                      );
+                      color: #eae7e7;
+                      font-weight: 400;
+                      flex-shrink: 0;
+                      border-radius: 100%;
+                      height: 40px;
+                      width: 40px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 25px;
+                    "
+                  >
+                    <i class="fa-solid fa-hand-holding-hand"></i>
+                  </span>
+                  <div
+                    class="box-label"
+                    style="
+                      height: 40px;
+                      display: flex;
+                      align-items: center;
+                      gap: 10px;
+                      max-width: 100%;
+                      margin: 0;
+                      border-radius: 40px;
+                    "
+                  >
+                    <strong>Maximize Revenue and Engagement </strong>
+                  </div>
+                </div>
 
-                        <div
-                          style="
-                            margin-bottom: 15px;
-                            display: flex;
-                            align-items: center;
-                            max-width: 500px;
-                            gap: 20px;
-                          "
-                        >
-                          <span
-                            style="
-                              background: linear-gradient(
-                                -45deg,
-                                var(--clr-primary-dark),
-                                var(--clr-primary)
-                              );
-                              color: #eae7e7;
-                              font-weight: 400;
-                              flex-shrink: 0;
-                              border-radius: 100%;
-                              height: 60px;
-                              width: 60px;
-                              display: flex;
-                              align-items: center;
-                              justify-content: center;
-                              font-size: 25px;
-                            "
-                          >
-                            <i class="fa-solid fa-hand-holding-hand"></i>
-                          </span>
-                          <div
-                            class="box-label"
-                            style="
-                              height: 60px;
-                              display: flex;
-                              align-items: center;
-                              gap: 10px;
-                              max-width: 100%;
-                              margin: 0;
-                              border-radius: 40px;
-                            "
-                          >
-                            <strong>Maximize Revenue and Engagement </strong>
-                          </div>
-                        </div>
+                <ul
+                  style="
+                    list-style: none;
+                    color: var(--clr-primary-dark);
+                    line-height: 1.2;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-size: 0.9rem;
+                  "
+                >
+                  <li>
+                    <strong> Introduce a Themed Design: </strong> Revamp the
+                    property's interiors with a cohesive Key West-inspired theme
+                    to stand out in the market and attract guests seeking a
+                    memorable experience.
+                  </li>
+                  <li>
+                    <strong> Highlight Nearby Attractions: </strong>
+                    Showcase proximity to popular locations like Duval Street
+                    and Higgs Beach in listings, appealing to travelers looking
+                    for convenience and accessibility.
+                  </li>
+                  <li>
+                    <strong> Optimize Availability: </strong>
+                    Extend the property’s availability by adjusting maintenance
+                    schedules to capitalize on peak travel seasons and ensure
+                    consistent bookings.
+                  </li>
+                  <li>
+                    <strong> Implement Dynamic Pricing: </strong>
+                    Use data-driven pricing models to adjust rates for peak and
+                    offpeak periods, maximizing revenue while staying
+                    competitive against top-performing listings.
+                  </li>
+                  <li>
+                    <strong> Enhance Listing Descriptions: </strong>
+                    Rewrite and optimize listing details to emphasize the
+                    property’s unique features while integrating professional
+                    photos to captivate potential guests.
+                  </li>
+                </ul>
+              </div>
 
-                        <ul
-                          style="
-                            list-style: none;
-                            color: var(--clr-primary-dark);
-                            line-height: 1.2;
-                            display: flex;
-                            flex-direction: column;
-                            gap: 10px;
-                          "
-                        >
-                          <li>
-                            <strong> Introduce a Themed Design: </strong> Revamp
-                            the property's interiors with a cohesive Key
-                            West-inspired theme to stand out in the market and
-                            attract guests seeking a memorable experience.
-                          </li>
-                          <li>
-                            <strong> Highlight Nearby Attractions: </strong>
-                            Showcase proximity to popular locations like Duval
-                            Street and Higgs Beach in listings, appealing to
-                            travelers looking for convenience and accessibility.
-                          </li>
-                          <li>
-                            <strong> Optimize Availability: </strong>
-                            Extend the property’s availability by adjusting
-                            maintenance schedules to capitalize on peak travel
-                            seasons and ensure consistent bookings.
-                          </li>
-                          <li>
-                            <strong> Implement Dynamic Pricing: </strong>
-                            Use data-driven pricing models to adjust rates for
-                            peak and offpeak periods, maximizing revenue while
-                            staying competitive against top-performing listings.
-                          </li>
-                          <li>
-                            <strong> Enhance Listing Descriptions: </strong>
-                            Rewrite and optimize listing details to emphasize
-                            the property’s unique features while integrating
-                            professional photos to captivate potential guests.
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
+              <div
+                class="image-section"
+                style="position: relative; background-color: #000"
+              >
+                <img
+                  src="<%= BG_SECTION_IMAGE %>"
+                  alt="reload page"
+                  style="
+                    opacity: 0.7;
+                    height: 200px;
+                    width: 100%;
+                    object-fit: cover;
+                  "
+                />
+              </div>
 
-                    <div
-                      class="image-section"
-                      style="position: relative; background-color: #000"
-                    >
-                      <img
-                        src="<%= BG_SECTION_IMAGE %>"
-                        alt="reload page"
-                        style="
-                          opacity: 0.7;
-                          height: 200px;
-                          width: 100%;
-                          object-fit: cover;
-                        "
-                      />
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <img
+                style="position: absolute; bottom: 0; left: 0"
+                src="<%= LOGO_WHITE_URL %>"
+                alt="reload page"
+              />
+            </div>
           </td>
         </tr>
 
         <tr>
           <td class="page" id="page-12">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <div
-                        class="box-label"
-                        style="
-                          font-size: 28px;
-                          display: flex;
-                          align-items: center;
-                          justify-content: space-between;
-                          gap: 10px;
-                          padding: 30px 70px;
-                          min-width: 400px;
-                          margin: 0 auto;
-                          border-radius: 40px;
-                          text-transform: uppercase;
-                          font-style: italic;
-                        "
-                      >
-                        <i class="fa-solid fa-hand-holding-hand"></i>
-                        <strong style="font-size: 28px">Portfolio </strong>
-                        <i class="fa-solid fa-hand-holding-hand"></i>
-                      </div>
+            <div class="page-content">
+              <div
+                class="box-label"
+                style="
+                  font-size: 28px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 10px;
+                  padding: 30px 70px;
+                  min-width: 400px;
+                  margin: 0 auto;
+                  border-radius: 40px;
+                  text-transform: uppercase;
+                  font-style: italic;
+                "
+              >
+                <i class="fa-solid fa-hand-holding-hand"></i>
+                <strong style="font-size: 28px">Portfolio </strong>
+                <i class="fa-solid fa-hand-holding-hand"></i>
+              </div>
 
-                      <table style="margin-block: 30px">
-                        <tbody>
-                          <tr>
-                            <td
-                              style="padding-bottom: 20px; padding-right: 20px"
-                            >
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                            <td style="padding-bottom: 20px">
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style="padding-bottom: 20px; padding-right: 20px"
-                            >
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                            <td style="padding-bottom: 20px">
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style="padding-bottom: 20px; padding-right: 20px"
-                            >
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                            <td style="padding-bottom: 20px">
-                              <img
-                                style="width: 100%"
-                                src="<%= PAGE_12_IMG %>"
-                                alt="reload page"
-                              />
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+              <table>
+                <tbody>
+                  <tr>
+                    <td style="padding-bottom: 20px; padding-right: 20px">
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                    <td style="padding-bottom: 20px">
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding-bottom: 20px; padding-right: 20px">
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                    <td style="padding-bottom: 20px">
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding-right: 20px">
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                    <td>
+                      <img
+                        style="width: 100%"
+                        src="<%= PAGE_12_IMG %>"
+                        alt="reload page"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
 
-                      <div class="box" style="margin-bottom: 25px">
-                        <p>
-                          This portfolio highlights just a selection of the
-                          high-value properties we manage, all of which
-                          consistently perform as market leaders in their
-                          respective categories. From luxury waterfront retreats
-                          with extensive amenities to large vacation homes
-                          catering to group stays, these properties showcase our
-                          ability to maximize revenue, optimize occupancy, and
-                          deliver unparalleled guest satisfaction. These results
-                          are not isolated cases but a reflection of the refined
-                          strategies and operational expertise we bring to each
-                          property under our care.
-                        </p>
-                        <p>
-                          Your property in Key West holds incredible potential
-                          to join this elite roster. Our track record
-                          demonstrates how we transform premium listings into
-                          market leaders. By tapping into our expertise and
-                          proven methodologies, we can position your property as
-                          a standout option in Key West’s competitive landscape,
-                          unlocking its full potential and enhancing guest
-                          experiences.
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <div class="box">
+                <p>
+                  This portfolio highlights just a selection of the high-value
+                  properties we manage, all of which consistently perform as
+                  market leaders in their respective categories. From luxury
+                  waterfront retreats with extensive amenities to large vacation
+                  homes catering to group stays, these properties showcase our
+                  ability to maximize revenue, optimize occupancy, and deliver
+                  unparalleled guest satisfaction. These results are not
+                  isolated cases but a reflection of the refined strategies and
+                  operational expertise we bring to each property under our
+                  care.
+                </p>
+                <p>
+                  Your property in Key West holds incredible potential to join
+                  this elite roster. Our track record demonstrates how we
+                  transform premium listings into market leaders. By tapping
+                  into our expertise and proven methodologies, we can position
+                  your property as a standout option in Key West’s competitive
+                  landscape, unlocking its full potential and enhancing guest
+                  experiences.
+                </p>
+              </div>
+            </div>
           </td>
         </tr>
 
-        <tr>
-          <td class="page" id="page-13">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <div
-                        class="box-label"
-                        style="
-                          font-size: 28px;
-                          display: flex;
-                          align-items: center;
-                          justify-content: space-between;
-                          gap: 10px;
-                          padding: 30px 70px;
-                          min-width: 500px;
-                          margin: 0 auto;
-                          border-radius: 40px;
-                          text-transform: uppercase;
-                          font-style: italic;
-                        "
-                      >
-                        <i class="fa-solid fa-hand-holding-hand"></i>
-                        <strong style="font-size: 28px">General FAQs </strong>
-                        <i class="fa-solid fa-hand-holding-hand"></i>
-                      </div>
-
-                      <div
-                        class="box white"
-                        style="
-                          border-radius: 80px;
-                          margin-top: 25px;
-                          font-size: 18px;
-                          padding-block: 50px;
-                          padding-inline: 50px;
-                        "
-                      >
-                        <strong>
-                          What happens after I sign with Luxury Lodging?
-                        </strong>
-                        <p style="padding-left: 25px">
-                          We’ll onboard your property, optimize listing, and
-                          assign a dedicated property manager to handle all
-                          operations.
-                        </p>
-                        <strong>
-                          How will you manage the stay restrictions?
-                        </strong>
-                        <p style="padding-left: 25px">
-                          We’ll market your property to long-term guests,
-                          ensuring compliance with local regulations.
-                        </p>
-                        <strong> How involved do I need to be? </strong>
-                        <p style="padding-left: 25px">
-                          You can be hands-off or involved on a request basis.
-                          You’ll have access to a dashboard for tracking
-                          performance.
-                        </p>
-                        <strong> How will you market my property? </strong>
-                        <p style="padding-left: 25px">
-                          We’ll highlight your property’s features properly,
-                          targeted ads, and placement on top platforms.
-                        </p>
-                        <strong> How is pricing determined? </strong>
-                        <p style="padding-left: 25px">
-                          Dynamic pricing adjusts for market trends,
-                          seasonality, and in some cases, stay restrictions.
-                        </p>
-                        <strong> When can I expect results? </strong>
-                        <p style="padding-left: 25px">
-                          Dynamic pricing adjusts for market trends,
-                          seasonality, and in some cases, stay restrictions.
-                        </p>
-                        <strong> What support do you offer? </strong>
-                        <p style="padding-left: 25px">
-                          You’ll have 24/7 guest support, regular performance
-                          updates, and a dedicated property manager.
-                        </p>
-                        <strong> Can I still use my property? </strong>
-                        <p style="padding-left: 25px">
-                          Yes! Simply inform us for us to block dates on the
-                          calendar for personal use.
-                        </p>
-                        <strong> Why choose Luxury Lodging? </strong>
-                        <p style="padding-left: 25px">
-                          Our proven strategies, premium service, and
-                          topperforming portfolio make us the ideal partner for
-                          your property.
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
+        <%- include('./faqs') %>
 
         <tr>
           <td class="page" id="page-14">
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <div class="page-content">
-                      <div class="box">
-                        <p>
-                          Ellen, your property has the potential to become a
-                          standout in the Key West extended-stay market, a
-                          highly sought-after area for premium long-term
-                          rentals. While competitors like "Casa Amelia - Key
-                          West" have set the benchmark, your property’s charm,
-                          location, and untapped potential make it uniquely
-                          positioned to compete and excel. Through our proven
-                          strategies—such as securing more guest reviews,
-                          refining pricing to reflect long-term market demand,
-                          and showcasing the property’s standout features—we
-                          will help establish it as a premier choice for
-                          renters.
-                        </p>
+            <div class="page-content" style="display: block">
+              <div class="box">
+                <p>
+                  Ellen, your property has the potential to become a standout in
+                  the Key West extended-stay market, a highly sought-after area
+                  for premium long-term rentals. While competitors like "Casa
+                  Amelia - Key West" have set the benchmark, your property’s
+                  charm, location, and untapped potential make it uniquely
+                  positioned to compete and excel. Through our proven
+                  strategies—such as securing more guest reviews, refining
+                  pricing to reflect long-term market demand, and showcasing the
+                  property’s standout features—we will help establish it as a
+                  premier choice for renters.
+                </p>
 
-                        <p>
-                          At Luxury Lodging, we’ve consistently helped
-                          properties like yours outperform market expectations.
-                          Our portfolio of high-value, high-performing
-                          properties across Florida demonstrates our ability to
-                          deliver results and build lasting success for our
-                          clients. We will work tirelessly to ensure your
-                          property thrives, driving both revenue and guest
-                          satisfaction. Let’s build something extraordinary
-                          together—your success is our success, and we are ready
-                          to partner with you to unlock your property’s full
-                          potential.
-                        </p>
-                      </div>
-                    </div>
+                <p>
+                  At Luxury Lodging, we’ve consistently helped properties like
+                  yours outperform market expectations. Our portfolio of
+                  high-value, high-performing properties across Florida
+                  demonstrates our ability to deliver results and build lasting
+                  success for our clients. We will work tirelessly to ensure
+                  your property thrives, driving both revenue and guest
+                  satisfaction. Let’s build something extraordinary
+                  together—your success is our success, and we are ready to
+                  partner with you to unlock your property’s full potential.
+                </p>
+              </div>
 
-                    <img
-                      style="width: 100%"
-                      src="<%= PAGE_14_IMG%>"
-                      alt="reload page"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <!-- <img
+                style="width: 100%"
+                src="<%= PAGE_14_IMG%>"
+                alt="reload page"
+             /> -->
+
+              <div
+                style="
+                  height: 500px;
+                  width: 500px;
+                  position: relative;
+                  background: linear-gradient(
+                    -45deg,
+                    var(--clr-primary-dark),
+                    var(--clr-primary)
+                  );
+                  border-radius: 100%;
+                  margin: 50px auto 0;
+                "
+              >
+                <div
+                  style="
+                    position: absolute;
+                    top: 40px;
+                    height: 90px;
+                    width: 40px;
+                    border-radius: 60px;
+                    background: #ccb571;
+                    rotate: 130deg;
+                  "
+                ></div>
+                <div
+                  style="
+                    position: absolute;
+                    bottom: 40px;
+                    right: 0;
+                    height: 90px;
+                    width: 40px;
+                    border-radius: 60px;
+                    background: #a58349;
+                    rotate: 130deg;
+                  "
+                ></div>
+              </div>
+
+              <img
+                style="position: absolute; bottom: 0; right: 0"
+                src="<%= LOGO_URL %>"
+                alt="reload page"
+              />
+            </div>
           </td>
         </tr>
       </tbody>

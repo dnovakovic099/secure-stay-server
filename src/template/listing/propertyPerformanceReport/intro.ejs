@@ -1,49 +1,47 @@
 <tr>
   <td class="page" id="page-1">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <div class="logo">
-              <img src="<%= LOGO_URL %>" alt="" />
-              <h6 style="color: var(--clr-primary)">
-                Property Performance Report (PPR)
-              </h6>
-            </div>
-            <div class="page-1-text" style="padding-block: 50px">
-              <h1
-                style="
-                  color: black;
-                  font-family: var(--font-cursive);
-                  font-size: 44px;
-                  padding-bottom: 8px;
-                  margin-bottom: 8px;
-                "
-              >
-                Let's Flamingo - Key West, FL
-              </h1>
-              <h2
-                style="
-                  color: var(--clr-primary-dark);
-                  font-weight: 600;
-                  font-size: 28px;
-                "
-              >
-                <%= listingData.address %>
-              </h2>
-            </div>
-          </td>
-        </tr>
-        <tr>
-          <td>
-            <img
-              style="width: 100%"
-              src="<%= PAGE_1_IMAGE %>"
-              alt="reload page"
-            />
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="page-content">
+      <div class="logo">
+        <img style="width: auto" src="<%= LOGO_URL %>" alt="" />
+        <h6 style="color: var(--clr-primary); font-size: 0.8rem">
+          Property Performance Report (PPR)
+        </h6>
+      </div>
+      <div class="page-1-text" style="padding-block: 50px">
+        <h1
+          style="
+            color: black;
+            font-family: var(--font-cursive);
+            font-size: 3.5rem;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+          "
+        >
+          Santeetlah Lake Retreat w/ Dock: Walk to Water!
+        </h1>
+        <h2
+          style="
+            color: var(--clr-primary-dark);
+            font-weight: 600;
+            font-size: 2rem;
+          "
+        >
+          <%= listingData.address %>
+        </h2>
+      </div>
+      <div style="position: relative">
+        <img
+          style="width: 776px; height: 674px"
+          src="<%= PAGE_1_IMAGE %>"
+          alt="reload page"
+        />
+
+        <img
+          style="position: absolute; left: 0; right: 0; bottom: 0; height: 100%"
+          src="<%= OVERLAY_IMAGE %>"
+          alt=""
+        />
+      </div>
+    </div>
   </td>
 </tr>

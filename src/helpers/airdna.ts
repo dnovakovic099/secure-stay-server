@@ -288,12 +288,20 @@ export const takeScreenShots = async (page: Page) => {
     );
 
     await page.waitForSelector(".MuiBox-root.css-68ddzu");
+    await page.waitForFunction(() => {
+      const charts = document.querySelectorAll(".MuiBox-root.css-68ddzu");
+      return charts.length > 9 && charts[9].clientHeight > 100; // Ensuring full render
+    });
     const chartElements = await page.$$(".MuiBox-root.css-68ddzu");
 
     // const chartElements = await page.$$(".MuiBox-root.css-10klw3m");
     if (chartElements.length > 0) {
+      await page.evaluate(
+        (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+        chartElements[9]
+      );
       screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
-        chartElements[0],
+        chartElements[9], // 0 for occupancy and 9 for ADR chart
         "averageMonthlyOccupancyChart"
       );
 

@@ -18,6 +18,8 @@ export const PUPPETEER_LAUNCH_OPTIONS = {
     "--allow-file-access-from-files",
     "--enable-local-file-accesses",
     "--enable-gpu",
+    "--font-render-hinting=none",
+    "--force-color-profile=srgb",
   ],
   defaultViewport: null,
 };
@@ -26,8 +28,13 @@ export const PROPERTY_REVENUE_REPORT_PATH =
   "src/template/listing/propertyPerformanceReport/index.ejs";
 
 const PUBLIC_URL = `${process.env.BASE_URL}/public`;
+export const LOGO_WHITE_URL = `${PUBLIC_URL}/logo-white.png`;
 export const LOGO_URL = `${PUBLIC_URL}/logo.png`;
-export const PAGE_1_IMAGE = `${PUBLIC_URL}/page-1-image.jpg`;
+export const MAC_BOOK_IMAGE = `${PUBLIC_URL}/mac-book.png`;
+export const REVENUE_ICONS = `${PUBLIC_URL}/revenue-icons.png`;
+export const BORDER_IMAGE = `${PUBLIC_URL}/image-border.png`;
+export const OVERLAY_IMAGE = `${PUBLIC_URL}/image-overlay.png`;
+export const PAGE_1_IMAGE = `${PUBLIC_URL}/page-1-image.png`;
 export const PAGE_2_IMAGE = `${PUBLIC_URL}/page-2-image.jpg`;
 export const PAGE_3_IMAGE = `${PUBLIC_URL}/page-3-image.jpg`;
 export const PAGE_4_IMAGE = `${PUBLIC_URL}/page-4-image.jpg`;
