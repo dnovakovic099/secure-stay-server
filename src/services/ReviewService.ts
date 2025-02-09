@@ -1,19 +1,27 @@
-import { Between, LessThan } from "typeorm";
+import { Between, In, LessThan, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { ReservationService } from "./ReservationService";
+import { OwnerInfoEntity } from "../entity/OwnerInfo";
 
 export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
+    private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
 
-    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status }) {
+    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly }) {
         try {
+            let listingIds = [];
+            if (!listingId && owner) {
+                listingIds = await this.getListingIdsByOwnerName(owner);
+            }
+
             const condition: Record<string, any> = {
                 ...(listingId ? { listingMapId: listingId } : {}),
                 ...(rating !== undefined ? { rating: LessThan(rating) } : {}),
+                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {})
             };
 
             if (fromDate !== undefined && toDate !== undefined) {
@@ -26,6 +34,11 @@ export class ReviewService {
             }
             if (status !== undefined) {
                 reviewDetailCondition.status = status;
+            }
+
+            // Apply isClaimOnly condition
+            if (isClaimOnly && claimResolutionStatus == undefined) {
+                reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
@@ -48,6 +61,18 @@ export class ReviewService {
             throw error;
         }
     }
+
+    private async getListingIdsByOwnerName(ownerName: string) {
+        const listingIds = await this.ownerInfoRepository
+            .createQueryBuilder("owner")
+            .select("owner.listingId", "listingId") // Select only listingId
+            .where("owner.ownerName = :ownerName", { ownerName })
+            .andWhere("owner.ownerName IS NOT NULL AND owner.ownerName != ''") // Ensure ownerName is valid
+            .getRawMany();
+
+        return listingIds.map(item => item.listingId); // Extract listingId values as an array
+    }
+
 
 
     // fetch all reviews from the hostaway and save it in the database
