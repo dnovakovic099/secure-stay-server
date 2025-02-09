@@ -105,7 +105,6 @@ export class ReservationDetailPostStayAuditController {
 
             return res.status(200).json(audit);
         } catch (error) {
-            console.log(error);
             next(error);
         }
     }

@@ -88,7 +88,6 @@ export class ReservationDetailPreStayAuditService {
         // if all fields are filled, return COMPLETED
         // if any field is empty, return IN_PROGRESS
         // if any field is not filled, return NOT_STARTED
-        console.log(dto);
         if (dto.doorCode == DoorCodeStatus.UNSET && dto.amenitiesConfirmed == '' && dto.wifiConnectedAndActive == false && dto.cleanlinessCheck == CleanlinessCheck.UNSET && dto.cleanerCheck == CleanerCheck.UNSET && dto.cleanerNotified == CleanerNotified.UNSET && dto.damageCheck == DamageCheck.UNSET && dto.inventoryCheckStatus == InventoryCheckStatus.UNSET) {
             return CompletionStatus.NOT_STARTED;
         }
