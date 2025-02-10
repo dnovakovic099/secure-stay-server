@@ -430,7 +430,10 @@ export class ReservationInfoService {
 
 
   async getReservations(fromDate: string, toDate: string, listingId: number, dateType: string, channelId?: number) {
-    const searchCondition: any = { listingMapId: listingId };
+    const searchCondition: any = {
+      listingMapId: listingId,
+      isProcessedInStatement: false
+    };
 
     switch (dateType) {
       case "arrival":
