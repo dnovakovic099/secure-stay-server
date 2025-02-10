@@ -29,4 +29,15 @@ export class ReservationInfoController {
             return next(error);
         }
     }
+
+    async updateReservationStatusForStatement(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const { id, isProcessedInStatement } = request.body;
+            const result = await reservationInfoService.updateReservationStatusForStatement(id, isProcessedInStatement);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

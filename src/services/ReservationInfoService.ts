@@ -485,4 +485,15 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
   }
 
+  async updateReservationStatusForStatement(id: number, isProcessedInStatement: boolean) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id}`);
+    }
+    
+    reservation.isProcessedInStatement = isProcessedInStatement;
+    return await this.reservationInfoRepository.save(reservation);
+  }
+
+
 }
