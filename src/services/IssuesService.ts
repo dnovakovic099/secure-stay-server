@@ -64,7 +64,7 @@ export class IssuesService {
         }   
 
         if (listingId) {
-            queryOptions.where.listing_id = listingId;
+            queryOptions.where.listing_name = listingId;
         }
 
         if (isClaimOnly) {

@@ -16,6 +16,9 @@ export class Issue {
     listing_id: string;
 
     @Column({ nullable: true })
+    listing_name: string;
+
+    @Column({ nullable: true })
     reservation_id: string;
 
     @Column({ type: 'date', nullable: true })
