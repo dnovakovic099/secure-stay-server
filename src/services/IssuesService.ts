@@ -1,7 +1,8 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not } from "typeorm";
+import { Between, Not, LessThan} from "typeorm";
 import * as XLSX from 'xlsx';
+import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -170,5 +171,21 @@ export class IssuesService {
         const csv = XLSX.utils.sheet_to_csv(worksheet);
     
         return Buffer.from(csv, 'utf-8');
+    }
+
+    async checkUnresolvedIssues() {
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+        const unresolvedIssues = await this.issueRepo.find({
+            where: {
+                status: Not('Completed'),
+                created_at: LessThan(threeDaysAgo)
+            }
+        });
+
+        for (const issue of unresolvedIssues) {
+            await sendUnresolvedIssueEmail(issue);
+        }
     }
 } 

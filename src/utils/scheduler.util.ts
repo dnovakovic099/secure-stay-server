@@ -1,6 +1,7 @@
 import { sendCodes } from "../scripts/sendCodes";
 import { checkUnasweredMessages } from "../scripts/notifyAdmin"
 import { syncReviews } from "../scripts/syncReview";
+import { syncIssue } from "../scripts/syncIssue";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -13,4 +14,6 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("*/1 * * * *", checkUnasweredMessages);
 
   schedule.scheduleJob("0 * * * *", syncReviews);
+
+  schedule.scheduleJob("0 * * * *", syncIssue);
 }
