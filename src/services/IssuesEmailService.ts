@@ -54,7 +54,6 @@ export async function sendUnresolvedIssueEmail(issue: any) {
 
         } catch (error) {
             console.error('Error sending unresolved issue alert:', error);
-            throw new Error('Failed to send email notification');
         }
     }
 
