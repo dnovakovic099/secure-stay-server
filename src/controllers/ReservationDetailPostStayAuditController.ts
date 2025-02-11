@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ReservationDetailPostStayAuditService } from "../services/ReservationDetailPostStayAuditService";
-import { PotentialReviewIssue } from "../entity/ReservationDetailPostStayAudit";
+import { DamageReport, MissingItems, PotentialReviewIssue, UtilityIssues } from "../entity/ReservationDetailPostStayAudit";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -22,10 +22,20 @@ export class ReservationDetailPostStayAuditController {
                 refundForReview,
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
-                potentialReviewIssue
+                potentialReviewIssue,
+                damageReport,
+                damageReportNotes,
+                missingItems,
+                missingItemsNotes,
+                utilityIssues,
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
+
+            let attachmentNames: string[] = [];
+            if (Array.isArray(req.files['attachments']) && req.files['attachments'].length > 0) {
+                attachmentNames = (req.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            }
 
             const audit = await this.postStayAuditService.createAudit({
                 reservationId,
@@ -35,7 +45,13 @@ export class ReservationDetailPostStayAuditController {
                 refundForReview,
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
-                potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue
+                potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue,
+                attachments: JSON.stringify(attachmentNames) || '',
+                damageReport: damageReport as DamageReport,
+                damageReportNotes,
+                missingItems: missingItems as MissingItems,
+                missingItemsNotes,
+                utilityIssues: utilityIssues as UtilityIssues
             }, userId);
 
             return res.status(201).json(audit);
@@ -53,10 +69,21 @@ export class ReservationDetailPostStayAuditController {
                 refundForReview,
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
-                potentialReviewIssue
+                potentialReviewIssue,
+                damageReport,
+                damageReportNotes,
+                missingItems,
+                missingItemsNotes,
+                utilityIssues,
+                deletedAttachments,
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
+
+            let newAttachments: string[] = [];
+            if (Array.isArray(req.files['attachments']) && req.files['attachments'].length > 0) {
+                newAttachments = (req.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            }
 
             const audit = await this.postStayAuditService.updateAudit({
                 reservationId,
@@ -66,7 +93,14 @@ export class ReservationDetailPostStayAuditController {
                 refundForReview,
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
-                potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue
+                potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue,
+                damageReport: damageReport as DamageReport,
+                damageReportNotes,
+                missingItems: missingItems as MissingItems,
+                missingItemsNotes,
+                utilityIssues: utilityIssues as UtilityIssues,
+                deletedAttachments: deletedAttachments,
+                newAttachments: JSON.stringify(newAttachments)
             }, userId);
 
             return res.status(200).json(audit);
