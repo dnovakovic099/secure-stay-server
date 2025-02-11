@@ -39,18 +39,17 @@ export class IssuesController {
         }
     }
 
-    async createIssue(request: Request, response: Response) {
+    async createIssue(request: any, response: Response) {
         const issuesService = new IssuesService();
         try {
+            const userId = request.user.id;
 
-            if (!request.body || Object.keys(request.body).length === 0) {
-                return response.status(400).json({
-                    status: false,
-                    message: 'Request body is empty'
-                });
+            let fileNames: string[] = [];
+            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
+                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
             }
 
-            const result = await issuesService.createIssue(request.body);
+            const result = await issuesService.createIssue(request.body, userId, fileNames);
             return response.status(201).json({
                 status: true,
                 data: result
@@ -63,29 +62,19 @@ export class IssuesController {
         }
     }
 
-    async updateIssue(request: Request, response: Response) {
+    async updateIssue(request: any, response: Response) {
         const issuesService = new IssuesService();
         try {
-            const { id } = request.params;
-            const userEmail = (request as any).user?.email 
+            const id = parseInt(request.params.id);
+            const userId = request.user.id;
 
-            if (!id || isNaN(Number(id))) {
-                return response.status(400).json({
-                    status: false,
-                    message: 'Invalid order ID'
-                });
+            let fileNames: string[] = [];
+            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
+                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
             }
 
-            const result = await issuesService.updateIssue(Number(id), request.body, userEmail);
-
-            if (!result) {
-                return response.status(404).json({
-                    status: false,
-                    message: 'Order not found'
-                });
-            }
-
-            return response.send({
+            const result = await issuesService.updateIssue(id, request.body, userId, fileNames);
+            return response.status(200).json({
                 status: true,
                 data: result
             });
