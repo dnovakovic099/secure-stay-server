@@ -3,6 +3,7 @@ import { Issue } from "../entity/Issue";
 import { Between, Not, LessThan} from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
+import { Listing } from "../entity/Listing";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -15,8 +16,10 @@ export class IssuesService {
     }
 
     async createIssue(data: Partial<Issue>, userId: string, fileNames?: string[]) {
+        const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
         const newIssue = this.issueRepo.create({
             ...data,
+            listing_name: listing_name,
             fileNames: fileNames ? JSON.stringify(fileNames) : ""
         });
 
@@ -38,8 +41,8 @@ export class IssuesService {
         const queryOptions: any = {
             where: {},
             order: { 
-                status: "ASC",
-                // created_at: 'DESC'
+                created_at: 'DESC',
+                status: "ASC"
             },
             skip: (page - 1) * limit,
             take: limit
@@ -114,9 +117,14 @@ export class IssuesService {
         if (fileNames && fileNames.length > 0) {
             updatedFileNames = [...updatedFileNames, ...fileNames];
         }
+        let listing_name = '';
+        if (data.listing_id) {
+            listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
+        }
 
         Object.assign(issue, {
             ...data,
+            ...(data.listing_id && { listing_name: listing_name }),
             updated_by: userId,
             fileNames: JSON.stringify(updatedFileNames)
         });
