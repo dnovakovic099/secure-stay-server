@@ -1,5 +1,5 @@
 import { sendCodes } from "../scripts/sendCodes";
-import { checkUnasweredMessages } from "../scripts/notifyAdmin"
+import { checkForUnresolvedReviews, checkUnasweredMessages } from "../scripts/notifyAdmin";
 import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
 
@@ -12,6 +12,8 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 0 * * *", sendCodes);
 
   schedule.scheduleJob("*/1 * * * *", checkUnasweredMessages);
+
+  schedule.scheduleJob("0 9 * * *", checkForUnresolvedReviews);
 
   schedule.scheduleJob("0 * * * *", syncReviews);
 
