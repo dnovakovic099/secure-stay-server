@@ -9,6 +9,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { format } from 'date-fns';
+import { UsersEntity } from "../entity/Users";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -16,6 +17,7 @@ export class ExpenseService {
     private hostAwayClient = new HostAwayClient();
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
+    private usersRepository = appDatabase.getRepository(UsersEntity);
 
     async createExpense(request: Request, userId: string, fileNames?: string[]) {
         const {
@@ -92,7 +94,8 @@ export class ExpenseService {
             categories: categoryIds,
             contractorName,
             contractorNumber,
-            dateOfWork
+            dateOfWork,
+            expenseState
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -105,7 +108,7 @@ export class ExpenseService {
                 // userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
-                isDeleted: 0,
+                isDeleted: expenseState == "active" ? 0 : 1,
                 ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(contractorName && {
@@ -154,11 +157,14 @@ export class ExpenseService {
             "Findings",
             "Payment Method",
             "Created At",
+            "Updated At",
+            "Updated By",
             "Attachments",
         ];
 
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
+        const users = await this.usersRepository.find();
 
         const rows = expenses.map((expense) => {
             const fileLinks = expense.fileNames
@@ -180,6 +186,8 @@ export class ExpenseService {
                 }).join(', ')
                 : '';
 
+            const user = users.find(user => user.uid == expense.updatedBy);
+
             return [
                 expense.expenseId,
                 expense.status,
@@ -193,6 +201,8 @@ export class ExpenseService {
                 expense.findings,
                 expense.paymentMethod,
                 format(expense.createdAt, "yyyy-MM-dd"),
+                format(expense.updatedAt, "yyyy-MM-dd"),
+                (user && `${user?.firstName} ${user?.lastName}`) || "",
                 fileLinks,
             ];
         });

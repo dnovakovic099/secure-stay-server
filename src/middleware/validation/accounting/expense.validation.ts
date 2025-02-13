@@ -122,6 +122,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(''),
+        expenseState: Joi.string().required().valid("active", "deleted")
     });
 
     const { error } = schema.validate(request.query);
