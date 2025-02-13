@@ -241,8 +241,15 @@ export class ReservationInfoService {
     const formattedStartDate = startDate.toISOString().split('T')[0];
     const formattedEndDate = endDate.toISOString().split('T')[0];
 
-    qb.andWhere("DATE(reservation.arrivalDate) = :start", { start: formattedStartDate });
-    qb.andWhere("DATE(reservation.departureDate) = :end", { end: formattedEndDate });
+    qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
+      start: formattedStartDate,
+      end: formattedEndDate
+    });
+    
+    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["expired", "cancelled"]
+    });
+
     qb.orderBy("reservation.arrivalDate", "ASC");
 
     // Use skip/take for pagination
