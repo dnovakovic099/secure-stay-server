@@ -14,9 +14,6 @@ export class ReviewDetailEntity {
     reviewId: number;  // Foreign key referencing `ReviewEntity.id`
 
     @Column({ nullable: true })
-    status: string;
-
-    @Column({ nullable: true })
     guestPhone: string;
 
     @Column({ nullable: true })

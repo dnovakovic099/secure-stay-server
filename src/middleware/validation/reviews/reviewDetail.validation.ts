@@ -3,7 +3,6 @@ import Joi, { custom } from "joi";
 
 export const validateReviewDetailsRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        status: Joi.string().required().valid("active", "hidden"),
         date: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'date must be in the format "yyyy-mm-dd"' }),

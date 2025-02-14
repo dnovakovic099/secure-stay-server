@@ -1,4 +1,4 @@
-import { Between, In, LessThan, Not } from "typeorm";
+import { Between, In, IsNull, LessThan, LessThanOrEqual, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -26,7 +26,7 @@ export class ReviewService {
 
             const condition: Record<string, any> = {
                 ...(listingId ? { listingMapId: listingId } : {}),
-                ...(rating !== undefined ? { rating: LessThan(rating) } : {}),
+                ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {})
             };
 
@@ -38,9 +38,8 @@ export class ReviewService {
             if (claimResolutionStatus !== undefined) {
                 reviewDetailCondition.claimResolutionStatus = claimResolutionStatus;
             }
-            if (status !== undefined) {
-                reviewDetailCondition.status = status;
-            }
+
+            condition.isHidden = status == "active" ? 0 : 1;
 
             // Apply isClaimOnly condition
             if (isClaimOnly && claimResolutionStatus == undefined) {
