@@ -15,7 +15,7 @@ export class ReservationDetailPreStayAuditController {
 
     async createAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const { doorCode, amenitiesConfirmed , wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified,damageCheck,inventoryCheckStatus} = req.body;
+            const { doorCode, amenitiesConfirmed, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
 
@@ -29,6 +29,7 @@ export class ReservationDetailPreStayAuditController {
                 doorCode: doorCode as DoorCodeStatus,
                 amenitiesConfirmed,
                 attachments: JSON.stringify(attachmentNames) || '',
+                approvedUpsells,
                 wifiConnectedAndActive: wifiConnectedAndActive == 'true' ? true : false,
                 cleanlinessCheck: cleanlinessCheck as CleanlinessCheck,
                 cleanerCheck: cleanerCheck as CleanerCheck,
@@ -44,10 +45,9 @@ export class ReservationDetailPreStayAuditController {
 
     async updateAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const { doorCode, amenitiesConfirmed,deletedAttachments, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus } = req.body;
+            const { doorCode, amenitiesConfirmed, deletedAttachments, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
-
 
             let newAttachments: string[] = [];
             if (Array.isArray(req.files['attachments']) && req.files['attachments'].length > 0) {
@@ -58,8 +58,9 @@ export class ReservationDetailPreStayAuditController {
                 reservationId,
                 doorCode: doorCode as DoorCodeStatus,
                 amenitiesConfirmed,
-                deletedAttachments: deletedAttachments,
+                deletedAttachments,
                 newAttachments: JSON.stringify(newAttachments),
+                approvedUpsells,
                 wifiConnectedAndActive: wifiConnectedAndActive == 'true' ? true : false,
                 cleanlinessCheck: cleanlinessCheck as CleanlinessCheck,
                 cleanerCheck: cleanerCheck as CleanerCheck,
@@ -82,4 +83,4 @@ export class ReservationDetailPreStayAuditController {
             next(error);
         }
     }
-} 
+}
