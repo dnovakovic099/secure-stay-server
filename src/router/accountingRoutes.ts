@@ -23,7 +23,7 @@ const resolutionController = new ResolutionController();
 router.route('/createexpense')
     .post(
         verifySession,
-        fileUpload.fields([
+        fileUpload('expense').fields([
             { name: 'attachments', maxCount: 10 }
         ]),
         validateCreateExpense,
@@ -33,7 +33,7 @@ router.route('/createexpense')
 router.route('/updateexpense')
     .put(
         verifySession,
-        fileUpload.fields([
+        fileUpload('expense').fields([
             { name: 'attachments', maxCount: 10 }
         ]),
         validateUpdateExpense,

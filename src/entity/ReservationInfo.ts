@@ -166,4 +166,7 @@ export class ReservationInfoEntity {
 
     @Column({ nullable: true })
     paymentStatus: string;
+
+    @Column({ default: false })
+    isProcessedInStatement: boolean;
 }

@@ -12,3 +12,5 @@ router.get("/",verifySession, reservationInfoController.getAllReservations);
 export default router;
 
 router.get("/export",verifySession, reservationInfoController.exportReservationToExcel);
+
+router.put('/updatereservationstatusforstatement', verifySession, reservationInfoController.updateReservationStatusForStatement);

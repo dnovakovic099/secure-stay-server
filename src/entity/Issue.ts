@@ -16,6 +16,9 @@ export class Issue {
     listing_id: string;
 
     @Column({ nullable: true })
+    listing_name: string;
+
+    @Column({ nullable: true })
     reservation_id: string;
 
     @Column({ type: 'date', nullable: true })
@@ -127,4 +130,7 @@ export class Issue {
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({ type: 'text', nullable: true })
+    fileNames: string;
 }

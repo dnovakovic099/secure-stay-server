@@ -1,7 +1,9 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not } from "typeorm";
+import { Between, Not, LessThan} from "typeorm";
 import * as XLSX from 'xlsx';
+import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
+import { Listing } from "../entity/Listing";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -13,9 +15,15 @@ export class IssuesService {
         return `${year}-${month}-${day}`;
     }
 
-    async createIssue(data: Partial<Issue>) {
-        const issue = this.issueRepo.create(data);
-        const savedIssue = await this.issueRepo.save(issue);
+    async createIssue(data: Partial<Issue>, userId: string, fileNames?: string[]) {
+        const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
+        const newIssue = this.issueRepo.create({
+            ...data,
+            listing_name: listing_name,
+            fileNames: fileNames ? JSON.stringify(fileNames) : ""
+        });
+
+        const savedIssue = await this.issueRepo.save(newIssue);
         return savedIssue;
     }
 
@@ -33,8 +41,8 @@ export class IssuesService {
         const queryOptions: any = {
             where: {},
             order: { 
-                status: "ASC",
-                // created_at: 'DESC'
+                created_at: 'DESC',
+                status: "ASC"
             },
             skip: (page - 1) * limit,
             take: limit
@@ -60,7 +68,7 @@ export class IssuesService {
         }   
 
         if (listingId) {
-            queryOptions.where.listing_id = listingId;
+            queryOptions.where.listing_name = listingId;
         }
 
         if (isClaimOnly) {
@@ -88,22 +96,40 @@ export class IssuesService {
         };
     }
 
-    async updateIssue(id: number, data: Partial<Issue>, userEmail: string) {
-        if (data.status === 'Completed') {
-            data.completed_at = this.formatDate(new Date()) as any;
-            data.completed_by = userEmail;
+    async updateIssue(id: number, data: Partial<Issue>, userId: string, fileNames?: string[]) {
+        const issue = await this.issueRepo.findOne({ 
+            where: { id }
+        });
+
+        if (!issue) {
+            throw new Error('Issue not found');
         }
 
-        await this.issueRepo.update(id, data);
-        return await this.issueRepo.findOne({ 
-            where: { id },
-            select: {
-                id: true,
-                status: true,
-                completed_by: true,
-                completed_at: true,
-            }
+        if (data.status === 'Completed') {
+            data.completed_at = this.formatDate(new Date()) as any;
+            data.completed_by = userId;
+        }
+
+        let updatedFileNames = [];
+        if (issue.fileNames) {
+            updatedFileNames = JSON.parse(issue.fileNames);
+        }
+        if (fileNames && fileNames.length > 0) {
+            updatedFileNames = [...updatedFileNames, ...fileNames];
+        }
+        let listing_name = '';
+        if (data.listing_id) {
+            listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
+        }
+
+        Object.assign(issue, {
+            ...data,
+            ...(data.listing_id && { listing_name: listing_name }),
+            updated_by: userId,
+            fileNames: JSON.stringify(updatedFileNames)
         });
+
+        return await this.issueRepo.save(issue);
     }
 
     async deleteIssue(id: number) {
@@ -153,5 +179,21 @@ export class IssuesService {
         const csv = XLSX.utils.sheet_to_csv(worksheet);
     
         return Buffer.from(csv, 'utf-8');
+    }
+
+    async checkUnresolvedIssues() {
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+        const unresolvedIssues = await this.issueRepo.find({
+            where: {
+                status: Not('Completed'),
+                created_at: LessThan(threeDaysAgo)
+            }
+        });
+
+        for (const issue of unresolvedIssues) {
+            await sendUnresolvedIssueEmail(issue);
+        }
     }
 } 

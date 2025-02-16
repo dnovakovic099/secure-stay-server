@@ -12,11 +12,11 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         listingId: Joi.number().optional(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        rating: Joi.number().max(10).min(0).required(),
+        rating: Joi.number().max(10).min(0).optional(),
         owner: Joi.string().required().optional(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
-        status: Joi.string().optional().valid("active", "hidden"),
+        status: Joi.string().required().valid("active", "hidden"),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });

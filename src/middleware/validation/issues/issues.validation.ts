@@ -8,6 +8,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
             .default("In Progress")
             .required(),
         listing_id: Joi.number().required(),
+        listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
         check_in_date: Joi.date().allow(null),
         reservation_amount: Joi.number().precision(2).allow(null),
@@ -55,6 +56,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         status: Joi.string()
             .valid("In Progress", "Overdue", "Completed", "Need Help"),
         listing_id: Joi.number(),
+        listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
         check_in_date: Joi.date().allow(null),
         reservation_amount: Joi.number().precision(2).allow(null),

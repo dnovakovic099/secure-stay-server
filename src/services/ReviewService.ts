@@ -1,10 +1,16 @@
-import { Between, In, LessThan, Not } from "typeorm";
+import { Between, In, IsNull, LessThan, LessThanOrEqual, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { ReservationService } from "./ReservationService";
 import { OwnerInfoEntity } from "../entity/OwnerInfo";
+import sendEmail from "../utils/sendEmai";
+
+interface ProcessedReview extends ReviewEntity {
+    unresolvedForMoreThanThreeDays: boolean;
+    unresolvedForMoreThanSevenDays: boolean;
+}
 
 export class ReviewService {
     private hostawayClient = new HostAwayClient();
@@ -20,7 +26,7 @@ export class ReviewService {
 
             const condition: Record<string, any> = {
                 ...(listingId ? { listingMapId: listingId } : {}),
-                ...(rating !== undefined ? { rating: LessThan(rating) } : {}),
+                ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {})
             };
 
@@ -32,9 +38,8 @@ export class ReviewService {
             if (claimResolutionStatus !== undefined) {
                 reviewDetailCondition.claimResolutionStatus = claimResolutionStatus;
             }
-            if (status !== undefined) {
-                reviewDetailCondition.status = status;
-            }
+
+            condition.isHidden = status == "active" ? 0 : 1;
 
             // Apply isClaimOnly condition
             if (isClaimOnly && claimResolutionStatus == undefined) {
@@ -150,6 +155,91 @@ export class ReviewService {
             logger.error("Error syncing reviews:", error);
             throw error;
         }
+    }
+
+    async checkForUnresolvedReviews() {
+        const reviews = await this.reviewRepository.find({
+            where: {
+                isHidden: 0
+            },
+            order: {
+                rating: 'ASC',
+                submittedAt: 'DESC',
+            },
+        });
+        const processedReviews = this.processUnresolvedReviews(reviews);
+        const unresolvedReviewsFor3PlusDays = processedReviews.filter(review => review.unresolvedForMoreThanThreeDays);
+        if (unresolvedReviewsFor3PlusDays.length > 0) {
+            //send email
+            await this.sendEmailForUnresolvedReviews(unresolvedReviewsFor3PlusDays);
+        }
+    }
+
+    processUnresolvedReviews(reviews: ReviewEntity[]): ProcessedReview[] {
+        return reviews
+            .filter(review => review.submittedAt) // Exclude reviews without submittedAt
+            .map(review => {
+                const submittedDate = new Date(review.submittedAt);
+                const currentDate = new Date();
+                const diffInDays = Math.floor((currentDate.getTime() - submittedDate.getTime()) / (1000 * 60 * 60 * 24));
+
+                return {
+                    ...review,
+                    unresolvedForMoreThanThreeDays: diffInDays > 3 && review.rating < 10,
+                    unresolvedForMoreThanSevenDays: diffInDays > 7 && review.rating < 10,
+                };
+            });
+    };
+
+    private async sendEmailForUnresolvedReviews(reviews: ProcessedReview[]) {
+
+        const subject = `Reminder: You Have ${reviews.length} Unresolved Reviews Awaiting Action`;
+        const html = `
+<html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333; margin: 0;">
+    <div style="width: 100%; background: #fff; padding: 30px; border-bottom: 1px solid #ddd;">
+      <h2 style="color: #0056b3; font-size: 22px; margin-bottom: 20px; text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">
+        Notification: Unresolved Guest Reviews
+      </h2>
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+        The following guest reviews require your attention. Please review them and take necessary action.
+      </p>
+
+      <!-- Scrollable Table Wrapper (Full Width) -->
+      <div style="overflow-x: auto; width: 100%;">
+        <table style="min-width: 1000px; border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Guest Name</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Arrival Date</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Departure Date</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Rating</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Public Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reviews.map(review => `
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${review.guestName}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${review.arrivalDate}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${review.departureDate}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; font-weight: bold; color: ${review.rating < 5 ? 'red' : 'green'}; white-space: nowrap;">${review.rating}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd;">${review.publicReview}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+        Please take action on these unresolved reviews as soon as possible.
+      </p>
+    </div>
+  </body>
+</html>
+        `;
+
+        await sendEmail(subject, html, process.env.EMAIL_FROM, "admin@luxurylodgingpm.com");
     }
 
 }

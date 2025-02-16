@@ -143,7 +143,6 @@ export class ReservationInfoService {
         return await this.getCase3(arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
       }
       // CASE 1 (and 5 with filters): No start/end date
-      console.log("CASE 1: No start/end date");
       return await this.getCase1Default(listingMapId, guestName, pageNumber, pageSize);
 
     } catch (error) {
@@ -242,8 +241,15 @@ export class ReservationInfoService {
     const formattedStartDate = startDate.toISOString().split('T')[0];
     const formattedEndDate = endDate.toISOString().split('T')[0];
 
-    qb.andWhere("DATE(reservation.arrivalDate) = :start", { start: formattedStartDate });
-    qb.andWhere("DATE(reservation.departureDate) = :end", { end: formattedEndDate });
+    qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
+      start: formattedStartDate,
+      end: formattedEndDate
+    });
+    
+    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["expired", "cancelled"]
+    });
+
     qb.orderBy("reservation.arrivalDate", "ASC");
 
     // Use skip/take for pagination
@@ -431,7 +437,10 @@ export class ReservationInfoService {
 
 
   async getReservations(fromDate: string, toDate: string, listingId: number, dateType: string, channelId?: number) {
-    const searchCondition: any = { listingMapId: listingId };
+    const searchCondition: any = {
+      listingMapId: listingId,
+      isProcessedInStatement: false
+    };
 
     switch (dateType) {
       case "arrival":
@@ -485,5 +494,16 @@ export class ReservationInfoService {
   async getReservationById(reservationId: number): Promise<ReservationInfoEntity> {
     return await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
   }
+
+  async updateReservationStatusForStatement(id: number, isProcessedInStatement: boolean) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id}`);
+    }
+    
+    reservation.isProcessedInStatement = isProcessedInStatement;
+    return await this.reservationInfoRepository.save(reservation);
+  }
+
 
 }
