@@ -31,6 +31,23 @@ export enum UtilityIssues{
     UNSET = 'unset'
 }
 
+export enum KeysAndLocks {
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
+
+export enum GuestBookCheck {
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
+
+export enum SecurityDepositStatus {
+    YES = 'yes',
+    NO = 'no',
+    UNSET = 'unset'
+}
 
 @Entity('reservation_detail_post_stay_audit')
 export class ReservationDetailPostStayAudit {
@@ -130,6 +147,30 @@ export class ReservationDetailPostStayAudit {
         nullable: true
     })
     utilityIssues: UtilityIssues;
+
+    @Column({
+        type: "enum",
+        enum: KeysAndLocks,
+        default: KeysAndLocks.UNSET,
+        nullable: true
+    })
+    keysAndLocks: KeysAndLocks;
+
+    @Column({
+        type: "enum",
+        enum: GuestBookCheck,
+        default: GuestBookCheck.UNSET,
+        nullable: true
+    })
+    guestBookCheck: GuestBookCheck;
+
+    @Column({
+        type: "enum",
+        enum: SecurityDepositStatus,
+        default: SecurityDepositStatus.UNSET,
+        nullable: true
+    })
+    securityDepositStatus: SecurityDepositStatus;
 
     @Column({ nullable: true , type: 'text' })
     attachments: string;

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ReservationDetailPostStayAuditService } from "../services/ReservationDetailPostStayAuditService";
-import { DamageReport, MissingItems, PotentialReviewIssue, UtilityIssues } from "../entity/ReservationDetailPostStayAudit";
+import { DamageReport, MissingItems, PotentialReviewIssue, UtilityIssues, KeysAndLocks, GuestBookCheck, SecurityDepositStatus } from "../entity/ReservationDetailPostStayAudit";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -28,6 +28,9 @@ export class ReservationDetailPostStayAuditController {
                 missingItems,
                 missingItemsNotes,
                 utilityIssues,
+                keysAndLocks,
+                guestBookCheck,
+                securityDepositStatus
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -51,7 +54,10 @@ export class ReservationDetailPostStayAuditController {
                 damageReportNotes,
                 missingItems: missingItems as MissingItems,
                 missingItemsNotes,
-                utilityIssues: utilityIssues as UtilityIssues
+                utilityIssues: utilityIssues as UtilityIssues,
+                keysAndLocks: keysAndLocks as KeysAndLocks,
+                guestBookCheck: guestBookCheck as GuestBookCheck,
+                securityDepositStatus: securityDepositStatus as SecurityDepositStatus
             }, userId);
 
             return res.status(201).json(audit);
@@ -75,6 +81,9 @@ export class ReservationDetailPostStayAuditController {
                 missingItems,
                 missingItemsNotes,
                 utilityIssues,
+                keysAndLocks,
+                guestBookCheck,
+                securityDepositStatus,
                 deletedAttachments,
             } = req.body;
             const reservationId = Number(req.params.reservationId);
@@ -99,6 +108,9 @@ export class ReservationDetailPostStayAuditController {
                 missingItems: missingItems as MissingItems,
                 missingItemsNotes,
                 utilityIssues: utilityIssues as UtilityIssues,
+                keysAndLocks: keysAndLocks as KeysAndLocks,
+                guestBookCheck: guestBookCheck as GuestBookCheck,
+                securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
                 deletedAttachments: deletedAttachments,
                 newAttachments: JSON.stringify(newAttachments)
             }, userId);
