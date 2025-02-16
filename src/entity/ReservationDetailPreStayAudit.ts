@@ -130,6 +130,12 @@ export class ReservationDetailPreStayAudit {
         nullable: true
     })
     damageCheck: DamageCheck;
+    
+    @Column({ nullable: true, type: 'text' })
+    approvedUpsells: string;
+
+
+
 
 
 }

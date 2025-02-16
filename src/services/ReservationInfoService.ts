@@ -7,12 +7,14 @@ import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStay
 import * as XLSX from 'xlsx';
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
+import { UpsellOrderService } from "./UpsellOrderService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
+  private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
@@ -214,10 +216,12 @@ export class ReservationInfoService {
     for (const reservation of finalResults) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -270,10 +274,12 @@ export class ReservationInfoService {
     for (const reservation of results) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -348,10 +354,12 @@ export class ReservationInfoService {
     for (const reservation of finalResults) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -395,10 +403,12 @@ export class ReservationInfoService {
     for (const reservation of paginated) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }

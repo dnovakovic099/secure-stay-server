@@ -7,6 +7,7 @@ interface ReservationDetailPreStayAuditDTO {
     doorCode?: DoorCodeStatus;
     amenitiesConfirmed?: string;
     attachments?: string;
+    approvedUpsells?: string;
     wifiConnectedAndActive?: boolean;
     cleanlinessCheck?: CleanlinessCheck;
     cleanerCheck?: CleanerCheck;
@@ -44,6 +45,7 @@ export class ReservationDetailPreStayAuditService {
             doorCode: dto.doorCode,
             amenitiesConfirmed: dto.amenitiesConfirmed,
             attachments: dto.attachments,
+            approvedUpsells: dto.approvedUpsells,
             wifiConnectedAndActive: dto.wifiConnectedAndActive,
             cleanlinessCheck: dto.cleanlinessCheck,
             cleanerCheck: dto.cleanerCheck,
@@ -74,6 +76,7 @@ export class ReservationDetailPreStayAuditService {
         audit.damageCheck = dto.damageCheck ?? audit.damageCheck;
         audit.inventoryCheckStatus = dto.inventoryCheckStatus ?? audit.inventoryCheckStatus;
         audit.attachments = JSON.stringify(finalAttachments) ?? '';
+        audit.approvedUpsells = dto.approvedUpsells ?? audit.approvedUpsells;
         audit.wifiConnectedAndActive = dto.wifiConnectedAndActive ?? audit.wifiConnectedAndActive;
         audit.cleanlinessCheck = dto.cleanlinessCheck ?? audit.cleanlinessCheck;
         audit.cleanerCheck = dto.cleanerCheck ?? audit.cleanerCheck;
