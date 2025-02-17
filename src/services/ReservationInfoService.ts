@@ -87,7 +87,7 @@ export class ReservationInfoService {
     reservation.airbnbTransientOccupancyTaxPaidAmount = updateData.airbnbTransientOccupancyTaxPaidAmount;
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
-    
+
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -100,8 +100,10 @@ export class ReservationInfoService {
     try {
       // 1. Parse Query Params
       const {
-        arrivalStartDate: arrivalStartDateStr,
-        arrivalEndDate: arrivalEndDateStr,
+        checkInStartDate: checkInStartDateStr,
+        checkInEndDate: checkInEndDateStr,
+        checkOutStartDate: checkOutStartDateStr,
+        checkOutEndDate: checkOutEndDateStr,
         listingMapId,
         guestName,
         page,
@@ -109,6 +111,10 @@ export class ReservationInfoService {
       } = request.query as {
         arrivalStartDate?: string;
         arrivalEndDate?: string;
+        checkInStartDate?: string;
+        checkInEndDate?: string;
+        checkOutStartDate?: string;
+        checkOutEndDate?: string;
         listingMapId?: string;
         guestName?: string;
         page?: string;
@@ -120,31 +126,28 @@ export class ReservationInfoService {
       const pageSize = limit ? parseInt(limit, 10) : 10;
 
       // Convert start/end dates to Date objects (if provided)
-      let arrivalStartDate: Date | undefined;
-      let arrivalEndDate: Date | undefined;
-
-      // check also if it is a valid date
-      if (arrivalStartDateStr && !isNaN(new Date(arrivalStartDateStr).getTime())) {
-        arrivalStartDate = new Date(arrivalStartDateStr);
+      let checkInStartDate: Date | undefined;
+      let checkInEndDate: Date | undefined;
+      let checkOutStartDate: Date | undefined;
+      let checkOutEndDate: Date | undefined;
+      if (checkInStartDateStr && !isNaN(new Date(checkInStartDateStr).getTime())) {
+        checkInStartDate = new Date(checkInStartDateStr);
       }
-      if (arrivalEndDateStr && !isNaN(new Date(arrivalEndDateStr).getTime())) {
-        arrivalEndDate = new Date(arrivalEndDateStr);
+      if (checkInEndDateStr && !isNaN(new Date(checkInEndDateStr).getTime())) {
+        checkInEndDate = new Date(checkInEndDateStr);
+      }
+
+      if (checkOutStartDateStr && !isNaN(new Date(checkOutStartDateStr).getTime())) {
+        checkOutStartDate = new Date(checkOutStartDateStr);
+      }
+      if (checkOutEndDateStr && !isNaN(new Date(checkOutEndDateStr).getTime())) {
+        checkOutEndDate = new Date(checkOutEndDateStr);
       }
 
       // 2. Determine which case to handle
-      // CASE 2: startDate AND endDate
-      if (arrivalStartDate && arrivalEndDate) {
-        return await this.getCase2(arrivalStartDate, arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
+      if ((checkInStartDate && checkInEndDate) || (checkOutStartDate && checkOutEndDate)) {
+        return await this.getReservationByDateRange(checkInStartDate, checkInEndDate, checkOutStartDate, checkOutEndDate, listingMapId, guestName, pageNumber, pageSize);
       }
-      // CASE 4: Only startDate
-      if (arrivalStartDate && !arrivalEndDate) {
-        return await this.getCase4(arrivalStartDate, listingMapId, guestName, pageNumber, pageSize);
-      }
-      // CASE 3: Only endDate
-      if (!arrivalStartDate && arrivalEndDate) {
-        return await this.getCase3(arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
-      }
-      // CASE 1 (and 5 with filters): No start/end date
       return await this.getCase1Default(listingMapId, guestName, pageNumber, pageSize);
 
     } catch (error) {
@@ -152,7 +155,7 @@ export class ReservationInfoService {
       return {
         status: "error",
         message: "Error fetching reservations" + error.message
-      }; 
+      };
     }
   }
 
@@ -170,9 +173,11 @@ export class ReservationInfoService {
     page: number,
     limit: number
   ) {
-    // "Today" boundaries in YYYY-MM-DD format
-    const today = new Date().toISOString().split('T')[0];
-    
+    console.log("getCase1Default", listingMapId, guestName, page, limit);
+    // "Today" boundaries in YYYY-MM-DD formateeps lo
+    const today = new Date().toLocaleDateString("en-CA");
+
+
     // 1) Query for today's records
     const qbToday = this.buildBaseQuery(listingMapId, guestName);
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today });
@@ -234,6 +239,62 @@ export class ReservationInfoService {
     };
   }
 
+
+  private async getReservationByDateRange(checkInStartDate: Date, checkInEndDate: Date, checkOutStartDate: Date, checkOutEndDate: Date, listingMapId: string | undefined, guestName: string | undefined, page: number, limit: number) {
+    console.log("getReservationByDateRange", checkInStartDate, checkInEndDate, checkOutStartDate, checkOutEndDate, listingMapId, guestName, page, limit);
+    const qb = this.buildBaseQuery(listingMapId, guestName);
+    if (checkInStartDate && checkInEndDate) {
+      qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
+        start: checkInStartDate.toISOString().split('T')[0],
+        end: checkInEndDate.toISOString().split('T')[0]
+      });
+
+      qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      });
+
+      qb.orderBy("reservation.arrivalDate", "ASC");
+    }
+    if (checkOutStartDate && checkOutEndDate) {
+      qb.andWhere("DATE(reservation.departureDate) BETWEEN :start AND :end", {
+        start: checkOutStartDate.toISOString().split('T')[0],
+        end: checkOutEndDate.toISOString().split('T')[0]
+      });
+
+      qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      });
+
+      qb.orderBy("reservation.departureDate", "ASC");
+    }
+    // Use skip/take for pagination
+    const [results, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    for (const reservation of results) {
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
+      const reservationWithAuditStatus = {
+        ...reservation,
+        preStayAuditStatus: preStayStatus,
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
+      };
+      Object.assign(reservation, reservationWithAuditStatus);
+    }
+
+    return {
+      status: "success",
+      result: results,
+      count: total,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   /**
    * CASE 2: startDate & endDate provided
    *  - Fetch reservations where arrivalDate matches startDate and departureDate matches endDate
@@ -257,7 +318,7 @@ export class ReservationInfoService {
       start: formattedStartDate,
       end: formattedEndDate
     });
-    
+
     qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
       excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
@@ -530,7 +591,7 @@ export class ReservationInfoService {
     if (!reservation) {
       throw new Error(`Reservation not found with ID: ${id}`);
     }
-    
+
     reservation.isProcessedInStatement = isProcessedInStatement;
     return await this.reservationInfoRepository.save(reservation);
   }
