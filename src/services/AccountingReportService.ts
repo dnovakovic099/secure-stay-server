@@ -295,7 +295,7 @@ export class AccountingReportService {
     return listingWithRevenueAndExpense;
   }
 
-  private async saveOwnerStatement(transactionManager: EntityManager, { fromDate, toDate, dateType, channelId, listingId, userId }) {
+  private async saveOwnerStatement(transactionManager: EntityManager, { fromDate, toDate, dateType, channelId, listingId, userId, invoiceNo }) {
     const newOwnerStatement = new OwnerStatementEntity();
     newOwnerStatement.fromDate = fromDate;
     newOwnerStatement.toDate = toDate;
@@ -306,6 +306,7 @@ export class AccountingReportService {
     newOwnerStatement.updatedAt = new Date();
     newOwnerStatement.userId = userId;
     newOwnerStatement.createdBy = userId;
+    newOwnerStatement.invoiceNo = invoiceNo;
 
     return await transactionManager.save(newOwnerStatement);
   }
@@ -498,14 +499,56 @@ export class AccountingReportService {
     }
   }
 
-  private async saveOwnerStatementResolution(transactionManager: EntityManager, resolutions: Resolution[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[]) {
+  private calculateCommissionAndProcessingFee(amount: number, pmFee: number) {
+    return amount * (pmFee + 0.03);
+  }
+
+  private async saveOwnerStatementResolutionCommissionAndProcessingFee(transactionManager: EntityManager, resolution: Resolution, ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[], listingPmFee: { listingId: number, pmFee: number; }[]) {
+    let pmFee = (listingPmFee.find((listing) => listing.listingId == resolution.listingMapId)?.pmFee) / 100 || 0;
+
+    const newResolution = new OwnerStatementExpenseEntity();
+    newResolution.ownerStatementId = ownerStatementId;
+    newResolution.concept = resolution.category.split('_').includes('claim') ? "Claim: Commission & Processing Fee" : "Security Deposit: Commission & Processing Fee";
+    newResolution.date = String(resolution.claimDate);
+    newResolution.categories = "";
+    newResolution.listingId = resolution.listingMapId;
+    newResolution.listingName = listingNames.find(listing => listing.id == resolution.listingMapId).internalListingName;
+    newResolution.reservationId = null;
+    newResolution.guestName = resolution.guestName;
+    newResolution.amount = this.calculateCommissionAndProcessingFee(resolution.amount, pmFee) * -1;
+    newResolution.createdAt = new Date();
+    newResolution.updatedAt = new Date();
+
+    await transactionManager.save(newResolution);
+  }
+
+  private async saveOwnerStatementUpsellCommissionAndProcessingFee(transactionManager: EntityManager, upsell: UpsellOrder, ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[], listingPmFee: { listingId: number, pmFee: number; }[]) {
+    let pmFee = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0;
+
+    const newUpsell = new OwnerStatementExpenseEntity();
+    newUpsell.ownerStatementId = ownerStatementId;
+    newUpsell.concept = "Upsell: Commission & Processing Fee";
+    newUpsell.date = String(upsell.arrival_date);
+    newUpsell.categories = "";
+    newUpsell.listingId = Number(upsell.listing_id);
+    newUpsell.listingName = listingNames.find(listing => listing.id == Number(upsell.listing_id)).internalListingName;
+    newUpsell.reservationId = Number(upsell.booking_id);
+    newUpsell.guestName = upsell.client_name;
+    newUpsell.amount = this.calculateCommissionAndProcessingFee(upsell.cost, pmFee) * -1;
+    newUpsell.createdAt = new Date();
+    newUpsell.updatedAt = new Date();
+
+    await transactionManager.save(newUpsell);
+  }
+
+  private async saveOwnerStatementResolution(transactionManager: EntityManager, resolutions: Resolution[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[], listingPmFee: { listingId: number, pmFee: number; }[]) {
 
     for (const resolution of resolutions) {
       const newResolution = new OwnerStatementExpenseEntity();
       newResolution.ownerStatementId = ownerStatementId;
-      newResolution.concept = categoriesList[resolution.category as CategoryKey] ?? 'Resolutions';
+      newResolution.concept = resolution.category.split('_').includes('claim') ? "Claims" : "Security Deposit";
       newResolution.date = String(resolution.claimDate);
-      newResolution.categories = "Resolutions";
+      newResolution.categories = resolution.category.split('_').includes('claim') ? 'Resolution' : "Security Deposit"
       newResolution.listingId = resolution.listingMapId;
       newResolution.listingName = listingNames.find(listing => listing.id == resolution.listingMapId).internalListingName;
       newResolution.reservationId = null;
@@ -515,15 +558,16 @@ export class AccountingReportService {
       newResolution.updatedAt = new Date();
 
       await transactionManager.save(newResolution);
+      await this.saveOwnerStatementResolutionCommissionAndProcessingFee(transactionManager, resolution, ownerStatementId, listingNames, listingPmFee)
     }
   }
 
-  private async saveOwnerStatementUpsell(transactionManager: EntityManager, upsells: UpsellOrder[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[]) {
+  private async saveOwnerStatementUpsell(transactionManager: EntityManager, upsells: UpsellOrder[], ownerStatementId: number, listingNames: { id: number, name: string, internalListingName: string; }[], listingPmFee: { listingId: number, pmFee: number; }[]) {
     for (const upsell of upsells) {
       const newUpsell = new OwnerStatementExpenseEntity();
       newUpsell.ownerStatementId = ownerStatementId;
       newUpsell.concept = upsell.type;
-      newUpsell.date = String(upsell.order_date);
+      newUpsell.date = String(upsell.arrival_date);
       newUpsell.categories = "Upsell";
       newUpsell.listingId = Number(upsell.listing_id);
       newUpsell.listingName = listingNames.find(listing => listing.id == Number(upsell.listing_id)).internalListingName;
@@ -534,6 +578,7 @@ export class AccountingReportService {
       newUpsell.updatedAt = new Date();
 
       await transactionManager.save(newUpsell);
+      await this.saveOwnerStatementUpsellCommissionAndProcessingFee(transactionManager, upsell, ownerStatementId, listingNames, listingPmFee)
     }
   }
 
@@ -589,7 +634,7 @@ export class AccountingReportService {
   // }
 
   async createOwnerStatement(request: Request, userId: string) {
-    const { fromDate, toDate, dateType, channelId, listingId } = request.body;
+    const { fromDate, toDate, dateType, channelId, listingId, invoiceNo } = request.body;
 
     // Initialize services 
     const connectedAccountService = new ConnectedAccountService();
@@ -621,6 +666,7 @@ export class AccountingReportService {
         channelId,
         listingId,
         userId,
+        invoiceNo
       });
 
       // Save owner-statement income, expense, resolution, and upsell in parallel
@@ -629,8 +675,8 @@ export class AccountingReportService {
           transactionManager, reservations, newOwnerStatement.id, clientId, clientSecret, dateType, fromDate, toDate, listingPmFee
         ),
         this.saveOwnerStatementExpense(transactionManager, expenses, listingNames, categoryNames, newOwnerStatement.id),
-        this.saveOwnerStatementResolution(transactionManager, resolutions, newOwnerStatement.id, listingNames),
-        this.saveOwnerStatementUpsell(transactionManager, upsells, newOwnerStatement.id, listingNames),
+        this.saveOwnerStatementResolution(transactionManager, resolutions, newOwnerStatement.id, listingNames, listingPmFee),
+        this.saveOwnerStatementUpsell(transactionManager, upsells, newOwnerStatement.id, listingNames, listingPmFee),
       ]);
 
       return { status: true, message: "Owner statement created successfully!!!" };
@@ -687,7 +733,7 @@ export class AccountingReportService {
           address: listing?.address,
           city: listing?.city,
           state: listing?.state,
-          invoiceNo: statement.id,
+          invoiceNo: statement.invoiceNo,
           ownerDetails: ownerDetails[statement.listingId]
         };
       })
