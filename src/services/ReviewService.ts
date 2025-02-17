@@ -6,6 +6,7 @@ import logger from "../utils/logger.utils";
 import { ReservationService } from "./ReservationService";
 import { OwnerInfoEntity } from "../entity/OwnerInfo";
 import sendEmail from "../utils/sendEmai";
+import CustomErrorHandler from "../middleware/customError.middleware";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -79,6 +80,20 @@ export class ReviewService {
     }
 
 
+    public async updateReviewVisibility(reviewVisibility: string, id: number, userId: string) {
+        const review = await this.reviewRepository.findOne({ where: { id } });
+        if (!review) {
+            throw CustomErrorHandler.notFound(`Review not found with id: ${id}`);
+        }
+
+        review.isHidden = reviewVisibility == "Visible" ? 0 : 1;
+        review.updatedAt = new Date();
+        review.updatedBy = userId;
+        await this.reviewRepository.save(review);
+
+        return review;
+    }
+
 
     // fetch all reviews from the hostaway and save it in the database
     public async syncReviews() {
@@ -124,7 +139,8 @@ export class ReviewService {
                         guestName: reviewData.guestName,
                         listingMapId: reviewData.listingMapId,
                         channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName,
-                        isHidden: reviewData?.isHidden || 0,
+                        // isHidden: reviewData?.isHidden || 0,
+                        isHidden: existingReview.updatedBy ? existingReview.isHidden : reviewData?.isHidden || 0,
                         reservationId: reviewData?.reservationId || null
                     });
 
