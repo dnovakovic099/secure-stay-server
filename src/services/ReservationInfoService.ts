@@ -177,15 +177,14 @@ export class ReservationInfoService {
     const qbToday = this.buildBaseQuery(listingMapId, guestName);
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today });
     qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     const todaysReservations = await qbToday.getMany();
-
     // 2) Future records (arrivalDate > today), ascending
     const qbFuture = this.buildBaseQuery(listingMapId, guestName);
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     qbFuture.orderBy("reservation.arrivalDate", "ASC");
     const futureReservations = await qbFuture.getMany();
@@ -194,7 +193,7 @@ export class ReservationInfoService {
     const qbPast = this.buildBaseQuery(listingMapId, guestName);
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     qbPast.orderBy("reservation.arrivalDate", "DESC");
     const pastReservations = await qbPast.getMany();
@@ -260,7 +259,7 @@ export class ReservationInfoService {
     });
     
     qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
 
     qb.orderBy("reservation.arrivalDate", "ASC");
@@ -315,7 +314,7 @@ export class ReservationInfoService {
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today });
     qbToday.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
     qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     const todaysReservations = await qbToday.getMany();
 
@@ -324,7 +323,7 @@ export class ReservationInfoService {
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today });
     qbFuture.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     qbFuture.orderBy("reservation.arrivalDate", "ASC");
     const future = await qbFuture.getMany();
@@ -334,7 +333,7 @@ export class ReservationInfoService {
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today });
     qbPast.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     qbPast.orderBy("reservation.arrivalDate", "DESC");
     const past = await qbPast.getMany();
@@ -387,7 +386,7 @@ export class ReservationInfoService {
     const qb = this.buildBaseQuery(listingMapId, guestName);
     qb.andWhere("DATE(reservation.arrivalDate) = :startDate", { startDate: formattedStartDate });
     qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     qb.orderBy("reservation.arrivalDate", "ASC");
 
