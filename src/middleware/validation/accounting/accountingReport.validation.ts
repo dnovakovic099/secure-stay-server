@@ -39,7 +39,7 @@ export const validateCreateOwnerStatement = (request: Request, response: Respons
     dateType: Joi.string().required().valid("arrival", "departure", "prorated"),
     channelId: Joi.number().required().allow(""),
     listingId: Joi.number().required(),
-    invoiceNo: Joi.string().required()
+    invoiceNo: Joi.number().required().min(0)
   });
 
   const { error } = schema.validate(request.body);

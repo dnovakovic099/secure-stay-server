@@ -548,7 +548,7 @@ export class AccountingReportService {
       newResolution.ownerStatementId = ownerStatementId;
       newResolution.concept = resolution.category.split('_').includes('claim') ? "Claims" : "Security Deposit";
       newResolution.date = String(resolution.claimDate);
-      newResolution.categories = resolution.category.split('_').includes('claim') ? 'Resolution' : "Security Deposit"
+      newResolution.categories = "Resolution";
       newResolution.listingId = resolution.listingMapId;
       newResolution.listingName = listingNames.find(listing => listing.id == resolution.listingMapId).internalListingName;
       newResolution.reservationId = null;
@@ -666,7 +666,7 @@ export class AccountingReportService {
         channelId,
         listingId,
         userId,
-        invoiceNo
+        invoiceNo: invoiceNo.toString().padStart(4, '0')
       });
 
       // Save owner-statement income, expense, resolution, and upsell in parallel
