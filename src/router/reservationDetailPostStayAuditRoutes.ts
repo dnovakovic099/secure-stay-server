@@ -7,10 +7,10 @@ const router = Router();
 const postStayAuditController = new ReservationDetailPostStayAuditController();
 
 router.post("/:reservationId", verifySession, fileUpload('post-stay-audit').fields([
-    { name: 'attachments', maxCount: 10 }
+    { name: 'attachments', maxCount: 100 }
 ]), postStayAuditController.createAudit.bind(postStayAuditController));
 router.put("/:reservationId", verifySession, fileUpload('post-stay-audit').fields([
-    { name: 'attachments', maxCount: 10 }
+    { name: 'attachments', maxCount: 100 }
 ]), postStayAuditController.updateAudit.bind(postStayAuditController));
 router.get("/:reservationId", verifySession, postStayAuditController.getAuditByReservationId.bind(postStayAuditController));
 
