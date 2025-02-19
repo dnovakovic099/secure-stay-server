@@ -125,7 +125,7 @@ export class SalesController {
         await browser.close();
         response.status(400).json({ error: "Unable to Log into AirDna" });
       }
-
+      await page.waitForSelector(".css-1a9leff", { timeout: 10000 });
       const searchInputSelector =
         'input[placeholder="Search market, submarket, or address"]';
       await page.type(searchInputSelector, address as string);
@@ -323,6 +323,37 @@ export class SalesController {
         await browser.close();
       }
       return response.status(500).json({ error: "Unable to generate pdf" });
+    }
+  }
+
+  async getDetailsForListing(request: Request, response: Response) {
+    const { listingLink } = request.query;
+    let browser: Browser;
+    console.log("listingLink", listingLink);
+
+    try {
+      browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
+      const page = await browser.newPage();
+      const customUA = generateRandomUA();
+      await page.setUserAgent(customUA);
+      await page.setViewport({ width: 1920, height: 1080 });
+      const credentials: LoginCredentials = {
+        email: process.env.AIRDNA_EMAIL,
+        password: process.env.AIRDNA_PASSWORD,
+      };
+      const isLoggedIn = await login(page, credentials);
+      if (!isLoggedIn) {
+        await browser.close();
+        response.status(400).json({ error: "Unable to Log into AirDna" });
+      }
+      await page.goto(listingLink as string);
+    } catch (error) {
+      if (browser) {
+        await browser.close();
+      }
+      return response
+        .status(500)
+        .json({ error: "Unable to fetch details from the airdna link" });
     }
   }
 }

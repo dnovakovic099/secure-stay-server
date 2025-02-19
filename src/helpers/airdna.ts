@@ -11,7 +11,6 @@ export const login = async (page: Page, credentials: LoginCredentials) => {
     await page.type('input[name="email"]', credentials.email);
     await page.type('input[name="password"]', credentials.password);
     await page.click('button[type="submit"]');
-    await page.waitForSelector(".css-1a9leff", { timeout: 10000 });
     return true;
   } catch (error) {
     console.error("Login failed:", error);

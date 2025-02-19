@@ -29,6 +29,10 @@ router.route("/getDetailsFromAddress").get(
   validateParamsWhenFetchingData,
   salesController.getDetailsFromAirDna
 );
+router.route("/getPropertyDetailsFromLink").get(
+  // verifySession,
+  salesController.getDetailsFromAirDna
+);
 
 router.route("/generatePdf/:client_id").get(
   // verifySession,
