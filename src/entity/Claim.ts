@@ -7,8 +7,8 @@ export class Claim {
 
     @Column({
         type: "enum",
-        enum: ["In Progress", "Overdue", "Completed", "Need Help"],
-        default: "In Progress"
+        enum: ["Not Submitted", "In Progress", "Submitted", "Resolved"],
+        default: "Not Submitted"
     })
     status: string;
 
@@ -18,11 +18,14 @@ export class Claim {
     @Column({ nullable: true })
     listing_name: string;
 
+    @Column({ type: 'text', nullable: true })
+    description: string;
+
     @Column({ nullable: true })
     reservation_id: string;
 
     @Column({ type: 'date', nullable: true })
-    check_in_date: Date;
+    check_out_date: Date;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     reservation_amount: number;
@@ -36,26 +39,11 @@ export class Claim {
     @Column({ nullable: true })
     guest_contact_number: string;
 
-    @Column({ type: 'text', nullable: true })
-    description: string;
-
-    @Column({ type: 'text', nullable: true })
-    owner_notes: string;
-
-    @Column({ type: 'text', nullable: true })
-    payment_information: string;
-
-    @Column({ nullable: true })
-    creator: string;
-
-    @Column({ type: 'date', nullable: true })
-    date_time_reported: Date;
-
     @Column({ type: 'date', nullable: true })
     date_time_contractor_contacted: Date;
 
     @Column({ type: 'date', nullable: true })
-    date_time_contractor_deployed: Date;
+    date_time_work_finished: Date;
 
     @Column({ type: 'text', nullable: true })
     quote_1: string;
@@ -66,58 +54,17 @@ export class Claim {
     @Column({ type: 'text', nullable: true })
     quote_3: string;
 
-    @Column({ type: 'text', nullable: true })
-    quote_4: string;
-
-    @Column({ type: 'text', nullable: true })
-    quote_5: string;
-
-    @Column({ type: 'text', nullable: true })
-    quote_6: string;
-
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     estimated_reasonable_price: number;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     final_price: number;
 
-    @Column({ type: 'datetime', nullable: true })
-    date_time_work_finished: Date;
-
-    @Column({ nullable: true })
-    final_contractor_name: string;
+    @Column({ type: 'text', nullable: true })
+    payment_information: string;
 
     @Column({ nullable: true })
     reporter: string;
-
-    @Column({ type: 'text', nullable: true })
-    is_preventable: string;
-
-    @Column({ nullable: true })
-    completed_by: string;
-
-    @Column({ type: 'date', nullable: true })
-    completed_at: Date;
-
-    @Column({
-        type: 'enum',
-        enum: ['Yes', 'No'],
-        nullable: true
-    })
-    needs_attention: string;
-
-    @Column({
-        type: 'enum',
-        enum: ['N/A', 'Pending', 'Completed', 'Denied'],
-        default: 'N/A'
-    })
-    claim_resolution_status: string;
-
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-    claim_resolution_amount: number;
-
-    @Column({ type: 'text', nullable: true })
-    next_steps: string;
 
     @CreateDateColumn()
     created_at: Date;

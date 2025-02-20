@@ -34,7 +34,6 @@ export class ClaimsService {
         toDate: string = '', 
         status: string = '', 
         listingId: string = '',
-        isClaimOnly?: boolean,
         claimAmount?: string,
         guestName?: string
     ) {
@@ -71,10 +70,6 @@ export class ClaimsService {
             queryOptions.where.listing_name = listingId;
         }
 
-        if (isClaimOnly) {
-            queryOptions.where.claim_resolution_status = Not('N/A');
-        }
-
         if (claimAmount) {
             queryOptions.where.claim_resolution_amount = claimAmount;
         }
@@ -103,11 +98,6 @@ export class ClaimsService {
 
         if (!claim) {
             throw new Error('Claim not found');
-        }
-
-        if (data.status === 'Completed') {
-            data.completed_at = this.formatDate(new Date()) as any;
-            data.completed_by = userId;
         }
 
         let updatedFileNames = [];
@@ -154,24 +144,15 @@ export class ClaimsService {
         const formattedData = claims.map(claim => ({
             Status: claim.status,
             Listing: claim.listing_id,
-            'Needs Attention': claim.needs_attention,
-            'Next Steps': claim.next_steps,
-            'Claim Resolution Status': claim.claim_resolution_status,
-            'Claim Resolution Amount': claim.claim_resolution_amount,
             'Reservation ID': claim.reservation_id,
-            'Check-In Date': claim.check_in_date,
+            'Check-Out Date': claim.check_out_date,
             'Reservation Amount': claim.reservation_amount,
             Channel: claim.channel,
             'Guest Name': claim.guest_name,
             'Guest Contact': claim.guest_contact_number,
             'Claim Description': claim.description,
-            'Owner Notes': claim.owner_notes,
-            Creator: claim.creator,
-            'Date Reported': claim.date_time_reported,
             'Contractor Contacted': claim.date_time_contractor_contacted,
-            'Contractor Deployed': claim.date_time_contractor_deployed,
             'Work Finished': claim.date_time_work_finished,
-            'Final Contractor': claim.final_contractor_name,
             'Final Price': claim.final_price
         }));
 

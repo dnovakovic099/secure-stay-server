@@ -11,7 +11,6 @@ export class ClaimsController {
             const toDate = request.query.toDate as string || '';
             const status = request.query.status as string || ''; 
             const listingId = request.query.listingId as string || '';
-            const isClaimOnly = request.query.isClaimOnly === 'true';
             const claimAmount = request.query.claimAmount as string;
             const guestName = request.query.guestName as string;
 
@@ -22,7 +21,6 @@ export class ClaimsController {
                 toDate, 
                 status, 
                 listingId,
-                isClaimOnly,
                 claimAmount,
                 guestName
             );
