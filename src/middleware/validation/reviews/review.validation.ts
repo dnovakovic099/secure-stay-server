@@ -30,3 +30,15 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
     }
     next();
 };
+
+export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        reviewVisibility: Joi.string().required().valid("Visible", "Hidden"),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

@@ -38,4 +38,23 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async updateReviewVisibility(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const { reviewVisibility } = request.body;
+            const { id } = request.params;
+            const userId = request.user.id;
+
+            const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, Number(id), userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedReview
+            });
+        } catch (error) {
+            logger.error("Error updating review visibility:", error);
+            return next(error);
+        }
+    }
 }

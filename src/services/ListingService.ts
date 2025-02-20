@@ -10,6 +10,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
 import { ownerDetails } from "../constant";
+import { ListingDetail } from "../entity/ListingDetails";
 
 interface ListingUpdate {
   listingId: number;
@@ -24,6 +25,7 @@ export class ListingService {
   private connectedAccountInfoRepository = appDatabase.getRepository(ConnectedAccountInfo);
   private listingScore = appDatabase.getRepository(ListingScore)
   private listingUpdateRepo = appDatabase.getRepository(ListingUpdateEntity);
+  private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
@@ -269,6 +271,33 @@ export class ListingService {
     });
 
     return updates;
+  }
+
+  public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
+    const { propertyOwnershipType, listingId } = body;
+    const listingDetail = new ListingDetail();
+    listingDetail.listingId = listingId;
+    listingDetail.propertyOwnershipType = propertyOwnershipType;
+    listingDetail.createdBy = userId;
+    return await this.listingDetailRepo.save(listingDetail);
+  };
+
+  public async updateListingDetail(body: Partial<ListingDetail>, listingDetail: Partial<ListingDetail>, userId: string) {
+    listingDetail.propertyOwnershipType = body.propertyOwnershipType;
+    listingDetail.updatedBy = userId;
+    return await this.listingDetailRepo.save(listingDetail);
+  }
+
+  public async saveListingDetails(body: Partial<ListingDetail>, userId: string) {
+    const listingDetail = await this.listingDetailRepo.findOne({ where: { listingId: body.listingId } });
+    if (listingDetail) {
+      return this.updateListingDetail(body, listingDetail, userId);
+    }
+    return this.createListingDetail(body, userId);
+  }
+
+  public async getListingDetail(listingId: number) {
+    return await this.listingDetailRepo.findOne({ where: { listingId } });
   }
 
 }

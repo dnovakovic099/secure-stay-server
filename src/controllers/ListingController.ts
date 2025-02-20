@@ -128,4 +128,32 @@ export class ListingController {
     }
   }
 
+
+  async saveListingDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+      const body = request.body;
+
+      await listingService.saveListingDetails(body, userId);
+
+      return response.status(200).json(dataSaved('Listing details saved successfully!!!'));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getListingDetail(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = Number(request.params.listingId);
+
+      const listingDetail = await listingService.getListingDetail(listingId);
+
+      return response.status(200).json(successDataFetch(listingDetail));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

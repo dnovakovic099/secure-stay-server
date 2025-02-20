@@ -64,7 +64,7 @@ export class UpsellOrderService {
         return await this.upsellOrderRepo.find({
             where: {
                 listing_id: String(listingId),
-                order_date: Between(
+                arrival_date: Between(
                     new Date(fromDate),
                     new Date(toDate)
                 )
