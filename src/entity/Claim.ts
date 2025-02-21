@@ -66,6 +66,9 @@ export class Claim {
     @Column({ nullable: true })
     reporter: string;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    claim_resolution_amount: number;
+
     @CreateDateColumn()
     created_at: Date;
 
