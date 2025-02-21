@@ -7,12 +7,14 @@ import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStay
 import * as XLSX from 'xlsx';
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
+import { UpsellOrderService } from "./UpsellOrderService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
+  private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
@@ -85,7 +87,7 @@ export class ReservationInfoService {
     reservation.airbnbTransientOccupancyTaxPaidAmount = updateData.airbnbTransientOccupancyTaxPaidAmount;
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
-    
+
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -98,15 +100,21 @@ export class ReservationInfoService {
     try {
       // 1. Parse Query Params
       const {
-        arrivalStartDate: arrivalStartDateStr,
-        arrivalEndDate: arrivalEndDateStr,
+        checkInStartDate: checkInStartDateStr,
+        checkInEndDate: checkInEndDateStr,
+        checkOutStartDate: checkOutStartDateStr,
+        checkOutEndDate: checkOutEndDateStr,
+        todayDate: todayDateStr,
         listingMapId,
         guestName,
         page,
         limit
       } = request.query as {
-        arrivalStartDate?: string;
-        arrivalEndDate?: string;
+        checkInStartDate?: string;
+        checkInEndDate?: string;
+        checkOutStartDate?: string;
+        checkOutEndDate?: string;
+        todayDate?: string;
         listingMapId?: string;
         guestName?: string;
         page?: string;
@@ -116,75 +124,55 @@ export class ReservationInfoService {
       // Convert page/limit to numbers with defaults
       const pageNumber = page ? parseInt(page, 10) : 1;
       const pageSize = limit ? parseInt(limit, 10) : 10;
-
-      // Convert start/end dates to Date objects (if provided)
-      let arrivalStartDate: Date | undefined;
-      let arrivalEndDate: Date | undefined;
-
-      // check also if it is a valid date
-      if (arrivalStartDateStr && !isNaN(new Date(arrivalStartDateStr).getTime())) {
-        arrivalStartDate = new Date(arrivalStartDateStr);
-      }
-      if (arrivalEndDateStr && !isNaN(new Date(arrivalEndDateStr).getTime())) {
-        arrivalEndDate = new Date(arrivalEndDateStr);
-      }
-
       // 2. Determine which case to handle
-      // CASE 2: startDate AND endDate
-      if (arrivalStartDate && arrivalEndDate) {
-        return await this.getCase2(arrivalStartDate, arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
+      if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingMapId, guestName, pageNumber, pageSize);
       }
-      // CASE 4: Only startDate
-      if (arrivalStartDate && !arrivalEndDate) {
-        return await this.getCase4(arrivalStartDate, listingMapId, guestName, pageNumber, pageSize);
-      }
-      // CASE 3: Only endDate
-      if (!arrivalStartDate && arrivalEndDate) {
-        return await this.getCase3(arrivalEndDate, listingMapId, guestName, pageNumber, pageSize);
-      }
-      // CASE 1 (and 5 with filters): No start/end date
-      return await this.getCase1Default(listingMapId, guestName, pageNumber, pageSize);
+      return await this.getCase1Default(todayDateStr, listingMapId, guestName, pageNumber, pageSize);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
       return {
         status: "error",
         message: "Error fetching reservations" + error.message
-      }; 
+      };
     }
   }
 
   /**
    * CASE 1: Default (no start/end date).
-   *  - Today's records (arrivalDate = today) at the top, excluded from pagination
-   *  - Future (arrivalDate > today) ascending
-   *  - Past (arrivalDate < today) descending
-   *  - Merge future + past, apply offset/limit, then prepend today's records
-   *  - listingMapId & guestName filters are applied in *all* queries, including today's.
    */
   private async getCase1Default(
+    todayDateStr: string,
     listingMapId: string | undefined,
     guestName: string | undefined,
     page: number,
-    limit: number
+    limit: number 
   ) {
-    // "Today" boundaries in YYYY-MM-DD format
-    const today = new Date().toISOString().split('T')[0];
-    
+
+
     // 1) Query for today's records
     const qbToday = this.buildBaseQuery(listingMapId, guestName);
-    qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today });
+    qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today: todayDateStr });
+    qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
     const todaysReservations = await qbToday.getMany();
-
     // 2) Future records (arrivalDate > today), ascending
     const qbFuture = this.buildBaseQuery(listingMapId, guestName);
-    qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today });
+    qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today: todayDateStr });
+    qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
     qbFuture.orderBy("reservation.arrivalDate", "ASC");
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
     const qbPast = this.buildBaseQuery(listingMapId, guestName);
-    qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today });
+    qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today: todayDateStr });
+    qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
     qbPast.orderBy("reservation.arrivalDate", "DESC");
     const pastReservations = await qbPast.getMany();
 
@@ -205,10 +193,12 @@ export class ReservationInfoService {
     for (const reservation of finalResults) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -224,34 +214,33 @@ export class ReservationInfoService {
 
   /**
    * CASE 2: startDate & endDate provided
-   *  - Fetch reservations where arrivalDate matches startDate and departureDate matches endDate
-   *  - Sort ascending by arrivalDate
-   *  - Apply normal pagination
    */
-  private async getCase2(
-    startDate: Date,
-    endDate: Date,
-    listingMapId: string | undefined,
-    guestName: string | undefined,
-    page: number,
-    limit: number
-  ) {
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string | undefined, guestName: string | undefined, page: number, limit: number) {
     const qb = this.buildBaseQuery(listingMapId, guestName);
+    if (checkInStartDate && checkInEndDate) {
+      qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
+        start: checkInStartDate,
+        end: checkInEndDate
+      });
 
-    const formattedStartDate = startDate.toISOString().split('T')[0];
-    const formattedEndDate = endDate.toISOString().split('T')[0];
+      qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      });
 
-    qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
-      start: formattedStartDate,
-      end: formattedEndDate
-    });
-    
-    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["expired", "cancelled"]
-    });
+      qb.orderBy("reservation.arrivalDate", "ASC");
+    }
+    if (checkOutStartDate && checkOutEndDate) {
+      qb.andWhere("DATE(reservation.departureDate) BETWEEN :start AND :end", {
+        start: checkOutStartDate,
+        end: checkOutEndDate
+      });
 
-    qb.orderBy("reservation.arrivalDate", "ASC");
+      qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      });
 
+      qb.orderBy("reservation.departureDate", "ASC");
+    }
     // Use skip/take for pagination
     const [results, total] = await qb
       .skip((page - 1) * limit)
@@ -261,10 +250,12 @@ export class ReservationInfoService {
     for (const reservation of results) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -275,119 +266,6 @@ export class ReservationInfoService {
       count: total,
       currentPage: page,
       totalPages: Math.ceil(total / limit),
-    };
-  }
-
-  /**
-   * CASE 3: Only endDate
-   *  - Today: arrivalDate = today && departureDate = endDate
-   *  - Future: arrivalDate > today && departureDate = endDate, ascending
-   *  - Past: arrivalDate < today && departureDate = endDate, descending
-   *  - Merge and then apply offset/limit
-   */
-  private async getCase3(
-    endDate: Date,
-    listingMapId: string | undefined,
-    guestName: string | undefined,
-    page: number,
-    limit: number
-  ) {
-    const today = new Date().toISOString().split('T')[0];
-    const formattedEndDate = endDate.toISOString().split('T')[0];
-
-    // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName);
-    qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today });
-    qbToday.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
-    const todaysReservations = await qbToday.getMany();
-
-    // 2) Future reservations: arrival > today & departureDate = endDate
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName);
-    qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today });
-    qbFuture.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
-    qbFuture.orderBy("reservation.arrivalDate", "ASC");
-    const future = await qbFuture.getMany();
-
-    // 3) Past reservations: arrival < today & departureDate = endDate
-    const qbPast = this.buildBaseQuery(listingMapId, guestName);
-    qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today });
-    qbPast.andWhere("DATE(reservation.departureDate) = :endDate", { endDate: formattedEndDate });
-    qbPast.orderBy("reservation.arrivalDate", "DESC");
-    const past = await qbPast.getMany();
-
-    // Merge future + past
-    const merged = [...future, ...past];
-    const totalCount = merged.length;
-
-    // Apply pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginated = merged.slice(startIndex, endIndex);
-
-    // Final results => today first, then paginated future/past
-    const finalResults = [...todaysReservations, ...paginated];
-
-    for (const reservation of finalResults) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const reservationWithAuditStatus = {
-        ...reservation,
-        preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
-      };
-      Object.assign(reservation, reservationWithAuditStatus);
-    }
-    return {
-      status: "success",
-      result: finalResults,
-      count: totalCount,
-      currentPage: page,
-      totalPages: Math.ceil(totalCount / limit),
-    };
-  }
-
-  /**
-   * CASE 4: Only startDate
-   *  - Fetch all arrivalDate >= startDate, ascending
-   */
-  private async getCase4(
-    startDate: Date,
-    listingMapId: string | undefined,
-    guestName: string | undefined,
-    page: number,
-    limit: number
-  ) {
-    const formattedStartDate = startDate.toISOString().split('T')[0];
-    const qb = this.buildBaseQuery(listingMapId, guestName);
-    qb.andWhere("DATE(reservation.arrivalDate) = :startDate", { startDate: formattedStartDate });
-    qb.orderBy("reservation.arrivalDate", "ASC");
-
-    const allReservations = await qb.getMany();
-
-    const totalCount = allReservations.length;
-
-    // Pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginated = allReservations.slice(startIndex, endIndex);
-
-    for (const reservation of paginated) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const reservationWithAuditStatus = {
-        ...reservation,
-        preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus
-      };
-      Object.assign(reservation, reservationWithAuditStatus);
-    }
-
-    return {
-      status: "success",
-      result: paginated,
-      count: totalCount,
-      currentPage: page,
-      totalPages: Math.ceil(totalCount / limit),
     };
   }
 
@@ -500,7 +378,7 @@ export class ReservationInfoService {
     if (!reservation) {
       throw new Error(`Reservation not found with ID: ${id}`);
     }
-    
+
     reservation.isProcessedInStatement = isProcessedInStatement;
     return await this.reservationInfoRepository.save(reservation);
   }

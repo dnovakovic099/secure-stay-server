@@ -36,6 +36,9 @@ export class OwnerStatementEntity {
     @Column({ nullable: true })
     paymentStatus: string;
 
+    @Column({ nullable: true })
+    invoiceNo: string;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

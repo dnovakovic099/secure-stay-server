@@ -64,11 +64,19 @@ export class UpsellOrderService {
         return await this.upsellOrderRepo.find({
             where: {
                 listing_id: String(listingId),
-                order_date: Between(
+                arrival_date: Between(
                     new Date(fromDate),
                     new Date(toDate)
                 )
             }
         });
     }
-} 
+
+    async getUpsellsByReservationId(reservationId: number) {
+        const orders = await this.upsellOrderRepo.find({ where: { booking_id: String(reservationId) } });
+        return orders.map(order => ({
+            type: order.type,
+            upsellId: String(order.id)
+        }));
+    }
+}
