@@ -683,14 +683,22 @@ export class AccountingReportService {
     });
   }
 
-  async getOwnerStatements(userId: string) {
+  async getOwnerStatements(userId: string, listingId: number) {
 
-    const ownerStatements = await this.ownerStatementRepository
+    let query = this.ownerStatementRepository
       .createQueryBuilder("owner_statements")
       .leftJoinAndSelect("owner_statements.income", "owner_statement_income")
       .leftJoinAndSelect("owner_statements.expense", "owner_statement_expense")
       .where("owner_statements.userId = :userId", { userId })
-      .getMany();
+      .orderBy("owner_statements.fromDate", "DESC")
+      .addOrderBy("owner_statements.toDate", "DESC");
+
+    // Conditionally add listingId to the where clause if it's provided
+    if (listingId) {
+      query = query.andWhere("owner_statements.listingId = :listingId", { listingId });
+    }
+
+    const ownerStatements = await query.getMany();
 
     const reservationService = new ReservationService();
     const channels = await reservationService.getChannelList();
@@ -729,7 +737,7 @@ export class AccountingReportService {
           currentDate: formatDate(getCurrentDateInUTC()),
           revenue: revenue.toFixed(2),
           expenses: expense.toFixed(2),
-          listingName: listing?.name,
+          listingName: listing?.internalListingName,
           address: listing?.address,
           city: listing?.city,
           state: listing?.state,

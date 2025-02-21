@@ -146,7 +146,7 @@ export class ListingController {
   async getListingDetail(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const listingService = new ListingService();
-      const listingId = Number(request.params.listingId);
+      const listingId = Number(request.query.listingId);
 
       const listingDetail = await listingService.getListingDetail(listingId);
 

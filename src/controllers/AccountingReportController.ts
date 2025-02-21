@@ -32,7 +32,8 @@ export class AccountingReportController {
     try {
       const accountingReportServicer = new AccountingReportService();
       const userId = request.user.id;
-      return response.send(await accountingReportServicer.getOwnerStatements(userId));
+      const listingId = Number(request.query.listingId);
+      return response.send(await accountingReportServicer.getOwnerStatements(userId, listingId));
     } catch (error) {
       next(error);
     }
