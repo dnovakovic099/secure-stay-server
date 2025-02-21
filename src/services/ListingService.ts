@@ -274,16 +274,18 @@ export class ListingService {
   }
 
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
-    const { propertyOwnershipType, listingId } = body;
+    const { propertyOwnershipType, listingId, statementDurationType } = body;
     const listingDetail = new ListingDetail();
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
+    listingDetail.statementDurationType = statementDurationType;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
 
   public async updateListingDetail(body: Partial<ListingDetail>, listingDetail: Partial<ListingDetail>, userId: string) {
     listingDetail.propertyOwnershipType = body.propertyOwnershipType;
+    listingDetail.statementDurationType = body.statementDurationType;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }
@@ -296,8 +298,11 @@ export class ListingService {
     return this.createListingDetail(body, userId);
   }
 
-  public async getListingDetail(listingId: number) {
-    return await this.listingDetailRepo.findOne({ where: { listingId } });
+  public async getListingDetail(listingId?: number) {
+    if (listingId) {
+      return await this.listingDetailRepo.findOne({ where: { listingId } });
+    }
+    return await this.listingDetailRepo.find();
   }
 
 }

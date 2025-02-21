@@ -52,7 +52,7 @@ router.route('/savelistingdetails')
     listingController.saveListingDetails
   );
 
-router.route('/getlistingdetail/:listingId')
+router.route('/getlistingdetail')
   .get(
     verifySession,
     listingController.getListingDetail
