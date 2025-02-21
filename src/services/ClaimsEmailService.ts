@@ -48,8 +48,8 @@ export async function sendUnresolvedClaimEmail(claim: any) {
             await sendEmail(
                 subject,
                 html,
-                process.env.EMAIL_FROM || 'prasannakumarbaniya@gmail.com',
-                process.env.EMAIL_TO || 'admin@luxurylodgingpm.com'
+                process.env.EMAIL_FROM,
+                process.env.EMAIL_TO
             );
 
         } catch (error) {
