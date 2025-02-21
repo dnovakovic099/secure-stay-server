@@ -17,5 +17,5 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 * * * *", syncReviews);
 
-  schedule.scheduleJob("0 * * * *", syncIssue);
+  schedule.scheduleJob("0 14 * * 1", syncIssue);
 }
