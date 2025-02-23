@@ -218,4 +218,9 @@ declare global {
       total_comps: number;
     };
   }
+
+  interface airDnaScrappedDataFromListingLink {
+    listingScreenshotSessionId: string;
+    listingRatingText: string;
+  }
 }

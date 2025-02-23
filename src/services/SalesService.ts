@@ -27,6 +27,8 @@ export class ClientService {
       guests,
       beds,
       airDnaData,
+      listingLink,
+      listingData,
     } = request.body;
 
     const newClient = this.clientRepository.create({
@@ -43,6 +45,7 @@ export class ClientService {
       baths,
       guests,
       beds,
+      listingLink,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -58,7 +61,12 @@ export class ClientService {
       property_details,
       screenshotSessionId,
     } = airDnaData as AirDnaScrappedDataResponse;
+
+    const { listingScreenshotSessionId, listingRating } = listingData;
     const currentDate = new Date();
+    const roundedCleaningFee =
+      Math.round(property_statistics.cleaning_fee.ltm * 100) / 100;
+
     const listing = this.clientListingRepository.create({
       clientId: savedClient.id,
       airdnaMarketName: combined_market_info.airdna_market_name,
@@ -68,7 +76,7 @@ export class ClientService {
       lng: property_details.location.lng,
       occupancy: property_statistics.occupancy.ltm,
       address: property_details.address,
-      cleaningFee: property_statistics.cleaning_fee.ltm,
+      cleaningFee: roundedCleaningFee,
       revenue: property_statistics.revenue.ltm,
       totalComps: property_statistics.total_comps,
       comps,
@@ -77,6 +85,8 @@ export class ClientService {
       zipcode: property_details.zipcode,
       revenueRange: property_statistics.revenue_range,
       screenshotSessionId,
+      listingScreenshotSessionId,
+      listingRating,
       // fileNames: fileNames ? JSON.stringify(fileNames) : "",
       createdAt: currentDate,
       updatedAt: currentDate,

@@ -42,7 +42,7 @@ export class ClientListingEntity {
   @Column({ type: "varchar", length: 255 })
   address: string;
 
-  @Column({ type: "decimal", precision: 10, scale: 7 })
+  @Column({ type: "decimal" })
   cleaningFee: number;
 
   @Column({ type: "int" })
@@ -68,6 +68,12 @@ export class ClientListingEntity {
 
   @Column({ type: "varchar", length: 255, nullable: true })
   screenshotSessionId: string;
+
+  @Column({ type: "varchar", length: 255, nullable: true })
+  listingScreenshotSessionId: string;
+
+  @Column({ type: "varchar", length: 255, nullable: true })
+  listingRating: string;
 
   @CreateDateColumn()
   createdAt: Date;

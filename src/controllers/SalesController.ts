@@ -84,11 +84,12 @@ export class SalesController {
     }
   }
   async getDetailsFromAirDna(request: Request, response: Response) {
-    const { address, ...rest } = request.query as {
+    const { address, listingLink, ...rest } = request.query as {
       address: string;
       beds: string;
       baths: string;
       guests: string;
+      listingLink: string;
     };
 
     const credentials: LoginCredentials = {
@@ -101,7 +102,7 @@ export class SalesController {
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
-      // page.setDefaultTimeout(60000);
+      page.setDefaultTimeout(60000);
 
       const customUA = generateRandomUA();
 
@@ -125,27 +126,51 @@ export class SalesController {
         await browser.close();
         response.status(400).json({ error: "Unable to Log into AirDna" });
       }
-      await page.waitForSelector(".css-1a9leff", { timeout: 10000 });
-      const searchInputSelector =
-        'input[placeholder="Search market, submarket, or address"]';
-      await page.type(searchInputSelector, address as string);
+      let apiResponse: {
+        data?: any;
+        success: boolean;
+      } = { success: false };
 
-      const dropdownSelector = ".MuiAutocomplete-popper li";
-      await page.waitForSelector(dropdownSelector);
+      if (address) {
+        await page.waitForSelector(".css-1a9leff", { timeout: 30000 });
+        const searchInputSelector =
+          'input[placeholder="Search market, submarket, or address"]';
+        await page.type(searchInputSelector, address as string);
 
-      const listings = await page.$$(dropdownSelector);
-      await page.waitForNetworkIdle();
-      if (!listings.length) {
-        await browser.close();
-        response
-          .status(404)
-          .json({ error: "No Listings available for this address" });
+        const dropdownSelector = ".MuiAutocomplete-popper li";
+        await page.waitForSelector(dropdownSelector);
+
+        const listings = await page.$$(dropdownSelector);
+        await page.waitForNetworkIdle();
+        if (!listings.length) {
+          await browser.close();
+          response
+            .status(404)
+            .json({ error: "No Listings available for this address" });
+        }
+        await listings[0].click();
+        await page.waitForNetworkIdle();
+        apiResponse = await setBedBathGuestCounts(page, rest);
       }
-      await listings[0].click();
-      await page.waitForNetworkIdle();
-      const apiResponse = await setBedBathGuestCounts(page, rest);
 
-      const screenShots = await takeScreenShots(page);
+      if (listingLink) {
+        console.log("check 1");
+        await page.goto(listingLink, {
+          timeout: 0,
+          waitUntil: "load",
+        });
+        // Set success to true for listingLink case
+        apiResponse = {
+          success: true,
+          data: {
+            payload: {
+              message: "Successfully fetched listing details",
+            },
+          },
+        };
+      }
+      const listingUrl = listingLink ? true : false;
+      const screenShots = await takeScreenShots(page, listingUrl);
 
       // const allElements = await scrapeAllDataFromSelectedListing(page);
 
@@ -159,8 +184,12 @@ export class SalesController {
       }
 
       const responseData = {
-        ...apiResponse.data.payload,
-        ...screenShots,
+        ...(listingLink
+          ? {
+              listingScreenshotSessionId: screenShots.screenshotSessionId,
+              listingRating: screenShots.screenShots.listingRatingText,
+            }
+          : { ...(apiResponse.data?.payload || {}), ...(screenShots || {}) }),
       };
 
       return response.json(responseData);
