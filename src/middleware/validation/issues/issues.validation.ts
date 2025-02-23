@@ -37,7 +37,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         completed_at: Joi.date().allow(null),
         needs_attention: Joi.string().valid('Yes', 'No').allow(null),
         claim_resolution_status: Joi.string()
-            .valid('N/A', 'Pending', 'Completed', 'Denied')
+            .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved')
             .default('N/A'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
@@ -85,7 +85,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         completed_at: Joi.date().allow(null),
         needs_attention: Joi.string().valid('Yes', 'No').allow(null),
         claim_resolution_status: Joi.string()
-            .valid('N/A', 'Pending', 'Completed', 'Denied'),
+            .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, '')

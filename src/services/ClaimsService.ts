@@ -52,7 +52,9 @@ export class ClaimsService {
             startDate.setHours(0, 0, 0, 0);
 
             const endDate = new Date(toDate);
-            endDate.setHours(23, 59, 59, 999);
+
+            endDate.setDate(endDate.getDate() + 1);
+            endDate.setUTCHours(0, 0, 0, 0);
 
             queryOptions.where = {
                 created_at: Between(
