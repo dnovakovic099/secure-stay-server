@@ -108,7 +108,7 @@ export class Issue {
 
     @Column({
         type: 'enum',
-        enum: ['N/A', 'Pending', 'Completed', 'Denied'],
+        enum: ['N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'],
         default: 'N/A'
     })
     claim_resolution_status: string;

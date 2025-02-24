@@ -7,9 +7,12 @@ export class Resolution {
 
     @Column({
         type: "enum",
-        enum: ["full_claim", "partial_claim", "security_deposit"]
+        enum: ["claim", "security_deposit", "pet_fee", "extra_cleaning", "others"]
     })
     category: string;
+
+    @Column({ nullable: true })
+    otherCategoryDescription: string;
 
     @Column()
     listingMapId: number;
