@@ -351,7 +351,17 @@ export class SalesController {
           .json({ error: "Unable to Log into AirDna" });
       }
       await page.goto(listingLink, {
-        waitUntil: "load",
+        waitUntil: "networkidle2",
+      });
+      const { screenshotSessionId, ...screenshots } = await takeScreenShots(
+        page,
+        listingLink
+      );
+      await browser.close();
+      return response.json({
+        success: true,
+        sessionId: screenshotSessionId,
+        data: screenshots,
       });
     } catch (error) {
       if (browser) {
