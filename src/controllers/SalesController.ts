@@ -101,7 +101,7 @@ export class SalesController {
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
-      // page.setDefaultTimeout(60000);
+      page.setDefaultTimeout(60000);
 
       const customUA = generateRandomUA();
 
@@ -125,7 +125,7 @@ export class SalesController {
         await browser.close();
         response.status(400).json({ error: "Unable to Log into AirDna" });
       }
-      await page.waitForSelector(".css-1a9leff", { timeout: 10000 });
+      await page.waitForSelector(".css-1a9leff");
       const searchInputSelector =
         'input[placeholder="Search market, submarket, or address"]';
       await page.type(searchInputSelector, address as string);
@@ -327,7 +327,9 @@ export class SalesController {
   }
 
   async getDetailsForListing(request: Request, response: Response) {
-    const { listingLink } = request.query;
+    const { listingLink } = request.query as {
+      listingLink: string;
+    };
     let browser: Browser;
     console.log("listingLink", listingLink);
 
@@ -344,9 +346,13 @@ export class SalesController {
       const isLoggedIn = await login(page, credentials);
       if (!isLoggedIn) {
         await browser.close();
-        response.status(400).json({ error: "Unable to Log into AirDna" });
+        return response
+          .status(400)
+          .json({ error: "Unable to Log into AirDna" });
       }
-      await page.goto(listingLink as string);
+      await page.goto(listingLink, {
+        waitUntil: "load",
+      });
     } catch (error) {
       if (browser) {
         await browser.close();

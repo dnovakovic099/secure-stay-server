@@ -31,7 +31,7 @@ router.route("/getDetailsFromAddress").get(
 );
 router.route("/getPropertyDetailsFromLink").get(
   // verifySession,
-  salesController.getDetailsFromAirDna
+  salesController.getDetailsForListing
 );
 
 router.route("/generatePdf/:client_id").get(

@@ -197,22 +197,27 @@ export const transformData = (data: IListingPageElementData[]) => {
   return transformedData;
 };
 
-export const takeScreenShots = async (page: Page) => {
+export const takeScreenShots = async (page: Page, listingLink?: string) => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
   const sessionDir = path.join(screenshotsDir, sessionId);
 
-  const selectors = {
-    revenueGraph: ".recharts-responsive-container",
-    propertyStatisticsGraph: ".MuiBox-root.css-1czpbid",
-    nearbyPropertyListings: ".MuiBox-root.css-qebjua",
-    marketTypeLink:
-      ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff",
-    allListingLink:
-      ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
-    occupancySection: ".MuiBox-root.css-1loy98s",
-    // occupanyChart: ".MuiBox-root.css-68ddzu",
-  };
+  const selectors = listingLink
+    ? {
+        listingNameAndDesc: ".MuiBox-root.css-17bq4g2",
+        listingRevenues: ".MuiBox-root.css-13vcxc6",
+      }
+    : {
+        revenueGraph: ".recharts-responsive-container",
+        propertyStatisticsGraph: ".MuiBox-root.css-1czpbid",
+        nearbyPropertyListings: ".MuiBox-root.css-qebjua",
+        marketTypeLink:
+          ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff",
+        allListingLink:
+          ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
+        occupancySection: ".MuiBox-root.css-1loy98s",
+        // occupanyChart: ".MuiBox-root.css-68ddzu",
+      };
 
   // Helper to take a screenshot for a given selector
   const takeScreenshot = async (
@@ -262,20 +267,80 @@ export const takeScreenShots = async (page: Page) => {
   };
 
   // Capture screenshots
-  const screenShots = {
-    revenueGraphSS: null,
-    averageMonthlyOccupancyChartSS: null,
-    propertyStatisticsGraphSS: null,
-    occupancySectionSS: null,
-    nearbyPropertyLisingSS: null,
-  };
+  const screenShots = listingLink
+    ? {
+        listingNameAndDescSS: null,
+        listingRevenuesSS: null,
+        listingRatingText: null,
+      }
+    : {
+        revenueGraphSS: null,
+        averageMonthlyOccupancyChartSS: null,
+        propertyStatisticsGraphSS: null,
+        occupancySectionSS: null,
+        nearbyPropertyLisingSS: null,
+      };
 
   try {
-    // Step 1: Take Revenue Graph Screenshot
-    // screenShots.revenueGraphSS = await takeScreenshot(
-    //   selectors.revenueGraph,
-    //   "revenueGraph"
-    // );
+    if (listingLink) {
+      const imageUrls2 = await page.$$eval(
+        ".MuiBox-root.css-1ibmiuh img",
+        (images) => {
+          return images.map((img) => img.src);
+        }
+      );
+
+      const imageUrls3 = await page.evaluate(() => {
+        const specificContainer = document.querySelector(
+          ".MuiBox-root.css-tw6u9"
+        );
+
+        if (!specificContainer) return [];
+
+        const images = specificContainer.querySelectorAll(
+          ".MuiBox-root.css-b7jmoi img"
+        );
+        return Array.from(images).map((img) => (img as HTMLImageElement).src);
+      });
+
+      if ((imageUrls3.length = 0)) {
+        throw new Error("No images found in the listing");
+      }
+
+      // // Download each image using axios
+      // for (let i = 0; i < 5; i++) {
+      //   const url = imageUrls3[i];
+      //   await downloadImage(url, `image-${i + 1}`);
+      // }
+
+      screenShots.listingRatingText = await page.evaluate(() => {
+        const container = document.querySelector(".MuiBox-root.css-k008qs");
+        if (!container) return null;
+
+        // Get all child elements inside the container
+        const elements = Array.from(container.children);
+
+        // Check if there are any elements
+        if (elements.length === 0) return null;
+
+        // Get the last element and its text content
+        const lastElement = elements[elements.length - 1];
+        return lastElement.textContent.trim(); // Trim whitespace and return text
+      });
+
+      const listingNameAndDesc = await page.$(selectors.listingNameAndDesc);
+      await page.waitForSelector(selectors.listingNameAndDesc);
+      screenShots.listingNameAndDescSS = await takeScreenshot(
+        listingNameAndDesc,
+        "listingNameAndDescSS"
+      );
+      const listingRevenues = await page.$(selectors.listingRevenues);
+      await page.waitForSelector(selectors.listingRevenues);
+      screenShots.listingRevenuesSS = await takeScreenshot(
+        listingRevenues,
+        "listingRevenuesSS"
+      );
+    }
 
     // Step 2: Navigate to Market Type Section and Capture Screenshot
     await clickAndWait(selectors.marketTypeLink);
