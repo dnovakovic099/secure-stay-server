@@ -3,7 +3,10 @@ import { ClientService } from "../services/SalesService";
 import { LoginCredentials } from "../types";
 import {
   calculatingTotalProjectRevenue,
+  extractAirDnaListingId,
+  extractImagesFromListingLink,
   generateRandomUA,
+  getDataForSpecificListing,
   imageToBase64,
   login,
   setBedBathGuestCounts,
@@ -25,6 +28,7 @@ import {
   PAGE_3_IMAGE,
   PAGE_7_IMG_1,
   PAGE_7_IMG_2,
+  PORTFOLIO_IMAGES,
   PROPERTY_REVENUE_REPORT_PATH,
   PUPPETEER_LAUNCH_OPTIONS,
   REVENUE_ICONS,
@@ -253,7 +257,7 @@ export class SalesController {
           PAGE_7_IMG_2,
           PAGE_9_IMG: nearbyPropertyLisingSS,
           PAGE_10_IMG,
-          PAGE_12_IMG,
+          PORTFOLIO_IMAGES,
           PAGE_14_IMG,
           revenueRange,
           dailyRate,
@@ -331,12 +335,11 @@ export class SalesController {
       listingLink: string;
     };
     let browser: Browser;
-    console.log("listingLink", listingLink);
-
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
       const customUA = generateRandomUA();
+      page.setDefaultTimeout(60000);
       await page.setUserAgent(customUA);
       await page.setViewport({ width: 1920, height: 1080 });
       const credentials: LoginCredentials = {
@@ -350,18 +353,21 @@ export class SalesController {
           .status(400)
           .json({ error: "Unable to Log into AirDna" });
       }
-      await page.goto(listingLink, {
-        waitUntil: "networkidle2",
-      });
-      const { screenshotSessionId, ...screenshots } = await takeScreenShots(
-        page,
-        listingLink
-      );
+      await page.waitForSelector(".css-1a9leff");
+      await page.goto(listingLink, {});
+      const data = await getDataForSpecificListing(page, listingLink);
+      const ssid = await extractImagesFromListingLink(page);
+      console.log("ssid===>>", data, ssid);
+
       await browser.close();
-      return response.json({
-        success: true,
-        sessionId: screenshotSessionId,
-        data: screenshots,
+      if (data.success) {
+        return response.json({
+          success: true,
+          data,
+        });
+      }
+      return response.status(404).json({
+        error: "There was an error fetching from the requested link",
       });
     } catch (error) {
       if (browser) {

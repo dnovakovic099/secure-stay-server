@@ -4,6 +4,7 @@ import { AIR_DNA_URL, USER_AGENTS } from "../constants";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import sharp from "sharp";
 
 export const login = async (page: Page, credentials: LoginCredentials) => {
   try {
@@ -197,57 +198,48 @@ export const transformData = (data: IListingPageElementData[]) => {
   return transformedData;
 };
 
-export const takeScreenShots = async (page: Page, listingLink?: string) => {
+// Helper to take a screenshot for a given selector
+const takeScreenshot = async (
+  element: ElementHandle<Element>,
+  imageName: string,
+  sessionDir: string
+): Promise<string | null> => {
+  try {
+    if (element) {
+      const screenshotBuffer = await element.screenshot({
+        encoding: "binary",
+      });
+
+      // Ensure the session directory exists
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+
+      const filePath = path.join(sessionDir, `${imageName}.png`);
+      fs.writeFileSync(filePath, screenshotBuffer);
+      return filePath; // Return the file path
+    }
+  } catch (error) {
+    console.error(`Failed to take screenshot for selector: ${element}`, error);
+  }
+  return null;
+};
+
+export const takeScreenShots = async (page: Page) => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
   const sessionDir = path.join(screenshotsDir, sessionId);
 
-  const selectors = listingLink
-    ? {
-        listingNameAndDesc: ".MuiBox-root.css-17bq4g2",
-        listingRevenues: ".MuiBox-root.css-13vcxc6",
-      }
-    : {
-        revenueGraph: ".recharts-responsive-container",
-        propertyStatisticsGraph: ".MuiBox-root.css-1czpbid",
-        nearbyPropertyListings: ".MuiBox-root.css-qebjua",
-        marketTypeLink:
-          ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff",
-        allListingLink:
-          ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
-        occupancySection: ".MuiBox-root.css-1loy98s",
-        // occupanyChart: ".MuiBox-root.css-68ddzu",
-      };
-
-  // Helper to take a screenshot for a given selector
-  const takeScreenshot = async (
-    element: ElementHandle<Element>,
-    imageName: string
-  ): Promise<string | null> => {
-    try {
-      // await page.waitForSelector(selector, { timeout: 5000 });
-      // const element = await page.$(selector);
-      if (element) {
-        const screenshotBuffer = await element.screenshot({
-          encoding: "binary",
-        });
-
-        // Ensure the session directory exists
-        if (!fs.existsSync(sessionDir)) {
-          fs.mkdirSync(sessionDir, { recursive: true });
-        }
-
-        const filePath = path.join(sessionDir, `${imageName}.png`);
-        fs.writeFileSync(filePath, screenshotBuffer);
-        return filePath; // Return the file path
-      }
-    } catch (error) {
-      console.error(
-        `Failed to take screenshot for selector: ${element}`,
-        error
-      );
-    }
-    return null;
+  const selectors = {
+    revenueGraph: ".recharts-responsive-container",
+    propertyStatisticsGraph: ".MuiBox-root.css-1czpbid",
+    nearbyPropertyListings: ".MuiBox-root.css-qebjua",
+    marketTypeLink:
+      ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-1a9leff",
+    allListingLink:
+      ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
+    occupancySection: ".MuiBox-root.css-1loy98s",
+    // occupanyChart: ".MuiBox-root.css-68ddzu",
   };
 
   // Helper to click a link and wait for navigation or idle state
@@ -267,88 +259,23 @@ export const takeScreenShots = async (page: Page, listingLink?: string) => {
   };
 
   // Capture screenshots
-  const screenShots = listingLink
-    ? {
-        listingNameAndDescSS: null,
-        listingRevenuesSS: null,
-        listingRatingText: null,
-      }
-    : {
-        revenueGraphSS: null,
-        averageMonthlyOccupancyChartSS: null,
-        propertyStatisticsGraphSS: null,
-        occupancySectionSS: null,
-        nearbyPropertyLisingSS: null,
-      };
+  const screenShots = {
+    revenueGraphSS: null,
+    averageMonthlyOccupancyChartSS: null,
+    propertyStatisticsGraphSS: null,
+    occupancySectionSS: null,
+    nearbyPropertyLisingSS: null,
+  };
 
   try {
-    if (listingLink) {
-      const imageUrls2 = await page.$$eval(
-        ".MuiBox-root.css-1ibmiuh img",
-        (images) => {
-          return images.map((img) => img.src);
-        }
-      );
-
-      const imageUrls3 = await page.evaluate(() => {
-        const specificContainer = document.querySelector(
-          ".MuiBox-root.css-tw6u9"
-        );
-
-        if (!specificContainer) return [];
-
-        const images = specificContainer.querySelectorAll(
-          ".MuiBox-root.css-b7jmoi img"
-        );
-        return Array.from(images).map((img) => (img as HTMLImageElement).src);
-      });
-
-      if ((imageUrls3.length = 0)) {
-        throw new Error("No images found in the listing");
-      }
-
-      // // Download each image using axios
-      // for (let i = 0; i < 5; i++) {
-      //   const url = imageUrls3[i];
-      //   await downloadImage(url, `image-${i + 1}`);
-      // }
-
-      screenShots.listingRatingText = await page.evaluate(() => {
-        const container = document.querySelector(".MuiBox-root.css-k008qs");
-        if (!container) return null;
-
-        // Get all child elements inside the container
-        const elements = Array.from(container.children);
-
-        // Check if there are any elements
-        if (elements.length === 0) return null;
-
-        // Get the last element and its text content
-        const lastElement = elements[elements.length - 1];
-        return lastElement.textContent.trim(); // Trim whitespace and return text
-      });
-
-      const listingNameAndDesc = await page.$(selectors.listingNameAndDesc);
-      await page.waitForSelector(selectors.listingNameAndDesc);
-      screenShots.listingNameAndDescSS = await takeScreenshot(
-        listingNameAndDesc,
-        "listingNameAndDescSS"
-      );
-      const listingRevenues = await page.$(selectors.listingRevenues);
-      await page.waitForSelector(selectors.listingRevenues);
-      screenShots.listingRevenuesSS = await takeScreenshot(
-        listingRevenues,
-        "listingRevenuesSS"
-      );
-    }
-
     // Step 2: Navigate to Market Type Section and Capture Screenshot
     await clickAndWait(selectors.marketTypeLink);
     await page.waitForSelector(selectors.propertyStatisticsGraph);
     const propertyStatSelc = await page.$(selectors.propertyStatisticsGraph);
     screenShots.propertyStatisticsGraphSS = await takeScreenshot(
       propertyStatSelc,
-      "propertyStatisticsGraph"
+      "propertyStatisticsGraph",
+      sessionDir
     );
 
     await page.waitForSelector(".MuiBox-root.css-68ddzu");
@@ -366,19 +293,22 @@ export const takeScreenShots = async (page: Page, listingLink?: string) => {
       );
       screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
         chartElements[9], // 0 for occupancy and 9 for ADR chart
-        "averageMonthlyOccupancyChart"
+        "averageMonthlyOccupancyChart",
+        sessionDir
       );
 
       screenShots.revenueGraphSS = await takeScreenshot(
         chartElements[5],
-        "revenueGraph"
+        "revenueGraph",
+        sessionDir
       );
     }
     const occupancySelec = await page.$(selectors.occupancySection);
     await page.waitForSelector(selectors.occupancySection);
     screenShots.occupancySectionSS = await takeScreenshot(
       occupancySelec,
-      "occupancySection"
+      "occupancySection",
+      sessionDir
     );
 
     // Step 3: Navigate to All Listings Section and Capture Screenshot
@@ -395,7 +325,8 @@ export const takeScreenShots = async (page: Page, listingLink?: string) => {
 
     screenShots.nearbyPropertyLisingSS = await takeScreenshot(
       nearbyPropertySelec,
-      "nearbyPropertyListings"
+      "nearbyPropertyListings",
+      sessionDir
     );
   } catch (error) {
     console.error("Error taking screenshots:", error);
@@ -430,4 +361,91 @@ export const calculatingTotalProjectRevenue = (revenueRange: RevenueRange) => {
     totalMarketAvg,
     totalCompetitor,
   };
+};
+
+export const extractAirDnaListingId = (url: string) => {
+  const decodedUrl = decodeURIComponent(url);
+  const match = decodedUrl.match(/listing_id=([^&]+)/);
+  return match ? match[1] : null;
+};
+
+export const getDataForSpecificListing = async (
+  page: Page,
+  listingUrl: string
+) => {
+  const responseData = {
+    success: false,
+    data: null,
+  };
+  try {
+    const airBnbId = extractAirDnaListingId(listingUrl);
+
+    if (!airBnbId) {
+      throw new Error("Failed to extract AirDNA listing ID from URL");
+    }
+    const response = await page.waitForResponse(
+      (resp) =>
+        resp.url() ===
+          `https://api.airdna.co/api/explorer/v1/listing/${airBnbId}?currency=usd&use_native_currency=false` &&
+        resp.request().method() !== "OPTIONS" &&
+        resp.status() === 200
+    );
+    if (!response.ok()) {
+      throw new Error(`Response failed with status: ${response.status()}`);
+    }
+    // Extract the response body data
+    const data = await response.json();
+    responseData.success = true;
+    responseData.data = data;
+  } catch (error) {
+    console.error("Failed to retrieve listing details from AirDNA API", error);
+    throw new Error("Failed to retrieve listing details from AirDNA API");
+  }
+  return responseData;
+};
+
+export const extractImagesFromListingLink = async (page: Page) => {
+  const screenshotsDir = path.join("public");
+  const sessionId = randomUUID();
+  const sessionDir = path.join(screenshotsDir, sessionId);
+  const selectors = {
+    heroSection: ".MuiBox-root.css-17bq4g2",
+    imgSection: ".MuiBox-root.css-9vp29i",
+    statSection: ".MuiBox-root.css-15gtz7s",
+  };
+  try {
+    const heroSectionSelec = await page.$(selectors.heroSection);
+    await takeScreenshot(heroSectionSelec, "heroSection", sessionDir);
+    const imgSectionSelec = await page.$(selectors.imgSection);
+    await takeScreenshot(imgSectionSelec, "imgSection", sessionDir);
+    const statSectionSelec = await page.$(selectors.statSection);
+    await takeScreenshot(statSectionSelec, "statSection", sessionDir);
+    await mergeScreenshots(sessionDir);
+    return sessionId;
+  } catch (error) {
+    console.error("Error taking screenshots:", error);
+  }
+  return null;
+};
+
+export const mergeScreenshots = async (sessionDir: string) => {
+  const images = ["heroSection.png", "imgSection.png", "statSection.png"].map(
+    (img) => path.join(sessionDir, img)
+  );
+
+  if (!images.every((img) => fs.existsSync(img))) {
+    console.error("One or more images are missing.");
+    return null;
+  }
+  const outputPath = path.join(sessionDir, "merged.png");
+
+  await sharp(images[0])
+    .composite([
+      { input: images[1], top: undefined, left: 0 },
+      { input: images[2], top: undefined, left: 0 },
+    ])
+    .toFile(outputPath);
+
+  console.log("Merged image saved at:", outputPath);
+  return outputPath;
 };

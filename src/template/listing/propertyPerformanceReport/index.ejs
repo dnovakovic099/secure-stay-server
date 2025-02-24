@@ -193,6 +193,19 @@
       }
       @media print {
       }
+
+      .portfolio-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        /* padding: 30px 50px; */
+      }
+      .portfolio-grid img {
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        object-fit: cover;
+      }
     </style>
     <title><%= title %></title>
   </head>
@@ -796,124 +809,20 @@
                 <i class="fa-solid fa-hand-holding-hand"></i>
               </div>
 
-              <table>
-                <tbody>
-                  <tr>
-                    <td style="padding-bottom: 20px; padding-right: 20px">
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                    <td style="padding-bottom: 20px">
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding-bottom: 20px; padding-right: 20px">
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                    <td style="padding-bottom: 20px">
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding-right: 20px">
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                    <td>
-                      <img
-                        style="width: 100%"
-                        src="<%= PAGE_12_IMG %>"
-                        alt="reload page"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div class="box">
-                <p>
-                  This portfolio highlights just a selection of the high-value
-                  properties we manage, all of which consistently perform as
-                  market leaders in their respective categories. From luxury
-                  waterfront retreats with extensive amenities to large vacation
-                  homes catering to group stays, these properties showcase our
-                  ability to maximize revenue, optimize occupancy, and deliver
-                  unparalleled guest satisfaction. These results are not
-                  isolated cases but a reflection of the refined strategies and
-                  operational expertise we bring to each property under our
-                  care.
-                </p>
-                <p>
-                  Your property in Key West holds incredible potential to join
-                  this elite roster. Our track record demonstrates how we
-                  transform premium listings into market leaders. By tapping
-                  into our expertise and proven methodologies, we can position
-                  your property as a standout option in Key West’s competitive
-                  landscape, unlocking its full potential and enhancing guest
-                  experiences.
-                </p>
+              <div class="portfolio-grid">
+                <% PORTFOLIO_IMAGES.forEach((image) => { %>
+                <img src="<%= image %>" alt="Portfolio Image" />
+                <% }) %>
               </div>
             </div>
           </td>
         </tr>
 
-        <%- include('./faqs') %>
+        <!-- <%- include('./faqs') %> -->
 
         <tr>
           <td class="page" id="page-14">
             <div class="page-content" style="display: block">
-              <div class="box">
-                <p>
-                  Ellen, your property has the potential to become a standout in
-                  the Key West extended-stay market, a highly sought-after area
-                  for premium long-term rentals. While competitors like "Casa
-                  Amelia - Key West" have set the benchmark, your property’s
-                  charm, location, and untapped potential make it uniquely
-                  positioned to compete and excel. Through our proven
-                  strategies—such as securing more guest reviews, refining
-                  pricing to reflect long-term market demand, and showcasing the
-                  property’s standout features—we will help establish it as a
-                  premier choice for renters.
-                </p>
-
-                <p>
-                  At Luxury Lodging, we’ve consistently helped properties like
-                  yours outperform market expectations. Our portfolio of
-                  high-value, high-performing properties across Florida
-                  demonstrates our ability to deliver results and build lasting
-                  success for our clients. We will work tirelessly to ensure
-                  your property thrives, driving both revenue and guest
-                  satisfaction. Let’s build something extraordinary
-                  together—your success is our success, and we are ready to
-                  partner with you to unlock your property’s full potential.
-                </p>
-              </div>
-
-              <!-- <img
-                style="width: 100%"
-                src="<%= PAGE_14_IMG%>"
-                alt="reload page"
-             /> -->
-
               <div
                 style="
                   height: 500px;

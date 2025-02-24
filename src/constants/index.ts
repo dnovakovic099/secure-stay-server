@@ -49,3 +49,8 @@ export const PAGE_10_IMG = `${PUBLIC_URL}/page-10.jpg`;
 export const PAGE_12_IMG = `${PUBLIC_URL}/page-12.jpg`;
 export const PAGE_14_IMG = `${PUBLIC_URL}/page-14.jpg`;
 export const BG_SECTION_IMAGE = `${PUBLIC_URL}/bg-section-image.jpg`;
+
+export const PORTFOLIO_IMAGES = Array.from(
+  { length: 15 },
+  (_, i) => `${PUBLIC_URL}/portfolio${i + 1}.png`
+);
