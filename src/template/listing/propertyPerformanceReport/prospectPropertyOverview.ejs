@@ -16,7 +16,7 @@
         </h2>
         <div class="box white text-black" style="margin-bottom: 25px">
           <table>
-            <tbody>
+            <!-- <tbody>
               <tr>
                 <td>
                   <img
@@ -33,7 +33,7 @@
                   />
                 </td>
               </tr>
-            </tbody>
+            </tbody> -->
           </table>
           <table>
             <tbody>
@@ -51,102 +51,9 @@
                   </small>
                 </td>
               </tr>
-              <tr style="text-align: center">
-                <td style="padding: 12px; border-radius: 4px">
-                  <strong
-                    style="
-                      font-size: 24px;
-                      margin-bottom: 0px;
-                      display: block;
-                      font-weight: 700;
-                      color: #000;
-                    "
-                  >
-                    $80k
-                  </strong>
-                  <small style="font-size: 10px">Revenue Potential</small>
-                </td>
-                <td
-                  style="
-                    padding: 12px;
-                    border-radius: 4px;
-                    border: 1px solid #e7e7e7;
-                  "
-                >
-                  <strong
-                    style="
-                      font-size: 14px;
-                      margin-bottom: 0px;
-                      display: block;
-                      font-weight: 700;
-                      color: #000;
-                    "
-                  >
-                    190
-                  </strong>
-                  <small style="font-size: 10px">Revenue Potential</small>
-                </td>
-                <td
-                  style="
-                    padding: 12px;
-                    border-radius: 4px;
-                    border: 1px solid #e7e7e7;
-                  "
-                >
-                  <strong
-                    style="
-                      font-size: 14px;
-                      margin-bottom: 0px;
-                      display: block;
-                      font-weight: 700;
-                      color: #000;
-                    "
-                  >
-                    $80k
-                  </strong>
-                  <small style="font-size: 10px">Revenue Potential</small>
-                </td>
-                <td
-                  style="
-                    padding: 12px;
-                    border-radius: 4px;
-                    border: 1px solid #e7e7e7;
-                  "
-                >
-                  <strong
-                    style="
-                      font-size: 14px;
-                      margin-bottom: 0px;
-                      display: block;
-                      font-weight: 700;
-                      color: #000;
-                    "
-                  >
-                    $80k
-                  </strong>
-                  <small style="font-size: 10px">Revenue Potential</small>
-                </td>
-                <td
-                  style="
-                    padding: 12px;
-                    border-radius: 4px;
-                    border: 1px solid #e7e7e7;
-                  "
-                >
-                  <strong
-                    style="
-                      font-size: 14px;
-                      margin-bottom: 0px;
-                      display: block;
-                      font-weight: 700;
-                      color: #000;
-                    "
-                  >
-                    $80k
-                  </strong>
-                  <small style="font-size: 10px">Revenue Potential</small>
-                </td>
-              </tr>
+              <img src="<%= heroSection %>" alt="" />
+              <img src="<%= middleSection %>" alt="" />
+              <img src="<%= statSection %>" alt="" />
             </tbody>
           </table>
         </div>
@@ -173,7 +80,13 @@
                       border-radius: 100%;
                     "
                   >
-                    <i class="fa-solid fa-hand-holding-hand"></i>
+                    <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                    <img
+                      width="40px"
+                      height="40px"
+                      src="<%= ICON_GEARS %>"
+                      alt=""
+                    />
                   </span>
                   <strong>RevPAR: $<%= revPar %></strong>
                 </div>
@@ -198,9 +111,17 @@
                       border-radius: 100%;
                     "
                   >
-                    <i class="fa-solid fa-hand-holding-hand"></i>
+                    <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                    <img
+                      width="40px"
+                      height="40px"
+                      src="<%= ICON_HAND_HOLDIING_USERS %>"
+                      alt=""
+                    />
                   </span>
-                  <strong>Listing Rating: 8.6/10 (vrbo) </strong>
+                  <strong
+                    >Listing Rating: <%= propertyDetails.rating %> /5
+                  </strong>
                 </div>
               </td>
             </tr>
@@ -212,7 +133,7 @@
         style="position: relative; background-color: #000"
       >
         <img
-          src="<%= BG_SECTION_IMAGE %>"
+          src="<%= propertyDetails.images[9] %>"
           alt="reload page"
           style="opacity: 0.3; height: 440px; object-fit: cover"
         />
@@ -617,7 +538,7 @@
         style="position: relative; background-color: #000"
       >
         <img
-          src="<%= BG_SECTION_IMAGE %>"
+          src="<%= propertyDetails.images[6] %>"
           alt="reload page"
           style="opacity: 0.7; height: 200px; width: 100%; object-fit: cover"
         />

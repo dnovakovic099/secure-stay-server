@@ -29,6 +29,37 @@ declare global {
     screenshotSessionId: string;
   }
 
+  type Review = {
+    review_id: string;
+    reviewer_name: string;
+    comments: string;
+    date: string;
+    rating: number;
+  };
+
+  interface IScrappedPropertyData {
+    ssid: string;
+    details: {
+      last_scraped: string;
+      name: string;
+      images: string[];
+      description: string;
+      property_id: string;
+    };
+    metrics: {
+      adr: number;
+      days_available: number;
+      occupancy: number;
+      revenue: number;
+      revenue_potential: number;
+    };
+
+    platforms: {
+      airbnb_property_id: string;
+      vrbo_property_id: string;
+    };
+  }
+
   /** Sub-interfaces for the 'payload' section */
 
   interface PropertyDetails {

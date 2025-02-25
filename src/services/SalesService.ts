@@ -9,9 +9,6 @@ export class ClientService {
     appDatabase.getRepository(ClientListingEntity);
 
   async createClient(request: Request, fileNames?: string[]) {
-    // console.log("fileNames", fileNames);
-
-    // const body = request.body.data
     const {
       leadStatus,
       propertyAddress,
@@ -26,7 +23,8 @@ export class ClientService {
       baths,
       guests,
       beds,
-      airDnaData,
+      addressData,
+      propertyData,
     } = request.body;
 
     const newClient = this.clientRepository.create({
@@ -48,7 +46,7 @@ export class ClientService {
     });
 
     const savedClient = await this.clientRepository.save(newClient);
-
+    console.log("body==>>", request.body);
     const {
       combined_market_info,
       comps,
@@ -57,7 +55,14 @@ export class ClientService {
       property_statistics,
       property_details,
       screenshotSessionId,
-    } = airDnaData as AirDnaScrappedDataResponse;
+    } = addressData as AirDnaScrappedDataResponse;
+
+    console.log("airDna==>>", addressData);
+
+    const { ssid, details, metrics, platforms } =
+      propertyData as IScrappedPropertyData;
+    console.log("propertyData==>>", propertyData);
+
     const currentDate = new Date();
     const listing = this.clientListingRepository.create({
       clientId: savedClient.id,
@@ -77,7 +82,11 @@ export class ClientService {
       zipcode: property_details.zipcode,
       revenueRange: property_statistics.revenue_range,
       screenshotSessionId,
-      // fileNames: fileNames ? JSON.stringify(fileNames) : "",
+      propertyScreenshotSessionId: ssid,
+      details,
+      metrics,
+      vrboPropertyId: platforms.vrbo_property_id,
+      airBnbPropertyId: platforms.airbnb_property_id,
       createdAt: currentDate,
       updatedAt: currentDate,
     });

@@ -69,6 +69,21 @@ export class ClientListingEntity {
   @Column({ type: "varchar", length: 255, nullable: true })
   screenshotSessionId: string;
 
+  @Column({ type: "varchar", length: 255, nullable: true })
+  propertyScreenshotSessionId: string;
+
+  @Column({ type: "varchar", length: 50, nullable: true })
+  vrboPropertyId: string;
+
+  @Column({ type: "varchar", length: 50, nullable: true })
+  airBnbPropertyId: string;
+
+  @Column({ type: "json", nullable: true })
+  metrics: any;
+
+  @Column({ type: "json", nullable: true })
+  details: any;
+
   @CreateDateColumn()
   createdAt: Date;
 

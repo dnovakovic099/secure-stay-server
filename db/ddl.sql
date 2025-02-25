@@ -427,7 +427,12 @@ CREATE TABLE IF NOT EXISTS `clientListings`(
  `compsetAmenities` JSON,
  `zipcode` VARCHAR(20),
  `revenueRange` JSON
- `screenshotSessionId` VARCHAR(255),           
+ `screenshotSessionId` VARCHAR(255),
+ `propertyScreenshotSessionId` VARCHAR(255) NULL,
+ `vrboPropertyId` VARCHAR(50) NULL,
+ `airBnbPropertyId` VARCHAR(50) NULL,
+ `metrics` JSON NULL,
+ `details` JSON NULL,           
  `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  `updatedAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

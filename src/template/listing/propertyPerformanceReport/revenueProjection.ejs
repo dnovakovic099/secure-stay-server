@@ -102,7 +102,7 @@
               </strong>
             </td>
             <td class="table-body-cell">
-              $<%= totalMarketAvg.toFixed(2).toLocaleString() %>
+              $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
             </td>
             <td class="table-body-cell">
               $<%= totalCompetitor.toLocaleString() %>
@@ -144,8 +144,8 @@
         style="position: relative; background-color: #000"
       >
         <img
-          src="<%= BG_SECTION_IMAGE %>"
-          alt="reload page"
+          src="<%= propertyDetails.images[5] %>"
+          alt=""
           style="opacity: 0.8"
         />
         <h6

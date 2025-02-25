@@ -16,6 +16,10 @@ import puppeteer, { Browser } from "puppeteer";
 import {
   BG_SECTION_IMAGE,
   BORDER_IMAGE,
+  ICON_DOLLAR_CHART,
+  ICON_GEARS,
+  ICON_HAND_HOLDIING_USERS,
+  ICON_USER_STARS,
   LOGO_URL,
   LOGO_WHITE_URL,
   MAC_BOOK_IMAGE,
@@ -41,19 +45,6 @@ export class SalesController {
   async createClient(request: Request, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
-      // console.log("request.files", request.files);
-
-      // let fileNames: string[] = [];
-      // if (
-      //   Array.isArray(request.files["attachments"]) &&
-      //   request.files["attachments"].length > 0
-      // ) {
-      //   fileNames = (request.files["attachments"] as Express.Multer.File[]).map(
-      //     (file) => file.filename
-      //   );
-      // }
-      // console.log("fileNames", fileNames);
-      // return response.status(404).json({ error: "Client not found" });
       return response.send(await clientService.createClient(request));
     } catch (error) {
       console.log("error", error);
@@ -112,7 +103,11 @@ export class SalesController {
       // Set custom user agent
       await page.setUserAgent(customUA);
 
-      await page.setViewport({ width: 1920, height: 1080 });
+      await page.setViewport({
+        width: 1920,
+        height: 1080,
+        // deviceScaleFactor: 2,
+      });
 
       // await page.setRequestInterception(true);
       // Disable unnecessary resources
@@ -202,12 +197,22 @@ export class SalesController {
       if (fetchedClient.listing && fetchedClient.client) {
         const templatePath = path.resolve(PROPERTY_REVENUE_REPORT_PATH);
         // console.log("fetchedListing", fetchedListing);
-        const { revenueRange, revenue, occupancy, screenshotSessionId } =
-          fetchedClient.listing;
+        const {
+          revenueRange,
+          revenue,
+          occupancy,
+          screenshotSessionId,
+          propertyScreenshotSessionId,
+          details,
+        } = fetchedClient.listing;
 
         const screenshotFolderPath = path.resolve(
           "public",
           screenshotSessionId
+        );
+        const propertyScreenshotFolderPath = path.resolve(
+          "public",
+          propertyScreenshotSessionId
         );
         const propertyStatisticsGraphSS = imageToBase64(
           path.join(screenshotFolderPath, "propertyStatisticsGraph.png")
@@ -224,6 +229,17 @@ export class SalesController {
         const averageMonthlyOccupancyChartSS = imageToBase64(
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
+        const specificListing = {
+          heroSection: imageToBase64(
+            path.join(propertyScreenshotFolderPath, "heroSection.png")
+          ),
+          middleSection: imageToBase64(
+            path.join(propertyScreenshotFolderPath, "imgSection.png")
+          ),
+          statSection: imageToBase64(
+            path.join(propertyScreenshotFolderPath, "statSection.png")
+          ),
+        };
         // Calculations for PDF
         const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
         const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
@@ -263,6 +279,12 @@ export class SalesController {
           dailyRate,
           revPar,
           MAC_BOOK_IMAGE,
+          ...specificListing,
+          propertyDetails: details,
+          ICON_GEARS,
+          ICON_DOLLAR_CHART,
+          ICON_HAND_HOLDIING_USERS,
+          ICON_USER_STARS,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -354,16 +376,19 @@ export class SalesController {
           .json({ error: "Unable to Log into AirDna" });
       }
       await page.waitForSelector(".css-1a9leff");
-      await page.goto(listingLink, {});
-      const data = await getDataForSpecificListing(page, listingLink);
+      await page.goto(listingLink, {
+        waitUntil: "load",
+      });
+      const apiResponse = await getDataForSpecificListing(page, listingLink);
       const ssid = await extractImagesFromListingLink(page);
-      console.log("ssid===>>", data, ssid);
+      console.log("ssid===>>", apiResponse, ssid);
 
       await browser.close();
-      if (data.success) {
+      if (apiResponse.success && ssid) {
         return response.json({
           success: true,
-          data,
+          ...apiResponse.data.payload,
+          ssid,
         });
       }
       return response.status(404).json({

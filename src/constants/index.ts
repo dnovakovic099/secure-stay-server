@@ -54,3 +54,8 @@ export const PORTFOLIO_IMAGES = Array.from(
   { length: 15 },
   (_, i) => `${PUBLIC_URL}/portfolio${i + 1}.png`
 );
+
+export const ICON_GEARS = `${PUBLIC_URL}/icon-gears.png`;
+export const ICON_DOLLAR_CHART = `${PUBLIC_URL}/icon-dollar-chart.png`;
+export const ICON_HAND_HOLDIING_USERS = `${PUBLIC_URL}/icon-hand-holding-users.png`;
+export const ICON_USER_STARS = `${PUBLIC_URL}/icon-user-stars.png`;

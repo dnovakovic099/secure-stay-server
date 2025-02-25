@@ -259,7 +259,7 @@
                 <div style="position: relative; overflow: hidden">
                   <!-- Page 2 Image here -->
                   <img
-                    src="<%= PAGE_1_IMAGE %>"
+                    src="<%= propertyDetails.images[1] %>"
                     class="border-image"
                     style="
                       width: 500px;
@@ -273,7 +273,7 @@
                 </div>
                 <div style="position: relative">
                   <img
-                    src="<%= PAGE_1_IMAGE %>"
+                    src="<%= propertyDetails.images[2] %>"
                     class="border-image"
                     style="
                       width: 300px;
@@ -531,7 +531,7 @@
                 style="position: relative; background-color: #000"
               >
                 <img
-                  src="<%= BG_SECTION_IMAGE %>"
+                  src="<%= propertyDetails.images[7] %>"
                   alt="reload page"
                   style="
                     opacity: 0.7;
@@ -569,9 +569,10 @@
                 >
                   Recommendations
                 </h1>
+
                 <img
-                  src="<%= BG_SECTION_IMAGE %>"
-                  alt="reload page"
+                  src="<%= propertyDetails.images[8] %>"
+                  alt=""
                   style="
                     opacity: 0.2;
                     height: 200px;
@@ -601,15 +602,21 @@
                       font-weight: 400;
                       flex-shrink: 0;
                       border-radius: 100%;
-                      height: 40px;
-                      width: 40px;
+                      height: 70px;
+                      width: 70px;
                       display: flex;
                       align-items: center;
                       justify-content: center;
                       font-size: 25px;
                     "
                   >
-                    <i class="fa-solid fa-hand-holding-hand"></i>
+                    <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                    <img
+                      width="40px"
+                      height="40px"
+                      src="<%= ICON_DOLLAR_CHART %>"
+                      alt=""
+                    />
                   </span>
                   <div
                     class="box-label"
@@ -698,7 +705,12 @@
                       font-size: 25px;
                     "
                   >
-                    <i class="fa-solid fa-hand-holding-hand"></i>
+                    <img
+                      width="40px"
+                      height="40px"
+                      src="<%= ICON_DOLLAR_CHART %>"
+                      alt=""
+                    />
                   </span>
                   <div
                     class="box-label"
@@ -765,7 +777,7 @@
                 style="position: relative; background-color: #000"
               >
                 <img
-                  src="<%= BG_SECTION_IMAGE %>"
+                  src="<%= propertyDetails.images[9] %>"
                   alt="reload page"
                   style="
                     opacity: 0.7;
@@ -804,9 +816,19 @@
                   font-style: italic;
                 "
               >
-                <i class="fa-solid fa-hand-holding-hand"></i>
+                <img
+                  width="40px"
+                  height="40px"
+                  src="<%= ICON_HAND_HOLDIING_USERS %>"
+                  alt=""
+                />
                 <strong style="font-size: 28px">Portfolio </strong>
-                <i class="fa-solid fa-hand-holding-hand"></i>
+                <img
+                  width="40px"
+                  height="40px"
+                  src="<%= ICON_DOLLAR_CHART %>"
+                  alt=""
+                />
               </div>
 
               <div class="portfolio-grid">
@@ -822,51 +844,39 @@
 
         <tr>
           <td class="page" id="page-14">
-            <div class="page-content" style="display: block">
+            <div
+              class="page-content"
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              "
+            >
               <div
                 style="
-                  height: 500px;
-                  width: 500px;
                   position: relative;
-                  background: linear-gradient(
-                    -45deg,
-                    var(--clr-primary-dark),
-                    var(--clr-primary)
-                  );
-                  border-radius: 100%;
-                  margin: 50px auto 0;
+                  display: flex;
+                  justify-content: center;
                 "
               >
-                <div
-                  style="
-                    position: absolute;
-                    top: 40px;
-                    height: 90px;
-                    width: 40px;
-                    border-radius: 60px;
-                    background: #ccb571;
-                    rotate: 130deg;
-                  "
-                ></div>
-                <div
-                  style="
-                    position: absolute;
-                    bottom: 40px;
-                    right: 0;
-                    height: 90px;
-                    width: 40px;
-                    border-radius: 60px;
-                    background: #a58349;
-                    rotate: 130deg;
-                  "
-                ></div>
-              </div>
+                <img
+                  style="width: 776px; height: 674px"
+                  src="<%= propertyDetails.images[4] %>"
+                  alt=""
+                />
 
-              <img
-                style="position: absolute; bottom: 0; right: 0"
-                src="<%= LOGO_URL %>"
-                alt="reload page"
-              />
+                <img
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    height: 100%;
+                  "
+                  src="<%= OVERLAY_IMAGE %>"
+                  alt=""
+                />
+              </div>
             </div>
           </td>
         </tr>
