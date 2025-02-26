@@ -1,9 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { Request } from "express";
 import { EntityManager } from "typeorm";
 import { format } from "date-fns";
-import { formatCurrency } from "../helpers/helpers";
 import { ExpenseService } from "./ExpenseService";
 
 export class RefundRequestService {
@@ -41,57 +39,60 @@ export class RefundRequestService {
         refundRequest.explaination = body.explaination;
         refundRequest.refundAmount = body.refundAmount;
         refundRequest.requestedBy = body.requestedBy;
-        refundRequest.status = "Pending";
+        refundRequest.status = body.status;
         refundRequest.notes = body.notes;
-        refundRequest.createdBy = userId;
+        refundRequest.updatedBy = userId;
         if (attachments.length > 0) {
             refundRequest.attachments = JSON.stringify(attachments);
         }
         return await transactionalEntityManager.save(refundRequest);
     }
 
-    async saveRefundRequest(body: Partial<RefundRequestEntity>, userId: string, attachments: string[], refundRequest?: RefundRequestEntity) {
+    async saveRefundRequest(
+        body: Partial<RefundRequestEntity>,
+        userId: string,
+        attachments: string[],
+        refundRequest?: RefundRequestEntity
+    ) {
         return await appDatabase.transaction(async (transactionalEntityManager) => {
-
+            const isStatusChanged = refundRequest && refundRequest.status !== body.status;
             if (refundRequest) {
-                //case 1: if the status is Pending and the updated status is Approved.
-                if (refundRequest.status == "Pending" && body.status == "Approved") {
-                    await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
-                    const expense = await this.createExpenseForRefundRequest(body, userId);
-                    refundRequest.expenseId = expense.id;
-                    await transactionalEntityManager.save(refundRequest);
+                await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
+                if (isStatusChanged) {
+                    await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager);
                 }
 
-                //case 2: if the status is Pending and the updated status is Denied.
-                if (refundRequest.status == "Pending" && body.status == "Denied") {
-                    await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
-                }
-
-                //case 3: if the status is Approved and the updated status is Denied or Pending.
-                if (refundRequest.status == "Approved" && (body.status == "Denied" || body.status == "Pending")) {
-                    await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
-                    //delete the expense
-                    const expenseService = new ExpenseService();
-                    const expense = await expenseService.getExpense(refundRequest.expenseId);
-                    await expenseService.deleteExpense(expense.expenseId, userId);
-
-                    refundRequest.expenseId = null;
-                    await transactionalEntityManager.save(refundRequest);
-                }
-
-            } else {
-                //save the refund request 
-                const newRefundRequest = await this.createRefundRequest(transactionalEntityManager, body, userId, attachments);
-                if (body.status == "Approved") {
-                    const expense = await this.createExpenseForRefundRequest(body, userId);
-                    newRefundRequest.expenseId = expense.id;
-                    await transactionalEntityManager.save(newRefundRequest);
-                }
-                return newRefundRequest;
+                return refundRequest;
             }
-        });
 
+            const newRefundRequest = await this.createRefundRequest(transactionalEntityManager, body, userId, attachments);
+            if (body.status === "Approved") {
+                await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager);
+            }
+
+            return newRefundRequest;
+        });
     }
+
+    private async handleExpense(
+        status: string,
+        request: RefundRequestEntity,
+        userId: string,
+        transactionalEntityManager: EntityManager
+    ) {
+        const expenseService = new ExpenseService();
+
+        if (status === "Approved") {
+            const expense = await this.createExpenseForRefundRequest(request, userId);
+            request.expenseId = expense.id;
+        } else if (request.expenseId) {
+            const expense = await expenseService.getExpense(request.expenseId);
+            await expenseService.deleteExpense(expense.expenseId, userId);
+            request.expenseId = null;
+        }
+        await transactionalEntityManager.save(request);
+    }
+
 
     private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string) {
         //create expense object
