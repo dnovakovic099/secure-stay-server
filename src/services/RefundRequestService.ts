@@ -19,7 +19,7 @@ export class RefundRequestService {
         newRefundRequest.explaination = body.explaination;
         newRefundRequest.refundAmount = body.refundAmount;
         newRefundRequest.requestedBy = body.requestedBy;
-        newRefundRequest.status = "Pending";
+        newRefundRequest.status = body.status;
         newRefundRequest.notes = body.notes;
         if (attachments.length > 0) {
             newRefundRequest.attachments = JSON.stringify(attachments);
