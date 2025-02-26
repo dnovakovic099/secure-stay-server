@@ -106,11 +106,7 @@ export class Issue {
     })
     needs_attention: string;
 
-    @Column({
-        type: 'enum',
-        enum: ['N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'],
-        default: 'N/A'
-    })
+    @Column({ type: 'text', nullable: true })
     claim_resolution_status: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
