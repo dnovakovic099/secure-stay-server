@@ -84,10 +84,11 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
                 line-height: 1;
+                font-family: var(--font-cursive);
                 margin-bottom: 8px;
               "
             >
@@ -96,8 +97,10 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
+                font-family: var(--font-cursive);
+                letter-spacing: 1px;
                 line-height: 1;
               "
             >
@@ -118,10 +121,11 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
                 line-height: 1;
+                font-family: var(--font-cursive);
                 margin-bottom: 8px;
               "
             >
@@ -130,12 +134,14 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
                 line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-cursive);
               "
             >
-              $ <%= formatRevenue(listingData.revenue) %>
+              $<%= formatRevenue(listingData.revenue) %>
             </p>
           </div>
           <div
@@ -150,10 +156,11 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
                 line-height: 1;
+                font-family: var(--font-cursive);
                 margin-bottom: 8px;
               "
             >
@@ -163,9 +170,11 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
                 line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-cursive);
               "
             >
               <%= occupancyRate.toFixed(2) %> %
@@ -183,10 +192,11 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
                 line-height: 1;
+                font-family: var(--font-cursive);
                 margin-bottom: 8px;
               "
             >
@@ -195,12 +205,15 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
+                font-family: var(--font-cursive);
+
+                letter-spacing: 1px;
                 line-height: 1;
               "
             >
-              <%= dailyRate %>
+              $<%= dailyRate %>
             </p>
           </div>
           <div
@@ -215,10 +228,11 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
                 line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-cursive);
                 margin-bottom: 8px;
               "
             >
@@ -227,8 +241,10 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
+                font-family: var(--font-cursive);
                 line-height: 1;
               "
             >
@@ -247,11 +263,12 @@
             <h6
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1.2rem;
-                font-weight: 600;
+                font-weight: 500;
+                font-size: 1.4rem;
                 line-height: 1;
+                letter-spacing: 1px;
                 margin-bottom: 8px;
+                font-family: var(--font-cursive);
               "
             >
               Market Score
@@ -259,9 +276,11 @@
             <p
               style="
                 color: black;
-                font-weight: 400;
-                font-size: 1rem;
+                font-weight: 500;
+                font-size: 1.4rem;
                 line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-cursive);
               "
             >
               <%= Math.round(listingData.marketScore) %> / 100
@@ -292,7 +311,18 @@
     <div class="page-content">
       <h1 class="cursive-heading">Market Overview</h1>
       <div class="box white">
-        <span class="box-label"> Revenue </span>
+        <span
+          class="box-label"
+          style="
+            font-family: var(--font-cursive);
+            margin-bottom: 10px;
+            font-size: 1.4rem;
+            letter-spacing: 1px;
+            height: 45px;
+          "
+        >
+          Revenue
+        </span>
         <img
           style="height: 190px; object-fit: cover"
           src="<%= PAGE_6_IMG_2 %>"
@@ -312,7 +342,18 @@
         </p>
       </div>
       <div class="box white">
-        <span class="box-label"> Average Daily Rate </span>
+        <span
+          class="box-label"
+          style="
+            font-family: var(--font-cursive);
+            margin-bottom: 10px;
+            font-size: 1.4rem;
+            letter-spacing: 1px;
+            height: 45px;
+          "
+        >
+          Average Daily Rate
+        </span>
         <img
           style="height: 190px; object-fit: cover"
           src="<%= PAGE_6_IMG_1 %>"

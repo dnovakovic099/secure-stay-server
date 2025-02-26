@@ -1,7 +1,7 @@
 <tr>
   <td class="page" id="page-1">
     <div class="page-content">
-      <div class="logo">
+      <div class="logo page-horizontal-spacing">
         <img style="width: auto" src="<%= LOGO_URL %>" alt="" />
         <h6 style="color: var(--clr-primary); font-size: 0.8rem">
           Property Performance Report (PPR)
@@ -12,18 +12,23 @@
           style="
             color: black;
             font-family: var(--font-cursive);
-            font-size: 3.5rem;
+            font-size: 4.5rem;
+            font-style: normal;
+            font-weight: 400;
             padding-bottom: 8px;
             margin-bottom: 8px;
           "
         >
-          Santeetlah Lake Retreat w/ Dock: Walk to Water!
+          <!-- Santeetlah Lake Retreat w/ Dock: Walk to Water! -->
+          <%= propertyDetails.title %>
         </h1>
         <h2
           style="
             color: var(--clr-primary-dark);
-            font-weight: 600;
+            font-weight: 400;
             font-size: 2rem;
+            font-style: normal;
+            font-family: var(--font-cursive);
           "
         >
           <%= listingData.address %>
@@ -31,7 +36,7 @@
       </div>
       <div style="position: relative">
         <img
-          style="width: 776px; height: 674px"
+          style="width: 776px; height: 670px"
           src="<%= propertyDetails.images[0] %>"
           alt="reload page"
         />

@@ -7,7 +7,7 @@
         <tr>
           <td>
             <div class="page-content">
-              <h1 class="cursive-heading">Executive Summary</h1>
+              <!-- <h1 class="cursive-heading">Executive Summary</h1> -->
               <div class="box">
                 <p>
                   Your property at <%= listingData.address %> has strong
@@ -62,10 +62,17 @@
               </div>
             </div>
             <!-- <img
-              src="<%= PAGE_3_IMAGE %>"
-              style="width: 100%"
-              alt="reload page"
-            /> -->
+            src="<%= propertyDetails.images[1] %>"
+            class="border-image"
+            style="
+              width: 500px;
+              height: 500px;
+              position: relative;
+              left: -100px;
+              bottom: -60px;
+            "
+            alt="reload page"
+          /> -->
 
             <div style="position: relative">
               <img
@@ -80,14 +87,28 @@
                 "
                 alt="reload page"
               />
-              <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+              <div style="position: relative; overflow: hidden">
+                <img
+                  src="<%= propertyDetails.images[1] %>"
+                  class="border-image"
+                  style="
+                    width: 490px;
+                    height: 490px;
+                    position: relative;
+                    left: -100px;
+                    bottom: -60px;
+                  "
+                  alt="reload page"
+                />
+              </div>
+              <!-- <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
               293px; top: 6px; rotate: 89deg; transform: scale(.9);" " /> <img
               src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
-              -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " />
+              -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " /> -->
             </div>
 
             <img
-              style="position: absolute; bottom: 0; left: 0"
+              style="position: absolute; bottom: 0; right: 0"
               src="<%= LOGO_URL %>"
               alt="reload page"
             />

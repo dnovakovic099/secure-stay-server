@@ -9,7 +9,6 @@
           overflow: hidden;
           text-align: center;
           border-collapse: collapse;
-          border-radius: 18px;
           border: 1px solid #e7e7e7;
         "
       >
@@ -20,10 +19,10 @@
               style="
                 background-color: var(--clr-primary);
                 font-size: 1.3rem;
-                color: white;
-                font-weight: 600;
+                color: black;
+                font-weight: 800;
                 text-transform: uppercase;
-                padding: 8px;
+                padding: 18px;
               "
             >
               MONTH
@@ -33,10 +32,10 @@
               style="
                 background-color: var(--clr-primary);
                 font-size: 1.3rem;
-                color: white;
-                font-weight: 600;
+                color: black;
+                font-weight: 800;
                 text-transform: uppercase;
-                padding: 8px;
+                padding: 18px;
               "
             >
               PROSPECT
@@ -46,10 +45,10 @@
               style="
                 background-color: var(--clr-primary);
                 font-size: 1.3rem;
-                color: white;
-                font-weight: 600;
+                color: black;
+                font-weight: 800;
                 text-transform: uppercase;
-                padding: 8px;
+                padding: 18px;
               "
             >
               MARKET AVG
@@ -59,10 +58,10 @@
               style="
                 background-color: var(--clr-primary);
                 font-size: 1.3rem;
-                color: white;
-                font-weight: 600;
+                color: black;
+                font-weight: 800;
                 text-transform: uppercase;
-                padding: 8px;
+                padding: 18px;
               "
             >
               COMPETITOR <br />
@@ -82,7 +81,7 @@
               month: 'long' }) %> ’<%= currentYear.toString().slice(-2) %>
             </td>
             <td class="table-body-cell">
-              <strong style="color: var(--clr-primary-dark)">
+              <strong style="color: black">
                 $<%= client.toLocaleString() %>
               </strong>
             </td>
@@ -97,15 +96,19 @@
               TOTAL
             </td>
             <td class="table-body-cell">
-              <strong style="color: var(--clr-primary-dark); font-size: 18px">
+              <strong style="color: black; font-size: 18px">
                 $<%= totalClient.toLocaleString() %>
               </strong>
             </td>
             <td class="table-body-cell">
-              $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
+              <strong style="color: black; font-size: 18px">
+                $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
+              </strong>
             </td>
             <td class="table-body-cell">
-              $<%= totalCompetitor.toLocaleString() %>
+              <strong style="color: black; font-size: 18px">
+                $<%= totalCompetitor.toLocaleString() %>
+              </strong>
             </td>
           </tr>
         </tbody>

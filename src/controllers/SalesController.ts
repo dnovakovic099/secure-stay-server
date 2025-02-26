@@ -23,6 +23,8 @@ import {
   LOGO_URL,
   LOGO_WHITE_URL,
   MAC_BOOK_IMAGE,
+  NEW_LOGO,
+  NEW_LOGO_WHITE,
   OVERLAY_IMAGE,
   PAGE_10_IMG,
   PAGE_12_IMG,
@@ -285,6 +287,8 @@ export class SalesController {
           ICON_DOLLAR_CHART,
           ICON_HAND_HOLDIING_USERS,
           ICON_USER_STARS,
+          NEW_LOGO,
+          NEW_LOGO_WHITE,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
