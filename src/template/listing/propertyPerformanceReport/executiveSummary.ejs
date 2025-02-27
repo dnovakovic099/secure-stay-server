@@ -8,7 +8,7 @@
           <td>
             <div class="page-content">
               <!-- <h1 class="cursive-heading">Executive Summary</h1> -->
-              <div class="box">
+              <div class="box" style="margin: 30px 30px">
                 <p>
                   Your property at <%= listingData.address %> has strong
                   potential in a market that demands strategic pricing and
@@ -79,24 +79,26 @@
                 src="<%= propertyDetails.images[3] %>"
                 class="border-image"
                 style="
-                  width: 400px;
-                  height: 400px;
+                  width: 420px;
+                  height: 420px;
                   position: absolute;
-                  top: 20px;
-                  right: 0;
+                  top: 15px;
+                  right: -20px;
                 "
                 alt="reload page"
               />
-              <div style="position: relative; overflow: hidden">
+              <div style="position: relative">
                 <img
                   src="<%= propertyDetails.images[1] %>"
                   class="border-image"
                   style="
-                    width: 490px;
-                    height: 490px;
+                    width: 520px;
+                    height: 500px;
                     position: relative;
-                    left: -100px;
-                    bottom: -60px;
+                    left: -90px;
+                    bottom: 0;
+                    top: 140px;
+                    z-index: 1;
                   "
                   alt="reload page"
                 />
@@ -106,12 +108,13 @@
               src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
               -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " /> -->
             </div>
-
-            <img
-              style="position: absolute; bottom: 0; right: 0"
-              src="<%= LOGO_URL %>"
-              alt="reload page"
-            />
+            <div style="display: inline-block; z-index: 0">
+              <img
+                style="position: absolute; bottom: 0; right: 0"
+                src="<%= LOGO_URL %>"
+                alt="reload page"
+              />
+            </div>
           </td>
         </tr>
       </tbody>

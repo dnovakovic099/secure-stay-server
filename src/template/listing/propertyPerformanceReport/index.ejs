@@ -56,6 +56,13 @@
         --font-cursive: "Allura", serif;
         --font-semi-cursive: "Great Vibes", serif;
       }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+      }
       body {
         font-size: 1rem;
         background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg))
@@ -99,7 +106,7 @@
       .page {
         background-color: var(--clr-page-bg);
         position: relative;
-        padding: 8px;
+        /* padding: 8px; */
         /* 11.6inches is matching pdf page (A4) height */
         height: 11.6in;
         page-break-before: always;
@@ -180,6 +187,7 @@
       p {
         font-weight: 500;
         line-height: normal;
+        text-align: justify;
       }
       small {
         font-size: 12px;
@@ -656,7 +664,7 @@
                       border-radius: 40px;
                       font-family: var(--font-cursive);
                       font-weight: 500;
-                      font-size: 1.8rem;
+                      font-size: 1.6rem;
                       letter-spacing: 1px;
                     "
                   >

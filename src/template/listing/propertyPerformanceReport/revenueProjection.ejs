@@ -2,145 +2,151 @@
   <td class="page" id="page-4">
     <div class="page-content">
       <h1 class="cursive-heading">Revenue Projection</h1>
-      <table
-        class="styled-table"
-        style="
-          box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
-          overflow: hidden;
-          text-align: center;
-          border-collapse: collapse;
-          border: 1px solid #e7e7e7;
-        "
-      >
-        <thead>
-          <tr>
-            <th
-              class="table-header-cell"
-              style="
-                background-color: var(--clr-primary);
-                font-size: 1.3rem;
-                color: black;
-                font-weight: 800;
-                text-transform: uppercase;
-                padding: 18px;
-              "
-            >
-              MONTH
-            </th>
-            <th
-              class="table-header-cell"
-              style="
-                background-color: var(--clr-primary);
-                font-size: 1.3rem;
-                color: black;
-                font-weight: 800;
-                text-transform: uppercase;
-                padding: 18px;
-              "
-            >
-              PROSPECT
-            </th>
-            <th
-              class="table-header-cell"
-              style="
-                background-color: var(--clr-primary);
-                font-size: 1.3rem;
-                color: black;
-                font-weight: 800;
-                text-transform: uppercase;
-                padding: 18px;
-              "
-            >
-              MARKET AVG
-            </th>
-            <th
-              class="table-header-cell"
-              style="
-                background-color: var(--clr-primary);
-                font-size: 1.3rem;
-                color: black;
-                font-weight: 800;
-                text-transform: uppercase;
-                padding: 18px;
-              "
-            >
-              COMPETITOR <br />
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <% const yearlyData = revenueRange[currentYear.toString()]; let
-          totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
-          Object.entries(yearlyData).forEach(([month, data]) => { const client =
-          data.lower; const marketAvg = (data.upper + data.lower) / 2; const
-          competitor = data.upper; totalClient += client; totalMarketAvg +=
-          marketAvg; totalCompetitor += competitor; %>
-          <tr>
-            <td class="table-body-cell">
-              <%= new Date(currentYear, month - 1).toLocaleString('default', {
-              month: 'long' }) %> ’<%= currentYear.toString().slice(-2) %>
-            </td>
-            <td class="table-body-cell">
-              <strong style="color: black">
-                $<%= client.toLocaleString() %>
-              </strong>
-            </td>
-            <td class="table-body-cell">
-              $<%= Number(marketAvg.toFixed(1)).toLocaleString() %>
-            </td>
-            <td class="table-body-cell">$<%= competitor.toLocaleString() %></td>
-          </tr>
-          <% }); %>
-          <tr>
-            <td class="table-body-cell" style="font-weight: 700; color: #000">
-              TOTAL
-            </td>
-            <td class="table-body-cell">
-              <strong style="color: black; font-size: 18px">
-                $<%= totalClient.toLocaleString() %>
-              </strong>
-            </td>
-            <td class="table-body-cell">
-              <strong style="color: black; font-size: 18px">
-                $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
-              </strong>
-            </td>
-            <td class="table-body-cell">
-              <strong style="color: black; font-size: 18px">
-                $<%= totalCompetitor.toLocaleString() %>
-              </strong>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="box">
-        <p>
-          <% if (totalClient < totalMarketAvg) { %> The revenue projection for
-          the prospect’s property shows a weak performance, Underperforming the
-          market average and closely aligning with Snowbird Creek Cabin’s
-          performance. However , minor adjustments to pricing strategy could
-          further optimize results. By slightly reducing the ADR in off-peak
-          months, we can increase occupancy, ensuring a steadier flow of
-          bookings while maintaining competitive rates during high-demand
-          periods. Snowbird Creek Cabin demonstrates how a well- balanced
-          approach to pricing and occupancy can maximize revenue year-round.
-          Through our dynamic pricing expertise, strategic rate adjustments, and
-          continuous market monitoring, we will help position this property as a
-          top performer, ensuring sustainable revenue growth and higher
-          profitability. <% } else { %> The revenue projection for the
-          prospect’s property shows a strong performance, outperforming the
-          market average and closely aligning with Snowbird Creek Cabin’s
-          performance. However , minor adjustments to pricing strategy could
-          further optimize results. By slightly reducing the ADR in off-peak
-          months, we can increase occupancy, ensuring a steadier flow of
-          bookings while maintaining competitive rates during high-demand
-          periods. Snowbird Creek Cabin demonstrates how a well- balanced
-          approach to pricing and occupancy can maximize revenue year-round.
-          Through our dynamic pricing expertise, strategic rate adjustments, and
-          continuous market monitoring, we will help position this property as a
-          top performer, ensuring sustainable revenue growth and higher
-          profitability. <% } %>
-        </p>
+      <div style="padding: 0px 50px">
+        <table
+          class="styled-table"
+          style="
+            box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            text-align: center;
+            border-collapse: collapse;
+            border: 1px solid #e7e7e7;
+          "
+        >
+          <thead>
+            <tr>
+              <th
+                class="table-header-cell"
+                style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  padding: 18px;
+                "
+              >
+                MONTH
+              </th>
+              <th
+                class="table-header-cell"
+                style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  padding: 18px;
+                "
+              >
+                PROSPECT
+              </th>
+              <th
+                class="table-header-cell"
+                style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  padding: 18px;
+                "
+              >
+                MARKET AVG
+              </th>
+              <th
+                class="table-header-cell"
+                style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  padding: 18px;
+                "
+              >
+                COMPETITOR <br />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <% const yearlyData = revenueRange[currentYear.toString()]; let
+            totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
+            Object.entries(yearlyData).forEach(([month, data]) => { const client
+            = data.lower; const marketAvg = (data.upper + data.lower) / 2; const
+            competitor = data.upper; totalClient += client; totalMarketAvg +=
+            marketAvg; totalCompetitor += competitor; %>
+            <tr>
+              <td class="table-body-cell">
+                <%= new Date(currentYear, month - 1).toLocaleString('default', {
+                month: 'long' }) %> ’<%= currentYear.toString().slice(-2) %>
+              </td>
+              <td class="table-body-cell">
+                <strong style="color: black">
+                  $<%= client.toLocaleString() %>
+                </strong>
+              </td>
+              <td class="table-body-cell">
+                $<%= Number(marketAvg.toFixed(1)).toLocaleString() %>
+              </td>
+              <td class="table-body-cell">
+                $<%= competitor.toLocaleString() %>
+              </td>
+            </tr>
+            <% }); %>
+            <tr>
+              <td class="table-body-cell" style="font-weight: 700; color: #000">
+                TOTAL
+              </td>
+              <td class="table-body-cell">
+                <strong style="color: black; font-size: 18px">
+                  $<%= totalClient.toLocaleString() %>
+                </strong>
+              </td>
+              <td class="table-body-cell">
+                <strong style="color: black; font-size: 18px">
+                  $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
+                </strong>
+              </td>
+              <td class="table-body-cell">
+                <strong style="color: black; font-size: 18px">
+                  $<%= totalCompetitor.toLocaleString() %>
+                </strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="padding: 0px 50px">
+        <div class="box">
+          <p>
+            <% if (totalClient < totalMarketAvg) { %> The revenue projection for
+            the prospect’s property shows a weak performance, Underperforming
+            the market average and closely aligning with Snowbird Creek Cabin’s
+            performance. However , minor adjustments to pricing strategy could
+            further optimize results. By slightly reducing the ADR in off-peak
+            months, we can increase occupancy, ensuring a steadier flow of
+            bookings while maintaining competitive rates during high-demand
+            periods. Snowbird Creek Cabin demonstrates how a well- balanced
+            approach to pricing and occupancy can maximize revenue year-round.
+            Through our dynamic pricing expertise, strategic rate adjustments,
+            and continuous market monitoring, we will help position this
+            property as a top performer, ensuring sustainable revenue growth and
+            higher profitability. <% } else { %> The revenue projection for the
+            prospect’s property shows a strong performance, outperforming the
+            market average and closely aligning with Snowbird Creek Cabin’s
+            performance. However , minor adjustments to pricing strategy could
+            further optimize results. By slightly reducing the ADR in off-peak
+            months, we can increase occupancy, ensuring a steadier flow of
+            bookings while maintaining competitive rates during high-demand
+            periods. Snowbird Creek Cabin demonstrates how a well- balanced
+            approach to pricing and occupancy can maximize revenue year-round.
+            Through our dynamic pricing expertise, strategic rate adjustments,
+            and continuous market monitoring, we will help position this
+            property as a top performer, ensuring sustainable revenue growth and
+            higher profitability. <% } %>
+          </p>
+        </div>
       </div>
       <div
         class="image-section"

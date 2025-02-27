@@ -2,7 +2,7 @@
   <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
   minimumFractionDigits: 2 }) %> <% } %>
   <td class="page" id="page-5">
-    <div class="page-content">
+    <div class="page-content" style="padding: 20px">
       <table>
         <tbody>
           <tr>
@@ -31,6 +31,8 @@
                     background-repeat: no-repeat;
                     background-color: white;
                     background-size: 100%;
+                    padding: 10px;
+                    box-sizing: border-box;
                   "
                 ></div>
               </div>
@@ -290,19 +292,11 @@
           </div>
         </div>
       </div>
-      <table>
-        <tbody>
-          <tr>
-            <td style="padding-inline: 5px">
-              <img
-                src="<%= PAGE_4_CARD %>"
-                alt="reload page"
-                style="width: 100%"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        style="box-shadow: rgba(0, 0, 0, 0.16) 0px 1px 4px; border-radius: 12px"
+      >
+        <img src="<%= PAGE_4_CARD %>" alt="reload page" style="width: 100%" />
+      </div>
     </div>
   </td>
 </tr>
@@ -310,7 +304,7 @@
   <td class="page" id="page-6">
     <div class="page-content">
       <h1 class="cursive-heading">Market Overview</h1>
-      <div class="box white">
+      <div class="box white" style="margin: 0px 50px">
         <span
           class="box-label"
           style="
@@ -341,7 +335,7 @@
           resulting in steadier revenue performance year-round.
         </p>
       </div>
-      <div class="box white">
+      <div class="box white" style="margin: 0px 50px">
         <span
           class="box-label"
           style="

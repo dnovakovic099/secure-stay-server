@@ -1,10 +1,11 @@
 <tr>
   <td class="page" id="page-7">
     <div>
-      <div class="page-content">
-        <h1 class="cursive-heading">Prospect Property Overview</h1>
+      <div class="page-content" style="padding-top: 20px;">
+        <div style="padding: 0 30px;">
+        <h1 class="cursive-heading" style="padding-bottom: 20px;">Prospect Property Overview</h1>
         <h2
-          style="
+        style="
             margin-bottom: 25px;
             text-decoration: underline;
             font-size: 24px;
@@ -12,8 +13,10 @@
             font-weight: 600;
           "
         >
-          <%= listingData.address %>
-        </h2>
+        <%= listingData.address %>
+      </h2>
+        </div>
+      <div style="padding: 0 30px;">
         <div class="box white text-black" style="margin-bottom: 25px">
           <table>
             <!-- <tbody>
@@ -37,42 +40,26 @@
           </table>
           <table>
             <tbody>
-              <tr>
-                <td colspan="100%">
-                  <h6 style="font-size: 14px; color: #000; font-weight: 700">
-                    Short Term Renting list overview
-                  </h6>
-                </td>
-              </tr>
-              <tr>
-                <td colspan="100%" style="padding-bottom: 12px">
-                  <small style="color: #000; line-height: 0.6; font-size: 10px">
-                    <%= listingData.address %>
-                  </small>
-                </td>
-              </tr>
-              <img src="<%= heroSection %>" alt="" />
               <img src="<%= middleSection %>" alt="" />
+              <img src="<%= heroSection %>" alt="" />
               <img src="<%= statSection %>" alt="" />
             </tbody>
           </table>
         </div>
-        <table>
-          <tbody>
-            <tr>
-              <div style="margin: 0 20px">
-                <td width="50%">
+      </div>
+              <div style="padding: 10px 30px; display: flex; width: 100%;">
+                <div style="margin-right: 20px; width: 100%;">
                   <div
                     class="box-label"
                     style="
-                      height: 60px;
+                      height: 70px;
                       display: flex;
                       align-items: center;
                       gap: 10px;
                       max-width: 100%;
                     "
                   >
-                    <span
+                    <!-- <span
                       style="
                         background-color: white;
                         color: var(--clr-primary);
@@ -80,30 +67,31 @@
                         padding: 8px;
                         border-radius: 100%;
                       "
-                    >
+                    > -->
                       <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
                       <img
                         width="40px"
                         height="40px"
+                        style="filter: invert(1)"
                         src="<%= ICON_GEARS %>"
                         alt=""
                       />
-                    </span>
+                    <!-- </span> -->
                     <strong>RevPAR: $<%= revPar %></strong>
                   </div>
-                </td>
-                <td width="50%">
+                </div>
+                <div style="width: 100%;">
                   <div
                     class="box-label"
                     style="
-                      height: 60px;
+                      height: 70px;
                       display: flex;
                       align-items: center;
                       gap: 10px;
                       max-width: 100%;
                     "
                   >
-                    <span
+                    <!-- <span
                       style="
                         background-color: white;
                         color: var(--clr-primary);
@@ -111,24 +99,23 @@
                         padding: 8px;
                         border-radius: 100%;
                       "
-                    >
+                    > -->
                       <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
                       <img
                         width="40px"
                         height="40px"
+                        style="filter: invert(1)"
                         src="<%= ICON_HAND_HOLDIING_USERS %>"
                         alt=""
                       />
-                    </span>
+                    <!-- </span> -->
                     <strong
                       >Listing Rating: <%= propertyDetails.rating %> /5
                     </strong>
                   </div>
-                </td>
+                </div>
               </div>
-            </tr>
-          </tbody>
-        </table>
+            
       </div>
       <div
         class="image-section"
@@ -137,16 +124,17 @@
         <img
           src="<%= propertyDetails.images[9] %>"
           alt="reload page"
-          style="opacity: 0.3; height: 440px; object-fit: cover"
+          style="opacity: 0.3; height: 550px; object-fit: cover; width: 100%;"
         />
+      
         <div
           class="box tinted"
           style="
             position: absolute;
-            top: 40%;
+            top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 95%;
+            width: 90%;
           "
         >
           <p>
@@ -175,6 +163,7 @@
             ensure sustained profitability and stronger market positioning.
           </p>
         </div>
+        
       </div>
     </div>
     <img
@@ -232,7 +221,7 @@
                   %> ADR is Relatively High for Market Conditions <% } else { %>
                   ADR is relatively low for market conditions <% } %>
                 </h6>
-                <p style="font-size: 16px">
+                <span style="font-size: 16px">
                   <% if (listingData.totalClient > listingData.totalMarketAvg) {
                   %> While the rate is strong, it may be limiting occupancy
                   growth, requiring a balanced dynamic pricing approach to drive
@@ -269,10 +258,10 @@
                 <h6 style="color: var(--clr-primary-dark); font-size: 1rem">
                   Lack of High-Demand Amenities
                 </h6>
-                <p style="font-size: 16px">
+                <span style="font-size: 16px">
                   The listing is missing high-impact amenities which competitors
                   use to increase revenue.
-                </p>
+                </span>
               </div>
             </td>
             <td width="33.3%">
@@ -302,10 +291,10 @@
                 <h6 style="color: var(--clr-primary-dark); font-size: 1rem">
                   Occupancy is good but can be optimized
                 </h6>
-                <p style="font-size: 16px">
+                <span style="font-size: 16px">
                   At <%= listingData.occupancy * 100 %>%, there’s an opportunity
                   to increase stays, particularly by leveraging seasonal Demand.
-                </p>
+                </span>
               </div>
             </td>
           </tr>
@@ -394,11 +383,11 @@
                   <h6 style="color: var(--clr-primary-dark); font-size: 0.9rem">
                     RevPAR Optimization Through Balanced Pricing
                   </h6>
-                  <p style="font-size: 0.9rem">
+                  <span style="font-size: 0.9rem">
                     The property’s ADR is limiting revenue, and adjusting rates
                     strategically to align with peak demand periods will help
                     maximize RevPAR.
-                  </p>
+                  </span>
                 </div>
               </div>
             </td>
@@ -470,11 +459,11 @@
                   <h6 style="color: var(--clr-primary-dark); font-size: 0.9rem">
                     Enhancing Market Position with Key Amenities
                   </h6>
-                  <p style="font-size: 0.9rem">
+                  <span style="font-size: 0.9rem">
                     The market data shows low availability of highvalue
                     amenities like hot tubs, adding such features can increase
                     nightly rates and attract more bookings.
-                  </p>
+                  </span>
                 </div>
               </div>
             </td>
@@ -546,11 +535,11 @@
                   <h6 style="color: var(--clr-primary-dark); font-size: 0.9rem">
                     Leveraging Peak Seasonal Demand with Dynamic Pricing
                   </h6>
-                  <p style="font-size: 0.9rem">
+                  <span style="font-size: 0.9rem">
                     The market has clear seasonal highs and lows, and
                     implementing automated pricing strategies will ensure
                     optimal revenue capture without sacrificing occupancy
-                  </p>
+                  </span>
                 </div>
               </div>
             </td>
