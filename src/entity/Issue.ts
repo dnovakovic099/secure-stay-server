@@ -106,7 +106,7 @@ export class Issue {
     })
     needs_attention: string;
 
-    @Column({ type: 'text', nullable: true })
+    @Column({ nullable: true })
     claim_resolution_status: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
