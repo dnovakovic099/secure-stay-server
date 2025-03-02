@@ -39,7 +39,7 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().required(),
         status: Joi.string().required().valid("Pending", "Approved", "Denied"),
-        notes: Joi.string().required().allow(null)
+        notes: Joi.string().required().allow(null,'')
     });
 
     const { error } = schema.validate(request.body);

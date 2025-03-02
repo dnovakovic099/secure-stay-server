@@ -27,8 +27,9 @@ router.route('/')
         refundRequestController.updateRefundRequest
     );
 
+router.route('/list').get(verifySession, refundRequestController.getRefundRequestList);
+
 router.route('/:reservationId').get(verifySession, refundRequestController.getRefundRequestByReservationId);
 
-router.route('/list').get(verifySession, refundRequestController.getRefundRequestList);
 
 export default router;

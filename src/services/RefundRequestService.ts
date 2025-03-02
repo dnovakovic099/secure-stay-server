@@ -100,7 +100,7 @@ export class RefundRequestService {
             body: {
                 listingMapId: body.listingId,
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: `Refund Request`,
+                concept: body.notes,
                 amount: body.refundAmount,
                 categories: JSON.stringify([12]),
                 dateOfWork: null,
@@ -126,15 +126,15 @@ export class RefundRequestService {
         return await this.refundRequestRepo.findOne({ where: { id } });
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status?: string, guestName?: string, listingId?: number; }) {
-        const { page, limit, status, guestName, listingId } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status?: string, reservationId?: number, listingId?: number; }) {
+        const { page, limit, status, reservationId, listingId } = query;
         const offset = (page - 1) * limit;
         const whereConditions: any = {};
         if (status) {
             whereConditions.status = status;
         }
-        if (guestName) {
-            whereConditions.guestName = guestName;
+        if (reservationId) {
+            whereConditions.reservationId = reservationId;
         }
         if (listingId) {
             whereConditions.listingId = listingId;
