@@ -5,11 +5,13 @@ export const validateCreateResolution = (request: Request, response: Response, n
     const schema = Joi.object({
         category: Joi.string()
             .required()
-            .valid("full_claim", "partial_claim", "security_deposit")
+            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others")
             .messages({
                 'any.required': 'Category is required',
-                'any.only': 'Category must be one of: full_claim, partial_claim, security_deposit'
+                'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others'
             }),
+
+        otherCategoryDescription: Joi.string().allow('').optional(),
 
         listingMapId: Joi.number()
             .required()

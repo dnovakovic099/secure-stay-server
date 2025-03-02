@@ -742,7 +742,7 @@ export class AccountingReportService {
           city: listing?.city,
           state: listing?.state,
           invoiceNo: statement.invoiceNo,
-          ownerDetails: ownerDetails[statement.listingId]
+          ownerDetails: ownerDetails[statement.listingId] || null
         };
       })
     );
