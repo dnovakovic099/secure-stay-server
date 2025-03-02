@@ -11,6 +11,9 @@ export class ListingDetail {
     @Column({ nullable: false })
     propertyOwnershipType: string;
 
+    @Column({ nullable: true })
+    statementDurationType: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

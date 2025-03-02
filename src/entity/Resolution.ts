@@ -5,13 +5,10 @@ export class Resolution {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({
-        type: "enum",
-        enum: ["claim", "security_deposit", "pet_fee", "extra_cleaning", "others"]
-    })
+    @Column({ nullable: false })
     category: string;
 
-    @Column({ nullable: true })
+    @Column({ type: "text", nullable: true })
     otherCategoryDescription: string;
 
     @Column()

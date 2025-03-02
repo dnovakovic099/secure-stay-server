@@ -77,6 +77,7 @@ export const validateSaveListingDetail = (request: Request, response: Response, 
   const schema = Joi.object({
     listingId: Joi.number().required(),
     propertyOwnershipType: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned"),
+    statementDurationType: Joi.string().required().valid("Monthly", "Weekly & Bi-weekly").allow(null, ""),
   });
 
   const { error } = schema.validate(request.body);
