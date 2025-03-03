@@ -15,7 +15,7 @@ export class RefundRequestService {
         newRefundRequest.listingName = body.listingName;
         newRefundRequest.checkIn = body.checkIn;
         newRefundRequest.checkOut = body.checkOut;
-        newRefundRequest.issueId = body.issueId;
+        newRefundRequest.issueId = JSON.stringify(body.issueId);
         newRefundRequest.explaination = body.explaination;
         newRefundRequest.refundAmount = body.refundAmount;
         newRefundRequest.requestedBy = body.requestedBy;
@@ -35,7 +35,7 @@ export class RefundRequestService {
         refundRequest.listingName = body.listingName;
         refundRequest.checkIn = body.checkIn;
         refundRequest.checkOut = body.checkOut;
-        refundRequest.issueId = body.issueId;
+        refundRequest.issueId = JSON.stringify(body.issueId);
         refundRequest.explaination = body.explaination;
         refundRequest.refundAmount = body.refundAmount;
         refundRequest.requestedBy = body.requestedBy;

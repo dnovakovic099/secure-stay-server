@@ -24,7 +24,7 @@ export class RefundRequestEntity {
     checkOut: string;
 
     @Column({ nullable: true })
-    issueId: number;
+    issueId: string;
 
     @Column({ nullable: true })
     expenseId: number;
