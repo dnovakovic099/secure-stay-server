@@ -1,12 +1,12 @@
-import { IncomeService } from "./IncomeService";
 import { Request } from "express";
+import { ReservationInfoService } from "./ReservationInfoService";
 
 export class ReportsService {
-    private incomeService = new IncomeService();
+    private reservationInfoService = new ReservationInfoService();
+   
 
-   async getReports(request: Request, userId: string) {
-
-      const incomeStatement = await this.incomeService.generateIncomeStatement(request, userId);
-      return incomeStatement;
+   async getReports(request: Request) {
+      const reservationInfo = await this.reservationInfoService.getReservationInfo(request);
+      return reservationInfo;
    }
 } 
