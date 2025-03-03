@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { IssuesService } from "../services/IssuesService";
 
 export class IssuesController {
@@ -107,5 +107,20 @@ export class IssuesController {
         const issuesService = new IssuesService();
         const result = await issuesService.exportIssuesToExcel();
         return response.send(result);
+    }
+
+    async getIssuesByReservationId(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationId = request.params.reservationId;
+            const issuesService = new IssuesService();
+            const issues = await issuesService.getIssuesByReservationId(reservationId);
+            return response.json({
+                status: true,
+                data: issues
+            });
+
+        } catch (error) {
+            return next(error);
+        }
     }
 } 

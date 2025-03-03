@@ -41,4 +41,6 @@ router.route('/export')
         issuesController.exportIssuesToExcel
     );
 
+router.route('/reservation/:reservationId').get(verifySession, issuesController.getIssuesByReservationId);
+
 export default router;
