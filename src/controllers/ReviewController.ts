@@ -57,4 +57,22 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async saveReview(request: CustomRequest, response: Response, next: NextFunction){
+        try {
+            const reviewService = new ReviewService();
+            const { body } = request;
+            const userId = request.user.id;
+
+            const savedReview = await reviewService.saveReview(body, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: savedReview
+            });
+        } catch (error) {
+            logger.error("Error saving review:", error);
+            return next(error);
+        }
+    }
 }

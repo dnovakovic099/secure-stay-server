@@ -1,9 +1,12 @@
-import { Entity, PrimaryColumn, Column, OneToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, OneToOne, CreateDateColumn, UpdateDateColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { ReviewDetailEntity } from './ReviewDetail';
 
 @Entity('reviews')
 export class ReviewEntity {
-    @PrimaryColumn({ type: "bigint" })
+    @PrimaryGeneratedColumn({ type: "bigint" })
+    reviewId: number;
+
+    @Column({ type: "bigint", nullable: true })
     id: number;
 
     @Column({ nullable: true })

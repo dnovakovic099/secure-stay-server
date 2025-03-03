@@ -7,10 +7,19 @@ import { ReservationService } from "./ReservationService";
 import { OwnerInfoEntity } from "../entity/OwnerInfo";
 import sendEmail from "../utils/sendEmai";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { ReservationInfoService } from "./ReservationInfoService";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
     unresolvedForMoreThanSevenDays: boolean;
+}
+
+interface CreateReview {
+    reservationId: number;
+    reviewerName: string;
+    rating: number;
+    publicReview: string;
+    status: string;
 }
 
 export class ReviewService {
@@ -284,6 +293,39 @@ export class ReviewService {
         `;
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, "admin@luxurylodgingpm.com");
+    }
+
+    public async saveReview(body: CreateReview, userId: string) {
+        const { reservationId, reviewerName, rating, publicReview, status } = body;
+
+        const reservationInfoService = new ReservationInfoService();
+        const reservationInfo = await reservationInfoService.getReservationById(reservationId);
+        if (!reservationInfo) {
+            throw CustomErrorHandler.notFound('Reservation not found');
+        }
+
+        const reviewObj = {
+            reviewerName,
+            listingMapId: reservationInfo.listingMapId,
+            channelId: reservationInfo.channelId,
+            channelName: reservationInfo.channelName,
+            rating,
+            publicReview,
+            arrivalDate: String(reservationInfo.arrivalDate),
+            departureDate: String(reservationInfo.departureDate),
+            listingName: reservationInfo.listingName,
+            guestName: reservationInfo.guestName,
+            isHidden: status == "active" ? 0 : 1,
+            bookingAmount: reservationInfo.totalPrice,
+            reservationId,
+            createdBy: userId
+        };
+        return await this.createReview(reviewObj);
+    }
+
+    private async createReview(obj: any) {
+        const newReview = this.reviewRepository.create(obj);
+        return await this.reviewRepository.save(newReview);
     }
 
 }
