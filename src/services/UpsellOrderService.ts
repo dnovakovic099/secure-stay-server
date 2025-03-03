@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between } from "typeorm";
+import { Between, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 
 export class UpsellOrderService {
@@ -61,15 +61,28 @@ export class UpsellOrderService {
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {
-        return await this.upsellOrderRepo.find({
+        const earlyCheckInUpsells = await this.upsellOrderRepo.find({
             where: {
                 listing_id: String(listingId),
                 arrival_date: Between(
                     new Date(fromDate),
                     new Date(toDate)
-                )
+                ),
+                type: "Early Check-in"
             }
         });
+
+        const otherUpsells = await this.upsellOrderRepo.find({
+            where: {
+                listing_id: String(listingId),
+                departure_date: Between(
+                    new Date(fromDate),
+                    new Date(toDate),
+                ),
+                type: Not("Early Check-in")
+            }
+        });
+        return [...earlyCheckInUpsells, ...otherUpsells]
     }
 
     async getUpsellsByReservationId(reservationId: number) {

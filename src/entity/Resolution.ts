@@ -5,11 +5,11 @@ export class Resolution {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({
-        type: "enum",
-        enum: ["full_claim", "partial_claim", "security_deposit"]
-    })
+    @Column({ nullable: false })
     category: string;
+
+    @Column({ type: "text", nullable: true })
+    otherCategoryDescription: string;
 
     @Column()
     listingMapId: number;

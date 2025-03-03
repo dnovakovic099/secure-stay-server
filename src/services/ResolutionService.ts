@@ -17,6 +17,7 @@ interface ResolutionQuery {
 
 interface ResolutionData {
     category: string;
+    otherCategoryDescription?: string;
     listingMapId: number;
     guestName: string;
     claimDate: string;
@@ -24,15 +25,19 @@ interface ResolutionData {
 }
 
 enum CategoryKey {
-    FULL_CLAIM = 'full_claim',
-    PARTIAL_CLAIM = 'partial_claim',
-    SECURITY_DEPOSIT = 'security_deposit'
+    CLAIM = 'claim',
+    SECURITY_DEPOSIT = 'security_deposit',
+    PET_FEE = 'pet_fee',
+    EXTRA_CLEANING = 'extra_cleaning',
+    OTHERS = 'others'
 }
 
 const categoriesList: Record<CategoryKey, string> = {
-    [CategoryKey.FULL_CLAIM]: "Full Claim",
-    [CategoryKey.PARTIAL_CLAIM]: "Partial Claim",
+    [CategoryKey.CLAIM]: "Claim",
     [CategoryKey.SECURITY_DEPOSIT]: "Security Deposit",
+    [CategoryKey.PET_FEE]: "Pet Fee",
+    [CategoryKey.EXTRA_CLEANING]: "Extra Cleaning",
+    [CategoryKey.OTHERS]: "Others",
 };
 
 export class ResolutionService {
@@ -42,6 +47,7 @@ export class ResolutionService {
     async createResolution(data: ResolutionData, userId: string) {
         const resolution = new Resolution();
         resolution.category = data.category;
+        resolution.otherCategoryDescription = data.otherCategoryDescription;
         resolution.listingMapId = data.listingMapId;
         resolution.guestName = data.guestName;
         resolution.claimDate = new Date(data.claimDate);
@@ -106,6 +112,7 @@ export class ResolutionService {
         const columns = [
             "ID",
             "Category",
+            "Other Category",
             "Address",
             "Guest Name",
             "Claim Date",
@@ -116,6 +123,7 @@ export class ResolutionService {
         const rows = resolutions.map((resolution) => [
             resolution.id,
             categoriesList[resolution.category as CategoryKey] ?? 'Unknown Category',
+            resolution.otherCategoryDescription ?? 'N/A',
             listingNameMap[resolution.listingMapId] || 'N/A',
             resolution.guestName,
             format(resolution.claimDate, "yyyy-MM-dd"),
