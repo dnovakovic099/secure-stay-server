@@ -1,18 +1,17 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { ReviewDetailOldLogs } from './ReviewDetailOldLogs';
-import { ReviewEntity } from './Review';
+import { ReviewDetailEntity } from './ReviewDetail';
 
-@Entity('review_details')
-export class ReviewDetailEntity {
+@Entity('review_detail_old_logs')
+export class ReviewDetailOldLogs {
     @PrimaryGeneratedColumn({ type: 'int' })
     id: number;
 
-    @OneToOne(() => ReviewEntity, review => review.reviewDetail, { onDelete: 'CASCADE' })
-    @JoinColumn({ name: 'reviewId' })  // This makes `reviewId` a foreign key
-    review: ReviewEntity;
+    @OneToOne(() => ReviewDetailEntity, reviewDetail => reviewDetail.oldLog, { onDelete: 'CASCADE', nullable: true })
+    @JoinColumn({ name: 'reviewDetailId' })
+    reviewDetail: ReviewDetailEntity;
 
-    @Column({ type: "bigint", nullable: false })
-    reviewId: number;  // Foreign key referencing `ReviewEntity.id`
+    @Column({ type: 'bigint', nullable: false })
+    reviewDetailId: number;  // Foreign key to ReviewDetailEntity
 
     @Column({ nullable: true })
     guestPhone: string;
@@ -48,15 +47,5 @@ export class ReviewDetailEntity {
     updatedAt: Date;
 
     @Column({ nullable: true })
-    createdBy: string;
-
-    @Column({ nullable: true })
-    updatedBy: string;
-
-    @Column({ nullable: true })
     whoUpdated: string;
-
-    // Optional One-to-One relationship with ReviewDetailOldLogs
-    @OneToOne(() => ReviewDetailOldLogs, oldLog => oldLog.reviewDetail, { nullable: true })
-    oldLog: ReviewDetailOldLogs;
 }
