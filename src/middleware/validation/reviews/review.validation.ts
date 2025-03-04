@@ -49,3 +49,20 @@ export const validateUpdateReviewVisibilityStatusRequest = (request: Request, re
     }
     next();
 };
+
+
+export const validateSaveReview = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        reservationId: Joi.number().required(),
+        reviewerName: Joi.string().required(),
+        rating: Joi.number().required(),
+        publicReview: Joi.string().required(),
+        status: Joi.string().required().valid("active", "hidden"),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

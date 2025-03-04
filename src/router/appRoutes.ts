@@ -22,7 +22,7 @@ import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAud
 import reservationInfoRoutes from "./reservationInfoRoutes";
 import ownerInfoRoutes from "./ownerInfoRoutes";
 import refundRequestRoutes from "./refundRequestRoutes";
-
+import reportsRoutes from "./reportsRoutes";
 const router = Router();
 
 router.use('/device', deviceRoutes);
@@ -35,6 +35,7 @@ router.use('/accounting', accountingRoutes);
 router.use('/upsell', upsellRoutes);
 router.use('/issues', issueRoutes);
 router.use('/claims', claimRoutes);
+router.use('/reports', reportsRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);

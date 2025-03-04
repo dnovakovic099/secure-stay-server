@@ -11,7 +11,7 @@ export class ReviewDetailController {
     async saveReviewDetails(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;
-            const reviewId = Number(request.params.reviewId);
+            const reviewId = request.params.reviewId;
             const reviewDetailService = new ReviewDetailService();
             const reviewDetail = await reviewDetailService.saveReviewDetail(reviewId, request.body, userId);
             return response.status(201).json({
@@ -26,7 +26,7 @@ export class ReviewDetailController {
     async updateReviewDetails(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;
-            const reviewId = Number(request.params.reviewId);
+            const reviewId =request.params.reviewId;
             const reviewDetailService = new ReviewDetailService();
             const updatedReviewDetail = await reviewDetailService.updateReviewDetail(reviewId, request.body, userId);
             return response.status(200).json({
@@ -40,7 +40,7 @@ export class ReviewDetailController {
 
     async getReviewDetails(request: CustomRequest, response: Response, next: NextFunction) {
         try {
-            const reviewId = Number(request.params.reviewId);
+            const reviewId = request.params.reviewId;
             const reviewDetailService = new ReviewDetailService();
             const reviewDetail = await reviewDetailService.getReviewDetail(reviewId);
             return response.status(200).json({
