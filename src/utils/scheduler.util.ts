@@ -1,5 +1,5 @@
 import { sendCodes } from "../scripts/sendCodes";
-import { checkForUnresolvedReviews, checkUnasweredMessages } from "../scripts/notifyAdmin";
+import { checkForUnresolvedReviews, checkUnasweredMessages, checkUpdatedReviews } from "../scripts/notifyAdmin";
 import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
 
@@ -18,4 +18,6 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 * * * *", syncReviews);
 
   schedule.scheduleJob("0 14 * * 1", syncIssue);
+
+  schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, checkUpdatedReviews);
 }

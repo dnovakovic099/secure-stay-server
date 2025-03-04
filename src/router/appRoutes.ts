@@ -21,7 +21,7 @@ import reservationDetailPreStayAuditRoutes from "./reservationDetailPreStayAudit
 import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAuditRoutes";
 import reservationInfoRoutes from "./reservationInfoRoutes";
 import ownerInfoRoutes from "./ownerInfoRoutes";
-
+import reportsRoutes from "./reportsRoutes";
 const router = Router();
 
 router.use('/device', deviceRoutes);
@@ -34,6 +34,7 @@ router.use('/accounting', accountingRoutes);
 router.use('/upsell', upsellRoutes);
 router.use('/issues', issueRoutes);
 router.use('/claims', claimRoutes);
+router.use('/reports', reportsRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
 router.use("/reservation", reservationRoutes);
