@@ -12,7 +12,8 @@ export const validateReviewDetailsRequest = (request: Request, response: Respons
         methodsTried: Joi.string().required().allow("", null),
         methodsLeft: Joi.string().required().allow("", null),
         notes: Joi.string().required().allow("", null),
-        claimResolutionStatus: Joi.string().required().valid('N/A', 'Pending', 'Completed', 'Denied')
+        claimResolutionStatus: Joi.string().required().valid('N/A', 'Pending', 'Completed', 'Denied'),
+        whoUpdated: Joi.string().required()
     });
 
     const { error } = schema.validate(request.body);
