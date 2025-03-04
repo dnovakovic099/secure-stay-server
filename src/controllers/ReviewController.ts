@@ -46,7 +46,7 @@ export class ReviewController {
             const { id } = request.params;
             const userId = request.user.id;
 
-            const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, Number(id), userId);
+            const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, id, userId);
 
             return response.status(200).json({
                 success: true,

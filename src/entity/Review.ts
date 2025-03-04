@@ -1,13 +1,10 @@
-import { Entity, PrimaryColumn, Column, OneToOne, CreateDateColumn, UpdateDateColumn, PrimaryGeneratedColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, OneToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { ReviewDetailEntity } from './ReviewDetail';
 
 @Entity('reviews')
 export class ReviewEntity {
-    @PrimaryGeneratedColumn({ type: "bigint" })
-    reviewId: number;
-
-    @Column({ type: "bigint", nullable: true })
-    id: number;
+    @PrimaryColumn({ type: "varchar", length: 255,  unique: true })
+    id: string;
 
     @Column({ nullable: true })
     reviewerName: string;

@@ -8,6 +8,7 @@ import { OwnerInfoEntity } from "../entity/OwnerInfo";
 import sendEmail from "../utils/sendEmai";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ReservationInfoService } from "./ReservationInfoService";
+import { v4 as uuidv4 } from 'uuid';
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -117,7 +118,7 @@ export class ReviewService {
     }
 
 
-    public async updateReviewVisibility(reviewVisibility: string, id: number, userId: string) {
+    public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
         const review = await this.reviewRepository.findOne({ where: { id } });
         if (!review) {
             throw CustomErrorHandler.notFound(`Review not found with id: ${id}`);
@@ -305,6 +306,7 @@ export class ReviewService {
         }
 
         const reviewObj = {
+            id: uuidv4(),
             reviewerName,
             listingMapId: reservationInfo.listingMapId,
             channelId: reservationInfo.channelId,
