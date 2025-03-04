@@ -11,8 +11,8 @@ export class ReviewDetailEntity {
     @JoinColumn({ name: 'reviewId' })  // This makes `reviewId` a foreign key
     review: ReviewEntity;
 
-    @Column({ type: "bigint", nullable: false })
-    reviewId: number;  // Foreign key referencing `ReviewEntity.id`
+    @Column({ type: "varchar", length: 255, unique: true })
+    reviewId: string;  // Foreign key referencing `ReviewEntity.id`
 
     @Column({ nullable: true })
     guestPhone: string;

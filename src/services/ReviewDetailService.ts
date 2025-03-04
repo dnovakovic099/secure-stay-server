@@ -14,7 +14,7 @@ export class ReviewDetailService {
     private reviewDetailOldLogsRepository = appDatabase.getRepository(ReviewDetailOldLogs);  // Add repository for old logs
 
     // Save new review detail
-    public async saveReviewDetail(reviewId: number, details: Partial<ReviewDetailEntity>, userId: string) {
+    public async saveReviewDetail(reviewId: string, details: Partial<ReviewDetailEntity>, userId: string) {
         try {
             const review = await this.reviewRepository.findOne({ where: { id: reviewId } });
             if (!review) {
@@ -48,7 +48,7 @@ export class ReviewDetailService {
     }
 
     // Update review detail
-    public async updateReviewDetail(reviewId: number, updatedDetails: Partial<ReviewDetailEntity>, userId: string) {
+    public async updateReviewDetail(reviewId: string, updatedDetails: Partial<ReviewDetailEntity>, userId: string) {
         try {
             const reviewDetail = await this.reviewDetailRepository.findOne({ where: { reviewId }, relations: ['oldLog'] });
             if (!reviewDetail) {
@@ -92,8 +92,7 @@ export class ReviewDetailService {
         }
     }
 
-    // Get review detail
-    public async getReviewDetail(reviewId: number) {
+    public async getReviewDetail(reviewId: string) {
         try {
             // Fetch and return review detail
             const reviewDetail = await this.reviewDetailRepository.findOne({ where: { reviewId } });
