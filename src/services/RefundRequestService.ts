@@ -3,6 +3,7 @@ import { RefundRequestEntity } from "../entity/RefundRequest";
 import { EntityManager } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
+import CustomErrorHandler from "../middleware/customError.middleware";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -15,7 +16,7 @@ export class RefundRequestService {
         newRefundRequest.listingName = body.listingName;
         newRefundRequest.checkIn = body.checkIn;
         newRefundRequest.checkOut = body.checkOut;
-        newRefundRequest.issueId = JSON.stringify(body.issueId);
+        newRefundRequest.issueId = body.issueId;
         newRefundRequest.explaination = body.explaination;
         newRefundRequest.refundAmount = body.refundAmount;
         newRefundRequest.requestedBy = body.requestedBy;
@@ -35,7 +36,7 @@ export class RefundRequestService {
         refundRequest.listingName = body.listingName;
         refundRequest.checkIn = body.checkIn;
         refundRequest.checkOut = body.checkOut;
-        refundRequest.issueId = JSON.stringify(body.issueId);
+        refundRequest.issueId = body.issueId;
         refundRequest.explaination = body.explaination;
         refundRequest.refundAmount = body.refundAmount;
         refundRequest.requestedBy = body.requestedBy;
@@ -139,12 +140,36 @@ export class RefundRequestService {
         if (listingId) {
             whereConditions.listingId = listingId;
         }
-        return await this.refundRequestRepo.find({
+        const [data, total] = await this.refundRequestRepo.findAndCount({
             where: whereConditions,
             order: { createdAt: "DESC" },
             take: limit,
             skip: offset,
         });
+
+        return { data, total };
+    }
+
+    async updateRefundRequestStatus(id: number, status: string, userId: string) {
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        if (!refundRequest) {
+            throw CustomErrorHandler.notFound('Refund request not found');
+        }
+        const isStatusChanged = refundRequest && refundRequest.status !== status;
+        if (isStatusChanged) {
+            const expenseService = new ExpenseService();
+
+            if (status === "Approved") {
+                const expense = await this.createExpenseForRefundRequest(refundRequest, userId);
+                refundRequest.expenseId = expense.id;
+            } else if (refundRequest.expenseId) {
+                const expense = await expenseService.getExpense(refundRequest.expenseId);
+                await expenseService.deleteExpense(expense.expenseId, userId);
+                refundRequest.expenseId = null;
+            }
+            refundRequest.status = status;
+        }
+        return await this.refundRequestRepo.save(refundRequest);
     }
 
 }

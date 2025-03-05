@@ -67,4 +67,17 @@ export class RefundRequestController {
             return next(error);
         }
     }
+
+    async updateRefundRequestStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const refundRequestService = new RefundRequestService();
+            const userId = request.user.id;
+            const { id, status } = request.body;
+
+            await refundRequestService.updateRefundRequestStatus(Number(id), String(status), userId);
+            return response.status(200).json({ status: true, message: 'Refund request status updated successfully.' });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

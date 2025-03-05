@@ -1,7 +1,7 @@
 import { RefundRequestController } from "../controllers/RefundRequestController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateSaveRefundRequest, validateUpdateRefundRequest } from "../middleware/validation/refundRequest/refundRequest.validation";
+import { validateRefundRequestStatus, validateSaveRefundRequest, validateUpdateRefundRequest } from "../middleware/validation/refundRequest/refundRequest.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -31,5 +31,6 @@ router.route('/list').get(verifySession, refundRequestController.getRefundReques
 
 router.route('/:reservationId').get(verifySession, refundRequestController.getRefundRequestByReservationId);
 
+router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, refundRequestController.updateRefundRequestStatus);
 
 export default router;

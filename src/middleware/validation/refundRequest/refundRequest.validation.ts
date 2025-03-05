@@ -9,7 +9,7 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         listingName: Joi.string().required(),
         checkIn: Joi.date().required(),
         checkOut: Joi.date().required(),
-        issueId: Joi.array().items(Joi.number().required()).required(),
+        issueId: Joi.string().required(),
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().required(),
@@ -34,12 +34,27 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         listingName: Joi.string().required(),
         checkIn: Joi.date().required(),
         checkOut: Joi.date().required(),
-        issueId: Joi.array().items(Joi.number().required()).required(),
+        issueId: Joi.string().required(),
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().required(),
         status: Joi.string().required().valid("Pending", "Approved", "Denied"),
         notes: Joi.string().required().allow(null,'')
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+
+export const validateRefundRequestStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid("Pending", "Approved", "Denied"),
     });
 
     const { error } = schema.validate(request.body);
