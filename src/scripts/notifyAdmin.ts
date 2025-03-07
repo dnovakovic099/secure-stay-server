@@ -1,6 +1,7 @@
 // This script will notify admin for unanswered guest messages for more than 15 minuts
 
 import { MessagingService } from "../services/MessagingServices";
+import { RefundRequestService } from "../services/RefundRequestService";
 import { ReviewDetailService } from "../services/ReviewDetailService";
 import { ReviewService } from "../services/ReviewService";
 import logger from "../utils/logger.utils";
@@ -24,4 +25,11 @@ export async function checkUpdatedReviews() {
     const reviewDetailService = new ReviewDetailService();
     await reviewDetailService.checkUpdatedReviews();
     logger.info("Checking updated reviews completed");
+}
+
+export async function checkForPendingRefundRequest(){
+    logger.info("Checking pending refund requested reviews...");
+    const reviewService = new RefundRequestService();
+    await reviewService.checkForPendingRefundRequest();
+    logger.info("Checking pending refund requested reviews completed");
 }

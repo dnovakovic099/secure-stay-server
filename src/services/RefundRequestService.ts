@@ -4,9 +4,14 @@ import { EntityManager } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import sendEmail from "../utils/sendEmai";
+import { formatCurrency } from "../helpers/helpers";
+import logger from "../utils/logger.utils";
+import { UsersEntity } from "../entity/Users";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
         const newRefundRequest = new RefundRequestEntity();
@@ -70,6 +75,9 @@ export class RefundRequestService {
             if (body.status === "Approved") {
                 await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager);
             }
+
+            //send email notfication
+            await this.sendEmailForNewRefundRequest(newRefundRequest)
 
             return newRefundRequest;
         });
@@ -170,6 +178,196 @@ export class RefundRequestService {
             refundRequest.status = status;
         }
         return await this.refundRequestRepo.save(refundRequest);
+    }
+
+
+    async sendEmailForNewRefundRequest(refundRequest: RefundRequestEntity) {
+        const subject = `New Refund Request Received - ${refundRequest.guestName}`;
+        const html = `
+               <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 30px; border: 1px solid #ddd;">
+      <h2 style="color: #0056b3; font-size: 20px; margin-bottom: 20px; text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">
+        Notification: New Refund Request from ${refundRequest.guestName}
+      </h2>
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+       A new refund request has been created in Secure Stay. Please review the details below and take the necessary action.
+      </p>
+
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Reservation ID:</strong> ${refundRequest.reservationId}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Listing:</strong> ${refundRequest.listingName}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Guest Name:</strong> ${refundRequest.guestName}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Amount:</strong> ${formatCurrency(refundRequest.refundAmount)}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Status:</strong> ${refundRequest.status.toUpperCase()}
+      </p>
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Requested By:</strong> ${refundRequest.requestedBy}
+      </p>
+            <div style="background-color: #f9f9fc; border-left: 5px solid #0056b3; padding: 15px; margin: 20px 0; border-radius: 6px;">
+        <p style="font-size: 18px; color: #333; margin: 0;">
+          <strong>Explaination:</strong>
+        </p>
+        <p style="font-size: 15px; color: #000; margin: 10px 0; font-weight: normal;">
+           ${refundRequest.explaination}
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+
+        `;
+
+        await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
+    }
+
+
+
+    public async checkForPendingRefundRequest() {
+        const currentTimeStamp = new Date().getTime();
+        const refundRequests = await this.refundRequestRepo.find({ where: { status: "Pending" } });
+
+        if (refundRequests.length === 0) {
+            logger.info('No pending refund requests found');
+            return;
+        }
+
+        const requestByUsers: Record<string, any[]> = {}; // Group requests by user email
+
+        for (const request of refundRequests) {
+            const user = await this.usersRepo.findOne({ where: { uid: request.createdBy } });
+            if (user) {
+                if (!requestByUsers[user.email]) {
+                    requestByUsers[user.email] = [];
+                }
+                requestByUsers[user.email].push(request);
+            }
+        }
+
+        // Send email to admin for all refund requests
+        if (refundRequests.length == 1) {
+            await this.sendSingleRefundRequestEmail(process.env.EMAIL_TO, refundRequests[0], currentTimeStamp); // Call function for a single request
+        } else {
+            await this.sendMultipleRefundRequestsEmail(process.env.EMAIL_TO, refundRequests, currentTimeStamp);
+        }
+
+        // Send email to users based on the number of requests they have
+        for (const [email, requests] of Object.entries(requestByUsers)) {
+            console.log(email, requests);
+            if (requests.length === 1) {
+                await this.sendSingleRefundRequestEmail(email, requests[0], currentTimeStamp); // Call function for a single request
+            } else {
+                await this.sendMultipleRefundRequestsEmail(email, requests, currentTimeStamp); // Call function for multiple requests
+            }
+        }
+    }
+
+    async sendSingleRefundRequestEmail(email: string, refundRequest: RefundRequestEntity, currentTimeStamp: number) {
+        const subject = `Pending Refund Request - #${currentTimeStamp}`;
+        const html = `
+               <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 30px; border: 1px solid #ddd;">
+      <h2 style="color: #0056b3; font-size: 20px; margin-bottom: 20px; text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">
+       Action Required: Pending Refund Requests - ${refundRequest.guestName}
+      </h2>
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+        Please review the details below and take the necessary action.
+      </p>
+
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Reservation ID:</strong> ${refundRequest.reservationId}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Listing:</strong> ${refundRequest.listingName}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Guest Name:</strong> ${refundRequest.guestName}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Amount:</strong> ${formatCurrency(refundRequest.refundAmount)}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Status:</strong> ${refundRequest.status.toUpperCase()}
+      </p>
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Requested By:</strong> ${refundRequest.requestedBy}
+      </p>
+            <div style="background-color: #f9f9fc; border-left: 5px solid #0056b3; padding: 15px; margin: 20px 0; border-radius: 6px;">
+        <p style="font-size: 18px; color: #333; margin: 0;">
+          <strong>Explaination:</strong>
+        </p>
+        <p style="font-size: 15px; color: #000; margin: 10px 0; font-weight: normal;">
+           ${refundRequest.explaination}
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+
+        `;
+
+        await sendEmail(subject, html, process.env.EMAIL_FROM, email);
+    }
+
+    async sendMultipleRefundRequestsEmail(email: string, refundRequest: RefundRequestEntity[], currentTimeStamp: number) {
+        const subject = `Pending Refund Request - #${currentTimeStamp}`;
+        const html = `
+               <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+    <div style="width: 100%; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 30px; border: 1px solid #ddd;">
+      <h2 style="color: #0056b3; font-size: 20px; margin-bottom: 20px; text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">
+        Action Required: ${refundRequest.length} Pending Refund Requests
+      </h2>
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+        Please review the details below and take the necessary action.
+      </p>
+
+ <!-- Scrollable Table Wrapper (Full Width) -->
+      <div style="overflow-x: auto; width: 100%;">
+        <table style="min-width: 1000px; border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">ReservationId</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Listing</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">GuestName</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Amount</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Status</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Requested By</th>
+              <th style="background: #0056b3; color: #fff; padding: 12px; text-align: left; white-space: nowrap;">Explaination</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${refundRequest.map(request => `
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.reservationId}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.listingName}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.guestName}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.refundAmount}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.status}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.requestedBy}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #ddd; white-space: nowrap;">${request.explaination}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+  </body>
+</html>
+
+        `;
+
+        await sendEmail(subject, html, process.env.EMAIL_FROM, email);
     }
 
 }
