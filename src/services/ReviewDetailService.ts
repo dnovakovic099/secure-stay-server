@@ -134,7 +134,6 @@ export class ReviewDetailService {
             }
         } catch (error) {
             logger.error(`Error checking updated reviews: ${error.message}`);
-            throw error;
         }
     }
 }
