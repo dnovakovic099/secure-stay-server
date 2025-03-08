@@ -15,8 +15,14 @@ export async function sendReviewUpdateEmail(review: any) {
             <div style="margin: 20px 0;">
                 <p style="margin: 10px 0;"><strong>Review ID:</strong> ${review.reviewId}</p>
                 <p style="margin: 10px 0;"><strong>Date of Review:</strong> ${review.date || 'Not provided'}</p>
-                <p style="margin: 10px 0;"><strong>Last Contact Date:</strong> ${review.lastContactDate || 'Not provided'}</p>
-                
+
+                <p style="margin: 10px 0;"><strong>Previous First Contact Date:</strong> ${oldLog?.firstContactDate || 'Not provided'}</p>
+                <p style="margin: 10px 0;"><strong>Updated First Contact Date:</strong> ${review.firstContactDate || 'Not provided'}</p>
+
+                <p style="margin: 10px 0;"><strong>Previous Last Contact Date:</strong> ${oldLog?.lastContactDate || 'Not provided'}</p>
+                <p style="margin: 10px 0;"><strong>Updated Last Contact Date:</strong> ${review.lastContactDate || 'Not provided'}</p>
+
+
                 <p style="margin: 10px 0;"><strong>Previous Methods Tried:</strong> ${oldLog?.methodsTried || 'Not provided'}</p>
                 <p style="margin: 10px 0;"><strong>Updated Methods Tried:</strong> ${review.methodsTried || 'Not provided'}</p>
 
