@@ -197,4 +197,12 @@ export class IssuesService {
             await sendUnresolvedIssueEmail(issue);
         }
     }
+
+    public async getIssuesByReservationId(reservationId: string) {
+        return await this.issueRepo.find({
+            where: {
+                reservation_id: reservationId
+            }
+        });
+    }
 } 

@@ -19,7 +19,7 @@ export class ExpenseService {
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
 
-    async createExpense(request: Request, userId: string, fileNames?: string[]) {
+    async createExpense(request: any, userId: string, fileNames?: string[]) {
         const {
             listingMapId,
             expenseDate,
@@ -233,7 +233,7 @@ export class ExpenseService {
         return expense;
     }
 
-    async updateExpense(request: Request, userId: string, fileNames?: string[]) {
+    async updateExpense(request: any, userId: string, fileNames?: string[]) {
         const {
             expenseId,
             listingMapId,
@@ -366,5 +366,10 @@ export class ExpenseService {
     public async getExpensesFromHostaway(clientId: string, clientSecret: string) {
         const expenses = await this.hostAwayClient.getExpenses(clientId, clientSecret);
         return expenses;
+    }
+
+    public async getExpense(id: number) {
+        const expense = await this.expenseRepo.findOne({ where: { id } });
+        return expense;
     }
 }
