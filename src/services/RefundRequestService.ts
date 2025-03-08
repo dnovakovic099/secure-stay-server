@@ -65,15 +65,17 @@ export class RefundRequestService {
             if (refundRequest) {
                 await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
                 if (isStatusChanged) {
-                    await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager);
+                  await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager, refundRequest.id);
                 }
+
+              await this.sendEmailForUpdatedRefundRequest(refundRequest);
 
                 return refundRequest;
             }
 
             const newRefundRequest = await this.createRefundRequest(transactionalEntityManager, body, userId, attachments);
             if (body.status === "Approved") {
-                await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager);
+              await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager, refundRequest.id);
             }
 
             //send email notfication
@@ -87,12 +89,13 @@ export class RefundRequestService {
         status: string,
         request: RefundRequestEntity,
         userId: string,
-        transactionalEntityManager: EntityManager
+      transactionalEntityManager: EntityManager,
+      id: number
     ) {
         const expenseService = new ExpenseService();
 
         if (status === "Approved") {
-            const expense = await this.createExpenseForRefundRequest(request, userId);
+          const expense = await this.createExpenseForRefundRequest(request, userId, id);
             request.expenseId = expense.id;
         } else if (request.expenseId) {
             const expense = await expenseService.getExpense(request.expenseId);
@@ -103,7 +106,7 @@ export class RefundRequestService {
     }
 
 
-    private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string) {
+  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number) {
         //create expense object
         const expenseObj = {
             body: {
@@ -115,7 +118,7 @@ export class RefundRequestService {
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
-                findings: null,
+                findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color: blue; text-decoration: underline;">Refund Request Link</a>`,
                 status: "Pending Approval",
                 paymentMethod: null,
                 createdBy: userId
@@ -163,12 +166,13 @@ export class RefundRequestService {
         if (!refundRequest) {
             throw CustomErrorHandler.notFound('Refund request not found');
         }
+
         const isStatusChanged = refundRequest && refundRequest.status !== status;
         if (isStatusChanged) {
             const expenseService = new ExpenseService();
 
             if (status === "Approved") {
-                const expense = await this.createExpenseForRefundRequest(refundRequest, userId);
+              const expense = await this.createExpenseForRefundRequest(refundRequest, userId, refundRequest.id);
                 refundRequest.expenseId = expense.id;
             } else if (refundRequest.expenseId) {
                 const expense = await expenseService.getExpense(refundRequest.expenseId);
@@ -177,7 +181,10 @@ export class RefundRequestService {
             }
             refundRequest.status = status;
         }
-        return await this.refundRequestRepo.save(refundRequest);
+
+      await this.refundRequestRepo.save(refundRequest);
+      await this.sendEmailForUpdatedRefundRequest(refundRequest);
+      return refundRequest
     }
 
 
@@ -228,6 +235,56 @@ export class RefundRequestService {
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
     }
+
+
+  async sendEmailForUpdatedRefundRequest(refundRequest: RefundRequestEntity) {
+    const subject = `Refund Request Updated - ${refundRequest.guestName}`;
+    const html = `
+               <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 30px; border: 1px solid #ddd;">
+      <h2 style="color: #0056b3; font-size: 20px; margin-bottom: 20px; text-align: center; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">
+        Notification: Updated Refund Request from ${refundRequest.guestName}
+      </h2>
+      <p style="margin: 20px 0; font-size: 16px; color: #555; text-align: center;">
+       Refund request has been updated in Secure Stay. Please review the details below and take the necessary action.
+      </p>
+
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Reservation ID:</strong> ${refundRequest.reservationId}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Listing:</strong> ${refundRequest.listingName}
+      </p>
+    <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Guest Name:</strong> ${refundRequest.guestName}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Amount:</strong> ${formatCurrency(refundRequest.refundAmount)}
+      </p>
+            <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Status:</strong> ${refundRequest.status.toUpperCase()}
+      </p>
+      <p style="margin: 20px 0; font-size: 16px; color: #555;">
+        <strong>Requested By:</strong> ${refundRequest.requestedBy}
+      </p>
+            <div style="background-color: #f9f9fc; border-left: 5px solid #0056b3; padding: 15px; margin: 20px 0; border-radius: 6px;">
+        <p style="font-size: 18px; color: #333; margin: 0;">
+          <strong>Explaination:</strong>
+        </p>
+        <p style="font-size: 15px; color: #000; margin: 10px 0; font-weight: normal;">
+           ${refundRequest.explaination}
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+
+        `;
+
+    await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
+  }
+
 
 
 
