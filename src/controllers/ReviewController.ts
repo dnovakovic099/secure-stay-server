@@ -11,9 +11,9 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly ,reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort } = request.query;
 
-            const { reviews, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly });
+            const { reviews, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort });
 
             return response.status(200).json({
                 success: true,
@@ -46,7 +46,7 @@ export class ReviewController {
             const { id } = request.params;
             const userId = request.user.id;
 
-            const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, Number(id), userId);
+            const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, id, userId);
 
             return response.status(200).json({
                 success: true,
@@ -54,6 +54,24 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error updating review visibility:", error);
+            return next(error);
+        }
+    }
+
+    async saveReview(request: CustomRequest, response: Response, next: NextFunction){
+        try {
+            const reviewService = new ReviewService();
+            const { body } = request;
+            const userId = request.user.id;
+
+            const savedReview = await reviewService.saveReview(body, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: savedReview
+            });
+        } catch (error) {
+            logger.error("Error saving review:", error);
             return next(error);
         }
     }

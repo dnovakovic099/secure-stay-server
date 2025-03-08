@@ -2,6 +2,7 @@ import { ListingController } from "../controllers/ListingController"
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { validateGetListingScore, validateSaveListingDetail, validateSaveListingScore, validateSaveListingUpdate } from "../middleware/validation/listings/listing.validation";
+import verifyMobileSession from "../middleware/verifyMobileSession";
 
 const router = Router();
 const listingController = new ListingController();
@@ -57,5 +58,12 @@ router.route('/getlistingdetail')
     verifySession,
     listingController.getListingDetail
   )
+
+router.route('/getupdates/:listingId')
+  .get(
+    verifyMobileSession,
+    listingController.getListingUpdates
+  )
+
 
 export default router;

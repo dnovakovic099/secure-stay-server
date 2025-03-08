@@ -17,6 +17,13 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
         status: Joi.string().required().valid("active", "hidden"),
+        reviewerNameHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        listingHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        arrivalDateHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        departureDateHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        guestNameHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        channelHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
+        ratingHeaderSort: Joi.string().valid('ASC', 'DESC', null).optional(),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
@@ -34,6 +41,23 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
 export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         reviewVisibility: Joi.string().required().valid("Visible", "Hidden"),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
+export const validateSaveReview = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        reservationId: Joi.number().required(),
+        reviewerName: Joi.string().required(),
+        rating: Joi.number().required(),
+        publicReview: Joi.string().required(),
+        status: Joi.string().required().valid("active", "hidden"),
     });
 
     const { error } = schema.validate(request.body);

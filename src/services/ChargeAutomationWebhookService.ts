@@ -77,7 +77,7 @@ export class ChargeAutomationWebhookService {
                     cost: item.order_details.amount,
                     order_date: orderDate,
                     client_name: reservationInfo.guestName,
-                    property_owner: ownerDetails[reservationInfo.listingMapId].name,
+                    property_owner: ownerDetails[reservationInfo.listingMapId]?.name || " ",
                     type: item.title,
                     description: '',
                     booking_id: item.pms_booking_id,

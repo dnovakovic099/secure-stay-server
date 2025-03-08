@@ -7,10 +7,20 @@ import { ReservationService } from "./ReservationService";
 import { OwnerInfoEntity } from "../entity/OwnerInfo";
 import sendEmail from "../utils/sendEmai";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { ReservationInfoService } from "./ReservationInfoService";
+import { v4 as uuidv4 } from 'uuid';
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
     unresolvedForMoreThanSevenDays: boolean;
+}
+
+interface CreateReview {
+    reservationId: number;
+    reviewerName: string;
+    rating: number;
+    publicReview: string;
+    status: string;
 }
 
 export class ReviewService {
@@ -18,7 +28,7 @@ export class ReviewService {
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
     private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
 
-    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly }) {
+    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort }) {
         try {
             let listingIds = [];
             if (!listingId && owner) {
@@ -47,6 +57,37 @@ export class ReviewService {
                 reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
+            // Build dynamic order object based on sort parameters
+            const order: Record<string, 'ASC' | 'DESC'> = {};
+            
+            if (reviewerNameHeaderSort) {
+                order.reviewerName = reviewerNameHeaderSort;
+            }
+            if (listingHeaderSort) {
+                order.listingName = listingHeaderSort;
+            }
+            if (arrivalDateHeaderSort) {
+                order.arrivalDate = arrivalDateHeaderSort;
+            }
+            if (departureDateHeaderSort) {
+                order.departureDate = departureDateHeaderSort;
+            }
+            if (guestNameHeaderSort) {
+                order.guestName = guestNameHeaderSort;
+            }
+            if (channelHeaderSort) {
+                order.channelName = channelHeaderSort;
+            }
+            if (ratingHeaderSort) {
+                order.rating = ratingHeaderSort;
+            }
+
+            // Apply default sorting if no sort parameters provided
+            if (Object.keys(order).length === 0) {
+                order.rating = 'ASC';
+                order.submittedAt = 'DESC';
+            }
+
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
                 where: {
                     ...condition,
@@ -55,10 +96,7 @@ export class ReviewService {
                 relations: ['reviewDetail'],
                 skip: (page - 1) * limit,
                 take: limit,
-                order: {
-                    rating: 'ASC',
-                    submittedAt: 'DESC',
-                },
+                order
             });
 
             return { reviews, totalCount };
@@ -80,7 +118,7 @@ export class ReviewService {
     }
 
 
-    public async updateReviewVisibility(reviewVisibility: string, id: number, userId: string) {
+    public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
         const review = await this.reviewRepository.findOne({ where: { id } });
         if (!review) {
             throw CustomErrorHandler.notFound(`Review not found with id: ${id}`);
@@ -256,6 +294,40 @@ export class ReviewService {
         `;
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, "admin@luxurylodgingpm.com");
+    }
+
+    public async saveReview(body: CreateReview, userId: string) {
+        const { reservationId, reviewerName, rating, publicReview, status } = body;
+
+        const reservationInfoService = new ReservationInfoService();
+        const reservationInfo = await reservationInfoService.getReservationById(reservationId);
+        if (!reservationInfo) {
+            throw CustomErrorHandler.notFound('Reservation not found');
+        }
+
+        const reviewObj = {
+            id: uuidv4(),
+            reviewerName,
+            listingMapId: reservationInfo.listingMapId,
+            channelId: reservationInfo.channelId,
+            channelName: reservationInfo.channelName,
+            rating,
+            publicReview,
+            arrivalDate: String(reservationInfo.arrivalDate),
+            departureDate: String(reservationInfo.departureDate),
+            listingName: reservationInfo.listingName,
+            guestName: reservationInfo.guestName,
+            isHidden: status == "active" ? 0 : 1,
+            bookingAmount: reservationInfo.totalPrice,
+            reservationId,
+            createdBy: userId
+        };
+        return await this.createReview(reviewObj);
+    }
+
+    private async createReview(obj: any) {
+        const newReview = this.reviewRepository.create(obj);
+        return await this.reviewRepository.save(newReview);
     }
 
 }

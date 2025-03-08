@@ -3,8 +3,8 @@ import { ReviewDetailEntity } from './ReviewDetail';
 
 @Entity('reviews')
 export class ReviewEntity {
-    @PrimaryColumn({ type: "bigint" })
-    id: number;
+    @PrimaryColumn({ type: "varchar", length: 255,  unique: true })
+    id: string;
 
     @Column({ nullable: true })
     reviewerName: string;
