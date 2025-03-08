@@ -311,9 +311,9 @@ export class RefundRequestService {
 
         // Send email to admin for all refund requests
         if (refundRequests.length == 1) {
-          await this.sendSingleRefundRequestEmail("admin@luxurylodgingpm.com", refundRequests[0], currentTimeStamp); // Call function for a single request
+          await this.sendSingleRefundRequestEmail(process.env.EMAIL_TO, refundRequests[0], currentTimeStamp); // Call function for a single request
         } else {
-          await this.sendMultipleRefundRequestsEmail("admin@luxurylodgingpm.com", refundRequests, currentTimeStamp);
+          await this.sendMultipleRefundRequestsEmail(process.env.EMAIL_TO, refundRequests, currentTimeStamp);
         }
 
         // Send email to users based on the number of requests they have
