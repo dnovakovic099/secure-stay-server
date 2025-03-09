@@ -155,7 +155,6 @@ export class IssuesService {
         const formattedData = issues.map(issue => ({
             Status: issue.status,
             Listing: issue.listing_id,
-            'Needs Attention': issue.needs_attention,
             'Next Steps': issue.next_steps,
             'Claim Resolution Status': issue.claim_resolution_status,
             'Claim Resolution Amount': issue.claim_resolution_amount,

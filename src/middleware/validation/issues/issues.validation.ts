@@ -35,7 +35,6 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         is_preventable: Joi.string().allow(null, ''),
         completed_by: Joi.string().allow(null, ''),
         completed_at: Joi.date().allow(null),
-        needs_attention: Joi.string().valid('Yes', 'No').allow(null),
         claim_resolution_status: Joi.string()
             .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved')
             .default('N/A'),
@@ -83,7 +82,6 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         is_preventable: Joi.string().allow(null, ''),
         completed_by: Joi.string().allow(null, ''),
         completed_at: Joi.date().allow(null),
-        needs_attention: Joi.string().valid('Yes', 'No').allow(null),
         claim_resolution_status: Joi.string()
             .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),

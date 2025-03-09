@@ -99,13 +99,6 @@ export class Issue {
     @Column({ type: 'date', nullable: true })
     completed_at: Date;
 
-    @Column({
-        type: 'enum',
-        enum: ['Yes', 'No'],
-        nullable: true
-    })
-    needs_attention: string;
-
     @Column({ nullable: true })
     claim_resolution_status: string;
 
