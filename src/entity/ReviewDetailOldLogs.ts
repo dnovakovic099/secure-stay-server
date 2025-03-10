@@ -26,6 +26,9 @@ export class ReviewDetailOldLogs {
     date: string;
 
     @Column({ nullable: true })
+    firstContactDate: string;
+    
+    @Column({ nullable: true })
     lastContactDate: string;
 
     @Column({ type: "text", nullable: true })

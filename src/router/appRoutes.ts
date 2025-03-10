@@ -21,6 +21,7 @@ import reservationDetailPreStayAuditRoutes from "./reservationDetailPreStayAudit
 import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAuditRoutes";
 import reservationInfoRoutes from "./reservationInfoRoutes";
 import ownerInfoRoutes from "./ownerInfoRoutes";
+import refundRequestRoutes from "./refundRequestRoutes";
 import reportsRoutes from "./reportsRoutes";
 const router = Router();
 
@@ -47,5 +48,6 @@ router.use("/reservation-detail-pre-stay-audit", reservationDetailPreStayAuditRo
 router.use("/reservation-detail-post-stay-audit", reservationDetailPostStayAuditRoutes);
 router.use("/reservation-info", reservationInfoRoutes);
 router.use("/owner", ownerInfoRoutes)
+router.use('/refund-request', refundRequestRoutes)
 
 export default router;
