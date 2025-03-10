@@ -40,7 +40,7 @@ export class ClaimsService {
         const queryOptions: any = {
             where: {},
             order: { 
-                created_at: 'DESC',
+                check_out_date: 'DESC',
                 status: "ASC"
             },
             skip: (page - 1) * limit,
@@ -52,7 +52,7 @@ export class ClaimsService {
             startDate.setHours(0, 0, 0, 0);
 
             const endDate = new Date(toDate);
-
+            
             endDate.setDate(endDate.getDate() + 1);
             endDate.setUTCHours(0, 0, 0, 0);
 
