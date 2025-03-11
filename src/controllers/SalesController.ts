@@ -60,7 +60,7 @@ export class SalesController {
       data: await clientService.getAllClients(),
     });
   }
-  async updateClient(request: Request, response: Response) {
+  async updateClient(request: CustomRequest, response: Response) {
     const clientId = parseInt(request.params.client_id);
     const { airDnaData, ...rest } = request.body;
     const clientService = new ClientService();

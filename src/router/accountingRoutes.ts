@@ -8,16 +8,22 @@ import fileUpload from "../utils/upload.util";
 import { validateCreateOwnerStatement, validatePrintExpenseIncomeStatement } from "../middleware/validation/accounting/accountingReport.validation";
 import { AccountingReportController } from "../controllers/AccountingReportController";
 import verifyMobileSession from "../middleware/verifyMobileSession";
+import { ContractorInfoController } from "../controllers/ContractorController";
+import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
+import { ResolutionController } from "../controllers/ResolutionController";
+import { validateCreateResolution } from '../middleware/validation/accounting/resolution.validation';
 
 const router = Router();
 const expenseController = new ExpenseController();
 const incomeController = new IncomeController();
 const accountingController = new AccountingReportController();
+const contractorInfoController = new ContractorInfoController();
+const resolutionController = new ResolutionController();
 
 router.route('/createexpense')
     .post(
         verifySession,
-        fileUpload.fields([
+        fileUpload('expense').fields([
             { name: 'attachments', maxCount: 10 }
         ]),
         validateCreateExpense,
@@ -27,7 +33,7 @@ router.route('/createexpense')
 router.route('/updateexpense')
     .put(
         verifySession,
-        fileUpload.fields([
+        fileUpload('expense').fields([
             { name: 'attachments', maxCount: 10 }
         ]),
         validateUpdateExpense,
@@ -77,5 +83,43 @@ router.route('/getownerstatements')
         verifySession,
         accountingController.getOwnerStatements
     )
+
+router.route('/savecontractorinfo')
+    .post(
+        verifySession,
+        validateContractorInfo,
+        contractorInfoController.saveContractorInfo
+    );
+
+router.route('/getcontractors')
+    .get(
+        verifySession,
+        contractorInfoController.getContractors
+    )    
+
+router.route('/createresolution')
+    .post(
+        verifySession,
+        validateCreateResolution,
+        resolutionController.createResolution
+    );
+
+router.route('/getresolutions')
+    .get(
+        verifySession,
+        resolutionController.getResolutions
+    );
+
+router.route('/getresolution/:resolutionId')
+    .get(
+        verifySession,
+        resolutionController.getResolutionById
+    );
+
+router.route('/deleteresolution/:resolutionId')
+    .delete(
+        verifySession,
+        resolutionController.deleteResolution
+    );
 
 export default router;

@@ -65,26 +65,26 @@ export class PaymentService {
             `${process.env.FRONTEND_URL}${reservationLink}`)
     }
 
-    async payReservation(request: Request) {
-        const reservationLink = String(request.params.reservationLink);
-        const reservation = await this.reservationRepository
-            .findOne({where: {reservationLink}});
-        const data = await this.hostAwayClient.getListingInfo(reservation?.reservationInfo?.listingMapId);
-        const propertyInfo = await data?.result;
-        if(reservationLink === null){
-            throw new Error("PaymentService: reservationLink is null");
-        }
-        if(propertyInfo === null){
-            throw new Error("PaymentService: Property info is null")
-        }
-        if(reservation === null){
-            throw new Error("PaymentService: Reservation is null")
-        }
-        return this.stripeClient.pay(reservation?.reservationInfo?.currency, propertyInfo?.name, reservation?.reservationInfo?.totalPrice,
-            [removeAkiPolicy(propertyInfo?.thumbnailUrl)],
-            `${process.env.FRONTEND_URL}${reservationLink}`, `${process.env.FRONTEND_URL}${reservationLink}`
-        )
-    }
+    // async payReservation(request: Request) {
+    //     const reservationLink = String(request.params.reservationLink);
+    //     const reservation = await this.reservationRepository
+    //         .findOne({where: {reservationLink}});
+    //     const data = await this.hostAwayClient.getListingInfo(reservation?.reservationInfo?.listingMapId);
+    //     const propertyInfo = await data?.result;
+    //     if(reservationLink === null){
+    //         throw new Error("PaymentService: reservationLink is null");
+    //     }
+    //     if(propertyInfo === null){
+    //         throw new Error("PaymentService: Property info is null")
+    //     }
+    //     if(reservation === null){
+    //         throw new Error("PaymentService: Reservation is null")
+    //     }
+    //     return this.stripeClient.pay(reservation?.reservationInfo?.currency, propertyInfo?.name, reservation?.reservationInfo?.totalPrice,
+    //         [removeAkiPolicy(propertyInfo?.thumbnailUrl)],
+    //         `${process.env.FRONTEND_URL}${reservationLink}`, `${process.env.FRONTEND_URL}${reservationLink}`
+    //     )
+    // }
 
 
 

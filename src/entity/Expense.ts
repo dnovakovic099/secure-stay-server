@@ -36,13 +36,13 @@ export class ExpenseEntity {
     @Column({ type: 'varchar' })
     contractorName: string;
 
-    @Column({ type: 'varchar' })
+    @Column({ type: 'varchar', nullable: true })
     contractorNumber: string;
 
-    @Column({ type: 'varchar' })
+    @Column({ type: 'varchar', nullable: true })
     dateOfWork: string;
 
-    @Column({ type: 'text' })
+    @Column({ type: 'text', nullable: true })
     findings: string;
 
     @Column({ type: 'text'})
@@ -62,4 +62,10 @@ export class ExpenseEntity {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
 }

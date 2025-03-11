@@ -4,9 +4,9 @@ import { Request } from "express";
 import fs from "fs";
 
 // Define storage configuration
-const fileStorage = multer.diskStorage({
+const fileStorage = (uploadPath: string) => multer.diskStorage({
     destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-        const destinationPath = path.resolve(__dirname, '../../public/expense');
+        const destinationPath = path.resolve(__dirname, `../../public/${uploadPath}`);
 
         // Check if the folder exists; if not, create it
         if (!fs.existsSync(destinationPath)) {
@@ -32,10 +32,10 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallb
     }
 };
 
-const fileUpload = multer({
-    storage: fileStorage,
+const fileUpload = (uploadPath: string) => multer({
+    storage: fileStorage(uploadPath),
     limits: {
-        fileSize: 2 * 1024 * 1024, // 2 MB
+        fileSize: 5 * 1024 * 1024, // 5 MB
     },
     fileFilter: fileFilter
 });

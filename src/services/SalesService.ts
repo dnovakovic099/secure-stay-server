@@ -98,7 +98,7 @@ export class ClientService {
   async getAllClients() {
     return await this.clientRepository.find();
   }
-  async updateClient(clientId: number, updateData: Partial<ClientEntity>) {
+  async updateClient(clientId: number, updateData: Partial<ClientEntity>, userId: string) {
     const client = await this.clientRepository.findOne({
       where: { id: clientId },
     });
@@ -111,6 +111,7 @@ export class ClientService {
       ...client,
       ...updateData,
       updatedAt: new Date(),
+      updatedBy: userId
     };
 
     Object.assign(client, updatedClient);

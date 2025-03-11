@@ -22,3 +22,16 @@ export function removeNullValues(obj: Object) {
         Object.entries(obj).filter(([key, value]) => value !== null)
     );
 }
+
+export function isReactionMessage(message) {
+    return /^.+ reacted .+ to your message /.test(message);
+}
+
+export const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+    }).format(amount)
+        .replace('$', '$ ');
+};
+

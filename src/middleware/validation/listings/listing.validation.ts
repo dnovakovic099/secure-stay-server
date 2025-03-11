@@ -28,6 +28,7 @@ export const validateSaveListingScore = (request: Request, response: Response, n
 
     reviewScore: Joi.number().integer().min(0).required(),
     reviewAnalysis: Joi.string().allow('').optional(),
+    pmFee: Joi.number().min(0).required(),
   });
 
 
@@ -62,6 +63,21 @@ export const validateSaveListingUpdate = (request: Request, response: Response, 
       'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
     }).required(),
     action: Joi.string().required(),
+  });
+
+  const { error } = schema.validate(request.body);
+  if (error) {
+    return next(error);
+  }
+
+  next();
+};
+
+export const validateSaveListingDetail = (request: Request, response: Response, next: NextFunction) => {
+  const schema = Joi.object({
+    listingId: Joi.number().required(),
+    propertyOwnershipType: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned"),
+    statementDurationType: Joi.string().required().valid("Monthly", "Weekly & Bi-weekly").allow(null, ""),
   });
 
   const { error } = schema.validate(request.body);

@@ -9,6 +9,8 @@ import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
+import { ownerDetails } from "../constant";
+import { ListingDetail } from "../entity/ListingDetails";
 
 interface ListingUpdate {
   listingId: number;
@@ -23,6 +25,7 @@ export class ListingService {
   private connectedAccountInfoRepository = appDatabase.getRepository(ConnectedAccountInfo);
   private listingScore = appDatabase.getRepository(ListingScore)
   private listingUpdateRepo = appDatabase.getRepository(ListingUpdateEntity);
+  private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
@@ -56,6 +59,12 @@ export class ListingService {
                 listings[i]["listingImages"],
                 savedListing.listingId
               );
+            }else{
+              existingListing.ownerName = ownerDetails[existingListing.id]?.name || "";
+              existingListing.ownerEmail = ownerDetails[existingListing.id]?.email || "";
+              existingListing.ownerPhone = ownerDetails[existingListing.id]?.phone || "";
+
+              await transactionalEntityManager.save(existingListing)
             }
           }
         }
@@ -96,7 +105,10 @@ export class ListingService {
       wifiUsername: data?.wifiUsername || "(NO WIFI)",
       wifiPassword: data?.wifiPassword || "(NO PASSWORD)",
       bookingcomPropertyRoomName: data?.bookingcomPropertyRoomName || "",
-      userId: userId
+      userId: userId,
+      ownerName: ownerDetails[data.id]?.name || "",
+      ownerEmail: ownerDetails[data.id]?.email || "",
+      ownerPhone: ownerDetails[data.id]?.phone || "",
     };
   }
 
@@ -230,6 +242,15 @@ export class ListingService {
 
   }
 
+  public async getListingPmFee(listingId?: number) {
+    const listingPmFee = await this.listingScore.find({
+      where: { listingId },
+      select: ['listingId', 'pmFee'],
+    });
+
+    return listingPmFee;
+  }
+
 
   public async saveListingUpdate(listingUpdate: ListingUpdate, userId: string) {
     const newUpdate = new ListingUpdateEntity();
@@ -250,6 +271,38 @@ export class ListingService {
     });
 
     return updates;
+  }
+
+  public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
+    const { propertyOwnershipType, listingId, statementDurationType } = body;
+    const listingDetail = new ListingDetail();
+    listingDetail.listingId = listingId;
+    listingDetail.propertyOwnershipType = propertyOwnershipType;
+    listingDetail.statementDurationType = statementDurationType;
+    listingDetail.createdBy = userId;
+    return await this.listingDetailRepo.save(listingDetail);
+  };
+
+  public async updateListingDetail(body: Partial<ListingDetail>, listingDetail: Partial<ListingDetail>, userId: string) {
+    listingDetail.propertyOwnershipType = body.propertyOwnershipType;
+    listingDetail.statementDurationType = body.statementDurationType;
+    listingDetail.updatedBy = userId;
+    return await this.listingDetailRepo.save(listingDetail);
+  }
+
+  public async saveListingDetails(body: Partial<ListingDetail>, userId: string) {
+    const listingDetail = await this.listingDetailRepo.findOne({ where: { listingId: body.listingId } });
+    if (listingDetail) {
+      return this.updateListingDetail(body, listingDetail, userId);
+    }
+    return this.createListingDetail(body, userId);
+  }
+
+  public async getListingDetail(listingId?: number) {
+    if (listingId) {
+      return await this.listingDetailRepo.findOne({ where: { listingId } });
+    }
+    return await this.listingDetailRepo.find();
   }
 
 }

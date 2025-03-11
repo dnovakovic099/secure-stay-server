@@ -3,12 +3,13 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Between, In, Raw } from "typeorm";
-import { Listing } from "../entity/Listing"
+import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
-import { format } from 'date-fns'
+import { format } from 'date-fns';
+import { UsersEntity } from "../entity/Users";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -16,8 +17,9 @@ export class ExpenseService {
     private hostAwayClient = new HostAwayClient();
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
+    private usersRepository = appDatabase.getRepository(UsersEntity);
 
-    async createExpense(request: Request, userId: string, fileNames?: string[]) {
+    async createExpense(request: any, userId: string, fileNames?: string[]) {
         const {
             listingMapId,
             expenseDate,
@@ -48,6 +50,7 @@ export class ExpenseService {
         newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
+        newExpense.createdBy = userId;
 
         const expense = await this.expenseRepo.save(newExpense);
         if (expense.id) {
@@ -91,7 +94,8 @@ export class ExpenseService {
             categories: categoryIds,
             contractorName,
             contractorNumber,
-            dateOfWork
+            dateOfWork,
+            expenseState
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -104,7 +108,7 @@ export class ExpenseService {
                 // userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
                 expenseDate: Between(String(fromDate), String(toDate)),
-                isDeleted: 0,
+                isDeleted: expenseState == "active" ? 0 : 1,
                 ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(contractorName && {
@@ -153,11 +157,14 @@ export class ExpenseService {
             "Findings",
             "Payment Method",
             "Created At",
+            "Updated At",
+            "Updated By",
             "Attachments",
         ];
 
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
+        const users = await this.usersRepository.find();
 
         const rows = expenses.map((expense) => {
             const fileLinks = expense.fileNames
@@ -179,6 +186,8 @@ export class ExpenseService {
                 }).join(', ')
                 : '';
 
+            const user = users.find(user => user.uid == expense.updatedBy);
+
             return [
                 expense.expenseId,
                 expense.status,
@@ -192,8 +201,10 @@ export class ExpenseService {
                 expense.findings,
                 expense.paymentMethod,
                 format(expense.createdAt, "yyyy-MM-dd"),
+                format(expense.updatedAt, "yyyy-MM-dd"),
+                (user && `${user?.firstName} ${user?.lastName}`) || "",
                 fileLinks,
-        ];
+            ];
         });
 
         return {
@@ -210,7 +221,19 @@ export class ExpenseService {
         return expense;
     }
 
-    async updateExpense(request: Request, userId: string, fileNames?: string[]) {
+    async getExpenses(fromDate: string, toDate: string, listingId: number) {
+        const expense = await this.expenseRepo.find({
+            where: {
+                listingMapId: listingId,
+                expenseDate: Between(fromDate, toDate),
+                isDeleted: 0,
+            },
+            order: { id: "DESC" },
+        });
+        return expense;
+    }
+
+    async updateExpense(request: any, userId: string, fileNames?: string[]) {
         const {
             expenseId,
             listingMapId,
@@ -241,6 +264,9 @@ export class ExpenseService {
         expense.findings = findings;
         expense.status = status;
         expense.paymentMethod = paymentMethod;
+        expense.updatedBy = userId;
+        expense.updatedAt = new Date();
+
         if (fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -261,14 +287,18 @@ export class ExpenseService {
 
     async updateExpenseStatus(request: Request, userId: string,) {
         const { expenseId, status } = request.body;
-
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        const expense = await this.expenseRepo.find({ where: { expenseId: In(expenseId) } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
 
-        expense.status = status;
+        expense.forEach((element) => {
+            element.status = status;
+            element.updatedBy = userId;
+            element.updatedAt = new Date();
+        });
         await this.expenseRepo.save(expense);
+        
         return expense;
     }
 
@@ -279,6 +309,8 @@ export class ExpenseService {
         }
 
         expense.isDeleted = 1;
+        expense.updatedBy = userId;
+        expense.updatedAt = new Date();
         await this.expenseRepo.save(expense);
 
         //delete hostaway expense
@@ -334,5 +366,10 @@ export class ExpenseService {
     public async getExpensesFromHostaway(clientId: string, clientSecret: string) {
         const expenses = await this.hostAwayClient.getExpenses(clientId, clientSecret);
         return expenses;
+    }
+
+    public async getExpense(id: number) {
+        const expense = await this.expenseRepo.findOne({ where: { id } });
+        return expense;
     }
 }

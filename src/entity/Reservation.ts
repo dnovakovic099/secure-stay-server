@@ -20,11 +20,6 @@ export class ReservationEntity {
     @Column({ type: 'int', nullable: true })
     earlyCheckIn: number;
 
-    // Define foreign key relationships
-    @ManyToOne(() => ReservationInfoEntity, { eager: true })
-    @JoinColumn({ name: 'reservation_info_fk' })
-    reservationInfo: ReservationInfoEntity;
-
     @ManyToOne(() => UserVerificationEntity, { eager: true })
     @JoinColumn({ name: 'user_verification_fk' })
     userVerification: UserVerificationEntity;
