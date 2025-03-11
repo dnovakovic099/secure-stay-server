@@ -43,6 +43,10 @@ import path from "path";
 import ejs from "ejs";
 import fs from "fs";
 
+interface CustomRequest extends Request {
+  user?: any;
+}
+
 export class SalesController {
   async createClient(request: Request, response: Response, next: NextFunction) {
     try {
@@ -64,8 +68,9 @@ export class SalesController {
     const clientId = parseInt(request.params.client_id);
     const { airDnaData, ...rest } = request.body;
     const clientService = new ClientService();
+    const userId = request.user.id;
     try {
-      const updatedClient = await clientService.updateClient(clientId, rest);
+      const updatedClient = await clientService.updateClient(clientId, rest, userId);
       if (updatedClient) {
         const updatedListing = await clientService.updateClientListing(
           clientId,
