@@ -93,7 +93,6 @@ export class ExpenseService {
             status,
             categories: categoryIds,
             contractorName,
-            contractorNumber,
             dateOfWork,
             expenseState
         } = request.query;
@@ -114,11 +113,6 @@ export class ExpenseService {
                 ...(contractorName && {
                     contractorName: Raw(alias => `${alias} LIKE :contractorName`, {
                         contractorName: `${contractorName}%`
-                    })
-                }),
-                ...(contractorNumber && {
-                    contractorNumber: Raw(alias => `${alias} LIKE :contractorNumber`, {
-                        contractorNumber: `${contractorNumber}%`
                     })
                 }),
                 ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
