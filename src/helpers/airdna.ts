@@ -8,9 +8,22 @@ import { randomUUID } from "crypto";
 export const login = async (page: Page, credentials: LoginCredentials) => {
   try {
     await page.goto(AIR_DNA_URL);
+    const emailBtn = await page.$('.email-btn');
+    if (!emailBtn) {
+      throw new Error("Email button not found on the page.");
+    }
+
+    const isEmailBtnActive = await page.evaluate((btn) => {
+      return btn.classList.contains('email-btn-active');
+    }, emailBtn);
+    if (!isEmailBtnActive) {
+      await emailBtn.click();
+    }
+
     await page.type('input[name="email"]', credentials.email);
     await page.type('input[name="password"]', credentials.password);
     await page.click('button[type="submit"]');
+
     return true;
   } catch (error) {
     console.error("Login failed:", error);
@@ -390,14 +403,18 @@ export const getDataForSpecificListing = async (
       throw new Error("The airBnb id is missing");
     }
 
+    page.goto(listingUrl);
+
     const response = await page.waitForResponse((resp) => {
       const url = new URL(resp.url());
       return (
         url.pathname.includes(`/api/explorer/v1/listing/${airBnbId}`) &&
+        !url.pathname.includes(`/comps`) &&
         resp.request().method() !== "OPTIONS" &&
         resp.status() === 200
       );
-    });
+    }, { timeout: 60000 });
+
     if (!response.ok()) {
       throw new Error(`Response failed with status: ${response.status()}`);
     }

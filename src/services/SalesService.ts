@@ -85,8 +85,8 @@ export class ClientService {
       propertyScreenshotSessionId: ssid,
       details,
       metrics,
-      vrboPropertyId: platforms.vrbo_property_id,
-      airBnbPropertyId: platforms.airbnb_property_id,
+      vrboPropertyId: platforms?.vrbo_property_id,
+      airBnbPropertyId: platforms?.airbnb_property_id,
       createdAt: currentDate,
       updatedAt: currentDate,
     });

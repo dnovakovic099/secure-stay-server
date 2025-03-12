@@ -42,6 +42,7 @@ import {
 import path from "path";
 import ejs from "ejs";
 import fs from "fs";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
   user?: any;
@@ -194,7 +195,7 @@ export class SalesController {
         clientId
       );
 
-      if (fetchedClient.client.previewDocumentLink && !wasClientUpdated) {
+      if (fetchedClient.client.previewDocumentLink && wasClientUpdated) {
         return response.status(200).send({
           status: true,
           message: "PDF generated successfully",
@@ -385,9 +386,9 @@ export class SalesController {
           .json({ error: "Unable to Log into AirDna" });
       }
       await page.waitForSelector(".css-1a9leff");
-      await page.goto(listingLink, {
-        waitUntil: "load",
-      });
+      // await page.goto(listingLink, {
+      //   waitUntil: "load",
+      // });
       const apiResponse = await getDataForSpecificListing(page, listingLink);
       const ssid = await extractImagesFromListingLink(page);
       console.log("ssid===>>", apiResponse, ssid);
@@ -404,6 +405,7 @@ export class SalesController {
         error: "There was an error fetching from the requested link",
       });
     } catch (error) {
+      logger.error(error);
       if (browser) {
         await browser.close();
       }

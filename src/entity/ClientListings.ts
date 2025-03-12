@@ -42,7 +42,7 @@ export class ClientListingEntity {
   @Column({ type: "varchar", length: 255 })
   address: string;
 
-  @Column({ type: "decimal", precision: 10, scale: 7 })
+  @Column({ type: "decimal", precision: 12, scale: 7 })
   cleaningFee: number;
 
   @Column({ type: "int" })
