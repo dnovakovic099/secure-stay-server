@@ -65,7 +65,7 @@ export async function sendReviewUpdateEmail(review: any) {
 </html>
 `;
 
-        await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
+        await sendEmail(subject, html, process.env.EMAIL_FROM, 'receipts@luxurylodgingstr.com');
     } catch (error) {
         console.error('Error sending review update email:', error);
     }
