@@ -15,6 +15,8 @@ export async function sendReviewUpdateEmail(reviewDetail: any) {
             <div style="margin: 20px 0;">
                 <p style="margin: 10px 0;"><strong>Guest Name:</strong> ${reviewDetail.review.guestName || 'Not provided'}</p>
                  <p style="margin: 10px 0;"><strong>Listing Title:</strong> ${reviewDetail.review.listingName || 'Not provided'}</p>
+                 <p style="margin: 10px 0;"><strong>Channel:</strong> ${reviewDetail.review.channelName || 'Not provided'}</p>
+                 <p style="margin: 10px 0;"><strong>Rating:</strong> ${reviewDetail.review.rating || 'Not provided'}</p>
                 <p style="margin: 10px 0;"><strong>Date of Review Detail:</strong> ${reviewDetail.date || 'Not provided'}</p>
 
                 <p style="margin: 10px 0;"><strong>Previous First Contact Date:</strong> ${oldLog?.firstContactDate || 'Not provided'}</p>
