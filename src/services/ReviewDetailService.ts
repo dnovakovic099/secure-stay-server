@@ -117,7 +117,8 @@ export class ReviewDetailService {
                 where: {
                     updatedAt: Between(twentyFourHoursAgo, new Date()), // Filter by last 24 hours
                 },
-                relations: ['oldLog'], // Ensure we get the related old logs
+                relations: ['oldLog','review'],
+
             });
 
             // Filter out reviews that do not have old logs
