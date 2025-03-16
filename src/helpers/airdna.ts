@@ -219,6 +219,18 @@ const takeScreenshot = async (
 ): Promise<string | null> => {
   try {
     if (element) {
+
+      // await element.evaluate((el) => {
+      //   const images = Array.from(el.querySelectorAll("img"));
+      //   return Promise.all(
+      //     images.map((img) =>
+      //       img.complete
+      //         ? Promise.resolve()
+      //         : new Promise((resolve) => img.addEventListener("load", resolve))
+      //     )
+      //   );
+      // });
+
       const screenshotBuffer = await element.screenshot({
         encoding: "binary",
         // ...(chart && { clip: { width: 1071, height: 300, x: 10, y: 10 } }),
@@ -432,23 +444,47 @@ export const getDataForSpecificListing = async (
 export const extractImagesFromListingLink = async (page: Page) => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
+  console.log(sessionId);
   const sessionDir = path.join(screenshotsDir, sessionId);
+
   const selectors = {
     heroSection: ".MuiBox-root.css-17bq4g2",
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
   };
+
   try {
-    const heroSectionSelec = await page.$(selectors.heroSection);
-    await takeScreenshot(heroSectionSelec, "heroSection", sessionDir);
-    const imgSectionSelec = await page.$(selectors.imgSection);
-    await takeScreenshot(imgSectionSelec, "imgSection", sessionDir);
-    const statSectionSelec = await page.$(selectors.statSection);
-    await takeScreenshot(statSectionSelec, "statSection", sessionDir);
+    await fs.promises.mkdir(sessionDir, { recursive: true });
+
+    // Wait for the main container if it's a React app
+    await page.waitForSelector(".MuiBox-root", { timeout: 10000 });
+
+    for (const [key, selector] of Object.entries(selectors)) {
+      try {
+        // Check if the element exists
+        const exists = await page.evaluate((sel) => !!document.querySelector(sel), selector);
+        if (!exists) {
+          console.warn(`Selector ${selector} not found.`);
+          continue;
+        }
+
+        const element = await page.$(selector);
+        if (element) {
+       
+          await takeScreenshot(element, key, sessionDir);
+        } else {
+          console.warn(`Element for ${key} not found.`);
+        }
+      } catch (error) {
+        console.warn(`Error processing ${key}:`, error);
+      }
+    }
+
     return sessionId;
   } catch (error) {
     console.error("Error taking screenshots:", error);
   }
+
   return null;
 };
 
