@@ -24,9 +24,6 @@ export class Claim {
     @Column({ nullable: true })
     reservation_id: string;
 
-    @Column({ type: 'date', nullable: true })
-    check_out_date: Date;
-
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     reservation_amount: number;
 
@@ -38,12 +35,6 @@ export class Claim {
 
     @Column({ nullable: true })
     guest_contact_number: string;
-
-    @Column({ type: 'date', nullable: true })
-    date_time_contractor_contacted: Date;
-
-    @Column({ type: 'date', nullable: true })
-    date_time_work_finished: Date;
 
     @Column({ type: 'text', nullable: true })
     quote_1: string;
@@ -67,7 +58,7 @@ export class Claim {
     reporter: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-    claim_resolution_amount: number;
+    client_paid_amount: number;
 
     @CreateDateColumn()
     created_at: Date;

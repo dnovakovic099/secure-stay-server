@@ -40,7 +40,7 @@ export class ClaimsService {
         const queryOptions: any = {
             where: {},
             order: { 
-                check_out_date: 'DESC',
+                created_at: 'DESC',
                 status: "ASC"
             },
             skip: (page - 1) * limit,
@@ -70,10 +70,6 @@ export class ClaimsService {
 
         if (listingId) {
             queryOptions.where.listing_name = listingId;
-        }
-
-        if (claimAmount) {
-            queryOptions.where.claim_resolution_amount = claimAmount;
         }
 
         if (guestName) {
@@ -147,14 +143,11 @@ export class ClaimsService {
             Status: claim.status,
             Listing: claim.listing_id,
             'Reservation ID': claim.reservation_id,
-            'Check-Out Date': claim.check_out_date,
             'Reservation Amount': claim.reservation_amount,
             Channel: claim.channel,
             'Guest Name': claim.guest_name,
             'Guest Contact': claim.guest_contact_number,
             'Claim Description': claim.description,
-            'Contractor Contacted': claim.date_time_contractor_contacted,
-            'Work Finished': claim.date_time_work_finished,
             'Final Price': claim.final_price
         }));
 
