@@ -2,11 +2,13 @@ import { Request } from "express";
 import { appDatabase } from "../utils/database.util";
 import { ClientEntity } from "../entity/Clients";
 import { ClientListingEntity } from "../entity/ClientListings";
+import { ClientCompetitorListingEntity } from "../entity/ClientCompetitorListings";
 
 export class ClientService {
   private clientRepository = appDatabase.getRepository(ClientEntity);
   private clientListingRepository =
     appDatabase.getRepository(ClientListingEntity);
+    private clientCompetitorListingRepository=appDatabase.getRepository(ClientCompetitorListingEntity);
 
   async createClient(request: Request, fileNames?: string[]) {
     const {
@@ -25,6 +27,7 @@ export class ClientService {
       beds,
       addressData,
       propertyData,
+      competitorData
     } = request.body;
 
     const newClient = this.clientRepository.create({
@@ -92,6 +95,37 @@ export class ClientService {
     });
 
     await this.clientListingRepository.save(listing);
+
+
+    const competitorListing = this.clientCompetitorListingRepository.create({
+      clientId: savedClient.id,
+      airdnaMarketName: combined_market_info.airdna_market_name,
+      marketType: combined_market_info.market_type,
+      marketScore: combined_market_info.market_score,
+      lat: property_details.location.lat,
+      lng: property_details.location.lng,
+      occupancy: property_statistics.occupancy.ltm,
+      address: property_details.address,
+      cleaningFee: property_statistics.cleaning_fee.ltm,
+      revenue: property_statistics.revenue.ltm,
+      totalComps: property_statistics.total_comps,
+      comps,
+      forSalePropertyComps: for_sale_property_comps,
+      compsetAmenities: compset_amenities,
+      zipcode: property_details.zipcode,
+      revenueRange: property_statistics.revenue_range,
+      screenshotSessionId,
+      propertyScreenshotSessionId: competitorData.ssid,
+      details: competitorData.details,
+      metrics: competitorData.metrics,
+      vrboPropertyId: competitorData?.platforms?.vrbo_property_id,
+      airBnbPropertyId: competitorData?.platforms?.airbnb_property_id,
+      createdAt: currentDate,
+      updatedAt: currentDate,
+    });
+
+    await this.clientCompetitorListingRepository.save(competitorListing);
+
 
     return savedClient;
   }

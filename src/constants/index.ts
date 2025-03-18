@@ -60,4 +60,8 @@ export const PORTFOLIO_IMAGES = Array.from(
 export const ICON_GEARS = `${PUBLIC_URL}/icon-gears.png`;
 export const ICON_DOLLAR_CHART = `${PUBLIC_URL}/icon-dollar-chart.png`;
 export const ICON_HAND_HOLDIING_USERS = `${PUBLIC_URL}/icon-hand-holding-users.png`;
-export const ICON_USER_STARS = `${PUBLIC_URL}/icon-user-stars.png`;
+export const ICON_USER_STARS = `${PUBLIC_URL}/icon-user-stars-new.png`;
+
+export const ICON_OPPORTUNITIES_1 = `${PUBLIC_URL}/icon-opportunities-1.png`;
+export const ICON_OPPORTUNITIES_2 = `${PUBLIC_URL}/icon-opportunities-2.png`;
+export const ICON_OPPORTUNITIES_3 = `${PUBLIC_URL}/icon-opportunities-3.png`;

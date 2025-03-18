@@ -1,8 +1,8 @@
 <tr>
   <td class="page" id="page-9">
     <div class="page-content">
-      <div>
-        <h1 class="cursive-heading" style="margin-bottom: 20px">
+      <div style="padding: 30px 20px 20px;gap: 0px;">
+        <h1 class="cursive-heading" style="margin-bottom: 5px;font-size: 1.5rem;line-height: 1.5;">
           Top Competitor
         </h1>
 
@@ -10,63 +10,57 @@
           <img src="<%= PAGE_9_IMG %>" alt="reload page" />
         </div>
 
-        <div class="box">
-          <% if (revPar > listingData.totalMarketAvg) { %>
-          <p>
-            The prospect’s property is well-positioned within the <%=
-            listingData.airdnaMarketName %> market, competing with listings that
-            feature high-end amenities. While competitors such as the Rustic
-            Luxurious A-Frame and Lakefront Sunset Cottage leverage high-end
-            amenities and scenic locations, our prospect’s potential lies in
-            optimizing its pricing strategy, enhancing listing presentation, and
-            highlighting unique features like nearby attractions or exclusive
-            guest experiences. Many competitors maintain moderate occupancy
-            rates but have opportunities for revenue growth through better ADR
-            management and seasonality-driven pricing.
-          </p>
-          <p>
-            To close the gap or maintain a competitive edge, we will focus on
-            maximizing RevPAR through dynamic pricing, improving guest
-            experience with targeted amenity enhancements, and optimizing the
-            listing with high-quality content and strategic marketing.
-            Leveraging seasonal trends and length-of-stay adjustments will
-            ensure sustained revenue growth while keeping occupancy levels
-            stable. Our approach will position the property as a standout choice
-            in this market.
-          </p>
+        <div class="box" style="border: 1px solid var(--clr-primary-dark);">
+          <% if (revPar> listingData.totalMarketAvg) { %>
+            <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+              The prospect’s property is well-positioned within the <%= listingData.airdnaMarketName %> market,
+                competing with listings that
+                feature high-end amenities. While competitors such as the Rustic
+                Luxurious A-Frame and Lakefront Sunset Cottage leverage high-end
+                amenities and scenic locations, our prospect’s potential lies in
+                optimizing its pricing strategy, enhancing listing presentation, and
+                highlighting unique features like nearby attractions or exclusive
+                guest experiences. Many competitors maintain moderate occupancy
+                rates but have opportunities for revenue growth through better ADR
+                management and seasonality-driven pricing.
+            </p>
+            <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+              To close the gap or maintain a competitive edge, we will focus on
+              maximizing RevPAR through dynamic pricing, improving guest
+              experience with targeted amenity enhancements, and optimizing the
+              listing with high-quality content and strategic marketing.
+              Leveraging seasonal trends and length-of-stay adjustments will
+              ensure sustained revenue growth while keeping occupancy levels
+              stable. Our approach will position the property as a standout choice
+              in this market.
+            </p>
 
-          <% } else { %>
-          <p>
-            The prospect’s property is underperforming within the <%=
-            listingData.airdnaMarketName %> market, competing with listings that
-            feature high-end amenities. Competitors such as the Rustic Luxurious
-            A-Frame and Lakefront Sunset Cottage leverage high-end amenities,
-            our prospect’s potential lies in optimizing its pricing strategy,
-            enhancing listing presentation, and highlighting unique features
-            like nearby attractions or exclusive guest experiences. Many
-            competitors maintain moderate occupancy rates but have opportunities
-            for revenue growth through better ADR management and
-            seasonality-driven pricing.
-          </p>
-          <p>
-            To close the gap or maintain a competitive edge, we will focus on
-            maximizing RevPAR through dynamic pricing, improving guest
-            experience with targeted amenity enhancements, and optimizing the
-            listing with high-quality content and strategic marketing.
-            Leveraging seasonal trends and length-of-stay adjustments will
-            ensure sustained revenue growth while keeping occupancy levels
-            stable. Our approach will position the property as a standout choice
-            in this market.
-          </p>
-          <% } %>
+            <% } else { %>
+              <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+                The prospect’s property is underperforming within the <%= listingData.airdnaMarketName %> market,
+                  competing with listings that
+                  feature high-end amenities. Competitors such as the Rustic Luxurious
+                  A-Frame and Lakefront Sunset Cottage leverage high-end amenities,
+                  our prospect’s potential lies in optimizing its pricing strategy,
+                  enhancing listing presentation, and highlighting unique features
+                  like nearby attractions or exclusive guest experiences. Many
+                  competitors maintain moderate occupancy rates but have opportunities
+                  for revenue growth through better ADR management and
+                  seasonality-driven pricing.
+              </p>
+              <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+                The Clermont short-term rental market is highly competitive, with top listings excelling in high
+                occupancy rates, strong revenue performance, and standout property features like themed rooms,
+                private pools, and resort-style amenities. To maintain or surpass current positioning, Luxury
+                Lodging can focus on maximizing occupancy through dynamic pricing strategies, leveraging high-
+                demand periods, and ensuring top-tier guest experiences that drive repeat bookings. Additionally,
+                refining marketing efforts, emphasizing unique property highlights, and optimizing listing
+                visibility will be key to outperforming competitors and capturing more high-value bookings.
+              </p>
+              <% } %>
         </div>
       </div>
-
-      <img
-        style="position: absolute; bottom: 0; right: 0"
-        src="<%= LOGO_URL %>"
-        alt="reload page"
-      />
+      <%- include('./logo') %>
     </div>
   </td>
 </tr>

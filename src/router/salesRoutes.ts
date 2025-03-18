@@ -34,6 +34,12 @@ router.route("/getPropertyDetailsFromLink").get(
   salesController.getDetailsForListing
 );
 
+router.route("/getCompetitorPropertyDetailsFromLink").get(
+  // verifySession,
+  salesController.getDetailsForCompetitorListing
+);
+
+
 router.route("/generatePdf/:client_id").get(
   // verifySession,
   // fileUpload.fields([{ name: "attachments", maxCount: 10 }]),

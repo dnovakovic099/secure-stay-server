@@ -1,54 +1,41 @@
 <tr>
   <td class="page" id="page-1">
     <div class="page-content">
-      <div
-        class="logo page-horizontal-spacing"
-        style="margin: 0px 0px 0px 50px"
-      >
+      <div class="logo page-horizontal-spacing" style="margin: 0px 0px 0px 50px;padding-top: 50px;">
         <img style="width: auto" src="<%= LOGO_URL %>" alt="" />
-        <h6 style="color: var(--clr-primary); font-size: 0.8rem">
+        <h6 style="color: var(--clr-primary); font-size: 1.2rem;font-weight: 500;font-family: var(--font-body-text)">
           Property Performance Report (PPR)
         </h6>
       </div>
-      <div class="page-1-text" style="padding-block: 50px; margin: 0px 50px">
-        <h1
-          style="
+      <div class="page-1-text" style="padding-block: 50px; margin: 0px 50px;padding-top: 0;">
+        <h1 style="
             color: black;
             font-family: var(--font-cursive);
-            font-size: 4.5rem;
+            font-size: 1.95rem;
+            line-height: 2;
             font-style: normal;
             font-weight: 400;
             padding-bottom: 8px;
             margin-bottom: 8px;
-          "
-        >
+          ">
           <!-- Santeetlah Lake Retreat w/ Dock: Walk to Water! -->
           <%= propertyDetails.title %>
         </h1>
-        <h2
-          style="
+        <h2 style="
             color: var(--clr-primary-dark);
             font-weight: 400;
-            font-size: 2rem;
+            font-size: 1.5rem;
             font-style: normal;
-            font-family: var(--font-cursive);
-          "
-        >
+            font-family: var(--font-address);
+          ">
           <%= listingData.address %>
         </h2>
       </div>
       <div style="position: relative">
-        <img
-          style="width: 776px; height: 670px"
-          src="<%= propertyDetails.images[0] %>"
-          alt="reload page"
-        />
+        <img style="width: 776px; height: 670px" src="<%= propertyDetails.images[0] %>" alt="reload page" />
 
-        <img
-          style="position: absolute; left: 0; right: 0; bottom: 0; height: 100%"
-          src="<%= OVERLAY_IMAGE %>"
-          alt=""
-        />
+        <img style="position: absolute; left: 0; right: 0; bottom: 0; height: 100%;width: 100%"
+          src="<%= OVERLAY_IMAGE %>" alt="" />
       </div>
     </div>
   </td>

@@ -1,67 +1,43 @@
 <tr>
-  <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
-  minimumFractionDigits: 2 }) %> <% } %>
-  <td class="page" id="page-3" style="overflow: hidden">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <div class="page-content">
-              <!-- <h1 class="cursive-heading">Executive Summary</h1> -->
-              <div class="box" style="margin: 30px 30px">
-                <p>
-                  Your property at <%= listingData.address %> has strong
-                  potential in a market that demands strategic pricing and
-                  enhanced guest appeal. The projected annual revenue of $<%=
-                  formatRevenue(listingData.totalClient) %> places it ahead of
-                  the market average but slightly behind top competitors. By
-                  refining pricing strategies and increasing occupancy through
-                  optimized listings and targeted promotions, we can push
-                  revenue even higher. The market’s ADR and RevPAR trends
-                  indicate the need for a competitive but balanced approach,
-                  ensuring your property captures more bookings without
-                  undervaluing its potential. The Robbinsville market shows
-                  opportunity despite recent declines in occupancy and revenue
-                  growth. Competitors with similar offerings are leveraging
-                  amenities and optimized listings to command higher rates and
-                  secure more bookings. Your property’s positioning, guest
-                  experience, and pricing strategy will be key to outperforming
-                  them. Adjusting rates dynamically based on seasonality,
-                  implementing a structured booking strategy, and enhancing
-                  amenities can maximize your occupancy and revenue without
-                  sacrificing nightly rates. With Luxury Lodging’s expert
-                  revenue management and marketing strategies, your property
-                  will be positioned for success. We provide daily pricing
-                  adjustments, high-converting listing optimization, and
-                  datadriven strategies to ensure consistent bookings and high
-                  guest satisfaction. Our goal is to help you achieve sustained
-                  revenue growth while making management effortless. Together,
-                  we’ll turn your rental into a top performer in Robbinsville.
-                </p>
-                <p>
-                  Our analysis highlights the growing demand for long-term
-                  rentals in the Key West market, paired with the property’s
-                  potential to achieve significant RevPAR growth and a strong
-                  revenue trajectory. Through enhanced guest experience,
-                  thoughtful pricing adjustments, and strategic marketing
-                  initiatives, we can unlock opportunities to attract
-                  high-quality tenants and secure positive feedback. These steps
-                  will bridge the gap with top competitors and establish your
-                  property as a leader in its niche.
-                </p>
-                <p>
-                  Luxury Lodging is committed to ensuring your property not only
-                  meets but surpasses its market potential. By leveraging our
-                  expertise in managing premium properties and building a strong
-                  reputation for our clients, we aim to transform this property
-                  into a cornerstone of success in the extended-stay market. The
-                  journey to establishing your property as a top contender
-                  begins now, and we are excited to be your partner in making
-                  that happen.
-                </p>
-              </div>
-            </div>
-            <!-- <img
+  <% function formatRevenue(revenue) { %>
+    <%= revenue.toLocaleString('en-US', { minimumFractionDigits: 2 }) %>
+      <% } %>
+        <td class="page" id="page-3" style="overflow: hidden">
+          <table>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="page-content">
+                    <div style="padding: 60px 70px 0px;">
+                      <h1 class="cursive-heading" style="font-size: 1.5rem;line-height: 1.5;margin-bottom: 8px;">
+                        Executive Summary</h1>
+                      <div class="box" style="border: 1px solid var(--clr-primary-dark);">
+                        <p
+                          style="font-size: 1rem;line-height: 1.2; font-family: var(--font-body-text);letter-spacing: 0.05em;">
+                          Jack, your Clermont vacation rental has strong potential, but with the right
+                          strategy, it can outperform even a top competitors in the market. Your property’s
+                          current revenue and occupancy trends indicate untapped opportunities that,
+                          when addressed, will significantly boost returns. With the right pricing
+                          adjustments, improved listing visibility, and refined guest experience, your home
+                          can consistently command higher nightly rates while maintaining strong
+                          occupancy. The competition is fierce, but your property is already in a strong
+                          position—our goal is to ensure it doesn’t just compete but dominates.
+                        </p>
+                        <p
+                          style="font-size: 1rem;line-height: 1.2; font-family: var(--font-body-text);letter-spacing: 0.05em;">
+                          Luxury Lodging specializes in turning great listings into market leaders,
+                          leveraging data-driven pricing, targeted marketing strategies, and operational
+                          enhancements that translate directly into revenue growth. By refining the guest
+                          experience, optimizing availability across platforms, implementing strategic
+                          property upgrades, and ensuring your property is positioned as a top-tier
+                          vacation rental, we’ll maximize both short-term gains and long-term success. The
+                          path to higher earnings and a stress-free hosting experience starts here—let’s
+                          elevate your property and turn it into a top-performing asset in Clermont.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- <img
             src="<%= propertyDetails.images[1] %>"
             class="border-image"
             style="
@@ -74,50 +50,35 @@
             alt="reload page"
           /> -->
 
-            <div style="position: relative">
-              <img
-                src="<%= propertyDetails.images[3] %>"
-                class="border-image"
-                style="
-                  width: 420px;
-                  height: 420px;
+                  <div style="position: relative;overflow: hidden;">
+                    <img src="<%= propertyDetails.images[3] %>" class="border-image" style="
+                  width: 400px;
+                  height: 400px;
                   position: absolute;
                   top: 15px;
-                  right: -20px;
-                "
-                alt="reload page"
-              />
-              <div style="position: relative">
-                <img
-                  src="<%= propertyDetails.images[1] %>"
-                  class="border-image"
-                  style="
-                    width: 520px;
-                    height: 500px;
+                  right: -5px;
+                " alt="reload page" />
+                    <div style="position: relative">
+                      <img src="<%= propertyDetails.images[1] %>" class="border-image" style="
+                    width: 475px;
+                    height: 475px;
                     position: relative;
-                    left: -90px;
+                    left: -60px;
                     bottom: 0;
-                    top: 140px;
+                    top: 80px;
                     z-index: 1;
-                  "
-                  alt="reload page"
-                />
-              </div>
-              <!-- <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+                  " alt="reload page" />
+                    </div>
+                    <!-- <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
               293px; top: 6px; rotate: 89deg; transform: scale(.9);" " /> <img
               src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
               -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " /> -->
-            </div>
-            <div style="display: inline-block; z-index: 0">
-              <img
-                style="position: absolute; bottom: 0; right: 0"
-                src="<%= LOGO_URL %>"
-                alt="reload page"
-              />
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </td>
+                  </div>
+
+                  <%- include('./logo') %>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
 </tr>

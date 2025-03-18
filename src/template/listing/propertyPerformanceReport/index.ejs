@@ -1,255 +1,288 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Playwrite+AU+SA:wght@100..400&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Allura&family=Averia+Libre&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400;1,500;1,600;1,700;1,800&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playwrite+CO+Guides&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-      integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
-      crossorigin="anonymous"
-      referrerpolicy="no-referrer"
-    />
-    <style>
-      @font-face {
-        font-family: "Open Sans";
-        src: url("/public/fonts/Open_Sans/OpenSans-VariableFont_wdth,wght.ttf")
-          format("truetype");
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-      }
 
-      @font-face {
-        font-family: "Great Vibes";
-        src: url("/public/fonts/Great_Vibes/GreatVibes-Regular.ttf")
-          format("truetype");
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-      }
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      :root {
-        --clr-page-bg: #fefcf5;
-        --clr-primary: #d6c27b;
-        --clr-primary-dark: rgb(154, 117, 62);
-        --font-body: "Open Sans", serif;
-        /* --font-cursive: "Playwrite AU SA", serif; */
-        --font-cursive: "Allura", serif;
-        --font-semi-cursive: "Great Vibes", serif;
-      }
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-      }
-      body {
-        font-size: 1rem;
-        background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg))
-            padding-box,
-          linear-gradient(to right, var(--clr-primary), var(--clr-page-bg))
-            border-box;
-      }
-      table {
-        width: 100%;
-      }
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Playwrite+AU+SA:wght@100..400&display=swap"
+    rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Allura&family=Averia+Libre&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400;1,500;1,600;1,700;1,800&display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playwrite+CO+Guides&display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+    integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+    @font-face {
+      font-family: "Open Sans";
+      src: url("/public/fonts/Open_Sans/OpenSans-VariableFont_wdth,wght.ttf") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
 
-      table tr {
-        vertical-align: top;
-      }
+    @font-face {
+      font-family: "Great Vibes";
+      src: url("/public/fonts/Great_Vibes/GreatVibes-Regular.ttf") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
 
-      table tr td {
-        vertical-align: top;
-      }
+    @font-face {
+      font-family: 'Skia';
+      src: url('/public/fonts/Skia/Skia.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
 
-      img {
-        max-width: 100%;
-      }
-      .page-1-text h1::after {
-        content: "";
-        height: 1px;
-        width: 70%;
-        background: linear-gradient(to bottom, var(--clr-primary), #fff);
-        display: block;
-        position: relative;
-        bottom: -8px;
-      }
-      .cursive-heading {
-        font-family: var(--font-cursive);
-        font-weight: 400;
-        font-style: normal;
-        font-size: 3rem;
-        line-height: normal;
-        color: var(--clr-primary-dark);
-        letter-spacing: -0.25px;
-      }
-      .page {
-        background-color: var(--clr-page-bg);
-        position: relative;
-        /* padding: 8px; */
-        /* 11.6inches is matching pdf page (A4) height */
-        height: 11.6in;
-        page-break-before: always;
-        overflow: hidden;
-        display: flex;
-      }
+    @font-face {
+      font-family: 'Zapfino';
+      src: url('/public/fonts/Zapfino/Zapfino.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
 
-      /* .page-horizontal-spacing {
+    @font-face {
+      font-family: 'Apple Chancery';
+      src: url('/public/fonts/Apple_Chancery/Apple-Chancery.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --clr-page-bg: #fefcf5;
+      --clr-primary: #d6c27b;
+      --clr-primary-dark: rgb(154, 117, 62);
+      --font-body: "Open Sans", serif;
+      /* --font-cursive: "Playwrite AU SA", serif; */
+      --font-cursive: "Zapfino", serif;
+      --font-address: "Apple Chancery", serif;
+      --font-semi-cursive: "Great Vibes", serif;
+      --font-body-text: "Skia", serif;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      font-size: 1rem;
+      background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg)) padding-box,
+        linear-gradient(to right, var(--clr-primary), var(--clr-page-bg)) border-box;
+    }
+
+    table {
+      width: 100%;
+    }
+
+    table tr {
+      vertical-align: top;
+    }
+
+    table tr td {
+      vertical-align: top;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    .page-1-text h1::after {
+      content: "";
+      height: 1px;
+      width: 70%;
+      background: linear-gradient(to bottom, var(--clr-primary), #fff);
+      display: block;
+      position: relative;
+      bottom: 4px;
+    }
+
+    .cursive-heading {
+      font-family: var(--font-cursive);
+      font-weight: 400;
+      font-style: normal;
+      font-size: 3rem;
+      line-height: normal;
+      color: var(--clr-primary-dark);
+      letter-spacing: -0.25px;
+    }
+
+    .page {
+      background-color: var(--clr-page-bg);
+      position: relative;
+      /* padding: 8px; */
+      /* 11.6inches is matching pdf page (A4) height */
+      height: 11.6in;
+      page-break-before: always;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* .page-horizontal-spacing {
         margin: 0 20px;
       }
       .page-vertical-spacing {
         padding: 20px 0;
       } */
 
-      .page-content {
-        position: relative;
-        width: 100%;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-        justify-content: space-between;
-      }
+    .page-content {
+      position: relative;
+      width: 100%;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      justify-content: space-between;
+    }
 
-      .box {
-        padding: 18px 25px;
-        border-radius: 25px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg))
-            padding-box,
-          linear-gradient(to right, var(--clr-primary), var(--clr-page-bg))
-            border-box;
-        border: 1px solid transparent;
-      }
-      .box:last-child {
-        margin-bottom: 0 !important;
-      }
-      .box.white {
-        background: #fff;
-        border-radius: 25px;
-        border: 1px solid #e7e7e7;
-        box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
-      }
-      .box.tinted {
-        background: rgba(157, 145, 107, 0.5);
-        color: white;
-        font-weight: 700;
-      }
-      .box.tinted p {
-        font-weight: 700;
-      }
-      .text-black,
-      .text-black * {
-        color: #000;
-      }
-      .box-label {
-        padding-inline: 8px;
-        background: linear-gradient(
-          45deg,
+    .box {
+      padding: 18px 25px;
+      border-radius: 25px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg)) padding-box,
+        linear-gradient(to right, var(--clr-primary), var(--clr-page-bg)) border-box;
+      border: 1px solid transparent;
+    }
+
+    .box:last-child {
+      margin-bottom: 0 !important;
+    }
+
+    .box.white {
+      background: #fff;
+      border-radius: 25px;
+      border: 1px solid #e7e7e7;
+      box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .box.tinted {
+      background: rgba(157, 145, 107, 0.5);
+      color: white;
+      font-weight: 700;
+    }
+
+    .box.tinted p {
+      font-weight: 700;
+    }
+
+    .text-black,
+    .text-black * {
+      color: #000;
+    }
+
+    .box-label {
+      padding-inline: 8px;
+      background: linear-gradient(45deg,
           var(--clr-primary),
-          var(--clr-primary-dark)
-        );
-        width: 100%;
-        max-width: 250px;
-        color: white;
-        font-weight: 500;
-        border-radius: 25px;
-        height: 35px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        box-shadow: 0 10px 8px rgba(0, 0, 0, 0.1);
-        margin-bottom: 16px;
-      }
-      p {
-        font-weight: 500;
-        line-height: normal;
-        text-align: justify;
-      }
-      small {
-        font-size: 12px;
-      }
-      td {
-        line-height: 1;
-      }
-      .table-body-cell,
-      .table-header-cell {
-        border: 2px solid #fff;
-        font-family: var(--font-body);
-      }
-      .table-body-cell {
-        background-color: #fff;
-        padding: 8px;
-        font-size: 1.2rem;
-        font-weight: 600;
-      }
-      .styled-table tbody tr:last-child td {
+          var(--clr-primary-dark));
+      width: 100%;
+      max-width: 250px;
+      color: white;
+      font-weight: 500;
+      border-radius: 25px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 10px 8px rgba(0, 0, 0, 0.1);
+      margin-bottom: 16px;
+    }
+
+    p {
+      font-weight: 500;
+      line-height: normal;
+      text-align: justify;
+    }
+
+    small {
+      font-size: 12px;
+    }
+
+    td {
+      line-height: 1;
+    }
+
+    .table-body-cell,
+    .table-header-cell {
+      border: 2px solid #fff;
+      font-family: var(--font-body);
+    }
+
+    .table-body-cell {
+      background-color: #fff;
+      padding: 8px;
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    /* .styled-table tbody tr:last-child td {
         border-bottom-right-radius: 18px;
         border-bottom-left-radius: 18px;
-      }
-      .styled-table tbody tr:nth-child(even) .table-body-cell {
-        background-color: #f9f3e6;
-      }
+      } */
+    .styled-table tbody tr:nth-child(even) .table-body-cell {
+      background-color: #f9f3e6;
+    }
 
-      .styled-table tbody tr:nth-child(odd) .table-body-cell {
-        background-color: #f7ecd5;
-      }
-      .border-image {
-        border-radius: 100%;
-        border: 14px solid #b79c5f;
-      }
-      @media print {
-      }
+    .styled-table tbody tr:nth-child(odd) .table-body-cell {
+      background-color: #f7ecd5;
+    }
 
-      .portfolio-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 20px;
-        /* padding: 30px 50px; */
-      }
-      .portfolio-grid img {
-        width: 100%;
-        height: auto;
-        border-radius: 10px;
-        object-fit: cover;
-      }
-    </style>
-    <title><%= title %></title>
-  </head>
-  <body>
-    <table
-      style="
+    .border-image {
+      border-radius: 100%;
+      border: 14px solid #b79c5f;
+    }
+
+    @media print {}
+
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      /* padding: 30px 50px; */
+    }
+
+    .portfolio-grid img {
+      width: 100%;
+      height: 185px;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+  </style>
+  <title>
+    <%= title %>
+  </title>
+</head>
+
+<body>
+  <table style="
         max-width: 800px;
         width: 100%;
         margin: 0 auto;
         color: var(--clr-primary-dark);
-      "
-    >
-      <tbody>
-        <%- include('./intro') %>
+      ">
+    <tbody>
+      <%- include('./intro') %>
         <!-- <tr>
           <td class="page" id="page-2">
             <div class="page-content" style="position: relative">
@@ -326,306 +359,314 @@
             </div>
           </td>
         </tr> -->
-        <%- include('./executiveSummary') %> <%- include('./revenueProjection')
-        %> <%- include('./marketOverview') %> <%-
-        include('./prospectPropertyOverview') %> <%- include('./topCompetitor')
-        %>
+        <%- include('./executiveSummary') %>
 
-        <tr>
-          <td class="page" id="page-10">
-            <div class="page-content">
-              <h1 class="cursive-heading">Specific Competitor</h1>
-              <h2
-                style="
+          <%- include('./marketOverview') %>
+            <%- include('./topCompetitor') %>
+
+              <%- include('./prospectPropertyOverview') %>
+
+
+                <tr>
+                  <td class="page" id="page-10">
+                    <div class="page-content" style="padding-top: 50px;">
+                      <h1 class="cursive-heading" style="font-size: 1.2rem;padding: 0 30px;">Specific Competitor</h1>
+                      <h2 style="
                   text-decoration: underline;
                   font-size: 24px;
                   color: rgba(215, 196, 128);
-                  font-weight: 600;
-                "
-              >
-                Santeetlah Lake Retreat w/ Dock: Walk to Water!
-              </h2>
-              <div class="box white text-black">
-                <table>
-                  <tbody>
-                    <tr>
-                      <td>
-                        <img
-                          style="width: 100%"
-                          src="<%= PAGE_10_IMG %>"
-                          alt="reload page"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <table>
-                  <tbody>
-                    <tr>
-                      <td colspan="100%">
-                        <h6
-                          style="font-size: 14px; color: #000; font-weight: 700"
-                        >
-                          Short Term Renting list overview
-                        </h6>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colspan="100%" style="padding-bottom: 12px">
-                        <small
-                          style="color: #000; line-height: 0.6; font-size: 10px"
-                        >
-                          Santeetlah Lake Retreat w/ Dock: Walk to Water!
-                        </small>
-                      </td>
-                    </tr>
-                    <tr style="text-align: center">
-                      <td style="padding: 12px; border-radius: 4px">
-                        <strong
-                          style="
+                  font-weight: 500;
+                  font-family: var(--font-body-text);
+                  padding: 0 30px;
+                ">
+                        <%= propertyDetails.competitorName %>
+                      </h2>
+                      <div class="box white text-black" style="margin: 0 30px;">
+                        <table>
+                          <tbody>
+                            <tr>
+                              <td>
+                                <img style="width: 100%" src="<%= PAGE_10_IMG %>" alt="reload page" />
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <table>
+                          <!-- <tbody>
+                    <img src="<%= middleSection %>" alt="" />
+                    <img src="<%= heroSection %>" alt="" />
+                    <img src="<%= statSection %>" alt="" />
+                    <div style="font-family: var(--font-body-text);">
+                      <strong>LINK:</strong>
+                      <a href="<%= listingData.airbnbUrl %>" target="_blank"> <%= listingData.airbnbUrl %></a>
+                    </div>
+                  </tbody> -->
+                          <tbody>
+                            <tr>
+                              <td colspan="100%">
+                                <h6 style="font-size: 14px; color: #000; font-weight: 700">
+                                  Short Term Renting list overview
+                                </h6>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td colspan="100%" style="padding-bottom: 12px">
+                                <small style="color: #000; line-height: 0.6; font-size: 10px">
+                                  Santeetlah Lake Retreat w/ Dock: Walk to Water!
+                                </small>
+                              </td>
+                            </tr>
+                            <tr style="text-align: center;">
+                              <td style="padding: 12px; border-radius: 4px">
+                                <strong style="
                             font-size: 24px;
                             margin-bottom: 0px;
                             display: block;
-                            font-weight: 700;
+                            font-weight: 600;
                             color: #000;
-                          "
-                        >
-                          $80k
-                        </strong>
-                        <small style="font-size: 10px">Revenue Potential</small>
-                      </td>
-                      <td
-                        style="
+                            font-family: 'Open Sans', sans-serif;
+                          ">
+                                  <%- propertyDetails.competitorRevenue %>
+                                </strong>
+                                <small style="font-size: 10px;font-family: var(--font-body-text);">Revenue
+                                  Potential</small>
+                              </td>
+                              <td style="
                           padding: 12px;
                           border-radius: 4px;
                           border: 1px solid #e7e7e7;
-                        "
-                      >
-                        <strong
-                          style="
+                        ">
+                                <strong style="
                             font-size: 14px;
                             margin-bottom: 0px;
                             display: block;
-                            font-weight: 700;
+                            font-weight: 600;
                             color: #000;
-                          "
-                        >
-                          190
-                        </strong>
-                        <small style="font-size: 10px">Revenue Potential</small>
-                      </td>
-                      <td
-                        style="
+                            font-family: 'Open Sans', sans-serif;
+                          ">
+                                  <%- propertyDetails.competitorDaysAvailable %>
+                                </strong>
+                                <small style="font-size: 10px;font-family: var(--font-body-text);">Days
+                                  Available</small>
+                              </td>
+                              <td style="
                           padding: 12px;
                           border-radius: 4px;
                           border: 1px solid #e7e7e7;
-                        "
-                      >
-                        <strong
-                          style="
+                        ">
+                                <strong style="
                             font-size: 14px;
                             margin-bottom: 0px;
                             display: block;
-                            font-weight: 700;
+                            font-weight: 600;
                             color: #000;
-                          "
-                        >
-                          $80k
-                        </strong>
-                        <small style="font-size: 10px">Revenue Potential</small>
-                      </td>
-                      <td
-                        style="
+                            font-family: 'Open Sans', sans-serif;
+                          ">
+                                  <%- propertyDetails.competitorAnnualRevenue %>
+                                </strong>
+                                <small style="font-size: 10px;font-family: var(--font-body-text);">Annual
+                                  Revenue</small>
+                              </td>
+                              <td style="
                           padding: 12px;
                           border-radius: 4px;
                           border: 1px solid #e7e7e7;
-                        "
-                      >
-                        <strong
-                          style="
+                        ">
+                                <strong style="
                             font-size: 14px;
                             margin-bottom: 0px;
                             display: block;
-                            font-weight: 700;
-                            color: #000;
-                          "
-                        >
-                          $80k
-                        </strong>
-                        <small style="font-size: 10px">Revenue Potential</small>
-                      </td>
-                      <td
-                        style="
+                            font-weight: 600;
+                            color: #000;  
+                            font-family: 'Open Sans', sans-serif;
+                          ">
+                                  <%- propertyDetails.competitorOccupancy %>
+                                </strong>
+                                <small style="font-size: 10px;font-family: var(--font-body-text);">Occupancy</small>
+                              </td>
+                              <td style="
                           padding: 12px;
                           border-radius: 4px;
                           border: 1px solid #e7e7e7;
-                        "
-                      >
-                        <strong
-                          style="
+                        ">
+                                <strong style="
                             font-size: 14px;
                             margin-bottom: 0px;
                             display: block;
-                            font-weight: 700;
+                            font-weight: 600;
                             color: #000;
+                            font-family: 'Open Sans', sans-serif;
+                          ">
+                                  <%- propertyDetails.competitorAverageDailyRate %>
+                                </strong>
+                                <small style="font-size: 10px;font-family: var(--font-body-text);">Average Daily
+                                  Rate</small>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td colspan="100%" style="padding-top: 10px;">
+                                <div style="font-family: var(--font-body-text);">
+                                  <strong>LINK:</strong>
+                                  <a href="<%= propertyDetails.competitorLink %>" target="_blank">
+                                    <%= propertyDetails.competitorLink %>
+                                  </a>
+                                </div>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <table style="padding: 0 30px;">
+                        <tbody>
+                          <tr>
+                            <td width="50%;margin-right: 10px;">
+                              <div class="box-label" style="
+                          height: 70px;
+                          display: flex;
+                          align-items: center;
+                          gap: 10px;
+                          max-width: 99%;
+                          font-family: var(--font-body-text);
+                        ">
+                                <!-- <span
+                          style="
+                            background-color: white;
+                            color: var(--clr-primary);
+                            font-weight: 400;
+                            padding: 8px;
+                            border-radius: 100%;
                           "
                         >
-                          $80k
-                        </strong>
-                        <small style="font-size: 10px">Revenue Potential</small>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <table>
-                <tbody>
+                          
+                          <i class="fa-solid fa-hand-holding-hand"></i>
+                        </span> -->
+                                <div
+                                  style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                                  <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
+                                </div>
+                                <span>Rank in Market: <%= propertyDetails.marketRank %></span>
+                              </div>
+                            </td>
+                            <td width="50%" align="right">
+                              <div class="box-label" style="
+                          height: 70px;
+                          display: flex;
+                          align-items: center;
+                          gap: 10px;
+                          max-width: 99%;
+                          font-family: var(--font-body-text);
+                        ">
+                                <!-- <span
+                          style="
+                            background-color: white;
+                            color: var(--clr-primary);
+                            font-weight: 400;
+                            padding: 8px;
+                            border-radius: 100%;
+                          "
+                        >
+                          <i class="fa-solid fa-hand-holding-hand"></i>
+                        </span> -->
+                                <div
+                                  style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                                  <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
+                                </div>
+                                <span>Listing Rating: <%= propertyDetails.listingRating %>/5</span>
+                              </div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <div>
+                        <div class="box" style="
+                    font-family: var(--font-body-text);
+                    border: 1px solid #a27f45;
+                    margin: 0 20px;
+                    padding-bottom: 50px;
+                    margin-bottom: -40px;
+                    position: relative;
+                    background: none;
+                    letter-spacing: 0.5px;
+                    font-size: 1rem;
+                  ">
+                          <p>
+                            While reviewing the property’s online presence, we observed that Scuttle Luxury Vacation
+                            Pool Home fluctuates between the first and second pages of Airbnb search results, which
+                            indicates it is competing for visibility but not consistently securing a top-ranked
+                            position.
+                            With a 66% occupancy rate and an ADR of $251.3, this listing is performing within the
+                            market average but is not maximizing its revenue potential. The “Economy” price tier
+                            classification suggests a possible underpricing issue that could be leveraged against it,
+                            especially since its revenue potential falls short compared to high-performing properties in
+                            Clermont.
+                          </p>
+                          <p>
+                            We can outperform this competitor by emphasizing a more premium guest experience,
+                            refining pricing strategies, and leveraging dynamic pricing models to capitalize on peak
+                            demand periods. Additionally, highlighting unique property features more eﬀectively,
+                            improving booking lead times, and implementing high-converting listing optimizations can
+                            increase visibility and secure a stronger position in search rankings. With a tailored
+                            approach that focuses on guest experience and revenue maximization, we can position the
+                            prospect’s property ahead of this competitor in both performance and market perception.
+                          </p>
+                        </div>
+
+                        <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
+                          <img src="<%= propertyDetails.images[7] %>" alt="reload page" style="
+                      opacity: 0.7;
+                      height: 200px;
+                      width: 100%;
+                      object-fit: cover;
+                    " />
+
+                          <div style="display: inline-block; z-index: 0">
+                            <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>"
+                              alt="reload page" width="130" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+
+                <%- include('./revenueProjection') %>
+
                   <tr>
-                    <td width="50%">
-                      <div
-                        class="box-label"
-                        style="
-                          height: 60px;
-                          display: flex;
-                          align-items: center;
-                          gap: 10px;
-                          max-width: 100%;
-                        "
-                      >
-                        <span
-                          style="
-                            background-color: white;
-                            color: var(--clr-primary);
-                            font-weight: 400;
-                            padding: 8px;
-                            border-radius: 100%;
-                          "
-                        >
-                          <i class="fa-solid fa-hand-holding-hand"></i>
-                        </span>
-                        <strong>RevPAR: $282.49 </strong>
-                      </div>
-                    </td>
-                    <td width="50%">
-                      <div
-                        class="box-label"
-                        style="
-                          height: 60px;
-                          display: flex;
-                          align-items: center;
-                          gap: 10px;
-                          max-width: 100%;
-                        "
-                      >
-                        <span
-                          style="
-                            background-color: white;
-                            color: var(--clr-primary);
-                            font-weight: 400;
-                            padding: 8px;
-                            border-radius: 100%;
-                          "
-                        >
-                          <i class="fa-solid fa-hand-holding-hand"></i>
-                        </span>
-                        <strong>Listing Rating: 8.6/10 (vrbo) </strong>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div class="box">
-                <p>
-                  The Snowbird Creek Cabin competes well in the Robbinsville
-                  market with a strong occupancy rate and solid annual revenue.
-                  However , its market positioning is largely reliant on high
-                  availability rather than premium pricing. While it benefits
-                  from a scenic location and a high rating, its ADR is moderate,
-                  and there is an opportunity to optimize pricing strategies to
-                  further increase RevPAR.
-                </p>
-                <p>
-                  To outperform this competitor, we will focus on strategic ADR
-                  adjustments, leveraging dynamic pricing to align with peak
-                  booking periods while maintaining competitive occupancy.
-                  Additionally, we can enhance listing appeal by highlighting
-                  unique features, optimizing the booking lead time, and oﬀering
-                  curated guest experiences to drive higher nightly rates and
-                  stronger revenue performance.
-                </p>
-              </div>
-
-              <div
-                class="image-section"
-                style="position: relative; background-color: #000"
-              >
-                <img
-                  src="<%= propertyDetails.images[7] %>"
-                  alt="reload page"
-                  style="
-                    opacity: 0.7;
-                    height: 200px;
-                    width: 100%;
-                    object-fit: cover;
-                  "
-                />
-
-                <img
-                  style="position: absolute; bottom: 0; left: 0"
-                  src="<%= LOGO_WHITE_URL %>"
-                  alt="reload page"
-                />
-              </div>
-            </div>
-          </td>
-        </tr>
-
-        <tr>
-          <td class="page" id="page-11">
-            <div class="page-content">
-              <div
-                class="image-section"
-                style="position: relative; background-color: #000"
-              >
-                <h1
-                  style="
-                    text-transform: uppercase;
+                    <td class="page" id="page-11">
+                      <div class="page-content">
+                        <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
+                          <h1 style="
                     color: white;
                     position: absolute;
-                    top: 30px;
-                    left: 40px;
+                    top: 50%;
+                    left: 60px;
+                    transform: translateY(-50%);
                     font-family: var(--font-cursive);
                     font-weight: 500;
                     letter-spacing: 1px;
-                  "
-                >
-                  Recommendations
-                </h1>
+                    font-size: 1.5rem;
+                    z-index: 1;
+                  ">
+                            Recommendations
+                          </h1>
 
-                <img
-                  src="<%= propertyDetails.images[8] %>"
-                  alt=""
-                  style="
-                    opacity: 0.2;
+                          <img src="<%= propertyDetails.images[8] %>" alt="" style="
+                    opacity: 0.4;
                     height: 200px;
                     width: 100%;
                     object-fit: cover;
-                  "
-                />
-              </div>
+                  " />
+                        </div>
 
-              <div class="box white">
-                <div
-                  style="
+                        <div class="box white" style="margin: 0 30px;">
+                          <div style="
                     display: flex;
                     align-items: center;
                     max-width: 500px;
                     gap: 20px;
-                  "
-                >
-                  <span
-                    style="
+                  ">
+                            <span style="
                       background: linear-gradient(
                         -45deg,
                         var(--clr-primary-dark),
@@ -641,20 +682,12 @@
                       align-items: center;
                       justify-content: center;
                       font-size: 25px;
-                    "
-                  >
-                    <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
-                    <img
-                      width="40px"
-                      height="40px"
-                      style="filter: invert(1)"
-                      src="<%= ICON_DOLLAR_CHART %>"
-                      alt=""
-                    />
-                  </span>
-                  <div
-                    class="box-label"
-                    style="
+                    ">
+                              <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                              <img width="40px" height="40px" style="filter: invert(1)" src="<%= ICON_DOLLAR_CHART %>"
+                                alt="" />
+                            </span>
+                            <div class="box-label" style="
                       height: 70px;
                       display: flex;
                       align-items: center;
@@ -664,68 +697,53 @@
                       border-radius: 40px;
                       font-family: var(--font-cursive);
                       font-weight: 500;
-                      font-size: 1.6rem;
+                      font-size: 1rem;
                       letter-spacing: 1px;
-                    "
-                  >
-                    Maximize Revenue and Engagement
-                  </div>
-                </div>
+                    ">
+                              Maximize Revenue and Engagement
+                            </div>
+                          </div>
 
-                <ul
-                  style="
-                    list-style: none;
+                          <ul style="
                     color: var(--clr-primary-dark);
                     line-height: 1.2;
                     display: flex;
                     flex-direction: column;
                     gap: 10px;
                     font-size: 0.9rem;
-                  "
-                >
-                  <li>
-                    <strong> Introduce a Themed Design: </strong>
-                    Revamp the property's interiors with a cohesive Key
-                    West-inspired theme to stand out in the market and attract
-                    guests seeking a memorable experience.
-                  </li>
-                  <li>
-                    <strong> Highlight Nearby Attractions: </strong>
-                    Showcase proximity to popular locations like Duval Street
-                    and Higgs Beach in listings, appealing to travelers looking
-                    for convenience and accessibility.
-                  </li>
-                  <li>
-                    <strong> Optimize Availability: </strong>
-                    Extend the property’s availability by adjusting maintenance
-                    schedules to capitalize on peak travel seasons and ensure
-                    consistent bookings.
-                  </li>
-                  <li>
-                    <strong> Implement Dynamic Pricing: </strong>
-                    Use data-driven pricing models to adjust rates for peak and
-                    offpeak periods, maximizing revenue while staying
-                    competitive against top-performing listings.
-                  </li>
-                  <li>
-                    <strong> Enhance Listing Descriptions: </strong>
-                    Rewrite and optimize listing details to emphasize the
-                    property’s unique features while integrating professional
-                    photos to captivate potential guests.
-                  </li>
-                </ul>
-              </div>
-              <div class="box white">
-                <div
-                  style="
+                    font-family: var(--font-body-text);
+                    line-height: 1.5;
+                    padding-left: 20px;
+                    margin-top: 10px;
+                  ">
+                            <li>
+                              <strong> Optimize Pricing Strategy </strong>
+                              - Adjust rates dynamically based on demand trends,
+                              local events, and competitor performance to capture peak
+                              revenue opportunities.
+                            </li>
+                            <li>
+                              <strong> Increase Booking Visibility </strong>
+                              - Enhance listing placement by refining descriptions,
+                              improving keywords, and leveraging platform algorithms to
+                              boost search rankings.
+                            </li>
+                            <li>
+                              <strong> Enhance Guest Experience </strong>
+                              - Improve comfort with small but impactful additions
+                              like upgraded bedding, welcome packages, or smart home features that elevate
+                              convenience.
+                            </li>
+                          </ul>
+                        </div>
+                        <div class="box white" style="margin: 0 30px;">
+                          <div style="
                     display: flex;
                     align-items: center;
                     max-width: 500px;
                     gap: 20px;
-                  "
-                >
-                  <span
-                    style="
+                  ">
+                            <span style="
                       background: linear-gradient(
                         -45deg,
                         var(--clr-primary-dark),
@@ -741,19 +759,10 @@
                       align-items: center;
                       justify-content: center;
                       font-size: 25px;
-                    "
-                  >
-                    <img
-                      width="40px"
-                      height="40px"
-                      style="filter: invert(1)"
-                      src="<%= ICON_DOLLAR_CHART %>"
-                      alt=""
-                    />
-                  </span>
-                  <div
-                    class="box-label"
-                    style="
+                    ">
+                              <img width="40px" height="40px" src="<%= ICON_USER_STARS %>" alt="" />
+                            </span>
+                            <div class="box-label" style="
                       height: 70px;
                       display: flex;
                       align-items: center;
@@ -764,16 +773,14 @@
                       font-family: var(--font-cursive);
                       font-weight: 500;
                       letter-spacing: 1px;
-                      font-size: 1.8rem;
+                      font-size: 1rem;
                       padding: 20px 0px;
-                    "
-                  >
-                    Operational Excellence
-                  </div>
-                </div>
+                    ">
+                              Operational Excellence
+                            </div>
+                          </div>
 
-                <ul
-                  style="
+                          <ul style="
                     list-style: none;
                     color: var(--clr-primary-dark);
                     line-height: 1.2;
@@ -781,72 +788,51 @@
                     flex-direction: column;
                     gap: 10px;
                     font-size: 0.9rem;
-                  "
-                >
-                  <li>
-                    <strong> Introduce a Themed Design: </strong> Revamp the
-                    property's interiors with a cohesive Key West-inspired theme
-                    to stand out in the market and attract guests seeking a
-                    memorable experience.
-                  </li>
-                  <li>
-                    <strong> Highlight Nearby Attractions: </strong>
-                    Showcase proximity to popular locations like Duval Street
-                    and Higgs Beach in listings, appealing to travelers looking
-                    for convenience and accessibility.
-                  </li>
-                  <li>
-                    <strong> Optimize Availability: </strong>
-                    Extend the property’s availability by adjusting maintenance
-                    schedules to capitalize on peak travel seasons and ensure
-                    consistent bookings.
-                  </li>
-                  <li>
-                    <strong> Implement Dynamic Pricing: </strong>
-                    Use data-driven pricing models to adjust rates for peak and
-                    offpeak periods, maximizing revenue while staying
-                    competitive against top-performing listings.
-                  </li>
-                  <li>
-                    <strong> Enhance Listing Descriptions: </strong>
-                    Rewrite and optimize listing details to emphasize the
-                    property’s unique features while integrating professional
-                    photos to captivate potential guests.
-                  </li>
-                </ul>
-              </div>
+                    font-family: var(--font-body-text);
+                    margin-top: 10px;
+                    line-height: 1.5;
+                  ">
+                            <li>
+                              <strong> Upgrade Aesthetic Appeal </strong> – Refresh listing photos with high-quality,
+                              professional
+                              images that highlight unique features and create a more inviting guest experience.
+                            </li>
+                            <li>
+                              <strong> Optimize Pool and Outdoor Spaces </strong> – Ensure the pool area is
+                              well-maintained and
+                              staged attractively in photos, as outdoor amenities are key booking drivers in this
+                              market.
+                            </li>
+                            <li>
+                              <strong> Monitor Guest Reviews and Feedback </strong>
+                              – Address recurring guest concerns
+                              proactively by improving service touchpoints and ensuring a seamless experience
+                              from check-in to check-out.
+                            </li>
+                          </ul>
+                        </div>
 
-              <div
-                class="image-section"
-                style="position: relative; background-color: #000"
-              >
-                <img
-                  src="<%= propertyDetails.images[9] %>"
-                  alt="reload page"
-                  style="
+                        <div class="image-section"
+                          style="position: relative; background-color: #000;height: 200px;margin-bottom: 40px;">
+                          <img src="<%= propertyDetails.images[9] %>" alt="reload page" style="
                     opacity: 0.7;
                     height: 200px;
                     width: 100%;
                     object-fit: cover;
-                  "
-                />
-              </div>
+                  " />
+                          <div style="display: inline-block; z-index: 0">
+                            <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>"
+                              alt="reload page" width="130" />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
 
-              <img
-                style="position: absolute; bottom: 0; left: 0"
-                src="<%= LOGO_WHITE_URL %>"
-                alt="reload page"
-              />
-            </div>
-          </td>
-        </tr>
-
-        <tr>
-          <td class="page" id="page-12">
-            <div class="page-content">
-              <div
-                class="box-label"
-                style="
+                  <tr>
+                    <td class="page" id="page-12">
+                      <div class="page-content" style="justify-content: flex-start;padding-top: 20px;">
+                        <div class="box-label" style="
                   font-size: 28px;
                   display: flex;
                   align-items: center;
@@ -858,62 +844,64 @@
                   border-radius: 40px;
                   text-transform: uppercase;
                   font-style: italic;
-                "
-              >
-                <img
-                  width="40px"
-                  height="40px"
-                  style="filter: invert(1)"
-                  src="<%= ICON_HAND_HOLDIING_USERS %>"
-                  alt=""
-                />
-                <p
-                  style="
-                    font-size: 28px;
-                    padding: 0px 10px;
+                ">
+                          <img width="40px" height="40px" src="<%= ICON_USER_STARS %>" alt="" />
+                          <p style="
+                    font-size: 1rem;
+                    padding: 15px 0px 0px 0px;
                     font-family: var(--font-cursive);
                     font-weight: 500;
                     font-style: normal;
                     letter-spacing: 1px;
-                  "
-                >
-                  Portfolio
-                </p>
-                <img
-                  width="40px"
-                  height="40px"
-                  style="filter: invert(1)"
-                  src="<%= ICON_DOLLAR_CHART %>"
-                  alt=""
-                />
-              </div>
+                    text-transform: capitalize;
+                  ">
+                            Portfolio
+                          </p>
+                          <img width="40px" height="40px" style="filter: invert(1)" src="<%= ICON_DOLLAR_CHART %>"
+                            alt="" />
+                        </div>
+                        <div style="margin: 0 20px;">
+                          <div class="portfolio-grid" style="gap: 10px 20px;">
+                            <% PORTFOLIO_IMAGES.forEach((image)=> { %>
+                              <img src="<%= image %>" alt="Portfolio Image" height="100px" />
+                              <% }) %>
+                          </div>
+                          <%- include('./logo') %>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
 
-              <div class="portfolio-grid">
-                <% PORTFOLIO_IMAGES.forEach((image) => { %>
-                <img src="<%= image %>" alt="Portfolio Image" />
-                <% }) %>
-              </div>
-            </div>
-          </td>
-        </tr>
+                  <!-- <%- include('./faqs') %> -->
 
-        <!-- <%- include('./faqs') %> -->
-
-        <tr>
-          <td class="page" id="page-14">
-            <div
-              class="page-content"
-              style="
+                  <tr>
+                    <td class="page" id="page-14">
+                      <div class="page-content" style="
                 display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              <div
+                align-items: flex-end;
+                justify-content: flex-end;
+              ">
+                        <div style="
+                  position: relative;
+                  display: flex;
+                  justify-content: center;
+                  align-items: end;
+                  position: relative;
+                ">
+                          <img style="width: 100%; height: 674px" src="<%= PAGE_14_IMG %>" alt="reload page"
+                            width="100" />
+                          <div
+                            style="position: absolute; top: 52px; left: 125px; border-radius: 100%; overflow: hidden">
+                            <img style="width: 445px; height: 445px" src="<%= propertyDetails.images[4] %>" alt="" />
+                          </div>
+                          <%- include('./logo') %>
+                        </div>
+                        <!-- <div
                 style="
                   position: relative;
                   display: flex;
                   justify-content: center;
+                  align-items: end;
                 "
               >
                 <img
@@ -933,11 +921,12 @@
                   src="<%= OVERLAY_IMAGE %>"
                   alt=""
                 />
-              </div>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </body>
+              </div> -->
+                      </div>
+                    </td>
+                  </tr>
+    </tbody>
+  </table>
+</body>
+
 </html>

@@ -4,6 +4,7 @@ import { LoginCredentials } from "../types";
 import {
   calculatingTotalProjectRevenue,
   extractAirDnaListingId,
+  extractImagesFromCompetitorListingLink,
   extractImagesFromListingLink,
   generateRandomUA,
   getDataForSpecificListing,
@@ -19,6 +20,9 @@ import {
   ICON_DOLLAR_CHART,
   ICON_GEARS,
   ICON_HAND_HOLDIING_USERS,
+  ICON_OPPORTUNITIES_1,
+  ICON_OPPORTUNITIES_2,
+  ICON_OPPORTUNITIES_3,
   ICON_USER_STARS,
   LOGO_URL,
   LOGO_WHITE_URL,
@@ -295,6 +299,9 @@ export class SalesController {
           ICON_USER_STARS,
           NEW_LOGO,
           NEW_LOGO_WHITE,
+          ICON_OPPORTUNITIES_1,
+          ICON_OPPORTUNITIES_2,
+          ICON_OPPORTUNITIES_3
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -414,4 +421,59 @@ export class SalesController {
         .json({ error: "Unable to fetch details from the airdna link" });
     }
   }
+
+
+  async getDetailsForCompetitorListing(request: Request, response: Response) {
+    const { competitorListingLink } = request.query as {
+      competitorListingLink: string;
+    };
+    let browser: Browser;
+    try {
+      browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
+      const page = await browser.newPage();
+      const customUA = generateRandomUA();
+      page.setDefaultTimeout(60000);
+      await page.setUserAgent(customUA);
+      await page.setViewport({ width: 1920, height: 1080 });
+      const credentials: LoginCredentials = {
+        email: process.env.AIRDNA_EMAIL,
+        password: process.env.AIRDNA_PASSWORD,
+      };
+      const isLoggedIn = await login(page, credentials);
+      if (!isLoggedIn) {
+        await browser.close();
+        return response
+          .status(400)
+          .json({ error: "Unable to Log into AirDna" });
+      }
+      await page.waitForSelector(".css-1a9leff");
+      // await page.goto(listingLink, {
+      //   waitUntil: "load",
+      // });
+      const apiResponse = await getDataForSpecificListing(page, competitorListingLink);
+      const ssid = await extractImagesFromCompetitorListingLink(page);
+      console.log("ssid===>>", apiResponse, ssid);
+
+      await browser.close();
+      if (apiResponse.success && ssid) {
+        return response.json({
+          success: true,
+          ...apiResponse.data.payload,
+          ssid,
+        });
+      }
+      return response.status(404).json({
+        error: "There was an error fetching from the requested link",
+      });
+    } catch (error) {
+      logger.error(error);
+      if (browser) {
+        await browser.close();
+      }
+      return response
+        .status(500)
+        .json({ error: "Unable to fetch details from the airdna link" });
+    }
+  }
+
 }

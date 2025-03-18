@@ -8,6 +8,7 @@ import {
   OneToMany,
 } from "typeorm";
 import { ClientListingEntity } from "./ClientListings";
+import { ClientCompetitorListingEntity } from "./ClientCompetitorListings";
 
 @Entity("clients")
 export class ClientEntity {
@@ -69,4 +70,7 @@ export class ClientEntity {
 
   @OneToMany(() => ClientListingEntity, (listing) => listing.client)
   listings: ClientListingEntity[];
+
+  @OneToMany(() => ClientCompetitorListingEntity, (listing) => listing.client)
+  competitorListings: ClientCompetitorListingEntity[];
 }

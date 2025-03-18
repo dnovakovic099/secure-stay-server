@@ -488,6 +488,54 @@ export const extractImagesFromListingLink = async (page: Page) => {
   return null;
 };
 
+export const extractImagesFromCompetitorListingLink = async (page: Page) => {
+  const screenshotsDir = path.join("public");
+  const sessionId = randomUUID();
+  console.log(sessionId);
+  const sessionDir = path.join(screenshotsDir, sessionId);
+
+  const selectors = {
+    heroSection: ".MuiBox-root.css-17bq4g2",
+    imgSection: ".MuiBox-root.css-9vp29i",
+    statSection: ".MuiBox-root.css-13vcxc6",
+    marketSection: ".MuiBox-root.css-186n0wg"
+  };
+
+  try {
+    await fs.promises.mkdir(sessionDir, { recursive: true });
+
+    // Wait for the main container if it's a React app
+    await page.waitForSelector(".MuiBox-root", { timeout: 10000 });
+
+    for (const [key, selector] of Object.entries(selectors)) {
+      try {
+        // Check if the element exists
+        const exists = await page.evaluate((sel) => !!document.querySelector(sel), selector);
+        if (!exists) {
+          console.warn(`Selector ${selector} not found.`);
+          continue;
+        }
+
+        const element = await page.$(selector);
+        if (element) {
+
+          await takeScreenshot(element, key, sessionDir);
+        } else {
+          console.warn(`Element for ${key} not found.`);
+        }
+      } catch (error) {
+        console.warn(`Error processing ${key}:`, error);
+      }
+    }
+
+    return sessionId;
+  } catch (error) {
+    console.error("Error taking screenshots:", error);
+  }
+
+  return null;
+};
+
 function delay(time: number) {
   return new Promise(function (resolve) {
     setTimeout(resolve, time);

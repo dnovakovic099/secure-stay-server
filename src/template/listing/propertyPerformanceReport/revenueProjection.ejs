@@ -1,185 +1,179 @@
 <tr>
   <td class="page" id="page-4">
-    <div class="page-content">
-      <h1 class="cursive-heading">Revenue Projection</h1>
-      <div style="padding: 0px 50px">
-        <table
-          class="styled-table"
-          style="
+    <div class="page-content" style="padding-top: 50px;">
+      <h1 class="cursive-heading" style="font-size: 1.2rem;padding: 0 30px;">Revenue Projection</h1>
+      <div style="padding: 0 30px;">
+        <table class="styled-table" style="
             box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
             overflow: hidden;
             text-align: center;
             border-collapse: collapse;
             border: 1px solid #e7e7e7;
-          "
-        >
+          ">
           <thead>
             <tr>
-              <th
-                class="table-header-cell"
-                style="
+              <th class="table-header-cell" style="
                   background-color: var(--clr-primary);
                   font-size: 1.3rem;
                   color: black;
-                  font-weight: 800;
+                  font-weight: 600;
                   text-transform: uppercase;
-                  padding: 18px;
-                "
-              >
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
                 MONTH
               </th>
-              <th
-                class="table-header-cell"
-                style="
+              <th class="table-header-cell" style="
                   background-color: var(--clr-primary);
                   font-size: 1.3rem;
                   color: black;
-                  font-weight: 800;
+                  font-weight: 600;
                   text-transform: uppercase;
-                  padding: 18px;
-                "
-              >
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
                 PROSPECT
               </th>
-              <th
-                class="table-header-cell"
-                style="
+              <th class="table-header-cell" style="
                   background-color: var(--clr-primary);
                   font-size: 1.3rem;
                   color: black;
-                  font-weight: 800;
+                  font-weight: 600;
                   text-transform: uppercase;
-                  padding: 18px;
-                "
-              >
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
                 MARKET AVG
               </th>
-              <th
-                class="table-header-cell"
-                style="
+              <th class="table-header-cell" style="
                   background-color: var(--clr-primary);
                   font-size: 1.3rem;
                   color: black;
-                  font-weight: 800;
+                  font-weight: 600;
+                  padding: 4px 0;
                   text-transform: uppercase;
-                  padding: 18px;
-                "
-              >
-                COMPETITOR <br />
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
+                Scuttle Luxury <br />
+                Vacation Pool <br />
+                Home
               </th>
             </tr>
           </thead>
-          <tbody>
-            <% const yearlyData = revenueRange[currentYear.toString()]; let
-            totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
-            Object.entries(yearlyData).forEach(([month, data]) => { const client
-            = data.lower; const marketAvg = (data.upper + data.lower) / 2; const
-            competitor = data.upper; totalClient += client; totalMarketAvg +=
-            marketAvg; totalCompetitor += competitor; %>
-            <tr>
-              <td class="table-body-cell">
-                <%= new Date(currentYear, month - 1).toLocaleString('default', {
-                month: 'long' }) %> ’<%= currentYear.toString().slice(-2) %>
-              </td>
-              <td class="table-body-cell">
-                <strong style="color: black">
-                  $<%= client.toLocaleString() %>
-                </strong>
-              </td>
-              <td class="table-body-cell">
-                $<%= Number(marketAvg.toFixed(1)).toLocaleString() %>
-              </td>
-              <td class="table-body-cell">
-                $<%= competitor.toLocaleString() %>
-              </td>
-            </tr>
-            <% }); %>
-            <tr>
-              <td class="table-body-cell" style="font-weight: 700; color: #000">
-                TOTAL
-              </td>
-              <td class="table-body-cell">
-                <strong style="color: black; font-size: 18px">
-                  $<%= totalClient.toLocaleString() %>
-                </strong>
-              </td>
-              <td class="table-body-cell">
-                <strong style="color: black; font-size: 18px">
-                  $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
-                </strong>
-              </td>
-              <td class="table-body-cell">
-                <strong style="color: black; font-size: 18px">
-                  $<%= totalCompetitor.toLocaleString() %>
-                </strong>
-              </td>
-            </tr>
+          <tbody style="font-family: var(--font-body-text);">
+            <% const yearlyData=revenueRange[currentYear.toString()]; let totalClient=0, totalMarketAvg=0,
+              totalCompetitor=0; Object.entries(yearlyData).forEach(([month, data])=> { const client
+              = data.lower; const marketAvg = (data.upper + data.lower) / 2; const
+              competitor = data.upper; totalClient += client; totalMarketAvg +=
+              marketAvg; totalCompetitor += competitor; %>
+              <tr>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
+                  <%= new Date(currentYear, month - 1).toLocaleString('default', { month: 'long' }) %> ’<%=
+                      currentYear.toString().slice(-2) %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                  <strong style="color: black">
+                    $<%= client.toLocaleString() %>
+                  </strong>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  $<%= Number(marketAvg.toFixed(1)).toLocaleString() %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  $<%= competitor.toLocaleString() %>
+                </td>
+              </tr>
+              <% }); %>
+                <tr>
+                  <td class="table-body-cell"
+                    style="font-weight: 700; color: #000; font-family: var(--font-body-text);">
+                    TOTAL
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      $<%= totalClient.toLocaleString() %>
+                    </strong>
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      $<%= Number(totalMarketAvg.toFixed(2)).toLocaleString() %>
+                    </strong>
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      $<%= totalCompetitor.toLocaleString() %>
+                    </strong>
+                  </td>
+                </tr>
           </tbody>
         </table>
       </div>
-      <div style="padding: 0px 50px">
-        <div class="box">
+      <div>
+        <div class="box" style="
+            font-family: var(--font-body-text);
+            border: 1px solid var(--clr-primary);
+            padding: 20px;
+            padding-bottom: 50px;
+            margin: 0 30px;
+            margin-bottom: -40px;
+            position: relative;
+            background: none;
+            letter-spacing: 0.6px;
+            font-size: 1.1rem;
+            line-height: 1.5;
+          ">
           <p>
-            <% if (totalClient < totalMarketAvg) { %> The revenue projection for
-            the prospect’s property shows a weak performance, Underperforming
-            the market average and closely aligning with Snowbird Creek Cabin’s
-            performance. However , minor adjustments to pricing strategy could
-            further optimize results. By slightly reducing the ADR in off-peak
-            months, we can increase occupancy, ensuring a steadier flow of
-            bookings while maintaining competitive rates during high-demand
-            periods. Snowbird Creek Cabin demonstrates how a well- balanced
-            approach to pricing and occupancy can maximize revenue year-round.
-            Through our dynamic pricing expertise, strategic rate adjustments,
-            and continuous market monitoring, we will help position this
-            property as a top performer, ensuring sustainable revenue growth and
-            higher profitability. <% } else { %> The revenue projection for the
-            prospect’s property shows a strong performance, outperforming the
-            market average and closely aligning with Snowbird Creek Cabin’s
-            performance. However , minor adjustments to pricing strategy could
-            further optimize results. By slightly reducing the ADR in off-peak
-            months, we can increase occupancy, ensuring a steadier flow of
-            bookings while maintaining competitive rates during high-demand
-            periods. Snowbird Creek Cabin demonstrates how a well- balanced
-            approach to pricing and occupancy can maximize revenue year-round.
-            Through our dynamic pricing expertise, strategic rate adjustments,
-            and continuous market monitoring, we will help position this
-            property as a top performer, ensuring sustainable revenue growth and
-            higher profitability. <% } %>
+            <% if (totalClient < totalMarketAvg) { %> The revenue projections clearly show that the prospect’s property
+              is positioned
+              to outperform the market average and its closest competitor, Scuttle Luxury
+              Vacation Pool Home, with a total projected revenue of $62,500, surpassing the
+              competitor by a margin while staying well ahead of the market average. This
+              advantage will be largely driven by strong pricing strategy, demand alignment,
+              and occupancy potential—all areas that can be further optimized. To maintain
+              this lead and maximize revenue potential, strategic pricing adjustments,
+              seasonal demand targeting, and enhanced booking visibility are crucial. By
+              refining the property’s listing presentation, improving its pricing adaptability,
+              and implementing more effective guest engagement strategies, Luxury
+              Lodging can ensure this property secures a dominant position in the market
+              while increasing revenue beyond current projections. <% } else { %> The revenue projection for the
+                prospect’s property shows a strong performance, outperforming the
+                market average and closely aligning with Snowbird Creek Cabin’s
+                performance. However , minor adjustments to pricing strategy could
+                further optimize results. By slightly reducing the ADR in off-peak
+                months, we can increase occupancy, ensuring a steadier flow of
+                bookings while maintaining competitive rates during high-demand
+                periods. Snowbird Creek Cabin demonstrates how a well- balanced
+                approach to pricing and occupancy can maximize revenue year-round.
+                Through our dynamic pricing expertise, strategic rate adjustments,
+                and continuous market monitoring, we will help position this
+                property as a top performer, ensuring sustainable revenue growth and
+                higher profitability. <% } %>
           </p>
         </div>
+        <div class="image-section" style="position: relative; background-color: #000">
+          <img src="<%= propertyDetails.images[5] %>" alt="" style="opacity: 0.5" />
+          <h6 style="
+              position: absolute;
+              top: 15%;
+              transform: translateY(-50%);
+              text-align: right;
+              font-family: var(--font-cursive);
+              width: 100%;
+              font-size: 1.2rem;
+              color: white;
+              padding-right: 30px;
+              line-height: 1.2;
+              font-weight: 400;
+            ">
+            continue to learn more...
+          </h6>
+        </div>
+        <div style="display: inline-block; z-index: 0">
+          <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>" alt="reload page"
+            width="130" />
+        </div>
       </div>
-      <div
-        class="image-section"
-        style="position: relative; background-color: #000"
-      >
-        <img
-          src="<%= propertyDetails.images[5] %>"
-          alt=""
-          style="opacity: 0.8"
-        />
-        <h6
-          style="
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            text-align: right;
-            font-family: var(--font-cursive);
-            width: 100%;
-            font-size: 3rem;
-            color: white;
-            padding-right: 30px;
-            line-height: 1.2;
-            font-weight: 400;
-          "
-        >
-          continue to learn more...
-        </h6>
-      </div>
-      <img
-        style="position: absolute; bottom: 0; left: 0"
-        src="<%= LOGO_WHITE_URL %>"
-        alt="reload page"
-      />
     </div>
   </td>
 </tr>
