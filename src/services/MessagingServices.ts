@@ -166,6 +166,10 @@ export class MessagingService {
                 process.env.HOSTAWAY_CLIENT_SECRET
             );
 
+            if (!conversationMessages) {
+                logger.info(`Unable to fetch conversation messages from Hostaway for ${msg.messageId}`);
+                return;
+            }
             //check if conversation has been answered after the guest message
             const isAnswered = await this.checkUnasweredMessages(conversationMessages, msg);
             logger.info(`isAnswered is ${isAnswered} for messageId ${msg.messageId}`);
@@ -203,7 +207,10 @@ export class MessagingService {
             "inquiryTimedout",
             "inquiryNotPossible"
         ];
-        return inquiryStatuses.includes(reservation.status);
+        if (!reservation) {
+            return false;
+        }
+        return inquiryStatuses.includes(reservation?.status);
     }
 
     private async checkGuestMessageTime(msg: Message) {
