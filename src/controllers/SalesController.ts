@@ -369,7 +369,7 @@ export class SalesController {
     }
   }
 
-  async getDetailsForListing(request: Request, response: Response) {
+  async getDetailsForListing(request: Request, response: Response, next: NextFunction) {
     const { listingLink } = request.query as {
       listingLink: string;
     };
@@ -414,16 +414,18 @@ export class SalesController {
     } catch (error) {
       logger.error(error);
       if (browser) {
-        await browser.close();
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.error("Error closing browser:", closeError);
+        }
       }
-      return response
-        .status(500)
-        .json({ error: "Unable to fetch details from the airdna link" });
+      return next(error);
     }
   }
 
 
-  async getDetailsForCompetitorListing(request: Request, response: Response) {
+  async getDetailsForCompetitorListing(request: Request, response: Response, next: NextFunction) {
     const { competitorListingLink } = request.query as {
       competitorListingLink: string;
     };
@@ -468,11 +470,13 @@ export class SalesController {
     } catch (error) {
       logger.error(error);
       if (browser) {
-        await browser.close();
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.error("Error closing browser:", closeError);
+        }
       }
-      return response
-        .status(500)
-        .json({ error: "Unable to fetch details from the airdna link" });
+      return next(error);
     }
   }
 
