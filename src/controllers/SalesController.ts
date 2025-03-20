@@ -156,7 +156,7 @@ export class SalesController {
       await page.waitForNetworkIdle();
       const apiResponse = await setBedBathGuestCounts(page, rest);
 
-      const screenShots = await takeScreenShots(page);
+      const screenShots = await takeScreenShots(page,rest.beds);
 
       // const allElements = await scrapeAllDataFromSelectedListing(page);
 

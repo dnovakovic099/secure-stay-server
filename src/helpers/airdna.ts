@@ -251,7 +251,59 @@ const takeScreenshot = async (
   return null;
 };
 
-export const takeScreenShots = async (page: Page) => {
+const applyFilterViaListing = async (page: Page, beds: string) => {
+  try {
+    // 1. Click Listings button
+    const listingsButtonSelector = 'button.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-1hga4oy';
+    await page.waitForSelector(listingsButtonSelector);
+    await page.click(listingsButtonSelector);
+
+    // 2. Get all dropdowns
+    const dropdowns = await page.$$('.MuiSelect-select.MuiSelect-outlined.MuiInputBase-input.MuiOutlinedInput-input.MuiInputBase-inputAdornedStart.css-1c3vwjf');
+
+    // 3. Handle 3rd dropdown first (index 2)
+    if (dropdowns.length > 2) {
+      await dropdowns[2].focus();
+      await page.keyboard.press("Enter");
+      await page.waitForSelector("ul[role='listbox']");
+      const option2 = await page.$(`li[data-value='${beds}']`);
+      if (option2) {
+        await option2.click();  // Actually click the option!
+        console.log("Option '2' selected for 3rd dropdown");
+      }
+      // Wait for dropdown to close
+      await delay(1000);
+    }
+
+    // 4. Handle 4th dropdown (index 3)
+    if (dropdowns.length > 3) {
+      await dropdowns[3].focus();
+      await page.keyboard.press("Enter");
+      await page.waitForSelector("ul[role='listbox']");
+      const option3 = await page.$(`li[data-value='${beds}']`);
+      if (option3) {
+        await option3.click();
+        console.log("Option '3' selected for 4th dropdown");
+      }
+      // Wait for dropdown to close
+      await delay(1000);
+    }
+
+
+
+    const applyButtonSelector = 'button.MuiButtonBase-root.MuiButton-root.MuiButton-contained.MuiButton-containedNeutral.MuiButton-sizeMedium.MuiButton-containedSizeMedium.MuiButton-colorNeutral[type="submit"]';
+    await page.waitForSelector(applyButtonSelector);
+    const applyButton = await page.$(applyButtonSelector);
+    await applyButton.click();
+    return true;
+
+  } catch (error) {
+    console.error("Error applying filter via listing:", error);
+    return false;
+  }
+};
+
+export const takeScreenShots = async (page: Page, beds: string) => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
   const sessionDir = path.join(screenshotsDir, sessionId);
@@ -296,6 +348,13 @@ export const takeScreenShots = async (page: Page) => {
   try {
     // Step 2: Navigate to Market Type Section and Capture Screenshot
     await clickAndWait(selectors.marketTypeLink);
+
+    await page.waitForNetworkIdle();
+
+    await applyFilterViaListing(page, beds);
+
+    await page.waitForNetworkIdle();
+
     await page.waitForSelector(selectors.propertyStatisticsGraph);
     const propertyStatSelc = await page.$(selectors.propertyStatisticsGraph);
     screenShots.propertyStatisticsGraphSS = await takeScreenshot(
@@ -470,7 +529,7 @@ export const extractImagesFromListingLink = async (page: Page) => {
 
         const element = await page.$(selector);
         if (element) {
-       
+
           await takeScreenshot(element, key, sessionDir);
         } else {
           console.warn(`Element for ${key} not found.`);
