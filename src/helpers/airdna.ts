@@ -215,25 +215,71 @@ const takeScreenshot = async (
   element: ElementHandle<Element>,
   imageName: string,
   sessionDir: string,
-  chart = false
+  chart = false,
+  page: Page
 ): Promise<string | null> => {
   try {
     if (element) {
+      if( imageName !== 'nearbyPropertyListings') {
+      // Wait for element to be visible in viewport
+      await element.evaluate((el) => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return new Promise((resolve) => setTimeout(resolve, 800));
+      });
+    }
 
-      // await element.evaluate((el) => {
-      //   const images = Array.from(el.querySelectorAll("img"));
-      //   return Promise.all(
-      //     images.map((img) =>
-      //       img.complete
-      //         ? Promise.resolve()
-      //         : new Promise((resolve) => img.addEventListener("load", resolve))
-      //     )
-      //   );
-      // });
+      // Wait for all images and charts to fully load
+      await element.evaluate((el) => {
+        return new Promise((resolve) => {
+          // Wait for all images to load
+          const images = Array.from(el.querySelectorAll("img"));
+          Promise.all(
+            images.map((img) =>
+              img.complete
+                ? Promise.resolve()
+                : new Promise((imgResolve) => img.addEventListener("load", imgResolve))
+            )
+          );
 
+          // Wait for SVG elements (charts) to load
+          const svgs = Array.from(el.querySelectorAll("svg"));
+          if (svgs.length > 0) {
+            setTimeout(resolve, 1000); // Extra time for SVG rendering
+          } else {
+            // Wait for element dimensions to stabilize
+            let lastHeight = el.clientHeight;
+            let lastWidth = el.clientWidth;
+            let stabilityCount = 0;
+            
+            const checkDimensions = () => {
+              if (el.clientHeight === lastHeight && el.clientWidth === lastWidth) {
+                stabilityCount++;
+                if (stabilityCount >= 3) { // Check if dimensions are stable for 3 consecutive checks
+                  resolve(true);
+                } else {
+                  setTimeout(checkDimensions, 200);
+                }
+              } else {
+                stabilityCount = 0;
+                lastHeight = el.clientHeight;
+                lastWidth = el.clientWidth;
+                setTimeout(checkDimensions, 200);
+              }
+            };
+
+            setTimeout(checkDimensions, 200);
+          }
+        });
+      });
+
+      // Add a final pause for rendering to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Take screenshot with improved options
       const screenshotBuffer = await element.screenshot({
         encoding: "binary",
-        // ...(chart && { clip: { width: 1071, height: 300, x: 10, y: 10 } }),
+        captureBeyondViewport: true,
+        omitBackground: false,
+        type: 'png',
       });
 
       // Ensure the session directory exists
@@ -360,45 +406,78 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     screenShots.propertyStatisticsGraphSS = await takeScreenshot(
       propertyStatSelc,
       "propertyStatisticsGraph",
-      sessionDir
+      sessionDir,
+      false,
+      page
     );
 
-    await page.waitForSelector(".MuiBox-root.css-68ddzu");
-    await page.waitForFunction(() => {
-      const charts = document.querySelectorAll(".MuiBox-root.css-68ddzu");
-      return charts.length > 9 && charts[9].clientHeight > 200;
-    });
-    const chartElements = await page.$$(".MuiBox-root.css-68ddzu");
+    // await page.waitForSelector(".MuiBox-root.css-68ddzu");
+    // await page.waitForFunction(() => {
+    //   const charts = document.querySelectorAll(".MuiBox-root.css-68ddzu");
+    //   return charts.length > 9 && charts[9].clientHeight > 200;
+    // });
+    // const chartElements = await page.$$(".MuiBox-root.css-68ddzu");
 
-    // const chartElements = await page.$$(".MuiBox-root.css-10klw3m");
-    if (chartElements.length > 9) {
-      await page.evaluate(
-        (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
-        chartElements[9]
-      );
-      delay(1500);
+    // // const chartElements = await page.$$(".MuiBox-root.css-10klw3m");
+    // if (chartElements.length > 9) {
+    //   await page.evaluate(
+    //     (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+    //     chartElements[9]
+    //   );
+    //   delay(1500);
+    //   screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
+    //     chartElements[9], // 0 for occupancy and 9 for ADR chart
+    //     "averageMonthlyOccupancyChart",
+    //     sessionDir,
+    //     true
+    //   );
+    //   await chartElements[5].scrollIntoView();
+    //   delay(1500);
+    //   screenShots.revenueGraphSS = await takeScreenshot(
+    //     chartElements[5],
+    //     "revenueGraph",
+    //     sessionDir,
+    //     true
+    //   );
+    // }
+    // const occupancySelec = await page.$(selectors.occupancySection);
+    // await page.waitForSelector(selectors.occupancySection);
+    // screenShots.occupancySectionSS = await takeScreenshot(
+    //   occupancySelec,
+    //   "occupancySection",
+    //   sessionDir
+    // );
+
+    await page.waitForSelector(".MuiBox-root.css-1vx1dtt");
+    const chartElements = await page.$$(".MuiBox-root.css-1vx1dtt");
+
+    if (chartElements.length === 44) {
+      const tabs = await page.$$('.MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i');
+      
+      // Occupancy chart
+      await tabs[5].click();
+      await delay(3000);
+      await waitForChartData(page, chartElements[16]);
       screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
-        chartElements[9], // 0 for occupancy and 9 for ADR chart
-        "averageMonthlyOccupancyChart",
+        chartElements[16],
+        "averageMonthlyOccupancyChart", 
         sessionDir,
-        true
+        true,
+        page
       );
-      await chartElements[5].scrollIntoView();
-      delay(1500);
+      
+      // Revenue chart
+      await tabs[6].click();
+      await delay(3000);
+      await waitForChartData(page, chartElements[25]);
       screenShots.revenueGraphSS = await takeScreenshot(
-        chartElements[5],
+        chartElements[25],
         "revenueGraph",
         sessionDir,
-        true
+        true,
+        page
       );
     }
-    const occupancySelec = await page.$(selectors.occupancySection);
-    await page.waitForSelector(selectors.occupancySection);
-    screenShots.occupancySectionSS = await takeScreenshot(
-      occupancySelec,
-      "occupancySection",
-      sessionDir
-    );
 
     // Step 3: Navigate to All Listings Section and Capture Screenshot
 
@@ -412,10 +491,14 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     await page.waitForSelector(selectors.nearbyPropertyListings);
     const nearbyPropertySelec = await page.$(selectors.nearbyPropertyListings);
 
+    delay(2000);
+
     screenShots.nearbyPropertyLisingSS = await takeScreenshot(
       nearbyPropertySelec,
       "nearbyPropertyListings",
-      sessionDir
+      sessionDir,
+      false,
+      page
     );
   } catch (error) {
     console.error("Error taking screenshots:", error);
@@ -530,7 +613,7 @@ export const extractImagesFromListingLink = async (page: Page) => {
         const element = await page.$(selector);
         if (element) {
 
-          await takeScreenshot(element, key, sessionDir);
+          await takeScreenshot(element, key, sessionDir, false, page);
         } else {
           console.warn(`Element for ${key} not found.`);
         }
@@ -578,7 +661,7 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
         const element = await page.$(selector);
         if (element) {
 
-          await takeScreenshot(element, key, sessionDir);
+          await takeScreenshot(element, key, sessionDir, false, page);
         } else {
           console.warn(`Element for ${key} not found.`);
         }
@@ -600,3 +683,30 @@ function delay(time: number) {
     setTimeout(resolve, time);
   });
 }
+
+const waitForChartData = async (page: Page, el: ElementHandle<Element>) => {
+  try {
+    await page.evaluate((element) => {
+      return new Promise((resolve) => {
+        const checkForData = () => {
+          // Look for SVG elements with data
+          const circles = element.querySelectorAll('circle');
+          const paths = element.querySelectorAll('path[d]');
+          
+          if (circles.length > 5 || paths.length > 2) {
+            resolve(true);
+          } else {
+            setTimeout(checkForData, 500);
+          }
+        };
+        
+        checkForData();
+      });
+    }, el);
+    
+    return true;
+  } catch (error) {
+    console.error("Error waiting for chart data:", error);
+    return false;
+  }
+};
