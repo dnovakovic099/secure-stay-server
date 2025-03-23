@@ -147,7 +147,7 @@ export class ClaimsService {
             Channel: claim.channel,
             'Guest Name': claim.guest_name,
             'Guest Contact': claim.guest_contact_number,
-            'Claim Notes': claim.notes,
+            'Claim Notes': claim.description,
             'Final Price': claim.final_price
         }));
 

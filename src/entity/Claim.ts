@@ -19,7 +19,7 @@ export class Claim {
     listing_name: string;
 
     @Column({ type: 'text', nullable: true })
-    notes: string;
+    description: string;
 
     @Column({ type: 'text', nullable: true })
     reservation_link: string;
@@ -71,6 +71,9 @@ export class Claim {
 
     @Column({ nullable: true })
     reporter: string;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    claim_resolution_amount: number;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     client_paid_amount: number;
