@@ -72,6 +72,10 @@ export class ClaimsService {
             queryOptions.where.listing_name = listingId;
         }
 
+        if (claimAmount) {
+            queryOptions.where.client_paid_amount = claimAmount;
+        }
+
         if (guestName) {
             queryOptions.where.guest_name = guestName;
         }
