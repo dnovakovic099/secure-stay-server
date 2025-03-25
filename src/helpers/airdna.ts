@@ -69,18 +69,18 @@ export const setBedBathGuestCounts = async (
 
     await selectValueFromDropdown(
       beds,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-1y3n7y9:nth-of-type(1)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(1)"
     );
     await selectValueFromDropdown(
       baths,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-1y3n7y9:nth-of-type(2)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(2)"
     );
     await selectValueFromDropdown(
       guests,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-1y3n7y9:nth-of-type(3)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(3)"
     );
 
-    const updateButtonSelector = ".css-1mr4j7o";
+    const updateButtonSelector = ".css-1s2qgu0";
     const updateButton = await page.$(updateButtonSelector);
 
     updateButton.click();
@@ -216,70 +216,48 @@ const takeScreenshot = async (
   imageName: string,
   sessionDir: string,
   chart = false,
-  page: Page
+  page: Page,
+  clip = false,
 ): Promise<string | null> => {
   try {
+
     if (element) {
-      if( imageName !== 'nearbyPropertyListings') {
-      // Wait for element to be visible in viewport
-      await element.evaluate((el) => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return new Promise((resolve) => setTimeout(resolve, 800));
-      });
-    }
+      if(imageName === 'propertyStatisticsGraph') {
+        // wait utill all svgs or the line graph got finshed being drawn
+        await page.waitForFunction(() => {
+          const svgs = document.querySelectorAll('.MuiBox-root.css-1czpbid svg');
+          return svgs.length > 0
+        }, { timeout: 10000 });
+      }
+      
 
-      // Wait for all images and charts to fully load
-      await element.evaluate((el) => {
-        return new Promise((resolve) => {
-          // Wait for all images to load
-          const images = Array.from(el.querySelectorAll("img"));
-          Promise.all(
-            images.map((img) =>
-              img.complete
-                ? Promise.resolve()
-                : new Promise((imgResolve) => img.addEventListener("load", imgResolve))
-            )
-          );
+      await page.evaluate(() => {
+        document.body.style.zoom = "100%";
+      })
 
-          // Wait for SVG elements (charts) to load
-          const svgs = Array.from(el.querySelectorAll("svg"));
-          if (svgs.length > 0) {
-            setTimeout(resolve, 1000); // Extra time for SVG rendering
-          } else {
-            // Wait for element dimensions to stabilize
-            let lastHeight = el.clientHeight;
-            let lastWidth = el.clientWidth;
-            let stabilityCount = 0;
-            
-            const checkDimensions = () => {
-              if (el.clientHeight === lastHeight && el.clientWidth === lastWidth) {
-                stabilityCount++;
-                if (stabilityCount >= 3) { // Check if dimensions are stable for 3 consecutive checks
-                  resolve(true);
-                } else {
-                  setTimeout(checkDimensions, 200);
-                }
-              } else {
-                stabilityCount = 0;
-                lastHeight = el.clientHeight;
-                lastWidth = el.clientWidth;
-                setTimeout(checkDimensions, 200);
-              }
-            };
-
-            setTimeout(checkDimensions, 200);
-          }
+      if(imageName === 'nearbyPropertyListings') {
+        // // Set zoom to 85%
+        await page.evaluate(() => {
+          document.body.style.zoom = "85%";
         });
-      });
 
-      // Add a final pause for rendering to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-      // Take screenshot with improved options
+        // Wait for network requests to finish
+        await page.waitForNetworkIdle();
+        delay(6000);
+      }
+
+      // Take screenshot with improved options and clip
       const screenshotBuffer = await element.screenshot({
         encoding: "binary",
-        captureBeyondViewport: true,
-        omitBackground: false,
         type: 'png',
+        ...(clip ? {
+          clip: {
+            x: 0,
+            y: 50, // Clip 50px from top
+            width: (await element.boundingBox()).width,
+            height: (await element.boundingBox()).height - 50
+          }
+        } : {})
       });
 
       // Ensure the session directory exists
@@ -363,6 +341,8 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     allListingLink:
       ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
     occupancySection: ".MuiBox-root.css-1loy98s",
+    chartContainer: ".MuiBox-root.css-1vx1dtt",
+    tabs: ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i"
     // occupanyChart: ".MuiBox-root.css-68ddzu",
   };
 
@@ -411,59 +391,33 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       page
     );
 
-    // await page.waitForSelector(".MuiBox-root.css-68ddzu");
-    // await page.waitForFunction(() => {
-    //   const charts = document.querySelectorAll(".MuiBox-root.css-68ddzu");
-    //   return charts.length > 9 && charts[9].clientHeight > 200;
-    // });
-    // const chartElements = await page.$$(".MuiBox-root.css-68ddzu");
 
-    // // const chartElements = await page.$$(".MuiBox-root.css-10klw3m");
-    // if (chartElements.length > 9) {
-    //   await page.evaluate(
-    //     (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
-    //     chartElements[9]
-    //   );
-    //   delay(1500);
-    //   screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
-    //     chartElements[9], // 0 for occupancy and 9 for ADR chart
-    //     "averageMonthlyOccupancyChart",
-    //     sessionDir,
-    //     true
-    //   );
-    //   await chartElements[5].scrollIntoView();
-    //   delay(1500);
-    //   screenShots.revenueGraphSS = await takeScreenshot(
-    //     chartElements[5],
-    //     "revenueGraph",
-    //     sessionDir,
-    //     true
-    //   );
-    // }
-    // const occupancySelec = await page.$(selectors.occupancySection);
-    // await page.waitForSelector(selectors.occupancySection);
-    // screenShots.occupancySectionSS = await takeScreenshot(
-    //   occupancySelec,
-    //   "occupancySection",
-    //   sessionDir
-    // );
-
-    await page.waitForSelector(".MuiBox-root.css-1vx1dtt");
-    const chartElements = await page.$$(".MuiBox-root.css-1vx1dtt");
+    await page.waitForSelector(selectors.chartContainer);
+    const chartElements = await page.$$(selectors.chartContainer);
 
     if (chartElements.length === 44) {
-      const tabs = await page.$$('.MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i');
+      const tabs = await page.$$(selectors.tabs);
       
       // Occupancy chart
       await tabs[5].click();
       await delay(3000);
+
+
+      const occupancyHorizontalInsights = await page.$(selectors.occupancySection);
+      await takeScreenshot(occupancyHorizontalInsights, 'occupancySection', sessionDir, true, page);
+
+     
+      await delay(2000);
+
+
       await waitForChartData(page, chartElements[16]);
       screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
         chartElements[16],
         "averageMonthlyOccupancyChart", 
         sessionDir,
         true,
-        page
+        page,
+        true
       );
       
       // Revenue chart
@@ -475,11 +429,13 @@ export const takeScreenShots = async (page: Page, beds: string) => {
         "revenueGraph",
         sessionDir,
         true,
-        page
+        page,
+        true
       );
     }
 
-    // Step 3: Navigate to All Listings Section and Capture Screenshot
+    // Step 3: Navigate to All Listings Section and Capture Screenshot\
+
 
     const elements = await page.$$(selectors.allListingLink);
     if (elements.length > 0) {
@@ -488,10 +444,15 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     } else {
       throw new Error(`No element found at index 3 for nearbyPropertyListings`);
     }
+
+   
+
+
+
     await page.waitForSelector(selectors.nearbyPropertyListings);
     const nearbyPropertySelec = await page.$(selectors.nearbyPropertyListings);
-
-    delay(2000);
+    
+   
 
     screenShots.nearbyPropertyLisingSS = await takeScreenshot(
       nearbyPropertySelec,
@@ -593,10 +554,31 @@ export const extractImagesFromListingLink = async (page: Page) => {
     heroSection: ".MuiBox-root.css-17bq4g2",
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
+    links:".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
+
+  let airBnbLink = null;
+  const links = await page.$$(selectors.links);
+  if (links.length > 1) {
+    const secondLink = links[0];
+    const isAnchor = await page.evaluate(element => {
+      return element.tagName.toLowerCase() === 'a';
+    }, secondLink);
+
+    if (isAnchor) {
+      const href = await page.evaluate((element: any) => element.href, secondLink);
+      airBnbLink = href;
+    }
+  }
 
   try {
     await fs.promises.mkdir(sessionDir, { recursive: true });
+
+    // Write Airbnb link to txt file if it exists
+    if (airBnbLink) {
+      const txtPath = path.join(sessionDir, 'airbnb-link.txt');
+      await fs.promises.writeFile(txtPath, airBnbLink);
+    }
 
     // Wait for the main container if it's a React app
     await page.waitForSelector(".MuiBox-root", { timeout: 10000 });
@@ -640,11 +622,32 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     heroSection: ".MuiBox-root.css-17bq4g2",
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
-    marketSection: ".MuiBox-root.css-186n0wg"
+    marketSection: ".MuiBox-root.css-186n0wg",
+    links:".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
+
+  let airBnbLink = null;
+  const links = await page.$$(selectors.links);
+  if (links.length > 1) {
+    const secondLink = links[0];
+    const isAnchor = await page.evaluate(element => {
+      return element.tagName.toLowerCase() === 'a';
+    }, secondLink);
+
+    if (isAnchor) {
+      const href = await page.evaluate((element: any) => element.href, secondLink);
+      airBnbLink = href;
+    }
+  }
 
   try {
     await fs.promises.mkdir(sessionDir, { recursive: true });
+
+    // Write Airbnb link to txt file if it exists
+    if (airBnbLink) {
+      const txtPath = path.join(sessionDir, 'airbnb-link.txt');
+      await fs.promises.writeFile(txtPath, airBnbLink);
+    }
 
     // Wait for the main container if it's a React app
     await page.waitForSelector(".MuiBox-root", { timeout: 10000 });

@@ -106,7 +106,19 @@ export class SalesController {
     let browser: Browser;
 
     try {
-      browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
+      browser = await puppeteer.launch({
+        headless: true, // set to true for headless mode
+        args: [
+          "--disable-setuid-sandbox",
+          "--no-sandbox",
+          "--allow-file-access-from-files",
+          "--enable-local-file-accesses",
+          "--enable-gpu",
+          "--font-render-hinting=none",
+          "--force-color-profile=srgb",
+        ],
+        defaultViewport: null,
+      });
       const page = await browser.newPage();
       page.setDefaultTimeout(60000);
 
