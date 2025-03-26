@@ -11,7 +11,7 @@ export const USER_AGENTS = [
 ];
 
 export const PUPPETEER_LAUNCH_OPTIONS = {
-  headless: false, // set to true for headless mode
+  headless: true, // set to true for headless mode
   args: [
     "--disable-setuid-sandbox",
     "--no-sandbox",

@@ -191,6 +191,12 @@ export class ClientService {
       client,
     };
   }
+  async getClientCompetitorListing(clientId: number) {
+    const specificCompetitor   = await this.clientCompetitorListingRepository.findOne({
+      where: { clientId },
+    });
+    return specificCompetitor;
+  }
   async saveGeneratedPdfLink(
     clientId: number,
     pdfLink: string

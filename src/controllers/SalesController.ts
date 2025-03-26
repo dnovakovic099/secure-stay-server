@@ -106,19 +106,7 @@ export class SalesController {
     let browser: Browser;
 
     try {
-      browser = await puppeteer.launch({
-        headless: true, // set to true for headless mode
-        args: [
-          "--disable-setuid-sandbox",
-          "--no-sandbox",
-          "--allow-file-access-from-files",
-          "--enable-local-file-accesses",
-          "--enable-gpu",
-          "--font-render-hinting=none",
-          "--force-color-profile=srgb",
-        ],
-        defaultViewport: null,
-      });
+      browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
       page.setDefaultTimeout(60000);
 
@@ -207,6 +195,7 @@ export class SalesController {
     const date = Date.now();
     try {
       const fetchedClient = await clientService.getClientListing(clientId);
+      const fetchedCompetitor = await clientService.getClientCompetitorListing(clientId);
       const wasClientUpdated = await clientService.checkIfClientWasUpdated(
         clientId
       );
@@ -230,6 +219,8 @@ export class SalesController {
           details,
         } = fetchedClient.listing;
 
+        const {propertyScreenshotSessionId:specificCompetitorScreenshotSessionId} = fetchedCompetitor;
+
         const screenshotFolderPath = path.resolve(
           "public",
           screenshotSessionId
@@ -238,6 +229,7 @@ export class SalesController {
           "public",
           propertyScreenshotSessionId
         );
+        const specificCompetitorScreenshotFolderPath = path.resolve("public", specificCompetitorScreenshotSessionId);
         const propertyStatisticsGraphSS = imageToBase64(
           path.join(screenshotFolderPath, "propertyStatisticsGraph.png")
         );
@@ -264,6 +256,29 @@ export class SalesController {
             path.join(propertyScreenshotFolderPath, "statSection.png")
           ),
         };
+
+        const listingAirbnbLinkPath = path.join(propertyScreenshotFolderPath, "airbnb-link.txt");
+        const listingAirbnbLink = fs.readFileSync(listingAirbnbLinkPath, "utf8").trim();
+      specificListing.airbnbLink = listingAirbnbLink;
+
+      const specificCompetitor = {
+        heroSection: imageToBase64(
+          path.join(specificCompetitorScreenshotFolderPath, "heroSection.png")
+        ),
+        middleSection: imageToBase64(
+          path.join(specificCompetitorScreenshotFolderPath, "imgSection.png")
+        ),
+        statSection: imageToBase64(
+          path.join(specificCompetitorScreenshotFolderPath, "statSection.png")
+        ),
+        airbnbLink: "",
+      };
+
+      const competitorAirbnbLinkPath = path.join(specificCompetitorScreenshotFolderPath, "airbnb-link.txt");
+      const competitorAirbnbLink = fs.readFileSync(competitorAirbnbLinkPath, "utf8").trim();
+      specificCompetitor.airbnbLink = competitorAirbnbLink;
+
+
         // Calculations for PDF
         const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
         const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
@@ -303,7 +318,8 @@ export class SalesController {
           dailyRate,
           revPar,
           MAC_BOOK_IMAGE,
-          ...specificListing,
+          specificListing,
+          specificCompetitor,
           propertyDetails: details,
           ICON_GEARS,
           ICON_DOLLAR_CHART,

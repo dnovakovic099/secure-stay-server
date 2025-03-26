@@ -69,15 +69,15 @@ export const setBedBathGuestCounts = async (
 
     await selectValueFromDropdown(
       beds,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(1)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-o7n5w9:nth-of-type(1)"
     );
     await selectValueFromDropdown(
       baths,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(2)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-o7n5w9:nth-of-type(2)"
     );
     await selectValueFromDropdown(
       guests,
-      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-4xznxi:nth-of-type(3)"
+      ".MuiInputBase-root.MuiOutlinedInput-root.MuiInputBase-colorPrimary.css-o7n5w9:nth-of-type(3)"
     );
 
     const updateButtonSelector = ".css-1s2qgu0";
