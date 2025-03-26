@@ -14,6 +14,9 @@ export class ListingDetail {
     @Column({ nullable: true })
     statementDurationType: string;
 
+    @Column({ default: false, nullable: true })
+    claimProtection: boolean;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
