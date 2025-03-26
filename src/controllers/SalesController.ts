@@ -255,6 +255,7 @@ export class SalesController {
           statSection: imageToBase64(
             path.join(propertyScreenshotFolderPath, "statSection.png")
           ),
+          airbnbLink: "",
         };
 
         const listingAirbnbLinkPath = path.join(propertyScreenshotFolderPath, "airbnb-link.txt");
