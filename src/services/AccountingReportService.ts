@@ -384,13 +384,13 @@ export class AccountingReportService {
     if (reservation.channelId === 2018) {
       airbnbPayoutSum = financeStandardField.airbnbPayoutSum;
       // ownerPayout = airbnbPayoutSum + directPayout; // old formula
-      claimsProtection = (airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1);
-      subTotalPrice = isClaimProtection && (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
+      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1)) : 0;
+      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
       airbnbCommission = (airbnbPayoutSum + claimsProtection - linenFeeAirbnb) * pmFee;
-      pmCommission = isClaimProtection && (airbnbCommission + vrboCommission);
-      ownerPayout = isClaimProtection && (subTotalPrice + pmCommission - channelFee - paymentProcessing);
+      pmCommission = (airbnbCommission + vrboCommission);
+      ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
     } else {
-      channelFee = isClaimProtection && (financeStandardField.hostChannelFee);
+      channelFee = (financeStandardField.hostChannelFee);
 
       totalTax = [
         financeStandardField.vat,
@@ -415,13 +415,13 @@ export class AccountingReportService {
         financeStandardField.otherFees,
       ].reduce((sum, field) => sum + field, 0);
 
-      paymentProcessing = isClaimProtection && (directPayout * 0.03);
+      paymentProcessing = (directPayout * 0.03);
       // ownerPayout = airbnbPayoutSum + directPayout;
-      claimsProtection = (airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1);
-      subTotalPrice = isClaimProtection && (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
+      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1)) : 0;
+      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
       vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing - insuranceFee) * pmFee;
-      pmCommission = isClaimProtection && (airbnbCommission + vrboCommission);
-      ownerPayout = isClaimProtection && (subTotalPrice + pmCommission - channelFee - paymentProcessing);
+      pmCommission = (airbnbCommission + vrboCommission);
+      ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
     }
 
     // Calculate PM Commission
@@ -492,6 +492,9 @@ export class AccountingReportService {
       newIncome.paymentProcessing = paymentProcessing;
       newIncome.channelFee = channelFee;
       newIncome.totalTax = totalTax;
+      newIncome.revenue = revenue;
+      newIncome.managementFee = managementFee;
+      newIncome.payout = payout;
       newIncome.createdAt = new Date();
       newIncome.updatedAt = new Date();
 
