@@ -456,8 +456,45 @@
                         </tbody>
                       </table>
 
-                      <div>
-                        <div class="box" style="
+              <div>
+                <% 
+                  const competitorRandomOption = Math.floor(Math.random() * 2) + 1;
+                  const randomPage = Math.floor(Math.random() * (3 - 1 + 1)) + 1;
+
+                  const competitorAnalysisTexts = {
+                      1: {
+                          intro: `The online presence of this competitor positions itself competitively, currently ranking on page ${randomPage} in search results, indicating moderate visibility. Its rating of ${propertyDetails.listingRating}/5`,
+                          rating: {
+                              low: `suggests there is room for improvement in guest experience, which shows there is a competitive gap we can leverage.`,
+                              high: `reinforces guest trust, giving it an edge in conversion rates. However, sustaining this requires consistent service excellence and a pricing strategy that maximizes revenue without limiting bookings.`
+                          },
+                          occupancy: {
+                              intro: `Its occupancy rate of ${propertyDetails.specificOccupancy}%`,
+                              low: `shows it struggles to capture consistent demand. By optimizing ADR, improving search ranking, and implementing targeted promotions, we can drive stronger performance against them.`,
+                              high: `shows a solid occupancy rate, meaning their pricing and guest appeal are effective. However, there is still an opportunity to outperform them in revenue by implementing a smarter ADR strategy, optimizing high-demand periods, and leveraging premium listing positioning.`
+                          },
+                          conclusion: `Luxury Lodging will implement data-driven pricing strategies, listing enhancements, and market positioning tactics to ensure your property competes effectively, captures more bookings, and secures higher revenue. By leveraging guest preferences, search optimization, and pricing intelligence, we will position your property as the superior choice in the market.`
+                      },
+                      2: {
+                          intro: `This competitor has established a strong online presence, currently ranking on page ${randomPage} in search results, making it highly visible to potential guests. With a rating of ${propertyDetails.listingRating}/5,`,
+                          rating: {
+                              low: `there are clear opportunities to outperform them by delivering a superior guest experience and refining property offerings. Guests may be experiencing inconsistencies.`,
+                              high: `this competitor benefits from strong guest trust, which improves its booking conversion rate. However, maintaining this reputation requires continuous improvements in pricing and guest experience.`
+                          },
+                          occupancy: {
+                              intro: `Its occupancy rate of ${propertyDetails.specificOccupancy}%`,
+                              low: `indicates that the competitor struggles with demand consistency, likely due to pricing inefficiencies or weaker market positioning. Refining ADR, optimizing search placement, and leveraging booking incentives will allow us to capture more of the available demand.`,
+                              high: `is strong and suggests that their pricing and guest appeal are attracting consistent bookings. However, there is still room to outperform them in revenue by maximizing ADR during high-demand periods and positioning the property for premium pricing.`
+                          },
+                          conclusion: `Luxury Lodging will implement a performance-driven pricing model, strategic listing enhancements, and optimized market positioning to outpace this competitor in bookings, revenue, and guest appeal. By combining search optimization, dynamic pricing, and superior guest experience strategies, we will position your property as the clear market leader.`
+                      }
+                  };
+
+                  const selectedCompetitorText = competitorAnalysisTexts[competitorRandomOption];
+                %>
+                <div 
+                  class="box" 
+                  style="
                     font-family: var(--font-body-text);
                     border: 1px solid #a27f45;
                     margin: 0 20px;
@@ -467,28 +504,25 @@
                     background: none;
                     letter-spacing: 0.5px;
                     font-size: 1rem;
-                  ">
-                          <p>
-                            While reviewing the property’s online presence, we observed that Scuttle Luxury Vacation
-                            Pool Home fluctuates between the first and second pages of Airbnb search results, which
-                            indicates it is competing for visibility but not consistently securing a top-ranked
-                            position.
-                            With a 66% occupancy rate and an ADR of $251.3, this listing is performing within the
-                            market average but is not maximizing its revenue potential. The “Economy” price tier
-                            classification suggests a possible underpricing issue that could be leveraged against it,
-                            especially since its revenue potential falls short compared to high-performing properties in
-                            Clermont.
-                          </p>
-                          <p>
-                            We can outperform this competitor by emphasizing a more premium guest experience,
-                            refining pricing strategies, and leveraging dynamic pricing models to capitalize on peak
-                            demand periods. Additionally, highlighting unique property features more eﬀectively,
-                            improving booking lead times, and implementing high-converting listing optimizations can
-                            increase visibility and secure a stronger position in search rankings. With a tailored
-                            approach that focuses on guest experience and revenue maximization, we can position the
-                            prospect’s property ahead of this competitor in both performance and market perception.
-                          </p>
-                        </div>
+                  "
+                >
+                  <p>
+                    <%= selectedCompetitorText.intro %>
+    
+                    <%= propertyDetails.listingRating <= 4.8 ? 
+                        selectedCompetitorText.rating.low : 
+                        selectedCompetitorText.rating.high %>
+                    
+                    <%= selectedCompetitorText.occupancy.intro %>
+                    
+                    <%= propertyDetails.specificOccupancy <= 55 ? 
+                        selectedCompetitorText.occupancy.low : 
+                        selectedCompetitorText.occupancy.high %>
+                  </p>
+                  <p>
+                    <%= selectedCompetitorText.conclusion %>
+                  </p>
+                </div>
 
                         <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
                           <img src="<%= propertyDetails.images[7] %>" alt="reload page" style="
@@ -577,12 +611,113 @@
                       font-weight: 500;
                       font-size: 1rem;
                       letter-spacing: 1px;
-                    ">
-                              Maximize Revenue and Engagement
-                            </div>
-                          </div>
+                    "
+                  >
+                    Maximize Revenue and Engagement
+                  </div>
+                </div>
 
-                          <ul style="
+                <% 
+                const strategyRandomOption = Math.floor(Math.random() * 3) + 1;
+
+                const strategyTexts = {
+                    1: {
+                        revenue: [
+                            {
+                                title: "Dynamic Pricing Optimization",
+                                content: "Adjust rates based on market trends, demand shifts, and booking windows to maximize ADR and occupancy."
+                            },
+                            {
+                                title: "Optimized Listing Content & Presentation",
+                                content: "Keep descriptions engaging, highlight key amenities, and ensure high-quality photos to attract more bookings."
+                            },
+                            {
+                                title: "Strategic Discounts & Promotions",
+                                content: "Use time-sensitive promotions and tailored booking incentives to increase conversions without undercutting revenue."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Seamless Guest Communication",
+                                content: "Implement clear and responsive messaging before, during, and after the stay to enhance guest satisfaction and encourage positive reviews."
+                            },
+                            {
+                                title: "Regular Performance Reviews",
+                                content: "Consistently assess pricing, occupancy trends, guest feedback, and property upkeep to identify areas for improvement and adjust strategies for optimal performance."
+                            },
+                            {
+                                title: "Targeted Property Enhancements",
+                                content: "Will suggest high-impact upgrades based on guest demand trends to improve appeal, increase booking value, and drive long-term revenue growth."
+                            }
+                        ]
+                    },
+                    2: {
+                        revenue: [
+                            {
+                                title: "Data-Driven Pricing Adjustments",
+                                content: "Continuously refine pricing based on market trends, competitor performance, and booking patterns to maintain competitive ADR and occupancy."
+                            },
+                            {
+                                title: "Enhanced Listing Optimization",
+                                content: "Regularly update descriptions, showcase standout amenities, and use strategic keywords to boost visibility and attract high-value guests."
+                            },
+                            {
+                                title: "Revenue-Boosting Offers & Incentives",
+                                content: "Implement targeted promotions, exclusive discounts, and value-added perks to drive more bookings while preserving profitability."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Proactive Guest Engagement",
+                                content: "Maintain clear and timely communication across all guest touchpoints to enhance the experience and build lasting positive reviews."
+                            },
+                            {
+                                title: "Comprehensive Performance Reviews",
+                                content: "Regularly analyze booking trends, pricing effectiveness, guest feedback, and property upkeep to optimize long-term success."
+                            },
+                            {
+                                title: "Guest-Centric Property Upgrades",
+                                content: "Identify and implement high-demand enhancements, such as improved amenities or tech integrations, to increase desirability and revenue potential."
+                            }
+                        ]
+                    },
+                    3: {
+                        revenue: [
+                            {
+                                title: "Smart Pricing Strategy",
+                                content: "Adjust pricing dynamically based on real-time demand, seasonality, and competitor trends to maximize both occupancy and ADR."
+                            },
+                            {
+                                title: "High-Impact Listing Presentation",
+                                content: "Optimize photos, descriptions, and amenities to improve search rankings and increase guest interest."
+                            },
+                            {
+                                title: "Strategic Booking Incentives",
+                                content: "Offer limited-time discounts, extended stay deals, and exclusive perks to drive conversions while maintaining profitability."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Seamless Guest Interaction Process",
+                                content: "Ensure smooth communication at every stage of the guest journey to enhance satisfaction and encourage repeat bookings."
+                            },
+                            {
+                                title: "Performance Assessments",
+                                content: "Regularly evaluate revenue metrics, guest feedback, and property condition to make timely adjustments."
+                            },
+                            {
+                                title: "Property Value Enhancements",
+                                content: "Invest in upgrades that align with guest expectations, such as modern decor, upgraded bedding, or smart technology, to increase booking appeal."
+                            }
+                        ]
+                    }
+                };
+
+                const selectedStrategy = strategyTexts[strategyRandomOption];
+                %>
+
+                <ul 
+                  style="
                     color: var(--clr-primary-dark);
                     line-height: 1.2;
                     display: flex;
@@ -593,29 +728,22 @@
                     line-height: 1.5;
                     padding-left: 20px;
                     margin-top: 10px;
-                  ">
-                            <li>
-                              <strong> Optimize Pricing Strategy </strong>
-                              - Adjust rates dynamically based on demand trends,
-                              local events, and competitor performance to capture peak
-                              revenue opportunities.
-                            </li>
-                            <li>
-                              <strong> Increase Booking Visibility </strong>
-                              - Enhance listing placement by refining descriptions,
-                              improving keywords, and leveraging platform algorithms to
-                              boost search rankings.
-                            </li>
-                            <li>
-                              <strong> Enhance Guest Experience </strong>
-                              - Improve comfort with small but impactful additions
-                              like upgraded bedding, welcome packages, or smart home features that elevate
-                              convenience.
-                            </li>
-                          </ul>
-                        </div>
-                        <div class="box white" style="margin: 0 30px;">
-                          <div style="
+                  "
+                >
+                    <% selectedStrategy.revenue.forEach(item => { %>
+                        <li>
+                            <strong style="
+                                font-weight: 700;
+                                color: var(--clr-primary-dark);
+                                font-family: var(--font-body);
+                            "><%= item.title %></strong> - <%= item.content %>
+                        </li>
+                    <% }); %>
+                </ul>
+              </div>
+              <div class="box white" style="margin: 0 30px;">
+                <div
+                  style="
                     display: flex;
                     align-items: center;
                     max-width: 500px;
@@ -658,8 +786,8 @@
                             </div>
                           </div>
 
-                          <ul style="
-                    list-style: none;
+                <ul 
+                  style="
                     color: var(--clr-primary-dark);
                     line-height: 1.2;
                     display: flex;
@@ -667,28 +795,22 @@
                     gap: 10px;
                     font-size: 0.9rem;
                     font-family: var(--font-body-text);
-                    margin-top: 10px;
                     line-height: 1.5;
-                  ">
-                            <li>
-                              <strong> Upgrade Aesthetic Appeal </strong> – Refresh listing photos with high-quality,
-                              professional
-                              images that highlight unique features and create a more inviting guest experience.
-                            </li>
-                            <li>
-                              <strong> Optimize Pool and Outdoor Spaces </strong> – Ensure the pool area is
-                              well-maintained and
-                              staged attractively in photos, as outdoor amenities are key booking drivers in this
-                              market.
-                            </li>
-                            <li>
-                              <strong> Monitor Guest Reviews and Feedback </strong>
-                              – Address recurring guest concerns
-                              proactively by improving service touchpoints and ensuring a seamless experience
-                              from check-in to check-out.
-                            </li>
-                          </ul>
-                        </div>
+                    padding-left: 20px;
+                    margin-top: 10px;
+                  "
+                >
+                    <% selectedStrategy.operations.forEach(item => { %>
+                        <li>
+                            <strong style="
+                                font-weight: 700;
+                                color: var(--clr-primary-dark);
+                                font-family: var(--font-body);
+                            "><%= item.title %></strong> - <%= item.content %>
+                        </li>
+                    <% }); %>
+                </ul>
+              </div>
 
                         <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
                           <img src="<%= propertyDetails.images[9] %>" alt="reload page" style="

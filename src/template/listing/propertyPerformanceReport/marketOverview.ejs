@@ -266,6 +266,34 @@
     <div class="page-content" style="padding: 30px 20px 20px;gap: 0px;">
       <h1 class="cursive-heading" style="font-size: 1.2rem;line-height: 1.5;">Market Overview</h1>
       <div class="box white">
+        <% 
+          const randomOption = Math.floor(Math.random() * 2) + 1;
+
+          const texts = {
+              1: {
+                  occupancy: {
+                      positive: `The market's occupancy growth over the past year indicates strong demand, suggesting that properties are securing a steady flow of bookings. However, sustaining this trend requires a strategic ADR approach to ensure that increased occupancy translates into higher revenue per stay rather than discounted rates. Luxury Lodging will refine pricing strategies to push ADR higher while maintaining strong booking momentum, ensuring optimal profitability.`,
+                      negative: `Occupancy rate suggests increased market competition or shifting demand patterns affecting booking volume. This signals a need for adjustments in ADR positioning, balancing competitive pricing with incentives like last-minute discounts and optimized length-of-stay strategies. Luxury Lodging will implement a data-driven approach to boost occupancy through targeted rate optimizations and demand-driven pricing adjustments.`
+                  },
+                  revenue: {
+                      positive: `Revenue growth over the past year indicates that properties are capitalizing on strong market conditions and well-optimized ADR strategies. To maintain this momentum, it's essential to continuously refine pricing to capture peak demand periods without leaving money on the table. Luxury Lodging will leverage real-time market insights to further enhance ADR and maximize total revenue per available night.`,
+                      negative: `The revenue trend, despite market activity, suggests that ADR strategies may not be effectively aligned with demand trends. This indicates a need for more dynamic pricing adjustments, improved booking incentives, and better timing of rate changes to optimize revenue potential. Luxury Lodging will analyze market data and competitor performance to restructure ADR strategies, ensuring improved revenue performance while maintaining competitive positioning.`
+                  }
+              },
+              2: {
+                  occupancy: {
+                      positive: `Increasing occupancy over the past year indicates strong market demand and effective booking strategies. However, sustaining this growth requires optimizing ADR to ensure that higher occupancy translates into greater revenue, not lower rates. Luxury Lodging will strategically adjust pricing to capitalize on demand, ensuring that each booked night contributes to maximizing revenue.`,
+                      negative: `The occupancy suggests that market demand has shifted, or pricing is not aligned with guest expectations. To address this, a strategic ADR review is needed to balance competitive pricing with rate adjustments that attract bookings without sacrificing profitability. Luxury Lodging will implement dynamic pricing strategies and targeted promotions to boost occupancy while maintaining strong revenue potential.`
+                  },
+                  revenue: {
+                      positive: `Revenue growth reflects effective pricing strategies and an ability to capture high-value bookings. To sustain this, ADR should be continuously optimized to maximize earnings during peak demand while maintaining strong occupancy in slower periods. Luxury Lodging will refine pricing structures and seasonal adjustments to ensure long-term revenue expansion.`,
+                      negative: `Revenue trend suggests that ADR may not be competitive or aligned with market trends. Adjustments are needed to optimize pricing tiers, length-of-stay requirements, and discounting strategies to improve conversion rates. Luxury Lodging will implement data-driven pricing refinements to reposition the property for stronger revenue performance.`
+                  }
+              }
+          };
+
+          const selectedTexts = texts[randomOption];
+        %>
         <div class="box-label" style="height: 45px;padding-top: 20px;">
           <span style="
               font-family: var(--font-cursive);
@@ -279,13 +307,9 @@
 
         <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_2 %>" alt="reload page" />
         <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
-          The market’s occupancy trend shows a stable yet fluctuating pattern, peaking in months like
-          March and July while experiencing dips around April, May, and September. Despite some
-          inconsistencies, there has been an overall +8% increase in occupancy over the last 12 months,
-          indicating growing demand. However , the decline in occupancy during certain months
-          suggests an opportunity to enhance year-round booking stability. Luxury Lodging will
-          optimize pricing strategies and targeted promotions to reduce seasonal gaps and maintain
-          stronger occupancy across all months.
+          <%= propertyDetails.marketOverviewOccupancy ? 
+            selectedTexts.occupancy.negative : 
+            selectedTexts.occupancy.positive %>
         </p>
       </div>
       <div class="box white">
@@ -302,13 +326,9 @@
 
         <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_1 %>" alt="reload page" />
         <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
-          Revenue trends reflect a +20% increase, with peaks aligning with occupancy highs in months
-          like March, July, and December. However , the revenue curve also mirrors occupancy dips,
-          demonstrating the direct impact of fluctuating demand on earnings. The key to further
-          maximizing revenue lies in improving booking consistency during shoulder months and
-          enhancing the ADR through premium positioning strategies. Luxury Lodging will focus on
-          dynamic pricing and optimizing listings to ensure that high-demand months are fully
-          capitalized on while strengthening revenue streams during lower-demand periods.
+          <%= propertyDetails.marketOverviewRevenue ? 
+            selectedTexts.revenue.negative : 
+            selectedTexts.revenue.positive %>
         </p>
       </div>
       <%- include('./logo') %>
