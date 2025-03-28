@@ -103,7 +103,7 @@ export const setBedBathGuestCounts = async (
     const response = await page.waitForResponse(
       (resp) =>
         resp.url() ===
-          "https://api.airdna.co/api/explorer/v1/rentalizer/estimate/full" &&
+        "https://api.airdna.co/api/explorer/v1/rentalizer/estimate/full" &&
         resp.request().method() !== "OPTIONS" &&
         resp.status() === 200
     );
@@ -236,27 +236,27 @@ const takeScreenshot = async (
   try {
 
     if (element) {
-      if(imageName === 'propertyStatisticsGraph') {
+      if (imageName === 'propertyStatisticsGraph') {
         // wait utill all svgs or the line graph got finshed being drawn
         await page.waitForFunction(() => {
           const svgs = document.querySelectorAll('.MuiBox-root.css-1czpbid svg');
           return svgs.length > 0
         }, { timeout: 10000 });
       }
-      
+
 
       await page.evaluate(() => {
         document.body.style.zoom = "100%";
       })
 
-      if(imageName === 'nearbyPropertyListings') {
+      if (imageName === 'nearbyPropertyListings') {
         // // Set zoom to 85%
         await page.evaluate(() => {
           document.body.style.zoom = "85%";
         });
 
         // Wait for network requests to finish
-        await page.waitForNetworkIdle();
+        // await page.waitForNetworkIdle();
         delay(6000);
       }
 
@@ -367,7 +367,8 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       const link = await page.$(selector);
       if (link) {
         await link.click();
-        await page.waitForNetworkIdle();
+        // await page.waitForNetworkIdle();
+        delay(10000);
       } else {
         throw new Error(`Unable to find selector: ${selector}`);
       }
@@ -389,11 +390,40 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     // Step 2: Navigate to Market Type Section and Capture Screenshot
     await clickAndWait(selectors.marketTypeLink);
 
-    await page.waitForNetworkIdle();
+    // await page.waitForNetworkIdle();
+    delay(20000);
 
     await applyFilterViaListing(page, beds);
 
-    await page.waitForNetworkIdle();
+    // Wait for network idle first
+    // await page.waitForNetworkIdle();
+    await new Promise(resolve => setTimeout(resolve, 20000));
+
+
+    // const response = await page.waitForResponse(
+    //   (resp) =>
+    //     resp.url() ===
+    //       "https://api.airdna.co/api/explorer/v1/market/airdna-433/metrics/revpar" &&
+    //     resp.request().method() !== "OPTIONS" &&
+    //     resp.status() === 200
+    // );
+    // if (!response.ok()) {
+    //   throw new Error(`Response failed with status: ${response.status()}`);
+    // }
+
+    // const data = await response.json();
+
+    // const publicDir = path.join(__dirname, '../../public');
+    // const revparFilePath = path.join(publicDir, 'revpar.json');
+
+    // if (!fs.existsSync(publicDir)) {
+    //   fs.mkdirSync(publicDir);
+    // }
+
+    // fs.writeFileSync(revparFilePath, JSON.stringify(data, null, 2));
+    // console.log(`Data written to ${revparFilePath}`);
+
+
 
     await page.waitForSelector(selectors.propertyStatisticsGraph);
     const propertyStatSelc = await page.$(selectors.propertyStatisticsGraph);
@@ -411,7 +441,7 @@ export const takeScreenShots = async (page: Page, beds: string) => {
 
     if (chartElements.length === 44) {
       const tabs = await page.$$(selectors.tabs);
-      
+
       // Occupancy chart
       await tabs[5].click();
       await delay(3000);
@@ -420,20 +450,20 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       const occupancyHorizontalInsights = await page.$(selectors.occupancySection);
       await takeScreenshot(occupancyHorizontalInsights, 'occupancySection', sessionDir, true, page);
 
-     
+
       await delay(2000);
 
 
       await waitForChartData(page, chartElements[16]);
       screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
         chartElements[16],
-        "averageMonthlyOccupancyChart", 
+        "averageMonthlyOccupancyChart",
         sessionDir,
         true,
         page,
         true
       );
-      
+
       // Revenue chart
       await tabs[6].click();
       await delay(3000);
@@ -513,19 +543,20 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     const elements = await page.$$(selectors.allListingLink);
     if (elements.length > 0) {
       await elements[2].click();
-      await page.waitForNetworkIdle();
+      // await page.waitForNetworkIdle();
+      await new Promise(resolve => setTimeout(resolve, 20000));
     } else {
       throw new Error(`No element found at index 3 for nearbyPropertyListings`);
     }
 
-   
+
 
 
 
     await page.waitForSelector(selectors.nearbyPropertyListings);
     const nearbyPropertySelec = await page.$(selectors.nearbyPropertyListings);
-    
-   
+
+
 
     screenShots.nearbyPropertyLisingSS = await takeScreenshot(
       nearbyPropertySelec,
@@ -627,7 +658,7 @@ export const extractImagesFromListingLink = async (page: Page) => {
     heroSection: ".MuiBox-root.css-17bq4g2",
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
-    links:".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
+    links: ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
 
   let airBnbLink = null;
@@ -696,7 +727,7 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
     marketSection: ".MuiBox-root.css-186n0wg",
-    links:".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
+    links: ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
 
   let airBnbLink = null;
@@ -783,18 +814,18 @@ const waitForChartData = async (page: Page, el: ElementHandle<Element>) => {
           // Look for SVG elements with data
           const circles = element.querySelectorAll('circle');
           const paths = element.querySelectorAll('path[d]');
-          
+
           if (circles.length > 5 || paths.length > 2) {
             resolve(true);
           } else {
             setTimeout(checkForData, 500);
           }
         };
-        
+
         checkForData();
       });
     }, el);
-    
+
     return true;
   } catch (error) {
     console.error("Error waiting for chart data:", error);

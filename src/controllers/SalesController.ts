@@ -146,7 +146,11 @@ export class SalesController {
       await page.waitForSelector(dropdownSelector);
 
       const listings = await page.$$(dropdownSelector);
-      await page.waitForNetworkIdle();
+      // await page.waitForNetworkIdle();
+      await new Promise(resolve => setTimeout(resolve, 20000));
+
+
+      
       if (!listings.length) {
         await browser.close();
         response
@@ -154,7 +158,8 @@ export class SalesController {
           .json({ error: "No Listings available for this address" });
       }
       await listings[0].click();
-      await page.waitForNetworkIdle();
+      // await page.waitForNetworkIdle();
+      await new Promise(resolve => setTimeout(resolve, 20000));
       const apiResponse = await setBedBathGuestCounts(page, rest);
 
       const screenShots = await takeScreenShots(page,rest.beds);
@@ -201,7 +206,7 @@ export class SalesController {
         clientId
       );
 
-      if (fetchedClient.client.previewDocumentLink && wasClientUpdated) {
+      if (false) {
         return response.status(200).send({
           status: true,
           message: "PDF generated successfully",
@@ -220,7 +225,11 @@ export class SalesController {
           details,
         } = fetchedClient.listing;
 
+        console.log("screenshotSessionId", screenshotSessionId);
+
         const {propertyScreenshotSessionId:specificCompetitorScreenshotSessionId} = fetchedCompetitor;
+
+        console.log("specificCompetitorScreenshotSessionId", specificCompetitorScreenshotSessionId);
 
         const screenshotFolderPath = path.resolve(
           "public",
