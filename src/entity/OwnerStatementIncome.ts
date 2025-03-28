@@ -52,6 +52,15 @@ export class OwnerStatementIncomeEntity {
     @Column("decimal", { precision: 10, scale: 2, nullable: true })
     totalTax: number;
 
+    @Column("decimal", { precision: 10, scale: 2, nullable: true })
+    revenue: number;
+
+    @Column("decimal", { precision: 10, scale: 2, nullable: true })
+    managementFee: number;
+
+    @Column("decimal", { precision: 10, scale: 2, nullable: true })
+    payout: number;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

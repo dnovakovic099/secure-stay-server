@@ -305,6 +305,10 @@ export class ListingService {
     return await this.listingDetailRepo.find();
   }
 
+  public async getListingDetailByListingId(listingId: number) {
+      return await this.listingDetailRepo.findOne({ where: { listingId } });
+  }
+
 }
 
 // import { EntityManager, In, Not } from 'typeorm';
