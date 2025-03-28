@@ -10,8 +10,11 @@ const router = Router();
 const reservationInfoController = new ReservationInfoController();
 
 router.get("/",verifySession,validateGetReservationList, reservationInfoController.getAllReservations);
-export default router;
 
 router.get("/export",verifySession, reservationInfoController.exportReservationToExcel);
 
 router.put('/updatereservationstatusforstatement', verifySession, reservationInfoController.updateReservationStatusForStatement);
+
+router.get('/:reservationId', verifySession, reservationInfoController.getReservation);
+
+export default router;

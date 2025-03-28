@@ -21,11 +21,23 @@ export class Claim {
     @Column({ type: 'text', nullable: true })
     description: string;
 
+    @Column({ type: 'text', nullable: true })
+    reservation_link: string;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    client_requested_amount: number;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    airbnb_filing_amount: number;
+
+    @Column({ type: 'text', nullable: true })
+    airbnb_resolution: string;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    airbnb_resolution_won_amount: number;
+
     @Column({ nullable: true })
     reservation_id: string;
-
-    @Column({ type: 'date', nullable: true })
-    check_out_date: Date;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     reservation_amount: number;
@@ -38,12 +50,6 @@ export class Claim {
 
     @Column({ nullable: true })
     guest_contact_number: string;
-
-    @Column({ type: 'date', nullable: true })
-    date_time_contractor_contacted: Date;
-
-    @Column({ type: 'date', nullable: true })
-    date_time_work_finished: Date;
 
     @Column({ type: 'text', nullable: true })
     quote_1: string;
@@ -69,6 +75,9 @@ export class Claim {
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     claim_resolution_amount: number;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    client_paid_amount: number;
+
     @CreateDateColumn()
     created_at: Date;
 
@@ -83,4 +92,10 @@ export class Claim {
 
     @Column({ type: 'text', nullable: true })
     fileNames: string;
+
+    @Column({ type: 'text', nullable: true })
+    payee: string;  
+    
+    @Column({ type: 'enum', enum: ["Not Paid", "Paid", "Partially Paid"], default: "Not Paid" })
+    payment_status: string;
 }
