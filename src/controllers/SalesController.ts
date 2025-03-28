@@ -47,6 +47,7 @@ import path from "path";
 import ejs from "ejs";
 import fs from "fs";
 import logger from "../utils/logger.utils";
+import { calculateProspectCompetitor } from "../helpers/calculateProspectCompetitor";
 
 interface CustomRequest extends Request {
   user?: any;
@@ -245,6 +246,38 @@ export class SalesController {
         const averageMonthlyOccupancyChartSS = imageToBase64(
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
+
+        const csvFilePath = path.join(screenshotFolderPath, 'revenueAverage_last_12_month.csv');
+        const csvData = fs.readFileSync(csvFilePath, 'utf8');
+        console.log("csvData", csvData);
+        const csvLines = csvData.split('\n').slice(1); // Skip header line
+
+        const revenueListFromCSV = [];
+        const revenueDateFromCSV = [];
+
+        csvLines.forEach(line => {
+          const [date, revenue] = line.split(',');
+          if (date && revenue) {
+            const formattedDate = new Date(date).toLocaleString('default', { month: 'long', year: '2-digit' });
+            revenueDateFromCSV.push(formattedDate);
+            // Remove quotes and trim whitespace before parsing
+            const cleanRevenue = revenue.replace(/"/g, '').trim();
+            const revenueNumber = parseFloat(cleanRevenue);
+            if (!isNaN(revenueNumber)) {
+              revenueListFromCSV.push(revenueNumber);
+            } else {
+              console.error(`Failed to parse revenue value: ${revenue}`);
+              // Push a default value or 0 to maintain array indexing
+              revenueListFromCSV.push(0);
+            }
+          }
+        });
+
+
+        console.log("revenueListFromCSV", revenueListFromCSV);
+        console.log("revenueDateFromCSV", revenueDateFromCSV);
+
+
         const specificListing = {
           heroSection: imageToBase64(
             path.join(propertyScreenshotFolderPath, "heroSection.png")
@@ -274,6 +307,41 @@ export class SalesController {
         ),
         airbnbLink: "",
       };
+
+      let competitorRevenuePotential = null;
+
+      const competitorRevenuePotentialPath = path.join(specificCompetitorScreenshotFolderPath, "competitor-revenue-potential.txt");
+      if (fs.existsSync(competitorRevenuePotentialPath)) {
+        const revenueString = fs.readFileSync(competitorRevenuePotentialPath, "utf8").trim();
+        competitorRevenuePotential = parseFloat(revenueString);
+      }
+
+      console.log("competitorRevenuePotential", competitorRevenuePotential);
+      
+      const ProspectCompetitorCalculation = {
+        competitor: [] as number[],
+        competitorSum: 0,
+        prospect: [] as number[],
+        prospectSum: 0,
+        marketAvg: [] as number[],
+        marketAvgSum: 0,
+        date: [] as string[],
+      }
+
+      if(competitorRevenuePotential && revenueListFromCSV.length > 0) {
+        const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, competitorRevenuePotential);
+        ProspectCompetitorCalculation.competitor = competitor;
+        ProspectCompetitorCalculation.prospect = prospect;
+        ProspectCompetitorCalculation.marketAvg = revenueListFromCSV;
+        ProspectCompetitorCalculation.date = revenueDateFromCSV;
+        ProspectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0);
+        ProspectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0);
+        ProspectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
+      }
+
+      console.log("ProspectCompetitorCalculation", ProspectCompetitorCalculation);
+
+
 
       const competitorAirbnbLinkPath = path.join(specificCompetitorScreenshotFolderPath, "airbnb-link.txt");
       const competitorAirbnbLink = fs.readFileSync(competitorAirbnbLinkPath, "utf8").trim();
@@ -330,7 +398,8 @@ export class SalesController {
           NEW_LOGO_WHITE,
           ICON_OPPORTUNITIES_1,
           ICON_OPPORTUNITIES_2,
-          ICON_OPPORTUNITIES_3
+          ICON_OPPORTUNITIES_3,
+          ProspectCompetitorCalculation
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();

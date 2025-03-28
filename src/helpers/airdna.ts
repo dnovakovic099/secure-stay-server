@@ -10,19 +10,33 @@ export const login = async (page: Page, credentials: LoginCredentials) => {
     await page.goto(AIR_DNA_URL);
     const emailBtn = await page.$('.email-btn');
     if (!emailBtn) {
-      throw new Error("Email button not found on the page.");
+      await page.waitForSelector('#loginId');
+      await page.waitForSelector('#password');
+      await page.waitForSelector('#submit-button');
+
+      await page.type('#loginId', credentials.email);
+      await page.type('#password', credentials.password);
+      await page.click('#submit-button');
+    } else {
+
+      const isEmailBtnActive = await page.evaluate((btn) => {
+        return btn.classList.contains('email-btn-active');
+      }, emailBtn);
+      if (!isEmailBtnActive) {
+        await emailBtn.click();
+        await page.type('#loginId', credentials.email);
+        await page.type('#password', credentials.password);
+        await page.click('#submit-button');
+      }
+
+
     }
 
-    const isEmailBtnActive = await page.evaluate((btn) => {
-      return btn.classList.contains('email-btn-active');
-    }, emailBtn);
-    if (!isEmailBtnActive) {
-      await emailBtn.click();
-    }
 
-    await page.type('input[name="email"]', credentials.email);
-    await page.type('input[name="password"]', credentials.password);
-    await page.click('button[type="submit"]');
+
+    // await page.waitForNetworkIdle();
+
+
 
     return true;
   } catch (error) {
@@ -423,7 +437,66 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       // Revenue chart
       await tabs[6].click();
       await delay(3000);
+
+
+
+
+
       await waitForChartData(page, chartElements[25]);
+      // Find the download button within chartElements[25]
+      const downloadButton = await page.$$('.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textInherit.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorInherit.css-fmxw1l');
+      console.log("downloadButton", downloadButton);
+      if (!downloadButton) {
+        throw new Error('Download button not found');
+      }
+
+      try {
+        // Set up download behavior using proper API
+        const client = await page.createCDPSession();
+        await client.send('Page.setDownloadBehavior', {
+          behavior: 'allow',
+          downloadPath: sessionDir
+        });
+
+        // Set up download event listener
+        let downloadResolved = false;
+        const downloadPromise = new Promise<{ url: string } | null>((resolve) => {
+          client.on('Page.downloadWillBegin', (event: { url: string }) => {
+            console.log('Download started:', event);
+            downloadResolved = true;
+            resolve(event);
+          });
+        });
+
+        // Click the download button
+        console.log('Clicking download button...');
+        await downloadButton[5].click();
+
+        // // Wait for download event with timeout
+        // const downloadEvent = await Promise.race([
+        //   downloadPromise,
+        //   new Promise<{url: string} | null>((_, reject) => 
+        //     setTimeout(() => reject(new Error('Download timeout')), 20000)
+        //   )
+        // ]) as {url: string} | null;
+
+        // if (downloadEvent) {
+        //   console.log("downloadEvent", downloadEvent);
+        //   const downloadPath = path.join(sessionDir, downloadEvent.url.split('/').pop() || '');
+        //   console.log(`Downloaded file path: ${downloadPath}`);
+        // }
+
+        // Close the CDP session
+        await client.detach();
+      } catch (error) {
+        console.error("Error during download:", error);
+      }
+
+      // Continue with the rest of the code
+      console.log('Continuing with rest of the code...');
+      await tabs[6].click();
+      await delay(6000);
+
       screenShots.revenueGraphSS = await takeScreenshot(
         chartElements[25],
         "revenueGraph",
@@ -640,6 +713,16 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     }
   }
 
+  let revenuePotential = null;
+  const revenueSelector = ".MuiTypography-root.MuiTypography-titleXL.css-gpfoz5";
+  await page.waitForSelector(revenueSelector);
+  const revenueElement = await page.$(revenueSelector);
+  if (revenueElement) {
+    const revenueText = await page.evaluate(element => element.textContent, revenueElement);
+    const revenueNumber = revenueText.replace(/[^0-9.]/g, ''); // Remove currency symbol and 'K'
+    revenuePotential = revenueNumber;
+  }
+
   try {
     await fs.promises.mkdir(sessionDir, { recursive: true });
 
@@ -647,6 +730,11 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     if (airBnbLink) {
       const txtPath = path.join(sessionDir, 'airbnb-link.txt');
       await fs.promises.writeFile(txtPath, airBnbLink);
+    }
+
+    if (revenuePotential) {
+      const revenueFilePath = path.join(sessionDir, 'competitor-revenue-potential.txt');
+      await fs.promises.writeFile(revenueFilePath, revenuePotential);
     }
 
     // Wait for the main container if it's a React app

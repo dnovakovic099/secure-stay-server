@@ -62,11 +62,46 @@
             </tr>
           </thead>
           <tbody style="font-family: var(--font-body-text);">
-            <% const yearlyData=revenueRange[currentYear.toString()]; let totalClient=0, totalMarketAvg=0,
-              totalCompetitor=0; Object.entries(yearlyData).forEach(([month, data])=> { const client
-              = data.lower; const marketAvg = (data.upper + data.lower) / 2; const
-              competitor = data.upper; totalClient += client; totalMarketAvg +=
-              marketAvg; totalCompetitor += competitor; %>
+            <% 
+            if (ProspectCompetitorCalculation && ProspectCompetitorCalculation.date && ProspectCompetitorCalculation.date.length > 0) {
+              for (let i = 0; i < ProspectCompetitorCalculation.date.length; i++) { 
+                const monthDate = ProspectCompetitorCalculation.date[i] || 'N/A';
+                const prospectValue = ProspectCompetitorCalculation.prospect[i] !== undefined ? ProspectCompetitorCalculation.prospect[i] : 'N/A';
+                const marketAvgValue = ProspectCompetitorCalculation.marketAvg[i] !== undefined ? ProspectCompetitorCalculation.marketAvg[i] : 'N/A';
+                const competitorValue = ProspectCompetitorCalculation.competitor[i] !== undefined ? ProspectCompetitorCalculation.competitor[i] : 'N/A';
+            %>
+              <tr>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
+                  <%= monthDate %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                  <strong style="color: black">
+                    <%= typeof prospectValue === 'number' ? '$' + prospectValue.toLocaleString() : prospectValue %>
+                  </strong>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  <%= typeof marketAvgValue === 'number' ? '$' + Number(marketAvgValue.toFixed(1)).toLocaleString() : marketAvgValue %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  <%= typeof competitorValue === 'number' ? '$' + competitorValue.toLocaleString() : competitorValue %>
+                </td>
+              </tr>
+            <% 
+              }
+            } else {
+              // Fallback to old calculation if ProspectCompetitorCalculation is not available
+              const yearlyData = revenueRange[currentYear.toString()];
+              let totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
+              
+              Object.entries(yearlyData).forEach(([month, data]) => {
+                const client = data.lower;
+                const marketAvg = (data.upper + data.lower) / 2;
+                const competitor = data.upper;
+                
+                totalClient += client;
+                totalMarketAvg += marketAvg;
+                totalCompetitor += competitor;
+            %>
               <tr>
                 <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
                   <%= new Date(currentYear, month - 1).toLocaleString('default', { month: 'long' }) %> ’<%=
