@@ -63,12 +63,12 @@
           </thead>
           <tbody style="font-family: var(--font-body-text);">
             <% 
-            if (ProspectCompetitorCalculation && ProspectCompetitorCalculation.date && ProspectCompetitorCalculation.date.length > 0) {
-              for (let i = 0; i < ProspectCompetitorCalculation.date.length; i++) { 
-                const monthDate = ProspectCompetitorCalculation.date[i] || 'N/A';
-                const prospectValue = ProspectCompetitorCalculation.prospect[i] !== undefined ? ProspectCompetitorCalculation.prospect[i] : 'N/A';
-                const marketAvgValue = ProspectCompetitorCalculation.marketAvg[i] !== undefined ? ProspectCompetitorCalculation.marketAvg[i] : 'N/A';
-                const competitorValue = ProspectCompetitorCalculation.competitor[i] !== undefined ? ProspectCompetitorCalculation.competitor[i] : 'N/A';
+            if (prospectCompetitorCalculation && prospectCompetitorCalculation.date && prospectCompetitorCalculation.date.length > 0) {
+              for (let i = 0; i < prospectCompetitorCalculation.date.length; i++) { 
+                const monthDate = prospectCompetitorCalculation.date[i] || 'N/A';
+                const prospectValue = prospectCompetitorCalculation.prospect[i] !== undefined ? prospectCompetitorCalculation.prospect[i] : 'N/A';
+                const marketAvgValue = prospectCompetitorCalculation.marketAvg[i] !== undefined ? prospectCompetitorCalculation.marketAvg[i] : 'N/A';
+                const competitorValue = prospectCompetitorCalculation.competitor[i] !== undefined ? prospectCompetitorCalculation.competitor[i] : 'N/A';
             %>
               <tr>
                 <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
@@ -89,7 +89,7 @@
             <% 
               }
             } else {
-              // Fallback to old calculation if ProspectCompetitorCalculation is not available
+              // Fallback to old calculation if prospectCompetitorCalculation is not available
               const yearlyData = revenueRange[currentYear.toString()];
               let totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
               
@@ -122,7 +122,7 @@
             <% }); %>
             <% 
               // Store the totals for use outside this block
-              ProspectCompetitorCalculation = {
+              prospectCompetitorCalculation = {
                 prospectSum: totalClient,
                 marketAvgSum: totalMarketAvg,
                 competitorSum: totalCompetitor
@@ -136,17 +136,17 @@
                   </td>
                   <td class="table-body-cell" style="font-family: var(--font-body-text);">
                     <strong style="color: black; font-size: 18px">
-                      <%= typeof ProspectCompetitorCalculation.prospectSum === 'number' ? '$' + ProspectCompetitorCalculation.prospectSum.toLocaleString() : 'N/A' %>
+                      <%= typeof prospectCompetitorCalculation.prospectSum === 'number' ? '$' + prospectCompetitorCalculation.prospectSum.toLocaleString() : 'N/A' %>
                     </strong>
                   </td>
                   <td class="table-body-cell" style="font-family: var(--font-body-text);">
                     <strong style="color: black; font-size: 18px">
-                      <%= typeof ProspectCompetitorCalculation.marketAvgSum === 'number' ? '$' + Number(ProspectCompetitorCalculation.marketAvgSum.toFixed(2)).toLocaleString() : 'N/A' %>
+                      <%= typeof prospectCompetitorCalculation.marketAvgSum === 'number' ? '$' + Number(prospectCompetitorCalculation.marketAvgSum.toFixed(2)).toLocaleString() : 'N/A' %>
                     </strong>
                   </td>
                   <td class="table-body-cell" style="font-family: var(--font-body-text);">
                     <strong style="color: black; font-size: 18px">
-                      <%= typeof ProspectCompetitorCalculation.competitorSum === 'number' ? '$' + ProspectCompetitorCalculation.competitorSum.toLocaleString() : 'N/A' %>
+                      <%= typeof prospectCompetitorCalculation.competitorSum === 'number' ? '$' + prospectCompetitorCalculation.competitorSum.toLocaleString() : 'N/A' %>
                     </strong>
                   </td>
                 </tr>
@@ -190,9 +190,9 @@
           %>
 
           <p>
-              <%= (ProspectCompetitorCalculation && typeof ProspectCompetitorCalculation.prospectSum === 'number' && 
-                  typeof ProspectCompetitorCalculation.marketAvgSum === 'number' && 
-                  ProspectCompetitorCalculation.prospectSum > ProspectCompetitorCalculation.marketAvgSum) ? 
+              <%= (prospectCompetitorCalculation && typeof prospectCompetitorCalculation.prospectSum === 'number' && 
+                  typeof prospectCompetitorCalculation.marketAvgSum === 'number' && 
+                  prospectCompetitorCalculation.prospectSum > prospectCompetitorCalculation.marketAvgSum) ? 
                   selectedRevenueText.higher : selectedRevenueText.lower %>
           </p>
         </div>

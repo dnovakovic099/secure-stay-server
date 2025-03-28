@@ -48,6 +48,8 @@ import ejs from "ejs";
 import fs from "fs";
 import logger from "../utils/logger.utils";
 import { calculateProspectCompetitor } from "../helpers/calculateProspectCompetitor";
+import { calculateMonthlyAverageRevPAR } from "../helpers/calculateMonthlyAverageRevPAR";
+import { findTop4PeakSeasons } from "../helpers/findTop4PeakSeasons";
 
 interface CustomRequest extends Request {
   user?: any;
@@ -256,6 +258,31 @@ export class SalesController {
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
 
+
+       
+
+        const revparCsvFilePath = path.join(screenshotFolderPath, 'revparHighestInYear_last_12_month.csv');
+        const revparCsvData = fs.readFileSync(revparCsvFilePath, 'utf8');
+        const revparCsvLines = revparCsvData.split('\n').slice(1); // Skip header line
+
+        const revparData = revparCsvLines.map(line => {
+          const [date, revpar] = line.split(',');
+          if (date && revpar) {
+            const cleanRevpar = revpar.replace(/"/g, '').trim();
+            const revparNumber = parseFloat(cleanRevpar);
+            if (!isNaN(revparNumber)) {
+              return { date: new Date(date), revpar: revparNumber };
+            } else {
+              console.error(`Failed to parse RevPAR value: ${revpar}`);
+            }
+          }
+          return null;
+        }).filter(item => item !== null);
+
+        const monthlyAverageRevPAR = calculateMonthlyAverageRevPAR(revparData);
+        const top4PeakSeasons = findTop4PeakSeasons(monthlyAverageRevPAR);
+
+
         const csvFilePath = path.join(screenshotFolderPath, 'revenueAverage_last_12_month.csv');
         const csvData = fs.readFileSync(csvFilePath, 'utf8');
         console.log("csvData", csvData);
@@ -408,7 +435,8 @@ export class SalesController {
           ICON_OPPORTUNITIES_1,
           ICON_OPPORTUNITIES_2,
           ICON_OPPORTUNITIES_3,
-          ProspectCompetitorCalculation
+          ProspectCompetitorCalculation,
+          top4PeakSeasons
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();

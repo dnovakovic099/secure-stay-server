@@ -205,7 +205,7 @@
                 font-family: var(--font-body-text);
                 margin-bottom: 8px;
               ">
-                                        AVG RevPAR
+                                        Peak Season
                                       </h6>
                                       <p style="
                 color: black;
@@ -215,8 +215,8 @@
                 font-family: var(--font-address);
                 line-height: 1;
                 text-align: right;
-              ">
-                                        $<%= revPar %>
+                ">
+                                          <%= top4PeakSeasons[0] %>, <%= top4PeakSeasons[1] %><br><%= top4PeakSeasons[2] %>, <%= top4PeakSeasons[3] %>
                                       </p>
                                     </div>
                                     <div style="
@@ -305,8 +305,8 @@
           </span>
         </div>
 
-        <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_2 %>" alt="reload page" />
-        <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+        <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_1 %>" alt="reload page" />
+        <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1; margin-top: 10px;">
           <%= propertyDetails.marketOverviewOccupancy ? 
             selectedTexts.occupancy.negative : 
             selectedTexts.occupancy.positive %>
@@ -324,8 +324,8 @@
           </span>
         </div>
 
-        <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_1 %>" alt="reload page" />
-        <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1;">
+        <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_2 %>" alt="reload page" />
+        <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1; margin-top: 10px;">
           <%= propertyDetails.marketOverviewRevenue ? 
             selectedTexts.revenue.negative : 
             selectedTexts.revenue.positive %>

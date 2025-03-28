@@ -244,7 +244,6 @@ const takeScreenshot = async (
         }, { timeout: 10000 });
       }
 
-
       await page.evaluate(() => {
         document.body.style.zoom = "100%";
       })
@@ -515,6 +514,14 @@ export const takeScreenShots = async (page: Page, beds: string) => {
         //   const downloadPath = path.join(sessionDir, downloadEvent.url.split('/').pop() || '');
         //   console.log(`Downloaded file path: ${downloadPath}`);
         // }
+
+        await delay(10000);
+
+        await tabs[8].click();
+        await delay(3000);
+
+
+        await downloadButton[15].click();
 
         // Close the CDP session
         await client.detach();
