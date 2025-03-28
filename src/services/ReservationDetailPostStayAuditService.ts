@@ -105,7 +105,6 @@ export class ReservationDetailPostStayAuditService {
     }
 
     private determineCompletionStatus(audit: Partial<ReservationDetailPostStayAuditDTO | ReservationDetailPostStayAuditUpdateDTO>): CompletionStatus {
-        console.log(audit);
         const isDamageReportFilled = () => {
             if (audit.damageReport === 'yes') {
                 return audit.damageReportNotes && audit.damageReportNotes.trim().length > 0;
@@ -127,18 +126,18 @@ export class ReservationDetailPostStayAuditService {
 
         const hasValues = [
             audit.maintenanceIssues && audit.maintenanceIssues.trim().length > 0,
-            audit.cleaningIssues && audit.cleaningIssues.trim().length > 0,
-            isValidMoneyValue(audit.cleaningSupplies.toString()),
-            isValidMoneyValue(audit.refundForReview.toString()),
-            isValidMoneyValue(audit.airbnbReimbursement.toString()),
-            isValidMoneyValue(audit.luxuryLodgingReimbursement.toString()),
-            audit.potentialReviewIssue && audit.potentialReviewIssue !== 'unset',
+            // audit.cleaningIssues && audit.cleaningIssues.trim().length > 0,
+            // isValidMoneyValue(audit.cleaningSupplies.toString()),
+            // isValidMoneyValue(audit.refundForReview.toString()),
+            // isValidMoneyValue(audit.airbnbReimbursement.toString()),
+            // isValidMoneyValue(audit.luxuryLodgingReimbursement.toString()),
+            // audit.potentialReviewIssue && audit.potentialReviewIssue !== 'unset',
             isDamageReportFilled(),
             isMissingItemsFilled(),
             audit.utilityIssues && audit.utilityIssues !== 'unset',
             audit.keysAndLocks && audit.keysAndLocks !== 'unset',
-            audit.guestBookCheck && audit.guestBookCheck !== 'unset',
-            audit.securityDepositStatus && audit.securityDepositStatus !== 'unset'
+            // audit.guestBookCheck && audit.guestBookCheck !== 'unset',
+            // audit.securityDepositStatus && audit.securityDepositStatus !== 'unset'
         ].every(Boolean);
 
         const hasAnyValue = [
