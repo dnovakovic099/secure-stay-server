@@ -574,7 +574,7 @@ export class SalesController {
         return response.json({
           success: true,
           ...apiResponse.data.payload,
-          screenshotSessionId,
+         ssid:screenshotSessionId,
         });
       }
       return response.status(404).json({
