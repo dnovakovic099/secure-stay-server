@@ -42,7 +42,9 @@ import {
   PROPERTY_REVENUE_REPORT_PATH,
   PUPPETEER_LAUNCH_OPTIONS,
   REVENUE_ICONS,
-} from "../constants";
+  BADGE_RIGHT_TOP,
+  BADGE_LEFT_BOTTOM,
+  } from "../constants";
 import path from "path";
 import ejs from "ejs";
 import fs from "fs";
@@ -166,6 +168,13 @@ export class SalesController {
 
       const screenShots = await takeScreenShots(page,rest.beds);
 
+      if(screenShots.error) {
+        await browser.close();
+        return response.status(400).json({
+          error: screenShots.error,
+        });
+      }
+
       // const allElements = await scrapeAllDataFromSelectedListing(page);
 
       // const processedData = transformData(allElements); // Leaving this here incase we need to use it later for the pdf
@@ -208,7 +217,7 @@ export class SalesController {
         clientId
       );
 
-      if (false) {
+      if (fetchedClient.client.previewDocumentLink && wasClientUpdated) {
         return response.status(200).send({
           status: true,
           message: "PDF generated successfully",
@@ -251,9 +260,16 @@ export class SalesController {
         const nearbyPropertyLisingSS = imageToBase64(
           path.join(screenshotFolderPath, "nearbyPropertyListings.png")
         );
-        const occupancySectionSS = imageToBase64(
-          path.join(screenshotFolderPath, "occupancySection.png")
+        const occupancySection1SS = imageToBase64(
+          path.join(screenshotFolderPath, "occupancySection1.png")
         );
+        const occupancySection2SS = imageToBase64(
+          path.join(screenshotFolderPath, "occupancySection2.png")
+        );
+        const occupancySection3SS = imageToBase64(
+          path.join(screenshotFolderPath, "occupancySection3.png")
+        );
+        
         const averageMonthlyOccupancyChartSS = imageToBase64(
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
@@ -353,8 +369,12 @@ export class SalesController {
       }
 
       console.log("competitorRevenuePotential", competitorRevenuePotential);
+
+      const competitorNamePath = path.join(specificCompetitorScreenshotFolderPath, "competitor-name.txt");
+      const competitorName = fs.readFileSync(competitorNamePath, "utf8").trim();
+      console.log("competitorName", competitorName);
       
-      const ProspectCompetitorCalculation = {
+      const prospectCompetitorCalculation = {
         competitor: [] as number[],
         competitorSum: 0,
         prospect: [] as number[],
@@ -366,16 +386,16 @@ export class SalesController {
 
       if(competitorRevenuePotential && revenueListFromCSV.length > 0) {
         const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, competitorRevenuePotential);
-        ProspectCompetitorCalculation.competitor = competitor;
-        ProspectCompetitorCalculation.prospect = prospect;
-        ProspectCompetitorCalculation.marketAvg = revenueListFromCSV;
-        ProspectCompetitorCalculation.date = revenueDateFromCSV;
-        ProspectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0);
-        ProspectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0);
-        ProspectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
+        prospectCompetitorCalculation.competitor = competitor.map(val => val * 1000);
+        prospectCompetitorCalculation.prospect = prospect.map(val => val * 1000);
+        prospectCompetitorCalculation.marketAvg = revenueListFromCSV;
+        prospectCompetitorCalculation.date = revenueDateFromCSV;
+        prospectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0) * 1000;
+        prospectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0) * 1000;
+        prospectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
       }
 
-      console.log("ProspectCompetitorCalculation", ProspectCompetitorCalculation);
+      console.log("prospectCompetitorCalculation", prospectCompetitorCalculation);
 
 
 
@@ -410,7 +430,11 @@ export class SalesController {
           PAGE_3_IMAGE,
           PAGE_4_IMAGE: propertyStatisticsGraphSS,
           BG_SECTION_IMAGE,
-          PAGE_4_CARD: occupancySectionSS,
+          PAGE_4_CARDS:{
+            occupancySection1: occupancySection1SS,
+            occupancySection2: occupancySection2SS,
+            occupancySection3: occupancySection3SS,
+          },
           PAGE_6_IMG_1: averageMonthlyOccupancyChartSS,
           PAGE_6_IMG_2: revenueGraphSS,
           PAGE_7_IMG_1,
@@ -435,8 +459,11 @@ export class SalesController {
           ICON_OPPORTUNITIES_1,
           ICON_OPPORTUNITIES_2,
           ICON_OPPORTUNITIES_3,
-          ProspectCompetitorCalculation,
-          top4PeakSeasons
+          prospectCompetitorCalculation,
+          top4PeakSeasons,
+          BADGE_RIGHT_TOP,
+          BADGE_LEFT_BOTTOM,
+          competitorName,
         });
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -532,15 +559,22 @@ export class SalesController {
       //   waitUntil: "load",
       // });
       const apiResponse = await getDataForSpecificListing(page, listingLink);
-      const ssid = await extractImagesFromListingLink(page);
-      console.log("ssid===>>", apiResponse, ssid);
+      const {screenshotSessionId, error} = await extractImagesFromListingLink(page);
+      console.log("ssid===>>", apiResponse, screenshotSessionId, error)
+
+      if(error) {
+        await browser.close();
+        return response.status(400).json({
+          error: error,
+        });
+      }
 
       await browser.close();
-      if (apiResponse.success && ssid) {
+      if (apiResponse.success && screenshotSessionId) {
         return response.json({
           success: true,
           ...apiResponse.data.payload,
-          ssid,
+          screenshotSessionId,
         });
       }
       return response.status(404).json({
@@ -588,15 +622,22 @@ export class SalesController {
       //   waitUntil: "load",
       // });
       const apiResponse = await getDataForSpecificListing(page, competitorListingLink);
-      const ssid = await extractImagesFromCompetitorListingLink(page);
-      console.log("ssid===>>", apiResponse, ssid);
+      const {screenshotSessionId, error} = await extractImagesFromCompetitorListingLink(page);
+      console.log("ssid===>>", apiResponse, screenshotSessionId, error);
+
+      if(error) {
+        await browser.close();
+        return response.status(400).json({
+          error: error,
+        });
+      }
 
       await browser.close();
-      if (apiResponse.success && ssid) {
+      if (apiResponse.success && screenshotSessionId) {
         return response.json({
           success: true,
           ...apiResponse.data.payload,
-          ssid,
+          screenshotSessionId,
         });
       }
       return response.status(404).json({

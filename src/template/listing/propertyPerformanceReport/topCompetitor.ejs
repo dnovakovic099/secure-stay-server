@@ -1,13 +1,14 @@
 <tr>
-  <td class="page" id="page-9">
-    <div class="page-content">
-      <div style="padding: 30px 20px 20px;gap: 0px;">
+  <td class="page" id="page-9" style="position: relative;">
+    <%- include('./uis/badge') %>
+    <div class="page-content padding-inline-50" style="padding: 30px 20px 20px;gap: 0px;">
+      <div >
         <h1 class="cursive-heading" style="margin-bottom: 5px;font-size: 1.5rem;line-height: 1.5;">
           Top Competitor
         </h1>
 
         <div class="box white" style="margin-bottom: 15px">
-          <img src="<%= PAGE_9_IMG %>" alt="reload page" />
+          <img src="<%= PAGE_9_IMG %>" style="height: 740px;" alt="reload page" />
         </div>
         <% 
           const competitorRandomOption = Math.floor(Math.random() * 3) + 1;

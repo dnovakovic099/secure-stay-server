@@ -4,6 +4,7 @@ import { AIR_DNA_URL, USER_AGENTS } from "../constants";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import sharp from 'sharp';
 
 export const login = async (page: Page, credentials: LoginCredentials) => {
   try {
@@ -256,17 +257,24 @@ const takeScreenshot = async (
 
         // Wait for network requests to finish
         // await page.waitForNetworkIdle();
-        delay(6000);
+        delay(15000);
       }
 
       // Take screenshot with improved options and clip
       const screenshotBuffer = await element.screenshot({
         encoding: "binary",
         type: 'png',
-        ...(clip ? {
+        ...(imageName === 'occupancySection1' ? {
+          clip: {
+            x: 50,
+            y: 0,
+            width: (await element.boundingBox()).width - 100,
+            height: (await element.boundingBox()).height - 0
+          }
+        } : clip ? {
           clip: {
             x: 0,
-            y: 50, // Clip 50px from top
+            y: 50,
             width: (await element.boundingBox()).width,
             height: (await element.boundingBox()).height - 50
           }
@@ -291,7 +299,7 @@ const takeScreenshot = async (
 const applyFilterViaListing = async (page: Page, beds: string) => {
   try {
     // 1. Click Listings button
-    const listingsButtonSelector = 'button.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-1hga4oy';
+    const listingsButtonSelector = 'MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textNeutral MuiButton-sizeSmall MuiButton-textSizeSmall MuiButton-colorNeutral MuiButton-root MuiButton-text MuiButton-textNeutral MuiButton-sizeSmall MuiButton-textSizeSmall MuiButton-colorNeutral css-9j6s48';
     await page.waitForSelector(listingsButtonSelector);
     await page.click(listingsButtonSelector);
 
@@ -340,7 +348,7 @@ const applyFilterViaListing = async (page: Page, beds: string) => {
   }
 };
 
-export const takeScreenShots = async (page: Page, beds: string) => {
+export const takeScreenShots = async (page: Page, beds: string)  => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
   const sessionDir = path.join(screenshotsDir, sessionId);
@@ -381,8 +389,9 @@ export const takeScreenShots = async (page: Page, beds: string) => {
     revenueGraphSS: null,
     averageMonthlyOccupancyChartSS: null,
     propertyStatisticsGraphSS: null,
-    occupancySectionSS: null,
     nearbyPropertyLisingSS: null,
+    occupancySection: null,
+    
   };
 
   try {
@@ -447,10 +456,20 @@ export const takeScreenShots = async (page: Page, beds: string) => {
 
 
       const occupancyHorizontalInsights = await page.$(selectors.occupancySection);
-      await takeScreenshot(occupancyHorizontalInsights, 'occupancySection', sessionDir, true, page);
+      const divs = await page.$$('.MuiBox-root.css-79elbk');
+      if (divs.length > 0) {
+        divs.forEach(async (div, index) => {
+          const divText = await page.evaluate(el => el.textContent, div);
+          console.log(`Div ${index}: ${divText}`);
+        });
+      }
+      // take screnshot of divs of at 6th index and 7th index
+      await takeScreenshot(divs[6], 'occupancySection2', sessionDir, true, page);
+      await delay(6000);
+      await takeScreenshot(divs[7], 'occupancySection3', sessionDir, true, page);
 
 
-      await delay(2000);
+      await delay(10000);
 
 
       await waitForChartData(page, chartElements[16]);
@@ -529,6 +548,33 @@ export const takeScreenShots = async (page: Page, beds: string) => {
         console.error("Error during download:", error);
       }
 
+      // Scroll down 400px
+      await page.evaluate(() => {
+        window.scrollBy(0, 400);
+      });
+
+      // Wait for the element to be available
+      await page.waitForSelector('.MuiBackdrop-root.css-ouksm');
+
+      // Select the element at the 15th index
+      const elements = await page.$$('.MuiBackdrop-root.css-ouksm');
+      if (elements.length > 15) {
+        const targetElement = elements[15];
+
+        // Take screenshot of the selected element
+        const occupancySection1 = await takeScreenshot(
+          targetElement,
+          'occupancySection1',
+          sessionDir,
+          true,
+          page,
+        )
+
+        console.log('Screenshot taken: occupancySection1.png');
+      } else {
+        console.error('Element at the 15th index not found.');
+      }
+
       // Continue with the rest of the code
       console.log('Continuing with rest of the code...');
       await tabs[6].click();
@@ -544,7 +590,8 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       );
     }
 
-    // Step 3: Navigate to All Listings Section and Capture Screenshot\
+    // Step 3: Navigate to All Listings Section and Capture Screenshot
+    
 
 
     const elements = await page.$$(selectors.allListingLink);
@@ -572,11 +619,21 @@ export const takeScreenShots = async (page: Page, beds: string) => {
       false,
       page
     );
+
+    
   } catch (error) {
     console.error("Error taking screenshots:", error);
   }
 
-  return { screenshotSessionId: sessionId, screenShots };
+  // count the number files we add to the sessionDir
+  const files = await fs.promises.readdir(sessionDir);
+  if(files.length !== 9) {
+    // delete the sessionDir
+    await fs.promises.rmdir(sessionDir, { recursive: true }); 
+    return { screenshotSessionId: sessionId, screenShots, error: "There are missing files in the sessionDir please try again" };
+  }
+
+  return { screenshotSessionId: sessionId, screenShots, error: null };
 };
 
 export const imageToBase64 = (imagePath: string): string => {
@@ -631,6 +688,8 @@ export const getDataForSpecificListing = async (
 
     page.goto(listingUrl);
 
+   
+
     const response = await page.waitForResponse((resp) => {
       const url = new URL(resp.url());
       return (
@@ -665,6 +724,7 @@ export const extractImagesFromListingLink = async (page: Page) => {
     heroSection: ".MuiBox-root.css-17bq4g2",
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
+    marketSection: ".MuiBox-root.css-186n0wg",
     links: ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
 
@@ -705,22 +765,68 @@ export const extractImagesFromListingLink = async (page: Page) => {
 
         const element = await page.$(selector);
         if (element) {
+          // Special handling for imgSection using Sharp
+          if (key === 'imgSection') {
+            // Get dimensions of the imgSection element
+            const imgSectionDimensions = await page.evaluate((sel) => {
+              const element = document.querySelector(sel);
+              if (!element) return null;
+              const rect = element.getBoundingClientRect();
+              return {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height
+              };
+            }, selector);
 
-          await takeScreenshot(element, key, sessionDir, false, page);
+            if (imgSectionDimensions) {
+              // Take full page screenshot
+              const screenshotBuffer = await page.screenshot({
+                encoding: 'binary',
+                type: 'png',
+              });
+
+              // Use sharp to crop the image
+              const croppedBuffer = await sharp(screenshotBuffer)
+                .extract({
+                  left: Math.max(0, Math.floor(imgSectionDimensions.x)),
+                  top: Math.max(0, Math.floor(imgSectionDimensions.y)),
+                  width: Math.floor(imgSectionDimensions.width),
+                  height: Math.floor(imgSectionDimensions.height)
+                })
+                .toBuffer();
+
+              // Save the cropped image
+              const imgSectionPath = path.join(sessionDir, `${key}.png`);
+              await fs.promises.writeFile(imgSectionPath, croppedBuffer);
+            }
+          } else {
+            // Normal screenshot for other sections
+            await takeScreenshot(element, key, sessionDir, false, page);
+          }
         } else {
           console.warn(`Element for ${key} not found.`);
         }
+       
       } catch (error) {
         console.warn(`Error processing ${key}:`, error);
       }
     }
 
-    return sessionId;
+     // count the number files we add to the sessionDir
+     const files = await fs.promises.readdir(sessionDir);
+     if(files.length !== 6) {
+      // delete the sessionDir
+      await fs.promises.rmdir(sessionDir, { recursive: true });
+       return { screenshotSessionId: sessionId, error: "There are missing files in the sessionDir please try again" };
+     }
+
+    return { screenshotSessionId: sessionId, error: null };
   } catch (error) {
     console.error("Error taking screenshots:", error);
+    return { screenshotSessionId: sessionId, error: "There was an error taking screenshots" };
   }
-
-  return null;
 };
 
 export const extractImagesFromCompetitorListingLink = async (page: Page) => {
@@ -761,6 +867,14 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     revenuePotential = revenueNumber;
   }
 
+  let competitorName = null;
+  const competitorNameSelector = '.MuiTypography-root.MuiTypography-titleXXS.MuiTypography-noWrap.css-1gnb1w2'
+  await page.waitForSelector(competitorNameSelector);
+  const competitorNameElement = await page.$(competitorNameSelector);
+  if (competitorNameElement) {
+    competitorName = await page.evaluate(element => element.textContent, competitorNameElement);
+  }
+
   try {
     await fs.promises.mkdir(sessionDir, { recursive: true });
 
@@ -773,6 +887,11 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     if (revenuePotential) {
       const revenueFilePath = path.join(sessionDir, 'competitor-revenue-potential.txt');
       await fs.promises.writeFile(revenueFilePath, revenuePotential);
+    }
+
+    if (competitorName) {
+      const competitorNameFilePath = path.join(sessionDir, 'competitor-name.txt');
+      await fs.promises.writeFile(competitorNameFilePath, competitorName);
     }
 
     // Wait for the main container if it's a React app
@@ -789,8 +908,46 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
 
         const element = await page.$(selector);
         if (element) {
+          // Special handling for imgSection using Sharp
+          if (key === 'imgSection') {
+            // Get dimensions of the imgSection element
+            const imgSectionDimensions = await page.evaluate((sel) => {
+              const element = document.querySelector(sel);
+              if (!element) return null;
+              const rect = element.getBoundingClientRect();
+              return {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height
+              };
+            }, selector);
 
-          await takeScreenshot(element, key, sessionDir, false, page);
+            if (imgSectionDimensions) {
+              // Take full page screenshot
+              const screenshotBuffer = await page.screenshot({
+                encoding: 'binary',
+                type: 'png',
+              });
+
+              // Use sharp to crop the image
+              const croppedBuffer = await sharp(screenshotBuffer)
+                .extract({
+                  left: Math.max(0, Math.floor(imgSectionDimensions.x)),
+                  top: Math.max(0, Math.floor(imgSectionDimensions.y)),
+                  width: Math.floor(imgSectionDimensions.width),
+                  height: Math.floor(imgSectionDimensions.height)
+                })
+                .toBuffer();
+
+              // Save the cropped image
+              const imgSectionPath = path.join(sessionDir, `${key}.png`);
+              await fs.promises.writeFile(imgSectionPath, croppedBuffer);
+            }
+          } else {
+            // Normal screenshot for other sections
+            await takeScreenshot(element, key, sessionDir, false, page);
+          }
         } else {
           console.warn(`Element for ${key} not found.`);
         }
@@ -799,12 +956,20 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
       }
     }
 
-    return sessionId;
+    // count the number files we add to the sessionDir
+    const files = await fs.promises.readdir(sessionDir);
+    if(files.length !== 8) {
+      // delete the sessionDir
+      await fs.promises.rmdir(sessionDir, { recursive: true });
+      return { screenshotSessionId: sessionId, error: "There are missing files in the sessionDir please try again" };
+    }
+
+    return { screenshotSessionId: sessionId, error: null };
   } catch (error) {
     console.error("Error taking screenshots:", error);
+    return { screenshotSessionId: sessionId, error: "There was an error taking screenshots" };
   }
 
-  return null;
 };
 
 function delay(time: number) {

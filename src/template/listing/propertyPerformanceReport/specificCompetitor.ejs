@@ -1,0 +1,177 @@
+<tr>
+    <td class="page" id="page-10" style="position: relative;">
+        <%- include('./uis/badgeRight') %>
+        <div>
+        <div class="page-content padding-inline-50" style="padding-top: 50px;">
+            <div style="padding: 0 30px;">
+                <h1 class="cursive-heading" style="padding-bottom: 20px;font-size: 1.5rem;line-height: 1.5;">Specific
+                    Competitor</h1>
+                <h2 style="
+              margin-bottom: 25px;
+              text-decoration: underline;
+              font-size: 28px;
+              color: rgba(215, 196, 128);
+              font-weight: 500;
+              font-family: var(--font-body-text);
+            ">
+                    <%= competitorName || "10990 SE 362nd Ave, Boring, OR, DUMMY TEXT" %>
+                </h2>
+            </div>
+            <div class="box white text-black" style="margin: 0 30px;">
+                <table>
+                    <tbody>
+                        <img src="<%= specificCompetitor.middleSection %>" alt="" />
+                        <img src="<%= specificCompetitor.heroSection %>" alt="" />
+                        <img src="<%= specificCompetitor.statSection %>" alt="" />
+                        <div style="font-family: var(--font-body-text);">
+                            <strong>LINK:</strong>
+                            <a href="<%= specificCompetitor.airbnbLink %>" target="_blank">
+                                <%= specificCompetitor.airbnbLink %>
+                            </a>
+                        </div>
+                    </tbody>
+                </table>
+            </div>
+            <table style="padding: 0 30px;">
+                <tbody>
+                    <tr>
+                        <td width="50%;margin-right: 10px;">
+                            <div class="box-label" style="
+            height: 70px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: 99%;
+            font-family: var(--font-body-text);
+          ">
+                                <!-- <span
+            style="
+              background-color: white;
+              color: var(--clr-primary);
+              font-weight: 400;
+              padding: 8px;
+              border-radius: 100%;
+            "
+          >
+            
+            <i class="fa-solid fa-hand-holding-hand"></i>
+          </span> -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                                    <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
+                                </div>
+                                <span>Rank in Market: <%= propertyDetails.marketRank %></span>
+                            </div>
+                        </td>
+                        <td width="50%" align="right">
+                            <div class="box-label" style="
+            height: 70px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: 99%;
+            font-family: var(--font-body-text);
+          ">
+                                <!-- <span
+            style="
+              background-color: white;
+              color: var(--clr-primary);
+              font-weight: 400;
+              padding: 8px;
+              border-radius: 100%;
+            "
+          >
+            <i class="fa-solid fa-hand-holding-hand"></i>
+          </span> -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                                    <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
+                                </div>
+                                <span>Listing Rating: <%= propertyDetails.listingRating %>/5</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div>
+                <% const competitorRandomOption=Math.floor(Math.random() * 2) + 1; const
+                    randomPage=Math.floor(Math.random() * (3 - 1 + 1)) + 1; const competitorAnalysisTexts={ 1: { intro:
+                    `The online presence of this competitor positions itself competitively, currently ranking on page
+                    ${randomPage} in search results, indicating moderate visibility. Its rating of
+                    ${propertyDetails.listingRating}/5`, rating: { low: `suggests there is room for improvement in guest
+                    experience, which shows there is a competitive gap we can leverage.`, high: `reinforces guest trust,
+                    giving it an edge in conversion rates. However, sustaining this requires consistent service
+                    excellence and a pricing strategy that maximizes revenue without limiting bookings.` }, occupancy: {
+                    intro: `Its occupancy rate of ${propertyDetails.specificOccupancy}%`, low: `shows it struggles to
+                    capture consistent demand. By optimizing ADR, improving search ranking, and implementing targeted
+                    promotions, we can drive stronger performance against them.`, high: `shows a solid occupancy rate,
+                    meaning their pricing and guest appeal are effective. However, there is still an opportunity to
+                    outperform them in revenue by implementing a smarter ADR strategy, optimizing high-demand periods,
+                    and leveraging premium listing positioning.` }, conclusion: `Luxury Lodging will implement
+                    data-driven pricing strategies, listing enhancements, and market positioning tactics to ensure your
+                    property competes effectively, captures more bookings, and secures higher revenue. By leveraging
+                    guest preferences, search optimization, and pricing intelligence, we will position your property as
+                    the superior choice in the market.` }, 2: { intro: `This competitor has established a strong online
+                    presence, currently ranking on page ${randomPage} in search results, making it highly visible to
+                    potential guests. With a rating of ${propertyDetails.listingRating}/5,`, rating: { low: `there are
+                    clear opportunities to outperform them by delivering a superior guest experience and refining
+                    property offerings. Guests may be experiencing inconsistencies.`, high: `this competitor benefits
+                    from strong guest trust, which improves its booking conversion rate. However, maintaining this
+                    reputation requires continuous improvements in pricing and guest experience.` }, occupancy: { intro:
+                    `Its occupancy rate of ${propertyDetails.specificOccupancy}%`, low: `indicates that the competitor
+                    struggles with demand consistency, likely due to pricing inefficiencies or weaker market
+                    positioning. Refining ADR, optimizing search placement, and leveraging booking incentives will allow
+                    us to capture more of the available demand.`, high: `is strong and suggests that their pricing and
+                    guest appeal are attracting consistent bookings. However, there is still room to outperform them in
+                    revenue by maximizing ADR during high-demand periods and positioning the property for premium
+                    pricing.` }, conclusion: `Luxury Lodging will implement a performance-driven pricing model,
+                    strategic listing enhancements, and optimized market positioning to outpace this competitor in
+                    bookings, revenue, and guest appeal. By combining search optimization, dynamic pricing, and superior
+                    guest experience strategies, we will position your property as the clear market leader.` } }; const
+                    selectedCompetitorText=competitorAnalysisTexts[competitorRandomOption]; %>
+                    <div class="box" style="
+      font-family: var(--font-body-text);
+      border: 1px solid #a27f45;
+      margin: 0 20px;
+      padding-bottom: 50px;
+      margin-bottom: -40px;
+      position: relative;
+      background: none;
+      letter-spacing: 0.5px;
+      font-size: 1rem;
+    ">
+                        <p>
+                            <%= selectedCompetitorText.intro %>
+
+                                <%= propertyDetails.listingRating <=4.8 ? selectedCompetitorText.rating.low :
+                                    selectedCompetitorText.rating.high %>
+
+                                    <%= selectedCompetitorText.occupancy.intro %>
+
+                                        <%= propertyDetails.specificOccupancy <=55 ?
+                                            selectedCompetitorText.occupancy.low : selectedCompetitorText.occupancy.high
+                                            %>
+                        </p>
+                        <p>
+                            <%= selectedCompetitorText.conclusion %>
+                        </p>
+                    </div>
+            </div>
+        </div>
+        <div class="image-section" style="position: relative; background-color: #000;height: 200px; margin-top: -44px;">
+            <img src="<%= propertyDetails.images[7] %>" alt="reload page" style="
+        opacity: 0.7;
+        height: 200px;
+        width: 100%;
+        object-fit: cover;
+      " />
+
+            <div style="display: inline-block; z-index: 0">
+                <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>"
+                    alt="reload page" width="130" />
+            </div>
+        </div>
+        </div>
+    </td>
+</tr>
