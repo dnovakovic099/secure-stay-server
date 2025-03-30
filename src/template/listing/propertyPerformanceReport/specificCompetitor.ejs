@@ -17,10 +17,10 @@
                     <%= competitorName || "10990 SE 362nd Ave, Boring, OR, DUMMY TEXT" %>
                 </h2>
             </div>
-            <div class="box white text-black" style="margin: 0 30px;">
+            <div class="box white text-black" style="margin: 0 30px; padding-inline: 10px;">
                 <table>
                     <tbody>
-                        <img src="<%= specificCompetitor.middleSection %>" alt="" />
+                        <img src="<%= specificCompetitor.middleSection %>" style="height: 120px;" alt="" />
                         <img src="<%= specificCompetitor.heroSection %>" alt="" />
                         <img src="<%= specificCompetitor.statSection %>" alt="" />
                         <div style="font-family: var(--font-body-text);">
@@ -140,6 +140,7 @@
       background: none;
       letter-spacing: 0.5px;
       font-size: 1rem;
+      margin-top: 20px;
     ">
                         <p>
                             <%= selectedCompetitorText.intro %>

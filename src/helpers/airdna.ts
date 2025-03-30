@@ -299,7 +299,7 @@ const takeScreenshot = async (
 const applyFilterViaListing = async (page: Page, beds: string) => {
   try {
     // 1. Click Listings button
-    const listingsButtonSelector = 'MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textNeutral MuiButton-sizeSmall MuiButton-textSizeSmall MuiButton-colorNeutral MuiButton-root MuiButton-text MuiButton-textNeutral MuiButton-sizeSmall MuiButton-textSizeSmall MuiButton-colorNeutral css-9j6s48';
+    const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-1hga4oy';
     await page.waitForSelector(listingsButtonSelector);
     await page.click(listingsButtonSelector);
 
@@ -463,11 +463,75 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
           console.log(`Div ${index}: ${divText}`);
         });
       }
-      // take screnshot of divs of at 6th index and 7th index
-      await takeScreenshot(divs[6], 'occupancySection2', sessionDir, true, page);
-      await delay(6000);
-      await takeScreenshot(divs[7], 'occupancySection3', sessionDir, true, page);
 
+      // Take screenshots of divs at index 6 and 7 using Sharp cropping
+      if (divs.length > 7) {
+        // For div at index 6
+        const div6Dimensions = await page.evaluate((index) => {
+          const element = document.querySelectorAll('.MuiBox-root.css-79elbk')[index];
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          };
+        }, 6);
+
+        if (div6Dimensions) {
+          const screenshotBuffer = await page.screenshot({
+            encoding: 'binary',
+            type: 'png',
+          });
+
+          const croppedBuffer = await sharp(screenshotBuffer)
+            .extract({
+              left: Math.max(0, Math.floor(div6Dimensions.x)),
+              top: Math.max(0, Math.floor(div6Dimensions.y)),
+              width: Math.floor(div6Dimensions.width),
+              height: Math.floor(div6Dimensions.height)
+            })
+            .toBuffer();
+
+          const occupancySection2Path = path.join(sessionDir, 'occupancySection2.png');
+          await fs.promises.writeFile(occupancySection2Path, croppedBuffer);
+        }
+
+        await delay(6000);
+
+        // For div at index 7
+        const div7Dimensions = await page.evaluate((index) => {
+          const element = document.querySelectorAll('.MuiBox-root.css-79elbk')[index];
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          };
+        }, 7);
+
+        if (div7Dimensions) {
+          const screenshotBuffer = await page.screenshot({
+            encoding: 'binary',
+            type: 'png',
+          });
+
+          const croppedBuffer = await sharp(screenshotBuffer)
+            .extract({
+              left: Math.max(0, Math.floor(div7Dimensions.x)),
+              top: Math.max(0, Math.floor(div7Dimensions.y)),
+              width: Math.floor(div7Dimensions.width),
+              height: Math.floor(div7Dimensions.height)
+            })
+            .toBuffer();
+
+          const occupancySection3Path = path.join(sessionDir, 'occupancySection3.png');
+          await fs.promises.writeFile(occupancySection3Path, croppedBuffer);
+        }
+      }
 
       await delay(10000);
 
