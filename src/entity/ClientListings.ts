@@ -84,6 +84,9 @@ export class ClientListingEntity {
   @Column({ type: "json", nullable: true })
   details: any;
 
+  @Column({ type: "decimal", precision: 3, scale: 2, nullable: true })
+  rating: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

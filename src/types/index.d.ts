@@ -45,6 +45,7 @@ declare global {
       images: string[];
       description: string;
       property_id: string;
+      rating: number;
     };
     metrics: {
       adr: number;
@@ -77,6 +78,7 @@ declare global {
       lng: number;
     };
     currency_symbol: string;
+    rating: number;
   }
 
   interface CompsetAmenities {

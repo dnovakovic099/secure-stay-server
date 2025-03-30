@@ -92,6 +92,7 @@ export class ClientService {
       airBnbPropertyId: platforms?.airbnb_property_id,
       createdAt: currentDate,
       updatedAt: currentDate,
+      rating: details.rating,
     });
 
     await this.clientListingRepository.save(listing);
@@ -122,6 +123,7 @@ export class ClientService {
       airBnbPropertyId: competitorData?.platforms?.airbnb_property_id,
       createdAt: currentDate,
       updatedAt: currentDate,
+      rating: competitorData.details.rating,
     });
 
     await this.clientCompetitorListingRepository.save(competitorListing);

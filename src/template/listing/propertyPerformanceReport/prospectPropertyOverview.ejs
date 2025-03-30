@@ -1,11 +1,13 @@
-<td class="page" id="page-7" style="position: relative;">
-  <%- include('./uis/badgeRight') %>
-    <div>
-      <div class="page-content padding-inline-50" style="padding-top: 20px;">
-        <div style="padding: 0 30px;">
-          <h1 class="cursive-heading" style="padding-bottom: 20px;font-size: 1.5rem;line-height: 1.5;">Prospect Property
-            Listing Overview</h1>
-          <h2 style="
+<tr>
+  <td class="page" id="page-7" style="position: relative;">
+    <%- include('./uis/badgeRight') %>
+      <div>
+        <div class="page-content padding-inline-50" style="padding-top: 20px;">
+          <div style="padding: 0 30px;">
+            <h1 class="cursive-heading" style="padding-bottom: 20px;font-size: 1.5rem;line-height: 1.5;">Prospect
+              Property
+              Listing Overview</h1>
+            <h2 style="
               margin-bottom: 25px;
               text-decoration: underline;
               font-size: 28px;
@@ -13,29 +15,59 @@
               font-weight: 500;
               font-family: var(--font-body-text);
             ">
-            <%= listingData.address %>
-          </h2>
-        </div>
-        <div style="padding: 0 30px;">
-          <div class="box white text-black" style="margin-bottom: 25px; padding-inline: 10px;">
-            <table>
-              <tbody>
-                <img src="<%= specificListing.middleSection %>" alt="" style="height: 120px;" />
-                <img src="<%= specificListing.heroSection %>" alt="" />
-                <img src="<%= specificListing.statSection %>" alt="" />
-                <div style="font-family: var(--font-body-text);">
-                  <strong>LINK:</strong>
-                  <a href="<%= specificListing.airbnbLink %>" target="_blank">
-                    <%= specificListing.airbnbLink %>
-                  </a>
+              <%= listingData.address %>
+            </h2>
+          </div>
+          <div style="padding: 0 30px;">
+            <div class="box white text-black" style="margin-bottom: 25px; padding-inline: 10px;">
+              <table>
+                <tbody>
+                  <img src="<%= specificListing.middleSection %>" alt="" style="height: 120px;" />
+                  <img src="<%= specificListing.heroSection %>" alt="" />
+                  <img src="<%= specificListing.statSection %>" alt="" />
+                  <div style="font-family: var(--font-body-text);">
+                    <strong>LINK:</strong>
+                    <a href="<%= specificListing.airbnbLink %>" target="_blank">
+                      <%= specificListing.airbnbLink %>
+                    </a>
+                  </div>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="padding: 10px 30px; display: flex; width: 100%;">
+            <div style="margin-right: 20px; width: 100%;">
+              <div class="box-label" style="
+                height: 70px;
+                display: flex;
+                align-items: center;
+                justify-content: start;
+                gap: 10px;
+                max-width: 100%;
+                font-family: var(--font-body-text);
+                font-weight: 500;
+                padding-left: 15px;
+              ">
+                <!-- <span
+                style="
+                  background-color: white;
+                  color: var(--clr-primary);
+                  font-weight: 400;
+                  padding: 8px;
+                  border-radius: 100%;
+                "
+              > -->
+                <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                <div
+                  style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                  <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
                 </div>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div style="padding: 10px 30px; display: flex; width: 100%;">
-          <div style="margin-right: 20px; width: 100%;">
-            <div class="box-label" style="
+                <!-- </span> -->
+                <span>Occupancy: <%= specificListing.occupancy %> %</span>
+              </div>
+            </div>
+            <div style="width: 100%;">
+              <div class="box-label" style="
                 height: 70px;
                 display: flex;
                 align-items: center;
@@ -46,7 +78,7 @@
                 font-weight: 500;
                 padding-left: 15px;
               ">
-              <!-- <span
+                <!-- <span
                 style="
                   background-color: white;
                   color: var(--clr-primary);
@@ -55,53 +87,23 @@
                   border-radius: 100%;
                 "
               > -->
-              <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
-              <div
-                style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
-                <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
+                <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                <div
+                  style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
+                  <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
+                </div>
+                <!-- </span> -->
+                <span>Rating: <%= specificListing.rating %> /5</span>
               </div>
-              <!-- </span> -->
-              <span>Occupancy: <%= revPar %> %</span>
             </div>
           </div>
-          <div style="width: 100%;">
-            <div class="box-label" style="
-                height: 70px;
-                display: flex;
-                align-items: center;
-                justify-content: start;
-                gap: 10px;
-                max-width: 100%;
-                font-family: var(--font-body-text);
-                font-weight: 500;
-                padding-left: 15px;
-              ">
-              <!-- <span
-                style="
-                  background-color: white;
-                  color: var(--clr-primary);
-                  font-weight: 400;
-                  padding: 8px;
-                  border-radius: 100%;
-                "
-              > -->
-              <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
-              <div
-                style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
-                <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
-              </div>
-              <!-- </span> -->
-              <span>Listing Rating: <%= propertyDetails.rating %> /5</span>
-            </div>
-          </div>
+
         </div>
+        <div class="image-section" style="position: relative; background-color: #000;height: 557px;">
+          <img src="<%= propertyDetails.images[9] %>" alt="reload page"
+            style="opacity: 0.3; height: 557px; object-fit: cover; width: 100%;" />
 
-      </div>
-      <div class="image-section" style="position: relative; background-color: #000;height: 557px;">
-        <img src="<%= propertyDetails.images[9] %>" alt="reload page"
-          style="opacity: 0.3; height: 557px; object-fit: cover; width: 100%;" />
-
-        <div class="box tinted" style="
+          <div class="box tinted" style="
             position: absolute;
             top: 75px;
             left: 50%;
@@ -109,65 +111,66 @@
             width: 85%;
             border-radius: 48px;
           ">
-          <% const randomOption=Math.floor(Math.random() * 2) + 1; const randomPage=Math.floor(Math.random() * (8 - 3 +
-            1)) + 3; const overviewTexts={ 1: { intro: `Your property's online presence plays a crucial role in
-            attracting bookings, and currently, it appears around page ${randomPage} in search results, indicating room
-            for improved visibility. A guest rating of ${propertyDetails.rating}/5`, rating: { low: `presents an
-            opportunity to enhance guest experience by addressing common feedback, improving amenities, and refining
-            service quality. Strengthening these areas will help boost future ratings, increasing guest trust and
-            conversion rates.`, high: `indicates a well-received property that instills confidence in potential guests.
-            Maintaining this high rating requires consistent service excellence, personalized guest interactions, and
-            strategic rate positioning to command premium bookings.` }, occupancy: { intro: `Additionally, with an
-            occupancy rate of ${revPar}%`, low: `suggests an opportunity to refine pricing strategies, enhance listing
-            visibility, and introduce targeted promotions to attract more bookings. Increasing demand requires a balance
-            between strategic discounts and optimized rate adjustments to drive both occupancy and revenue.`, high:
-            `reflects demand but also presents an opportunity to optimize ADR for even higher profitability. By
-            fine-tuning pricing strategies, adjusting minimum stay requirements, and capitalizing on peak demand, the
-            property can generate more revenue per booking.` }, conclusion: `Luxury Lodging will implement data-driven
-            pricing strategies, listing enhancements, operational excellence, and search placement optimization to
-            increase your property's visibility, attract high-value bookings, and drive stronger profitability. By
-            refining your market positioning and continuously optimizing guest experience, we ensure that your property
-            remains competitive while securing higher occupancy and revenue growth.` }, 2: { intro: `Your property's
-            online presence is a key factor in attracting bookings, and currently, it appears around page ${randomPage}
-            in search results, signaling an opportunity to improve visibility. A guest review rating of
-            ${propertyDetails.rating}/5`, rating: { low: `suggests there's room to enhance guest satisfaction by
-            addressing feedback, refining amenities, and improving service touchpoints. A stronger rating boosts booking
-            confidence, leading to higher occupancy and ADR.`, high: `indicates a strong reputation that builds trust
-            and attracts high-value bookings. To maintain this edge, consistent service quality, targeted guest
-            engagement, and optimized ADR strategies will be essential.` }, occupancy: { intro: `Additionally, with an
-            occupancy rate of ${revPar}%`, low: `signals an opportunity to capture more bookings through enhanced
-            pricing, improved search ranking, and refined booking incentives. A strategic combination of dynamic pricing
-            and targeted marketing will help increase occupancy while preserving rate integrity.`, high: `demonstrates
-            solid demand, but revenue potential can be further maximized by fine-tuning ADR, optimizing stay
-            restrictions, and capitalizing on high-value booking windows. Shifting the focus from occupancy growth to
-            profit-per-night strategies will push overall earnings higher.` }, conclusion: `Luxury Lodging will
-            implement market-driven pricing strategies, listing enhancements, and advanced revenue management techniques
-            to boost visibility, attract premium bookings, and drive long-term profitability. By continuously optimizing
-            your property's positioning and guest experience, we ensure that it remains competitive while achieving
-            higher occupancy and revenue potential.` } }; const selectedText=overviewTexts[randomOption]; %>
-            <p
-              style="font-size: 1.1rem; line-height: 1.1; font-weight: 500; letter-spacing: 0.6px; font-family: var(--font-body-text);">
-              <%= selectedText.intro %>
+            <% const randomOption=Math.floor(Math.random() * 2) + 1; const randomPage=Math.floor(Math.random() * (8 - 3
+              + 1)) + 3; const overviewTexts={ 1: { intro: `Your property's online presence plays a crucial role in
+              attracting bookings, and currently, it appears around page ${randomPage} in search results, indicating
+              room for improved visibility. A guest rating of ${propertyDetails.rating}/5`, rating: { low: `presents an
+              opportunity to enhance guest experience by addressing common feedback, improving amenities, and refining
+              service quality. Strengthening these areas will help boost future ratings, increasing guest trust and
+              conversion rates.`, high: `indicates a well-received property that instills confidence in potential
+              guests. Maintaining this high rating requires consistent service excellence, personalized guest
+              interactions, and strategic rate positioning to command premium bookings.` }, occupancy: { intro:
+              `Additionally, with an occupancy rate of ${revPar}%`, low: `suggests an opportunity to refine pricing
+              strategies, enhance listing visibility, and introduce targeted promotions to attract more bookings.
+              Increasing demand requires a balance between strategic discounts and optimized rate adjustments to drive
+              both occupancy and revenue.`, high: `reflects demand but also presents an opportunity to optimize ADR for
+              even higher profitability. By fine-tuning pricing strategies, adjusting minimum stay requirements, and
+              capitalizing on peak demand, the property can generate more revenue per booking.` }, conclusion: `Luxury
+              Lodging will implement data-driven pricing strategies, listing enhancements, operational excellence, and
+              search placement optimization to increase your property's visibility, attract high-value bookings, and
+              drive stronger profitability. By refining your market positioning and continuously optimizing guest
+              experience, we ensure that your property remains competitive while securing higher occupancy and revenue
+              growth.` }, 2: { intro: `Your property's online presence is a key factor in attracting bookings, and
+              currently, it appears around page ${randomPage} in search results, signaling an opportunity to improve
+              visibility. A guest review rating of ${propertyDetails.rating}/5`, rating: { low: `suggests there's room
+              to enhance guest satisfaction by addressing feedback, refining amenities, and improving service
+              touchpoints. A stronger rating boosts booking confidence, leading to higher occupancy and ADR.`, high:
+              `indicates a strong reputation that builds trust and attracts high-value bookings. To maintain this edge,
+              consistent service quality, targeted guest engagement, and optimized ADR strategies will be essential.` },
+              occupancy: { intro: `Additionally, with an occupancy rate of ${revPar}%`, low: `signals an opportunity to
+              capture more bookings through enhanced pricing, improved search ranking, and refined booking incentives. A
+              strategic combination of dynamic pricing and targeted marketing will help increase occupancy while
+              preserving rate integrity.`, high: `demonstrates solid demand, but revenue potential can be further
+              maximized by fine-tuning ADR, optimizing stay restrictions, and capitalizing on high-value booking
+              windows. Shifting the focus from occupancy growth to profit-per-night strategies will push overall
+              earnings higher.` }, conclusion: `Luxury Lodging will implement market-driven pricing strategies, listing
+              enhancements, and advanced revenue management techniques to boost visibility, attract premium bookings,
+              and drive long-term profitability. By continuously optimizing your property's positioning and guest
+              experience, we ensure that it remains competitive while achieving higher occupancy and revenue potential.`
+              } }; const selectedText=overviewTexts[randomOption]; %>
+              <p
+                style="font-size: 1.1rem; line-height: 1.1; font-weight: 500; letter-spacing: 0.6px; font-family: var(--font-body-text);">
+                <%= selectedText.intro %>
 
-                <%= propertyDetails.rating <=4.8 ? selectedText.rating.low : selectedText.rating.high %>
+                  <%= propertyDetails.rating <=4.8 ? selectedText.rating.low : selectedText.rating.high %>
 
-                  <%= selectedText.occupancy.intro %>
+                    <%= selectedText.occupancy.intro %>
 
-                    <%= revPar <=55 ? selectedText.occupancy.low : selectedText.occupancy.high %>
-            </p>
-            <p
-              style="font-size: 1.1rem; line-height: 1.1; font-weight: 500; letter-spacing: 0.6px; font-family: var(--font-body-text);">
-              <%= selectedText.conclusion %>
-            </p>
+                      <%= revPar <=55 ? selectedText.occupancy.low : selectedText.occupancy.high %>
+              </p>
+              <p
+                style="font-size: 1.1rem; line-height: 1.1; font-weight: 500; letter-spacing: 0.6px; font-family: var(--font-body-text);">
+                <%= selectedText.conclusion %>
+              </p>
+          </div>
+
         </div>
-
       </div>
-    </div>
-    <div style="display: inline-block; z-index: 0">
-      <img style="position: absolute; bottom: 35px; right: 30px" src="<%= LOGO_WHITE_URL %>" alt="reload page"
-        width="120" />
-    </div>
-</td>
+      <div style="display: inline-block; z-index: 0">
+        <img style="position: absolute; bottom: 1px; right: 18px" src="<%= LOGO_WHITE_URL %>" alt="reload page"
+          width="120" />
+      </div>
+  </td>
 </tr>
 <tr>
   <td class="page" id="page-8" style="position: relative;">

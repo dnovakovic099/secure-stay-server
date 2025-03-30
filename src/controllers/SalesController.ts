@@ -230,11 +230,24 @@ export class SalesController {
         const {
           revenueRange,
           revenue,
-          occupancy,
           screenshotSessionId,
           propertyScreenshotSessionId,
           details,
+          rating:listingRating,
+          metrics,
         } = fetchedClient.listing;
+
+
+        const {
+          occupancy:listingOccupancy,
+        } = metrics;
+
+        const competitorRating = fetchedCompetitor.rating;
+
+
+        const {
+          occupancy:competitorOccupancy,
+        } = fetchedCompetitor.metrics;
 
         console.log("screenshotSessionId", screenshotSessionId);
 
@@ -341,6 +354,8 @@ export class SalesController {
             path.join(propertyScreenshotFolderPath, "statSection.png")
           ),
           airbnbLink: "",
+          occupancy:listingOccupancy,
+          rating:listingRating,
         };
 
         const listingAirbnbLinkPath = path.join(propertyScreenshotFolderPath, "airbnb-link.txt");
@@ -358,6 +373,8 @@ export class SalesController {
           path.join(specificCompetitorScreenshotFolderPath, "statSection.png")
         ),
         airbnbLink: "",
+        occupancy:competitorOccupancy,
+        rating:competitorRating,
       };
 
       let competitorRevenuePotential = null;
@@ -405,8 +422,8 @@ export class SalesController {
 
 
         // Calculations for PDF
-        const dailyRate = (revenue / (occupancy * 365)).toFixed(2);
-        const revPar = (parseFloat(dailyRate) * occupancy).toFixed(2);
+        const dailyRate = (revenue / (listingOccupancy * 365)).toFixed(2);
+        const revPar = (parseFloat(dailyRate) * listingOccupancy).toFixed(2);
         const currentYear = new Date().getFullYear();
         const { totalClient, totalCompetitor, totalMarketAvg } =
           calculatingTotalProjectRevenue(revenueRange);

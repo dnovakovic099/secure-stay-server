@@ -299,7 +299,7 @@ const takeScreenshot = async (
 const applyFilterViaListing = async (page: Page, beds: string) => {
   try {
     // 1. Click Listings button
-    const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-1hga4oy';
+    const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-9j6s48';
     await page.waitForSelector(listingsButtonSelector);
     await page.click(listingsButtonSelector);
 
@@ -771,6 +771,7 @@ export const getDataForSpecificListing = async (
     const data = await response.json();
     responseData.success = true;
     responseData.data = data;
+    console.log("data", JSON.stringify(data));
   } catch (error) {
     console.error("Failed to retrieve listing details from AirDNA API", error);
     throw new Error("Failed to retrieve listing details from AirDNA API");
