@@ -26,6 +26,7 @@ const main = async () => {
   // app.use(express.json());
   app.use("/uploads", express.static("uploads"));
   app.use("/public", express.static("public"));
+  app.use("/assets",express.static("assets"));
 
   app.listen(process.env.PORT);
   scheduleGetReservation();

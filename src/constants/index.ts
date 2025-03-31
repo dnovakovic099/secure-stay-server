@@ -27,7 +27,7 @@ export const PUPPETEER_LAUNCH_OPTIONS = {
 export const PROPERTY_REVENUE_REPORT_PATH =
   "src/template/listing/propertyPerformanceReport/index.ejs";
 
-const PUBLIC_URL = `${process.env.BASE_URL}/public`;
+const PUBLIC_URL = `${process.env.BASE_URL}/assets`;
 export const LOGO_WHITE_URL = `${PUBLIC_URL}/logo-white.png`;
 export const LOGO_URL = `${PUBLIC_URL}/logo.png`;
 export const NEW_LOGO_WHITE = `${PUBLIC_URL}/new-white-logo.png`;
