@@ -96,6 +96,7 @@ export const setBedBathGuestCounts = async (
     );
 
     const updateButtonSelector = ".css-1s2qgu0";
+    await page.waitForSelector(updateButtonSelector, { visible: true });
     const updateButton = await page.$(updateButtonSelector);
 
     updateButton.click();
@@ -401,7 +402,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     // await page.waitForNetworkIdle();
     delay(20000);
 
-    await applyFilterViaListing(page, beds);
+    // await applyFilterViaListing(page, beds);
 
     // Wait for network idle first
     // await page.waitForNetworkIdle();
@@ -452,7 +453,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
 
       // Occupancy chart
       await tabs[5].click();
-      await delay(3000);
+      await delay(10000);
 
 
       const occupancyHorizontalInsights = await page.$(selectors.occupancySection);
@@ -537,14 +538,38 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
 
 
       await waitForChartData(page, chartElements[16]);
-      screenShots.averageMonthlyOccupancyChartSS = await takeScreenshot(
-        chartElements[16],
-        "averageMonthlyOccupancyChart",
-        sessionDir,
-        true,
-        page,
-        true
-      );
+      
+      // Get dimensions of the chart element
+      const chartDimensions = await page.evaluate((element) => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height
+        };
+      }, chartElements[16]);
+
+      if (chartDimensions) {
+        const screenshotBuffer = await page.screenshot({
+          encoding: 'binary',
+          type: 'png',
+        });
+
+        const croppedBuffer = await sharp(screenshotBuffer)
+          .extract({
+            left: Math.max(0, Math.floor(chartDimensions.x)),
+            top: Math.max(0, Math.floor(chartDimensions.y + 50)), // Deduct 50px from top
+            width: Math.floor(chartDimensions.width),
+            height: Math.floor(chartDimensions.height - 50) // Adjust height to maintain bottom position
+          })
+          .toBuffer();
+
+        const averageMonthlyOccupancyChartPath = path.join(sessionDir, 'averageMonthlyOccupancyChart.png');
+        await fs.promises.writeFile(averageMonthlyOccupancyChartPath, croppedBuffer);
+        screenShots.averageMonthlyOccupancyChartSS = averageMonthlyOccupancyChartPath;
+      }
 
       // Revenue chart
       await tabs[6].click();
@@ -644,14 +669,36 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       await tabs[6].click();
       await delay(6000);
 
-      screenShots.revenueGraphSS = await takeScreenshot(
-        chartElements[25],
-        "revenueGraph",
-        sessionDir,
-        true,
-        page,
-        true
-      );
+       const revenueChartDimensions = await page.evaluate((element) => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height
+        };
+      }, chartElements[25]);
+
+      if (revenueChartDimensions) {
+        const screenshotBuffer = await page.screenshot({
+          encoding: 'binary',
+          type: 'png',
+        });
+
+        const croppedBuffer = await sharp(screenshotBuffer)
+          .extract({
+            left: Math.max(0, Math.floor(revenueChartDimensions.x)),
+            top: Math.max(0, Math.floor(revenueChartDimensions.y + 50)), // Deduct 50px from top
+            width: Math.floor(revenueChartDimensions.width),
+            height: Math.floor(revenueChartDimensions.height - 50) // Adjust height to maintain bottom position
+          })
+          .toBuffer();
+
+        const revenueGraphPath = path.join(sessionDir, 'revenueGraph.png');
+        await fs.promises.writeFile(revenueGraphPath, croppedBuffer);
+        screenShots.revenueGraphSS = revenueGraphPath;
+      }
     }
 
     // Step 3: Navigate to All Listings Section and Capture Screenshot
