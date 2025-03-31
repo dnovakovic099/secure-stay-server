@@ -406,7 +406,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     // await page.waitForNetworkIdle();
     delay(20000);
 
-    // await applyFilterViaListing(page, beds);
+    await applyFilterViaListing(page, beds);
 
     // Wait for network idle first
     // await page.waitForNetworkIdle();
