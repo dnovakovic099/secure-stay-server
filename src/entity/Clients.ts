@@ -5,7 +5,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  OneToMany,
 } from "typeorm";
+import { ClientListingEntity } from "./ClientListings";
+import { ClientCompetitorListingEntity } from "./ClientCompetitorListings";
 
 @Entity("clients")
 export class ClientEntity {
@@ -56,9 +59,18 @@ export class ClientEntity {
   @Column({ type: "varchar", length: 255, nullable: true })
   previewDocumentLink: string;
 
-  @Column({ nullable: true })
-  createdBy: string;
+  @Column({ type: "int" })
+  beds: number;
 
-  @Column({ nullable: true })
-  updatedBy: string;
+  @Column({ type: "int" })
+  baths: number;
+
+  @Column({ type: "int" })
+  guests: number;
+
+  @OneToMany(() => ClientListingEntity, (listing) => listing.client)
+  listings: ClientListingEntity[];
+
+  @OneToMany(() => ClientCompetitorListingEntity, (listing) => listing.client)
+  competitorListings: ClientCompetitorListingEntity[];
 }

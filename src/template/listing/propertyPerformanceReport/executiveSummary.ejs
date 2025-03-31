@@ -1,0 +1,88 @@
+<tr>
+  <% function formatRevenue(revenue) { %> <%= revenue.toLocaleString('en-US', {
+  minimumFractionDigits: 2 }) %> <% } %>
+  <td class="page" id="page-3" style="overflow: hidden">
+    <table>
+      <tbody>
+        <tr>
+          <td>
+            <div class="page-content">
+              <div style="padding: 60px 70px 0px;">
+                <h1 class="cursive-heading" style="font-size: 1.5rem;line-height: 1.5;margin-bottom: 8px;">Executive Summary</h1>
+                <div class="box" style="border: 1px solid var(--clr-primary-dark);">
+                  <% 
+                    const address = listingData.address || '';
+                    const randomOption = Math.floor(Math.random() * 3) + 1;
+
+                    const summaryTexts = {
+                        1: {
+                            part1: `Your property at ${address} holds immense potential—not just as a vacation rental but as a high-performing, revenue-generating asset. However, success in this space requires more than just a listing; it demands expert strategy, precise pricing, and continuous optimization. That's where we come in. At Luxury Lodging, we don't just manage properties—we elevate them. With a data-driven approach and a relentless focus on maximizing returns, we ensure that every booking, every rate adjustment, and every guest experience contributes to your bottom line. Our proven revenue strategies, high-touch guest management, and industry-leading market insights put your property on the path to outperforming the competition and achieving its highest earning potential.`,
+                            part2: `This is more than just a management service—it's the beginning of a strategic partnership built for long-term success. Whether it's through dynamic pricing adjustments, enhanced listing appeal, or seamless guest experiences, we take the guesswork out of short-term rental success so you can enjoy the rewards without the stress. The right team makes all the difference, and with Luxury Lodging, your property isn't just another listing—it's a market leader in the making. Let's unlock its full potential, together.`
+                        },
+                        2: {
+                            part1: `Your property at ${address} has the potential to stand out, earn more, and perform at a level that most short-term rentals never reach. But unlocking that success takes more than just listing it—it requires the right strategy, the right pricing, and the right partner. At Luxury Lodging, we specialize in transforming vacation rentals into high-revenue assets, ensuring that every detail, from dynamic pricing to guest experience, is optimized for maximum profitability. Our hands-on approach, backed by deep market expertise and real-time data insights, allows us to outperform the competition, secure higher occupancy, and drive stronger returns—all while making your investment as effortless as possible.`,
+                            part2: `The difference between an average rental and a top-earning property isn't luck—it's precision, expertise, and the power of a dedicated team working behind the scenes. With Luxury Lodging, you're not just hiring a management company; you're gaining a partner invested in your success. Now is the time to turn potential into performance—let's build something extraordinary together.`
+                        },
+                        3: {
+                            part1: `Every great investment deserves a strategy that maximizes its potential, and your property at ${address} is no exception. Success in short-term rentals isn't about hoping for bookings—it's about engineering them. At Luxury Lodging, we take a performance-driven approach, using market data, strategic pricing, and operational excellence to ensure your property doesn't just compete but dominates its market. From revenue optimization to guest satisfaction, we fine-tune every element of your listing to attract more bookings, command higher rates, and generate consistent, long-term returns.`,
+                            part2: `The difference between an underperforming rental and a high-earning property comes down to who's behind the wheel. With our expertise, your property won't just be another option for travelers—it will be their first choice. This is more than a service; it's a partnership designed to unlock the full earning power of your home. Your success starts here—let's make every night count.`
+                        }
+                    };
+
+                    const selectedText = summaryTexts[randomOption];
+                  %>
+               
+                  <p style="font-size: 1rem; line-height: 1.2; font-family: var(--font-body-text); letter-spacing: 0.05em;">
+                      <%= selectedText.part1 %>
+                  </p>
+                  <p style="font-size: 1rem; line-height: 1.2; font-family: var(--font-body-text); letter-spacing: 0.05em;">
+                      <%= selectedText.part2 %>
+                  </p>
+                </div>
+              </div>
+            </div>
+            <!-- <img
+            src="<%= propertyDetails.images[1] %>"
+            class="border-image"
+            style="
+              width: 500px;
+              height: 500px;
+              position: relative;
+              left: -100px;
+              bottom: -60px;
+            "
+            alt="reload page"
+          /> -->
+
+                  <div style="position: absolute;overflow: hidden;width: 100%;bottom: 0;">
+                    <img src="<%= propertyDetails.images[3] %>" class="border-image" style="
+                  width: 400px;
+                  height: 400px;
+                  position: absolute;
+                  top: 15px;
+                  right: -5px;
+                " alt="reload page" />
+                    <div style="position: relative">
+                      <img src="<%= propertyDetails.images[1] %>" class="border-image" style="
+                    width: 475px;
+                    height: 475px;
+                    position: relative;
+                    left: -60px;
+                    bottom: 0;
+                    top: 80px;
+                    z-index: 1;
+                  " alt="reload page" />
+                    </div>
+                    <!-- <img src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+              293px; top: 6px; rotate: 89deg; transform: scale(.9);" " /> <img
+              src="<%= BORDER_IMAGE %>" style=" position: absolute; right:
+              -18px; rotate: 80deg; transform: scale(.9); bottom: -384px;" " /> -->
+                  </div>
+
+                  <%- include('./logo') %>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+</tr>

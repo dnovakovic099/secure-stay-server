@@ -403,9 +403,39 @@ CREATE TABLE IF NOT EXISTS `clients` (
     `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updatedAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deletedAt` TIMESTAMP NULL,
-    `previewDocumentLink` VARCHAR(255) NULL
+    `previewDocumentLink` VARCHAR(255) NULL,
+    `beds` INT,
+    `baths` INT,
+    `guests` INT
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `clientListings`(
+ `id` INT AUTO_INCREMENT PRIMARY KEY,
+ `clientId` INT,
+ `airdnaMarketName` VARCHAR(255)
+ `marketType` VARCHAR(50),       
+ `marketScore` DECIMAL(10, 2), 
+ `lat` DECIMAL(10, 7),
+ `lng` DECIMAL(10, 7),
+ `occupancy` DECIMAL(3, 2),
+ `address` VARCHAR(255),
+ `cleaningFee` DECIMAL(10, 7),
+ `revenue` INT,
+ `totalComps` INT,
+ `comps` JSON,
+ `forSalePropertyComps` JSON,
+ `compsetAmenities` JSON,
+ `zipcode` VARCHAR(20),
+ `revenueRange` JSON
+ `screenshotSessionId` VARCHAR(255),
+ `propertyScreenshotSessionId` VARCHAR(255) NULL,
+ `vrboPropertyId` VARCHAR(50) NULL,
+ `airBnbPropertyId` VARCHAR(50) NULL,
+ `metrics` JSON NULL,
+ `details` JSON NULL,           
+ `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ `updatedAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 

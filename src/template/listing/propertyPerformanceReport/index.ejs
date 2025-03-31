@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Playwrite+AU+SA:wght@100..400&display=swap"
+    rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Allura&family=Averia+Libre&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400;1,500;1,600;1,700;1,800&display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playwrite+CO+Guides&display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+    integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+    @font-face {
+      font-family: "Open Sans";
+      src: url("/public/fonts/Open_Sans/OpenSans-VariableFont_wdth,wght.ttf") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Great Vibes";
+      src: url("/public/fonts/Great_Vibes/GreatVibes-Regular.ttf") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Skia';
+      src: url('/public/fonts/Skia/Skia.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    @font-face {
+      font-family: 'Zapfino';
+      src: url('/public/fonts/Zapfino/Zapfino.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    @font-face {
+      font-family: 'Apple Chancery';
+      src: url('/public/fonts/Apple_Chancery/Apple-Chancery.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --clr-page-bg: #fefcf5;
+      --clr-primary: #d6c27b;
+      --clr-primary-dark: rgb(154, 117, 62);
+      --font-body: "Open Sans", serif;
+      /* --font-cursive: "Playwrite AU SA", serif; */
+      --font-cursive: "Zapfino", serif;
+      --font-address: "Apple Chancery", serif;
+      --font-semi-cursive: "Great Vibes", serif;
+      --font-body-text: "Skia", serif;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      line-height: 1;
+    }
+
+    body {
+      font-size: 1rem;
+      background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg)) padding-box,
+        linear-gradient(to right, var(--clr-primary), var(--clr-page-bg)) border-box;
+    }
+
+    table {
+      width: 100%;
+      border-spacing: 0;
+      border-collapse: collapse;
+      margin: 0;
+      padding: 0;
+    }
+
+    table tr {
+      margin: 0;
+      padding: 0;
+      page-break-inside: avoid;
+    }
+
+    table tr td {
+      margin: 0;
+      padding: 0;
+      vertical-align: top;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    .page-1-text h1::after {
+      content: "";
+      height: 1px;
+      width: 70%;
+      background: linear-gradient(to bottom, var(--clr-primary), #fff);
+      display: block;
+      position: relative;
+      bottom: 4px;
+    }
+
+    .cursive-heading {
+      font-family: var(--font-cursive);
+      font-weight: 400;
+      font-style: normal;
+      font-size: 3rem;
+      line-height: normal;
+      color: var(--clr-primary-dark);
+      letter-spacing: -0.25px;
+    }
+
+    .page {
+      background-color: var(--clr-page-bg);
+      position: relative;
+      height: 11.6in;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      page-break-before: always;
+      page-break-after: always;
+      page-break-inside: avoid;
+    }
+
+    .page-content {
+      position: relative;
+      width: 100%;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      justify-content: space-between;
+    }
+
+    .box {
+      padding: 18px 25px;
+      border-radius: 25px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: linear-gradient(var(--clr-page-bg), var(--clr-page-bg)) padding-box,
+        linear-gradient(to right, var(--clr-primary), var(--clr-page-bg)) border-box;
+      border: 1px solid transparent;
+    }
+
+    .box:last-child {
+      margin-bottom: 0 !important;
+    }
+
+    .box.white {
+      background: #fff;
+      border-radius: 25px;
+      border: 1px solid #e7e7e7;
+      box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .box.tinted {
+      background: rgba(157, 145, 107, 0.5);
+      color: white;
+      font-weight: 700;
+    }
+
+    .box.tinted p {
+      font-weight: 700;
+    }
+
+    .text-black,
+    .text-black * {
+      color: #000;
+    }
+
+    .box-label {
+      padding-inline: 8px;
+      background: linear-gradient(45deg,
+          var(--clr-primary),
+          var(--clr-primary-dark));
+      width: 100%;
+      max-width: 250px;
+      color: white;
+      font-weight: 500;
+      border-radius: 25px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 10px 8px rgba(0, 0, 0, 0.1);
+      margin-bottom: 16px;
+    }
+
+    p {
+      font-weight: 500;
+      line-height: normal;
+      text-align: justify;
+    }
+
+    small {
+      font-size: 12px;
+    }
+
+    td {
+      line-height: 1;
+    }
+
+    .table-body-cell,
+    .table-header-cell {
+      border: 2px solid #fff;
+      font-family: var(--font-body);
+    }
+
+    .table-body-cell {
+      background-color: #fff;
+      padding: 8px;
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    /* .styled-table tbody tr:last-child td {
+        border-bottom-right-radius: 18px;
+        border-bottom-left-radius: 18px;
+      } */
+    .styled-table tbody tr:nth-child(even) .table-body-cell {
+      background-color: #f9f3e6;
+    }
+
+    .styled-table tbody tr:nth-child(odd) .table-body-cell {
+      background-color: #f7ecd5;
+    }
+
+    .border-image {
+      border-radius: 100%;
+      border: 14px solid #b79c5f;
+    }
+
+    @media print {
+      .page {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        page-break-before: always;
+        page-break-after: always;
+        page-break-inside: avoid;
+      }
+      
+      table {
+        page-break-inside: avoid;
+      }
+      
+      tr {
+        page-break-inside: avoid;
+      }
+      
+      td {
+        page-break-inside: avoid;
+      }
+    }
+
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      /* padding: 30px 50px; */
+    }
+
+    .portfolio-grid img {
+      width: 100%;
+      height: 185px;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+
+    .padding-inline-50 {
+      padding-inline: 50px !important;
+    }
+  </style>
+  <title>
+    <%= title %>
+  </title>
+</head>
+
+<body>
+  <table style="
+        max-width: 800px;
+        width: 100%;
+        margin: 0 auto;
+        color: var(--clr-primary-dark);
+      ">
+    <tbody>
+      <%- include('./intro') %>
+        <!-- <tr>
+          <td class="page" id="page-2">
+            <div class="page-content" style="position: relative">
+              <h1 class="cursive-heading">
+                Elevating Your Rental into a Guest Magnet
+              </h1>
+              <div class="box">
+                <p>
+                  At Luxury Lodging, we see more than just a vacation rental—we
+                  see an opportunity to elevate your property’s success and
+                  maximize its earning potential. Your home at <%=
+                  listingData.address %> has the foundation of a
+                  strongperforming rental, but with the right strategy, it can
+                  outperform market expectations and deliver higher returns. Our
+                  expertise in dynamic pricing, market positioning, and guest
+                  experience optimization will ensure that every available night
+                  is booked at the best possible rate.
+                </p>
+                <p>
+                  Partnering with us means gaining access to a proven system
+                  that balances occupancy and revenue, adapts to market trends,
+                  and sets your listing apart from competitors. Together, we’ll
+                  transform your property into a top-performing short-term
+                  rental. Let’s get started on this journey to greater success!
+                </p>
+              </div>
+
+              <div
+                style="
+                  display: flex;
+                  min-height: 610px;
+                  align-items: end;
+                  position: relative;
+                  bottom: 0;
+                "
+              >
+                <div style="position: relative; overflow: hidden">
+                 
+                  <img
+                    src="<%= propertyDetails.images[1] %>"
+                    class="border-image"
+                    style="
+                      width: 500px;
+                      height: 500px;
+                      position: relative;
+                      left: -100px;
+                      bottom: -60px;
+                    "
+                    alt="reload page"
+                  />
+                </div>
+                <div style="position: relative">
+                  <img
+                    src="<%= propertyDetails.images[2] %>"
+                    class="border-image"
+                    style="
+                      width: 300px;
+                      height: 300px;
+                      position: relative;
+                      left: -167px;
+                      top: -260px;
+                    "
+                    alt="reload page"
+                  />
+                  <img src="<%= BORDER_IMAGE %>" style=" position: absolute;
+                  right: 100px; top: -247px; left: 80px;" " />
+                </div>
+              </div>
+              <img
+                style="position: absolute; bottom: 0; right: 0"
+                src="<%= LOGO_URL %>"
+                alt="reload page"
+              />
+            </div>
+          </td>
+        </tr> -->
+        <%- include('./executiveSummary') %>
+
+          <%- include('./marketOverview') %>
+            <%- include('./topCompetitor') %>
+
+              <%- include('./prospectPropertyOverview') %>
+              <%- include('./specificCompetitor') %>
+                <%- include('./revenueProjection') %>
+
+                  <tr>
+                    <td class="page" id="page-11">
+                      <div class="page-content">
+                        <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
+                          <h1 style="
+                    color: white;
+                    position: absolute;
+                    top: 50%;
+                    left: 60px;
+                    transform: translateY(-50%);
+                    font-family: var(--font-cursive);
+                    font-weight: 500;
+                    letter-spacing: 1px;
+                    font-size: 1.5rem;
+                    z-index: 1;
+                  ">
+                            Recommendations
+                          </h1>
+
+                          <img src="<%= propertyDetails.images[8] %>" alt="" style="
+                    opacity: 0.4;
+                    height: 200px;
+                    width: 100%;
+                    object-fit: cover;
+                  " />
+                        </div>
+
+                        <div class="box white" style="margin: 0 50px;">
+                          <div style="
+                    display: flex;
+                    align-items: center;
+                    max-width: 500px;
+                    gap: 20px;
+                  ">
+                            <span style="
+                      background: linear-gradient(
+                        -45deg,
+                        var(--clr-primary-dark),
+                        var(--clr-primary)
+                      );
+                      color: #eae7e7;
+                      font-weight: 400;
+                      flex-shrink: 0;
+                      border-radius: 100%;
+                      height: 70px;
+                      width: 70px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 25px;
+                    ">
+                              <!-- <i class="fa-solid fa-hand-holding-hand"></i> -->
+                              <img width="40px" height="40px" style="filter: invert(1)" src="<%= ICON_DOLLAR_CHART %>"
+                                alt="" />
+                            </span>
+                            <div class="box-label" style="
+                      height: 70px;
+                      display: flex;
+                      align-items: center;
+                      gap: 10px;
+                      max-width: 100%;
+                      margin: 0;
+                      border-radius: 40px;
+                      font-family: var(--font-cursive);
+                      font-weight: 500;
+                      font-size: 1rem;
+                      letter-spacing: 1px;
+                    "
+                  >
+                    Maximize Revenue and Engagement
+                  </div>
+                </div>
+
+                <% 
+                const strategyRandomOption = Math.floor(Math.random() * 3) + 1;
+
+                const strategyTexts = {
+                    1: {
+                        revenue: [
+                            {
+                                title: "Dynamic Pricing Optimization",
+                                content: "Adjust rates based on market trends, demand shifts, and booking windows to maximize ADR and occupancy."
+                            },
+                            {
+                                title: "Optimized Listing Content & Presentation",
+                                content: "Keep descriptions engaging, highlight key amenities, and ensure high-quality photos to attract more bookings."
+                            },
+                            {
+                                title: "Strategic Discounts & Promotions",
+                                content: "Use time-sensitive promotions and tailored booking incentives to increase conversions without undercutting revenue."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Seamless Guest Communication",
+                                content: "Implement clear and responsive messaging before, during, and after the stay to enhance guest satisfaction and encourage positive reviews."
+                            },
+                            {
+                                title: "Regular Performance Reviews",
+                                content: "Consistently assess pricing, occupancy trends, guest feedback, and property upkeep to identify areas for improvement and adjust strategies for optimal performance."
+                            },
+                            {
+                                title: "Targeted Property Enhancements",
+                                content: "Will suggest high-impact upgrades based on guest demand trends to improve appeal, increase booking value, and drive long-term revenue growth."
+                            }
+                        ]
+                    },
+                    2: {
+                        revenue: [
+                            {
+                                title: "Data-Driven Pricing Adjustments",
+                                content: "Continuously refine pricing based on market trends, competitor performance, and booking patterns to maintain competitive ADR and occupancy."
+                            },
+                            {
+                                title: "Enhanced Listing Optimization",
+                                content: "Regularly update descriptions, showcase standout amenities, and use strategic keywords to boost visibility and attract high-value guests."
+                            },
+                            {
+                                title: "Revenue-Boosting Offers & Incentives",
+                                content: "Implement targeted promotions, exclusive discounts, and value-added perks to drive more bookings while preserving profitability."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Proactive Guest Engagement",
+                                content: "Maintain clear and timely communication across all guest touchpoints to enhance the experience and build lasting positive reviews."
+                            },
+                            {
+                                title: "Comprehensive Performance Reviews",
+                                content: "Regularly analyze booking trends, pricing effectiveness, guest feedback, and property upkeep to optimize long-term success."
+                            },
+                            {
+                                title: "Guest-Centric Property Upgrades",
+                                content: "Identify and implement high-demand enhancements, such as improved amenities or tech integrations, to increase desirability and revenue potential."
+                            }
+                        ]
+                    },
+                    3: {
+                        revenue: [
+                            {
+                                title: "Smart Pricing Strategy",
+                                content: "Adjust pricing dynamically based on real-time demand, seasonality, and competitor trends to maximize both occupancy and ADR."
+                            },
+                            {
+                                title: "High-Impact Listing Presentation",
+                                content: "Optimize photos, descriptions, and amenities to improve search rankings and increase guest interest."
+                            },
+                            {
+                                title: "Strategic Booking Incentives",
+                                content: "Offer limited-time discounts, extended stay deals, and exclusive perks to drive conversions while maintaining profitability."
+                            }
+                        ],
+                        operations: [
+                            {
+                                title: "Seamless Guest Interaction Process",
+                                content: "Ensure smooth communication at every stage of the guest journey to enhance satisfaction and encourage repeat bookings."
+                            },
+                            {
+                                title: "Performance Assessments",
+                                content: "Regularly evaluate revenue metrics, guest feedback, and property condition to make timely adjustments."
+                            },
+                            {
+                                title: "Property Value Enhancements",
+                                content: "Invest in upgrades that align with guest expectations, such as modern decor, upgraded bedding, or smart technology, to increase booking appeal."
+                            }
+                        ]
+                    }
+                };
+
+                const selectedStrategy = strategyTexts[strategyRandomOption];
+                %>
+
+                <ul 
+                  style="
+                    color: var(--clr-primary-dark);
+                    line-height: 1.2;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-size: 0.9rem;
+                    font-family: var(--font-body-text);
+                    line-height: 1.5;
+                    padding-left: 20px;
+                    margin-top: 10px;
+                  "
+                >
+                    <% selectedStrategy.revenue.forEach(item => { %>
+                        <li>
+                            <strong style="
+                                font-weight: 700;
+                                color: var(--clr-primary-dark);
+                                font-family: var(--font-body);
+                            "><%= item.title %></strong> - <%= item.content %>
+                        </li>
+                    <% }); %>
+                </ul>
+              </div>
+              <div class="box white" style="margin: 0 50px;">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    max-width: 500px;
+                    gap: 20px;
+                  ">
+                            <span style="
+                      background: linear-gradient(
+                        -45deg,
+                        var(--clr-primary-dark),
+                        var(--clr-primary)
+                      );
+                      color: #eae7e7;
+                      font-weight: 400;
+                      flex-shrink: 0;
+                      border-radius: 100%;
+                      height: 70px;
+                      width: 70px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 25px;
+                    ">
+                              <img width="40px" height="40px" src="<%= ICON_USER_STARS %>" alt="" />
+                            </span>
+                            <div class="box-label" style="
+                      height: 70px;
+                      display: flex;
+                      align-items: center;
+                      gap: 10px;
+                      max-width: 100%;
+                      margin: 0;
+                      border-radius: 40px;
+                      font-family: var(--font-cursive);
+                      font-weight: 500;
+                      letter-spacing: 1px;
+                      font-size: 1rem;
+                      padding: 20px 0px;
+                    ">
+                              Operational Excellence
+                            </div>
+                          </div>
+
+                <ul 
+                  style="
+                    color: var(--clr-primary-dark);
+                    line-height: 1.2;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-size: 0.9rem;
+                    font-family: var(--font-body-text);
+                    line-height: 1.5;
+                    padding-left: 20px;
+                    margin-top: 10px;
+                  "
+                >
+                    <% selectedStrategy.operations.forEach(item => { %>
+                        <li>
+                            <strong style="
+                                font-weight: 700;
+                                color: var(--clr-primary-dark);
+                                font-family: var(--font-body);
+                            "><%= item.title %></strong> - <%= item.content %>
+                        </li>
+                    <% }); %>
+                </ul>
+              </div>
+
+                        <div class="image-section" style="position: relative; background-color: #000;height: 200px;">
+                          <img src="<%= propertyDetails.images[9] %>" alt="reload page" style="
+                    opacity: 0.7;
+                    height: 200px;
+                    width: 100%;
+                    object-fit: cover;
+                  " />
+                          <div style="display: inline-block; z-index: 0">
+                            <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>"
+                              alt="reload page" width="130" />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="page" id="page-12" style="position: relative;">
+                      <%- include('./uis/badge') %>
+                      <div class="page-content padding-inline-50" style="justify-content: flex-start;padding-top: 20px;">
+                        <div class="box-label" style="
+                  font-size: 28px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 10px;
+                  padding: 30px 70px;
+                  min-width: 500px;
+                  margin: 0 auto;
+                  border-radius: 40px;
+                  text-transform: uppercase;
+                  font-style: italic;
+                ">
+                          <img width="40px" height="40px" src="<%= ICON_USER_STARS %>" alt="" />
+                          <p style="
+                    font-size: 1rem;
+                    padding: 15px 0px 0px 0px;
+                    font-family: var(--font-cursive);
+                    font-weight: 500;
+                    font-style: normal;
+                    letter-spacing: 1px;
+                    text-transform: capitalize;
+                  ">
+                            Portfolio
+                          </p>
+                          <img width="40px" height="40px" style="filter: invert(1)" src="<%= ICON_DOLLAR_CHART %>"
+                            alt="" />
+                        </div>
+                        <div style="margin: 0 20px;">
+                          <div class="portfolio-grid" style="gap: 10px 20px;">
+                            <% PORTFOLIO_IMAGES.forEach((image)=> { %>
+                              <img src="<%= image %>" alt="Portfolio Image" height="100px" />
+                              <% }) %>
+                          </div>
+                          <%- include('./logo') %>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- <%- include('./faqs') %> -->
+
+                  <tr>
+                    <td class="page" id="page-14" style="position: relative;">
+                      <%- include('./uis/badgeLeft') %>
+                      <div class="page-content" style="justify-content: flex-end;">
+                        <div style="display: flex;position: relative;">
+                          <img style="width: 100%; height: 770px;" src="<%= PAGE_14_IMG %>" alt="reload page" width="100" />
+                          <div
+                            style="position: absolute; top: 63px; left: 138px; border-radius: 100%; overflow: hidden">
+                            <img style="width: 500px; height: 500px" src="<%= propertyDetails.images[4] %>" alt="" />
+                          </div>
+                          <%- include('./logo') %>
+                        </div>
+                        <!-- <div
+                style="
+                  position: relative;
+                  display: flex;
+                  justify-content: center;
+                  align-items: end;
+                "
+              >
+                <img
+                  style="width: 776px; height: 674px"
+                  src="<%= propertyDetails.images[4] %>"
+                  alt=""
+                />
+
+                <img
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    height: 100%;
+                  "
+                  src="<%= OVERLAY_IMAGE %>"
+                  alt=""
+                />
+              </div> -->
+                      </div>
+                    </td>
+                  </tr>
+    </tbody>
+  </table>
+</body>
+
+</html>
