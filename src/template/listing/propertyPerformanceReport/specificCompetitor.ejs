@@ -60,7 +60,7 @@
                                     style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
                                     <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
                                 </div>
-                                <span>Occupancy: <%= isNaN(specificCompetitor.occupancy) ? '-' : Math.round(specificCompetitor.occupancy) %></span>
+                                <span>Occupancy: <%= isNaN(specificCompetitor.occupancy) ? '-' : Math.round(specificCompetitor.occupancy) + '%' %></span>
                             </div>
                         </td>
                         <td width="50%" align="right">
