@@ -7,10 +7,10 @@ import { ReviewService } from "../services/ReviewService";
 import logger from "../utils/logger.utils";
 
 export async function checkUnasweredMessages() {
-    logger.info("Checking unanswered guest messages...");
+    // logger.info("Checking unanswered guest messages...");
     const messagingServices = new MessagingService();
     await messagingServices.processUnanweredMessages();
-    logger.info("Checking unanswered guest messages completed");
+    // logger.info("Checking unanswered guest messages completed");
 }
 
 export async function checkForUnresolvedReviews() {
