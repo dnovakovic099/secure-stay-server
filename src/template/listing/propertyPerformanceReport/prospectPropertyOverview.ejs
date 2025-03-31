@@ -63,7 +63,7 @@
                   <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
                 </div>
                 <!-- </span> -->
-                <span>Occupancy: <%= specificListing.occupancy %> %</span>
+                <span>Occupancy: <%= isNaN(specificListing.occupancy) ? '-' : Math.round(specificListing.occupancy) %> %</span>
               </div>
             </div>
             <div style="width: 100%;">
@@ -93,7 +93,7 @@
                   <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
                 </div>
                 <!-- </span> -->
-                <span>Rating: <%= specificListing.rating %> /5</span>
+                <span>Rating: <%= Number(specificListing.rating).toFixed(1) %> /5</span>
               </div>
             </div>
           </div>

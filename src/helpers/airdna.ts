@@ -302,7 +302,11 @@ const applyFilterViaListing = async (page: Page, beds: string) => {
     // 1. Click Listings button
     const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-9j6s48';
     await page.waitForSelector(listingsButtonSelector);
-    await page.click(listingsButtonSelector);
+    const listingsButton = await page.$(listingsButtonSelector);
+    const buttonText = await page.evaluate(button => button.textContent, listingsButton);
+    if(buttonText.trim() !== 'Listings'){
+     return true; 
+    }
 
     // 2. Get all dropdowns
     const dropdowns = await page.$$('.MuiSelect-select.MuiSelect-outlined.MuiInputBase-input.MuiOutlinedInput-input.MuiInputBase-inputAdornedStart.css-1c3vwjf');
