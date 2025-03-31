@@ -594,6 +594,7 @@ export class SalesController {
          ssid:screenshotSessionId,
         });
       }
+      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });
@@ -657,6 +658,7 @@ export class SalesController {
           ssid:screenshotSessionId,
         });
       }
+      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });

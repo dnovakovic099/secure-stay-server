@@ -368,10 +368,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
     occupancySection: ".MuiBox-root.css-1loy98s",
     chartContainer: ".MuiBox-root.css-1vx1dtt",
-    tabs: ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i",
-    divs:'.MuiBox-root.css-79elbk',
-    downloadButton:'.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textInherit.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorInherit.css-fmxw1l',
-    occupancyInsight:'.MuiBackdrop-root.css-ouksm'
+    tabs: ".MuiButtonBase-root.MuiTab-root.MuiTab-textColorPrimary.css-1gul72i"
     // occupanyChart: ".MuiBox-root.css-68ddzu",
   };
 
@@ -416,6 +413,31 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     await new Promise(resolve => setTimeout(resolve, 20000));
 
 
+    // const response = await page.waitForResponse(
+    //   (resp) =>
+    //     resp.url() ===
+    //       "https://api.airdna.co/api/explorer/v1/market/airdna-433/metrics/revpar" &&
+    //     resp.request().method() !== "OPTIONS" &&
+    //     resp.status() === 200
+    // );
+    // if (!response.ok()) {
+    //   throw new Error(`Response failed with status: ${response.status()}`);
+    // }
+
+    // const data = await response.json();
+
+    // const publicDir = path.join(__dirname, '../../public');
+    // const revparFilePath = path.join(publicDir, 'revpar.json');
+
+    // if (!fs.existsSync(publicDir)) {
+    //   fs.mkdirSync(publicDir);
+    // }
+
+    // fs.writeFileSync(revparFilePath, JSON.stringify(data, null, 2));
+    // console.log(`Data written to ${revparFilePath}`);
+
+
+
     await page.waitForSelector(selectors.propertyStatisticsGraph);
     const propertyStatSelc = await page.$(selectors.propertyStatisticsGraph);
     screenShots.propertyStatisticsGraphSS = await takeScreenshot(
@@ -438,6 +460,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       await delay(10000);
 
 
+      const occupancyHorizontalInsights = await page.$(selectors.occupancySection);
       const divs = await page.$$('.MuiBox-root.css-79elbk');
       if (divs.length > 0) {
         divs.forEach(async (div, index) => {
@@ -450,7 +473,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       if (divs.length > 7) {
         // For div at index 6
         const div6Dimensions = await page.evaluate((index) => {
-          const element = document.querySelectorAll(selectors.divs)[index];
+          const element = document.querySelectorAll('.MuiBox-root.css-79elbk')[index];
           if (!element) return null;
           const rect = element.getBoundingClientRect();
           return {
@@ -484,7 +507,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
 
         // For div at index 7
         const div7Dimensions = await page.evaluate((index) => {
-          const element = document.querySelectorAll(selectors.divs)[index];
+          const element = document.querySelectorAll('.MuiBox-root.css-79elbk')[index];
           if (!element) return null;
           const rect = element.getBoundingClientRect();
           return {
@@ -562,7 +585,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
 
       await waitForChartData(page, chartElements[25]);
       // Find the download button within chartElements[25]
-      const downloadButton = await page.$$(selectors.downloadButton);
+      const downloadButton = await page.$$('.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textInherit.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorInherit.css-fmxw1l');
       console.log("downloadButton", downloadButton);
       if (!downloadButton) {
         throw new Error('Download button not found');
@@ -589,6 +612,21 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
         // Click the download button
         console.log('Clicking download button...');
         await downloadButton[5].click();
+
+        // // Wait for download event with timeout
+        // const downloadEvent = await Promise.race([
+        //   downloadPromise,
+        //   new Promise<{url: string} | null>((_, reject) => 
+        //     setTimeout(() => reject(new Error('Download timeout')), 20000)
+        //   )
+        // ]) as {url: string} | null;
+
+        // if (downloadEvent) {
+        //   console.log("downloadEvent", downloadEvent);
+        //   const downloadPath = path.join(sessionDir, downloadEvent.url.split('/').pop() || '');
+        //   console.log(`Downloaded file path: ${downloadPath}`);
+        // }
+
         await delay(10000);
 
         await tabs[8].click();
@@ -609,10 +647,10 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       });
 
       // Wait for the element to be available
-      await page.waitForSelector(selectors.occupancyInsight);
+      await page.waitForSelector('.MuiBackdrop-root.css-ouksm');
 
       // Select the element at the 15th index
-      const elements = await page.$$(selectors.occupancyInsight);
+      const elements = await page.$$('.MuiBackdrop-root.css-ouksm');
       if (elements.length > 15) {
         const targetElement = elements[15];
 
@@ -918,9 +956,7 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
     imgSection: ".MuiBox-root.css-9vp29i",
     statSection: ".MuiBox-root.css-13vcxc6",
     marketSection: ".MuiBox-root.css-186n0wg",
-    links: ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7",
-    revenueSelector:'.MuiTypography-root.MuiTypography-titleXL.css-gpfoz5',
-    competitorNameSelector:'.MuiTypography-root.MuiTypography-titleXXS.MuiTypography-noWrap.css-1gnb1w2'
+    links: ".MuiTypography-root.MuiTypography-inherit.MuiLink-root.MuiLink-underlineAlways.css-14nb2a7"
   };
 
   let airBnbLink = null;
@@ -938,8 +974,9 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
   }
 
   let revenuePotential = null;
-  await page.waitForSelector(selectors.revenueSelector);
-  const revenueElement = await page.$(selectors.revenueSelector);
+  const revenueSelector = ".MuiTypography-root.MuiTypography-titleXL.css-gpfoz5";
+  await page.waitForSelector(revenueSelector);
+  const revenueElement = await page.$(revenueSelector);
   if (revenueElement) {
     const revenueText = await page.evaluate(element => element.textContent, revenueElement);
     const revenueNumber = revenueText.replace(/[^0-9.]/g, ''); // Remove currency symbol and 'K'
@@ -947,8 +984,9 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
   }
 
   let competitorName = null;
-  await page.waitForSelector(selectors.competitorNameSelector);
-  const competitorNameElement = await page.$(selectors.competitorNameSelector);
+  const competitorNameSelector = '.MuiTypography-root.MuiTypography-titleXXS.MuiTypography-noWrap.css-1gnb1w2'
+  await page.waitForSelector(competitorNameSelector);
+  const competitorNameElement = await page.$(competitorNameSelector);
   if (competitorNameElement) {
     competitorName = await page.evaluate(element => element.textContent, competitorNameElement);
   }
