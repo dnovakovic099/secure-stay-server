@@ -402,13 +402,13 @@ export class SalesController {
       }
 
       if(competitorRevenuePotential && revenueListFromCSV.length > 0) {
-        const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, competitorRevenuePotential);
-        prospectCompetitorCalculation.competitor = competitor.map(val => val * 1000);
-        prospectCompetitorCalculation.prospect = prospect.map(val => val * 1000);
+        const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, (Number(competitorRevenuePotential)*1000));
+        prospectCompetitorCalculation.competitor = competitor
+        prospectCompetitorCalculation.prospect = prospect;
         prospectCompetitorCalculation.marketAvg = revenueListFromCSV;
         prospectCompetitorCalculation.date = revenueDateFromCSV;
-        prospectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0) * 1000;
-        prospectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0) * 1000;
+        prospectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0);
+        prospectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0);
         prospectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
       }
 
@@ -594,6 +594,7 @@ export class SalesController {
          ssid:screenshotSessionId,
         });
       }
+      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });
@@ -657,6 +658,7 @@ export class SalesController {
           ssid:screenshotSessionId,
         });
       }
+      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });
