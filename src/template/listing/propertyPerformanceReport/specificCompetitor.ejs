@@ -3,7 +3,7 @@
         <%- include('./uis/badgeRight') %>
         <div>
         <div class="page-content padding-inline-50" style="padding-top: 50px;">
-            <div style="padding: 0 30px;">
+            <div style="">
                 <h1 class="cursive-heading" style="padding-bottom: 20px;font-size: 1.5rem;line-height: 1.5;">Specific
                     Competitor</h1>
                 <h2 style="
@@ -17,7 +17,7 @@
                     <%= competitorName || "10990 SE 362nd Ave, Boring, OR, DUMMY TEXT" %>
                 </h2>
             </div>
-            <div class="box white text-black" style="margin: 0 30px; padding-inline: 10px;">
+            <div class="box white text-black" style="padding-inline: 10px;">
                 <table>
                     <tbody>
                         <img src="<%= specificCompetitor.middleSection %>" style="height: 120px;" alt="" />
@@ -32,7 +32,7 @@
                     </tbody>
                 </table>
             </div>
-            <table style="padding: 0 30px;">
+            <table style="">
                 <tbody>
                     <tr>
                         <td width="50%;margin-right: 10px;">
@@ -60,7 +60,7 @@
                                     style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
                                     <img width="30px" height="30px" src="<%= ICON_GEARS %>" alt="" />
                                 </div>
-                                <span>Occupancy: <%= specificCompetitor.occupancy %></span>
+                                <span>Occupancy: <%= isNaN(specificCompetitor.occupancy) ? '-' : Math.round(specificCompetitor.occupancy) + '%' %></span>
                             </div>
                         </td>
                         <td width="50%" align="right">
@@ -87,7 +87,7 @@
                                     style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 50px; height: 50px;background-color: white;border-radius: 100%;">
                                     <img width="30px" height="30px" src="<%= ICON_HAND_HOLDIING_USERS %>" alt="" />
                                 </div>
-                                <span>Rating: <%= specificCompetitor.rating %>/5</span>
+                                <span>Rating: <%= Number(specificCompetitor.rating).toFixed(1) %> /5</span>
                             </div>
                         </td>
                     </tr>
@@ -133,7 +133,6 @@
                     <div class="box" style="
       font-family: var(--font-body-text);
       border: 1px solid #a27f45;
-      margin: 0 20px;
       padding-bottom: 50px;
       margin-bottom: -40px;
       position: relative;
