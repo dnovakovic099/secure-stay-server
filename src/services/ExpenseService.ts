@@ -52,18 +52,21 @@ export class ExpenseService {
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
 
+        const hostawayExpense = await this.createHostawayExpense({
+            listingMapId,
+            expenseDate,
+            concept,
+            amount,
+            categories,
+        }, userId);
+
+        if (!hostawayExpense) {
+            throw new CustomErrorHandler(500, 'Failed to create expense');
+        } 
+
+        newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
-        if (expense.id) {
-            //create a new expense in hostaway
-            const hostawayExpense = await this.createHostawayExpense({
-                listingMapId,
-                expenseDate,
-                concept,
-                amount,
-                categories,
-            }, expense.id, userId);
-            return hostawayExpense;
-        }
+        return expense;
     }
 
     private async createHostawayExpense(requestBody: {
@@ -72,17 +75,10 @@ export class ExpenseService {
         concept: string;
         amount: number;
         categories: string;
-    }, id: number, userId: string) {
+    }, userId: string) {
         const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
         const hostawayExpense = await this.hostAwayClient.createExpense(requestBody, { clientId, clientSecret });
-        if (hostawayExpense) {
-            //update the local db with the hostaway expense id
-            const expense = await this.expenseRepo.findOne({ where: { id } });
-            if (expense) {
-                expense.expenseId = hostawayExpense.id;
-                return await this.expenseRepo.save(expense);
-            }
-        }
+        return hostawayExpense;
     }
 
     async getExpenseList(request: Request, userId: string) {
@@ -265,10 +261,8 @@ export class ExpenseService {
             expense.fileNames = JSON.stringify(fileNames);
         }
 
-        await this.expenseRepo.save(expense);
-
         //update hostaway expense
-        expense.expenseId && this.updateHostawayExpense({
+        const result = expense.expenseId && await this.updateHostawayExpense({
             listingMapId,
             expenseDate,
             concept,
@@ -276,6 +270,11 @@ export class ExpenseService {
             categories,
         }, userId, expense.expenseId);
 
+        if(!result){
+            throw new CustomErrorHandler(500,'Unable to update expense');
+        }
+
+        await this.expenseRepo.save(expense);
         return expense;
     }
 
