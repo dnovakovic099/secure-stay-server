@@ -20,11 +20,11 @@ export const login = async (page: Page, credentials: LoginCredentials) => {
       await page.click('#submit-button');
     } else {
 
-    const isEmailBtnActive = await page.evaluate((btn) => {
-      return btn.classList.contains('email-btn-active');
-    }, emailBtn);
-    if (!isEmailBtnActive) {
-      await emailBtn.click();
+      const isEmailBtnActive = await page.evaluate((btn) => {
+        return btn.classList.contains('email-btn-active');
+      }, emailBtn);
+      if (!isEmailBtnActive) {
+        await emailBtn.click();
         await page.type('#loginId', credentials.email);
         await page.type('#password', credentials.password);
         await page.click('#submit-button');
@@ -299,14 +299,38 @@ const takeScreenshot = async (
 
 const applyFilterViaListing = async (page: Page, beds: string) => {
   try {
-    // 1. Click Listings button
-    const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-9j6s48';
+
+    const listingsButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-1hga4oy';
     await page.waitForSelector(listingsButtonSelector);
-    const listingsButton = await page.$(listingsButtonSelector);
-    const buttonText = await page.evaluate(button => button.textContent, listingsButton);
-    if(buttonText.trim() !== 'Listings'){
-     return true; 
+    const listingsButtons = await page.$$(listingsButtonSelector);
+    console.log("Listings buttons", listingsButtons);
+    const listingsButton = listingsButtons[0];
+    console.log("Listings button", listingsButton);
+    if (listingsButton) {
+      const buttonText = await page.evaluate(button => button.textContent, listingsButton);
+      console.log("Button text", buttonText);
+      if (buttonText.trim() !== 'Listings') {
+        const listingButtonSelectorFallback = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeSmall.MuiButton-textSizeSmall.MuiButton-colorNeutral.css-9j6s48';
+        await page.waitForSelector(listingButtonSelectorFallback);
+        const listingButtonFallback = await page.$(listingButtonSelectorFallback);
+        const buttonTextFallback = await page.evaluate(button => button.textContent, listingButtonFallback);
+        console.log("Button text fallback", buttonTextFallback);
+        if (listingButtonFallback) {
+          await listingButtonFallback.click();
+        }
+      } else {
+        await listingsButton.click();
+      }
     }
+
+    const resetButtonSelector = '.MuiButtonBase-root.MuiButton-root.MuiButton-text.MuiButton-textNeutral.MuiButton-sizeMedium.MuiButton-textSizeMedium.MuiButton-colorNeutral.css-a1mucv';
+    await page.waitForSelector(resetButtonSelector);
+    const resetButton = await page.$(resetButtonSelector);
+    if (resetButton) {
+      console.log("Reset button found", resetButton);
+      await resetButton.click();
+    }
+
 
     // 2. Get all dropdowns
     const dropdowns = await page.$$('.MuiSelect-select.MuiSelect-outlined.MuiInputBase-input.MuiOutlinedInput-input.MuiInputBase-inputAdornedStart.css-1c3vwjf');
@@ -353,7 +377,7 @@ const applyFilterViaListing = async (page: Page, beds: string) => {
   }
 };
 
-export const takeScreenShots = async (page: Page, beds: string)  => {
+export const takeScreenShots = async (page: Page, beds: string) => {
   const screenshotsDir = path.join("public");
   const sessionId = randomUUID();
   const sessionDir = path.join(screenshotsDir, sessionId);
@@ -396,7 +420,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     propertyStatisticsGraphSS: null,
     nearbyPropertyLisingSS: null,
     occupancySection: null,
-    
+
   };
 
   try {
@@ -542,7 +566,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
 
 
       await waitForChartData(page, chartElements[16]);
-      
+
       // Get dimensions of the chart element
       const chartDimensions = await page.evaluate((element) => {
         if (!element) return null;
@@ -658,7 +682,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
         const occupancySection1 = await takeScreenshot(
           targetElement,
           'occupancySection1',
-        sessionDir,
+          sessionDir,
           true,
           page,
         )
@@ -673,7 +697,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       await tabs[6].click();
       await delay(6000);
 
-       const revenueChartDimensions = await page.evaluate((element) => {
+      const revenueChartDimensions = await page.evaluate((element) => {
         if (!element) return null;
         const rect = element.getBoundingClientRect();
         return {
@@ -706,7 +730,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     }
 
     // Step 3: Navigate to All Listings Section and Capture Screenshot
-    
+
 
 
     const elements = await page.$$(selectors.allListingLink);
@@ -735,16 +759,16 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
       page
     );
 
-    
+
   } catch (error) {
     console.error("Error taking screenshots:", error);
   }
 
   // count the number files we add to the sessionDir
   const files = await fs.promises.readdir(sessionDir);
-  if(files.length !== 9) {
+  if (files.length !== 9) {
     // delete the sessionDir
-    await fs.promises.rmdir(sessionDir, { recursive: true }); 
+    await fs.promises.rmdir(sessionDir, { recursive: true });
     return { screenshotSessionId: sessionId, screenShots, error: "There are missing files in the sessionDir please try again" };
   }
 
@@ -803,7 +827,7 @@ export const getDataForSpecificListing = async (
 
     page.goto(listingUrl);
 
-   
+
 
     const response = await page.waitForResponse((resp) => {
       const url = new URL(resp.url());
@@ -924,19 +948,19 @@ export const extractImagesFromListingLink = async (page: Page) => {
         } else {
           console.warn(`Element for ${key} not found.`);
         }
-       
+
       } catch (error) {
         console.warn(`Error processing ${key}:`, error);
       }
     }
 
-     // count the number files we add to the sessionDir
-     const files = await fs.promises.readdir(sessionDir);
-     if(files.length !== 6) {
+    // count the number files we add to the sessionDir
+    const files = await fs.promises.readdir(sessionDir);
+    if (files.length !== 6) {
       // delete the sessionDir
       await fs.promises.rmdir(sessionDir, { recursive: true });
-       return { screenshotSessionId: sessionId, error: "There are missing files in the sessionDir please try again" };
-     }
+      return { screenshotSessionId: sessionId, error: "There are missing files in the sessionDir please try again" };
+    }
 
     return { screenshotSessionId: sessionId, error: null };
   } catch (error) {
@@ -1074,7 +1098,7 @@ export const extractImagesFromCompetitorListingLink = async (page: Page) => {
 
     // count the number files we add to the sessionDir
     const files = await fs.promises.readdir(sessionDir);
-    if(files.length !== 8) {
+    if (files.length !== 8) {
       // delete the sessionDir
       await fs.promises.rmdir(sessionDir, { recursive: true });
       return { screenshotSessionId: sessionId, error: "There are missing files in the sessionDir please try again" };

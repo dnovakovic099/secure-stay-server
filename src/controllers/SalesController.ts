@@ -55,6 +55,7 @@ import { findTop4PeakSeasons } from "../helpers/findTop4PeakSeasons";
 import * as XLSX from 'xlsx';
 import { promisify } from 'util';
 import { calculateRevenue } from "../helpers/calculateRevenue";
+import { randomUUID } from 'crypto';
 
 interface CustomRequest extends Request {
   user?: any;
@@ -778,7 +779,7 @@ export class SalesController {
         address: string;
         bedCount: number;
         bathCount: number;
-        revenue: number;
+        revenue: string;
 
       }[] = [];
 
@@ -792,6 +793,7 @@ export class SalesController {
       try {
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
+        page.setDefaultTimeout(60000);
         const customUA = generateRandomUA();
 
         await page.setUserAgent(customUA);
@@ -807,9 +809,10 @@ export class SalesController {
 
         for (const row of data) {
           const { address, bedCount, bathCount } = row;
-          await page.waitForSelector(".css-1a9leff");
+          await new Promise(resolve => setTimeout(resolve, 20000));
           const searchInputSelector =
             'input[placeholder="Search market, submarket, or address"]';
+          await page.click(searchInputSelector);
           await page.type(searchInputSelector, address as string);
 
           const dropdownSelector = ".MuiAutocomplete-popper li";
@@ -838,10 +841,40 @@ export class SalesController {
             bathCount,
             revenue
           });
+          await new Promise(resolve => setTimeout(resolve, 10000));
         }
+
+        await browser.close();
+
+        // Generate CSV content
+        const csvHeader = 'Address,Bed Count,Bath Count,Revenue\n';
+        const csvRows = report.map(row => 
+          `"${row.address}",${row.bedCount},${row.bathCount},${row.revenue}`
+        ).join('\n');
+        const csvContent = csvHeader + csvRows;
+
+        // Create a unique directory for the CSV file
+        const sessionId = randomUUID();
+        const csvDir = path.join('public', sessionId);
+        await fs.promises.mkdir(csvDir, { recursive: true });
+
+        // Save CSV file
+        const csvFileName = 'revenue-report.csv';
+        const csvFilePath = path.join(csvDir, csvFileName);
+        await fs.promises.writeFile(csvFilePath, csvContent);
+
+        // Generate the public URL for the CSV file
+        const csvUrl = `${process.env.BASE_URL}/public/${sessionId}/${csvFileName}`;
+
+        return response.status(200).json({
+          success: true,
+          data: report,
+          csvUrl: csvUrl
+        });
 
       } catch (error) {
         console.error("Error processing file:", error);
+        await browser.close();
         return response.status(500).json({
           error: "Error processing file",
           details: error instanceof Error ? error.message : "Unknown error"
