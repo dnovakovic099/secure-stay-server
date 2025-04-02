@@ -20,11 +20,11 @@ export const login = async (page: Page, credentials: LoginCredentials) => {
       await page.click('#submit-button');
     } else {
 
-      const isEmailBtnActive = await page.evaluate((btn) => {
-        return btn.classList.contains('email-btn-active');
-      }, emailBtn);
-      if (!isEmailBtnActive) {
-        await emailBtn.click();
+    const isEmailBtnActive = await page.evaluate((btn) => {
+      return btn.classList.contains('email-btn-active');
+    }, emailBtn);
+    if (!isEmailBtnActive) {
+      await emailBtn.click();
         await page.type('#loginId', credentials.email);
         await page.type('#password', credentials.password);
         await page.click('#submit-button');
@@ -402,7 +402,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
     // await page.waitForNetworkIdle();
     delay(20000);
 
-    // await applyFilterViaListing(page, beds);
+    await applyFilterViaListing(page, beds);
 
     // Wait for network idle first
     // await page.waitForNetworkIdle();
@@ -654,7 +654,7 @@ export const takeScreenShots = async (page: Page, beds: string)  => {
         const occupancySection1 = await takeScreenshot(
           targetElement,
           'occupancySection1',
-          sessionDir,
+        sessionDir,
           true,
           page,
         )
