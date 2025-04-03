@@ -416,16 +416,16 @@ export class SalesController {
           date: [] as string[],
         }
 
-        if (competitorRevenuePotential && revenueListFromCSV.length > 0) {
-          const { competitor, prospect } = calculateProspectCompetitor(revenueListFromCSV, competitorRevenuePotential);
-          prospectCompetitorCalculation.competitor = competitor.map(val => val * 1000);
-          prospectCompetitorCalculation.prospect = prospect.map(val => val * 1000);
-          prospectCompetitorCalculation.marketAvg = revenueListFromCSV;
-          prospectCompetitorCalculation.date = revenueDateFromCSV;
-          prospectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0) * 1000;
-          prospectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0) * 1000;
-          prospectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
-        }
+      if(competitorRevenuePotential && revenueListFromCSV.length > 0) {
+        const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, (Number(competitorRevenuePotential)*1000));
+        prospectCompetitorCalculation.competitor = competitor
+        prospectCompetitorCalculation.prospect = prospect;
+        prospectCompetitorCalculation.marketAvg = revenueListFromCSV;
+        prospectCompetitorCalculation.date = revenueDateFromCSV;
+        prospectCompetitorCalculation.competitorSum = competitor.reduce((sum, val) => sum + val, 0);
+        prospectCompetitorCalculation.prospectSum = prospect.reduce((sum, val) => sum + val, 0);
+        prospectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
+      }
 
         console.log("prospectCompetitorCalculation", prospectCompetitorCalculation);
 
