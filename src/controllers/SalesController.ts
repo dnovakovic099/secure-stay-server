@@ -835,11 +835,30 @@ export class SalesController {
           await new Promise(resolve => setTimeout(resolve, 20000));
 
           const revenue = await calculateRevenue(page, address, bedCount, bathCount);
+          
+          // Format revenue: Remove '$' and 'K', convert to number with comma formatting
+          let formattedRevenue = 0;
+          if (typeof revenue === 'string') {
+            // Remove dollar sign first
+            const revenueWithoutDollar = revenue.replace('$', '');
+            
+            // Check if it has 'K' suffix and process accordingly
+            if (revenueWithoutDollar.endsWith('K')) {
+              const numValue = parseFloat(revenueWithoutDollar.replace('K', ''));
+              formattedRevenue = numValue * 1000;
+            } else {
+              formattedRevenue = parseFloat(revenueWithoutDollar);
+            }
+          }
+
+          // Format with commas and add dollar sign back
+          const revenueWithCommas = '$' + formattedRevenue.toLocaleString();
+          
           report.push({
             address,
             bedCount,
             bathCount,
-            revenue
+            revenue: revenueWithCommas
           });
           await new Promise(resolve => setTimeout(resolve, 10000));
         }
@@ -849,7 +868,7 @@ export class SalesController {
         // Generate CSV content
         const csvHeader = 'Address,Bed Count,Bath Count,Revenue\n';
         const csvRows = report.map(row => 
-          `"${row.address}",${row.bedCount},${row.bathCount},${row.revenue}`
+          `"${row.address}",${row.bedCount},${row.bathCount},"${row.revenue}"`
         ).join('\n');
         const csvContent = csvHeader + csvRows;
 
