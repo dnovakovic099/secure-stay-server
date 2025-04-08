@@ -1,0 +1,350 @@
+<tr style="position: relative;">
+
+  <% function formatRevenue(revenue) { %>
+    <%= revenue.toLocaleString('en-US', { minimumFractionDigits: 2 }) %>
+      <% } %>
+        <td class="page" id="page-5" style="position: relative;">
+          <%- include('./uis/badge') %>
+          <div class="page-content padding-inline-50" style="padding: 30px 20px 20px;gap: 0px;">
+            <table>
+              <tbody>
+                <tr>
+                  <td width="35%">
+                    <h1 class="cursive-heading" style="font-size: 2.2rem; line-height: 1.7; margin-top: 40px">
+                      <span>Market</span> <br />
+                      &nbsp;
+                      <span> Overview</span>
+                    </h1>
+                  </td>
+                  <td width="55%">
+                    <div style="position: relative; display: inline-block">
+                      <img width="400px" height="280px" src="<%= MAC_BOOK_IMAGE %>" alt="MacBook" />
+                      <div style="
+                    position: absolute;
+                    top: 5%;
+                    left: 13%;
+                    width: 74%;
+                    height: 64%;
+                    background-image: url('<%= PAGE_4_IMAGE %>');
+                    background-position: center;
+                    background-repeat: no-repeat;
+                    background-color: white;
+                    background-size: 100%;
+                    padding: 10px;
+                    box-sizing: border-box;
+                  "></div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <% function circleData() { %> [ { iconClass: "fa-solid
+              fa-hand-holding-hand", circleSize: 60, justify: "end", offset: "right:
+              50px; bottom: -50px;", rotate: "40deg", textPosition: "left: -100%; top:
+              0", title: "Filter", content: "<%= clientData.beds %> BR · <%= clientData.baths %> Bath · <%=
+                    clientData.guests %> Guests" }, {
+                    iconClass: "fa-solid fa-hand-holding-hand", circleSize: 40, justify:
+                    "start", offset: "right: 48px; bottom: -50px;", rotate: "-40deg",
+                    textPosition: "right: -160%; top: 0", title: "Annual Revenue Projection",
+                    content: "$ <%= formatRevenue(listingData.revenue) %>" }, { iconClass:
+                      "fa-solid fa-hand-holding-hand", circleSize: 40, justify: "end", offset:
+                      "right: 50px; bottom: -50px;", rotate: "40deg", textPosition: "left:
+                      -100%; top: 0", title: "AVG Occupancy Rate", content: "<%= (listingData.occupancy *
+                        100).toFixed(2) %> %" }, { iconClass: "fa-solid
+                        fa-hand-holding-hand", circleSize: 40, justify: "start", offset: "right:
+                        48px; bottom: -50px;", rotate: "-40deg", textPosition: "right: -100%; top:
+                        0", title: "AVG Daily Rate", content: "<%= dailyRate %>" }, { iconClass:
+                          "fa-solid fa-hand-holding-hand", circleSize: 40, justify: "end", offset:
+                          "right: 50px; bottom: -50px;", rotate: "40deg", textPosition: "left:
+                          -100%; top: 0", title: "AVG RevPAR", content: "$<%= revPar %>" }, {
+                            iconClass: "fa-solid fa-hand-holding-hand", circleSize: 40, justify:
+                            "start", offset: "", rotate: "", textPosition: "right: -140%; top: 0",
+                            title: "Market Score", content: "<%= Math.round(listingData.marketScore) %> /
+                              100\nIndicating strong potential" } ] <% } %>
+                                <div class="revenue-container" style="
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+        ">
+                                  <div style="position: relative">
+                                    <img src="<%= REVENUE_ICONS %>" style="width: 170px" />
+                                    <div style="
+              position: absolute;
+              top: 20px;
+              right: 80%;
+              width: max-content;
+              text-align: right;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;
+                letter-spacing: 1px;
+                line-height: 1;
+                margin-bottom: 8px;
+                font-family: var(--font-body-text);
+              ">
+                                        Filter
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1rem;
+                font-family: var(--font-address);
+                letter-spacing: 1px;
+                line-height: 1;
+                text-align: right;
+              ">
+                                        <%= clientData.beds %> BR
+                                          <!-- · <%= clientData.baths %> Bath · <%=
+              clientData.guests %> Guests -->
+                                      </p>
+                                    </div>
+                                    <div style="
+              position: absolute;
+              top: 110px;
+              left: 80%;
+              width: max-content;
+              text-align: left;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;
+                letter-spacing: 1px;
+                line-height: 1;
+                font-family: var(--font-body-text);
+                margin-bottom: 8px;
+              ">
+                                        Annual Revenue Projection
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1.4rem;
+                line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-address);
+              ">
+                                        $<%= formatRevenue(listingData.revenue) %>
+                                      </p>
+                                    </div>
+                                    <div style="
+              position: absolute;
+              top: 200px;
+              right: 80%;
+              width: max-content;
+              text-align: right;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;
+                letter-spacing: 1px;
+                line-height: 1;
+                font-family: var(--font-body-text);
+                margin-bottom: 8px;
+              ">
+                                        <% const occupancyRate=listingData.occupancy*100 %> AVG Occupancy
+                                          Rate
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1.4rem;
+                line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-address);
+                text-align: right;
+              ">
+                                        <%= occupancyRate.toFixed(2) %> %
+                                      </p>
+                                    </div>
+                                    <div style="
+              position: absolute;
+              top: 290px;
+              left: 80%;
+              width: max-content;
+              text-align: left;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;
+                letter-spacing: 1px;
+                line-height: 1;
+                font-family: var(--font-body-text);
+                margin-bottom: 8px;
+              ">
+                                        AVG Daily Rate
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1.4rem;
+                font-family: var(--font-address);
+                text-align: left;
+                letter-spacing: 1px;
+                line-height: 1;
+              ">
+                                        $<%= dailyRate %>
+                                      </p>
+                                    </div>
+                                    <div style="
+              position: absolute;
+              top: 380px;
+              right: 80%;
+              width: max-content;
+              text-align: right;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;  
+                line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-body-text);
+                margin-bottom: 8px;
+              ">
+                                        Peak Season
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1.4rem;
+                letter-spacing: 1px;
+                font-family: var(--font-address);
+                line-height: 1;
+                text-align: right;
+                ">
+                                        <%= top4PeakSeasons[0] %>, <%= top4PeakSeasons[1] %><br>
+                                            <%= top4PeakSeasons[2] %>, <%= top4PeakSeasons[3] %>
+                                      </p>
+                                    </div>
+                                    <div style="
+              position: absolute;
+              top: 465px;
+              left: 80%;
+              width: max-content;
+              text-align: left;
+            ">
+                                      <h6 style="
+                color: black;
+                font-weight: 700;
+                font-size: 1.2rem;
+                line-height: 1;
+                letter-spacing: 1px;
+                margin-bottom: 8px;
+                font-family: var(--font-body-text);
+              ">
+                                        Market Score
+                                      </h6>
+                                      <p style="
+                color: black;
+                font-weight: 500;
+                font-size: 1.4rem;
+                line-height: 1;
+                letter-spacing: 1px;
+                font-family: var(--font-address);
+                text-align: left;
+              ">
+                                        <%= Math.round(listingData.marketScore) %> / 100
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 20px;">
+                                  <div style="border-radius: 12px;flex: 1;overflow: hidden;">
+                                    <div style="display: flex; justify-content: center; gap: 30px;">
+                                      <img src="<%= PAGE_4_CARDS.occupancySection1 %>" alt="Occupancy Section 1"
+                                        style="width: 200px; height: 110px; border: 1px solid #efecec; border-radius: 15px; box-shadow: 0 4px 8px rgb(45 44 44 / 10%);" />
+                                      <img src="<%= PAGE_4_CARDS.occupancySection2 %>" alt="Occupancy Section 2"
+                                        style="width: 200px; height: 110px; border: 1px solid #efecec; border-radius: 15px; box-shadow: 0 4px 8px rgb(45 44 44 / 10%);" />
+                                      <img src="<%= PAGE_4_CARDS.occupancySection3 %>" alt="Occupancy Section 3"
+                                        style="width: 200px; height: 110px; border: 1px solid #efecec; border-radius: 15px; box-shadow: 0 4px 8px rgb(45 44 44 / 10%);" />
+                                    </div>
+                                  </div>
+
+                                </div>
+                                <%- include('./logo') %>
+          </div>
+        </td>
+</tr>
+<tr>
+  <td class="page" id="page-6" style="position: relative;">
+    <%- include('./uis/badge') %>
+    <div class="page-content padding-inline-50" style="padding: 30px 20px 20px;gap: 0px;">
+      <h1 class="cursive-heading" style="font-size: 1.2rem;line-height: 1.5;">Market Overview</h1>
+      <div class="box white">
+        <% const randomOption=Math.floor(Math.random() * 2) + 1; const texts={ 1: { occupancy: { positive: `The market's
+          occupancy growth over the past year indicates strong demand, suggesting that properties are securing a steady
+          flow of bookings. However, sustaining this trend requires a strategic ADR approach to ensure that increased
+          occupancy translates into higher revenue per stay rather than discounted rates. Luxury Lodging will refine
+          pricing strategies to push ADR higher while maintaining strong booking momentum, ensuring optimal
+          profitability.`, negative: `Occupancy rate suggests increased market competition or shifting demand patterns
+          affecting booking volume. This signals a need for adjustments in ADR positioning, balancing competitive
+          pricing with incentives like last-minute discounts and optimized length-of-stay strategies. Luxury Lodging
+          will implement a data-driven approach to boost occupancy through targeted rate optimizations and demand-driven
+          pricing adjustments.` }, revenue: { positive: `Revenue growth over the past year indicates that properties are
+          capitalizing on strong market conditions and well-optimized ADR strategies. To maintain this momentum, it's
+          essential to continuously refine pricing to capture peak demand periods without leaving money on the table.
+          Luxury Lodging will leverage real-time market insights to further enhance ADR and maximize total revenue per
+          available night.`, negative: `The revenue trend, despite market activity, suggests that ADR strategies may not
+          be effectively aligned with demand trends. This indicates a need for more dynamic pricing adjustments,
+          improved booking incentives, and better timing of rate changes to optimize revenue potential. Luxury Lodging
+          will analyze market data and competitor performance to restructure ADR strategies, ensuring improved revenue
+          performance while maintaining competitive positioning.` } }, 2: { occupancy: { positive: `Increasing occupancy
+          over the past year indicates strong market demand and effective booking strategies. However, sustaining this
+          growth requires optimizing ADR to ensure that higher occupancy translates into greater revenue, not lower
+          rates. Luxury Lodging will strategically adjust pricing to capitalize on demand, ensuring that each booked
+          night contributes to maximizing revenue.`, negative: `The occupancy suggests that market demand has shifted,
+          or pricing is not aligned with guest expectations. To address this, a strategic ADR review is needed to
+          balance competitive pricing with rate adjustments that attract bookings without sacrificing profitability.
+          Luxury Lodging will implement dynamic pricing strategies and targeted promotions to boost occupancy while
+          maintaining strong revenue potential.` }, revenue: { positive: `Revenue growth reflects effective pricing
+          strategies and an ability to capture high-value bookings. To sustain this, ADR should be continuously
+          optimized to maximize earnings during peak demand while maintaining strong occupancy in slower periods. Luxury
+          Lodging will refine pricing structures and seasonal adjustments to ensure long-term revenue expansion.`,
+          negative: `Revenue trend suggests that ADR may not be competitive or aligned with market trends. Adjustments
+          are needed to optimize pricing tiers, length-of-stay requirements, and discounting strategies to improve
+          conversion rates. Luxury Lodging will implement data-driven pricing refinements to reposition the property for
+          stronger revenue performance.` } } }; const selectedTexts=texts[randomOption]; %>
+          <div class="box-label" style="height: 45px;padding-top: 20px;">
+            <span style="
+              font-family: var(--font-cursive);
+              margin-bottom: 10px;
+              font-size: 1rem;
+              letter-spacing: 1px;
+            ">
+              Occupancy
+            </span>
+          </div>
+
+          <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_1 %>" alt="reload page" />
+          <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1; margin-top: 10px;">
+            <%= propertyDetails.marketOverviewOccupancy ? selectedTexts.occupancy.negative :
+              selectedTexts.occupancy.positive %>
+          </p>
+      </div>
+      <div class="box white">
+        <div class="box-label" style="height: 45px;padding-top: 20px;">
+          <span class="box-label" style="
+              font-family: var(--font-cursive);
+              margin-bottom: 10px;
+              font-size: 1rem;
+              letter-spacing: 1px;
+            ">
+            Revenue
+          </span>
+        </div>
+
+        <img style="height: 250px; object-fit: cover" src="<%= PAGE_6_IMG_2 %>" alt="reload page" />
+        <p style="font-size: 0.9rem; font-family: var(--font-body-text);line-height: 1.1; margin-top: 10px;">
+          <%= propertyDetails.marketOverviewRevenue ? selectedTexts.revenue.negative : selectedTexts.revenue.positive %>
+        </p>
+      </div>
+      <%- include('./logo') %>
+    </div>
+  </td>
+</tr>

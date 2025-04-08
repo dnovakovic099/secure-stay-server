@@ -62,7 +62,6 @@ export class HostAwayClient {
     if (params?.offset) url += `&offset=${params.offset}`;
     if (params?.listingId) url += `&listingId=${params.listingId}`;
 
-    console.log(url);
     try {
       const authResponse = await this.getAuthToken();
       this.accessToken = authResponse.data?.access_token;
@@ -154,10 +153,10 @@ export class HostAwayClient {
           Authorization: `Bearer ${token}`,
         },
       });
-      console.log(response.data);
+      logger.info(response.data);
       return response.data?.result;
     } catch (error) {
-      console.log(error?.response?.data);
+      logger.error(error?.response?.data);
       return null;
     }
   }
@@ -187,10 +186,10 @@ export class HostAwayClient {
           Authorization: `Bearer ${token}`,
         },
       });
-      console.log(response.data);
+      logger.info(response.data);
       return response.data?.result;
     } catch (error) {
-      console.log(error?.response?.data);
+      logger.error(error?.response?.data);
       return null;
     }
   }
@@ -233,7 +232,7 @@ export class HostAwayClient {
 
       return response.data?.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -253,7 +252,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -273,7 +272,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -311,7 +310,7 @@ export class HostAwayClient {
 
       return expenses;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -331,7 +330,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -350,7 +349,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -371,7 +370,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }
@@ -391,7 +390,7 @@ export class HostAwayClient {
 
       return response.data.result;
     } catch (error) {
-      console.log(error);
+      logger.error(error);
       return null;
     }
   }

@@ -1,0 +1,224 @@
+<tr>
+  <td class="page" id="page-4" style="position: relative;">
+    <%- include('./uis/badgeRight') %>
+    <div>
+    <div class="page-content padding-inline-50" style="padding-top: 50px;">
+      <h1 class="cursive-heading" style="font-size: 1.2rem;">Revenue Projection</h1>
+      <div style="">
+        <table class="styled-table" style="
+            box-shadow: 0 4px 4px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            text-align: center;
+            border-collapse: collapse;
+            border: 1px solid #e7e7e7;
+          ">
+          <thead>
+            <tr>
+              <th class="table-header-cell" style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 600;
+                  text-transform: uppercase;
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
+                MONTH
+              </th>
+              <th class="table-header-cell" style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 600;
+                  text-transform: uppercase;
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
+                PROSPECT
+              </th>
+              <th class="table-header-cell" style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 600;
+                  text-transform: uppercase;
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
+                MARKET AVG
+              </th>
+              <th class="table-header-cell" style="
+                  background-color: var(--clr-primary);
+                  font-size: 1.3rem;
+                  color: black;
+                  font-weight: 600;
+                  padding: 4px 0;
+                  text-transform: uppercase;
+                  font-family: var(--font-body-text);
+                  vertical-align: middle;
+                ">
+                Scuttle Luxury <br />
+                Vacation Pool <br />
+                Home
+              </th>
+            </tr>
+          </thead>
+          <tbody style="font-family: var(--font-body-text);">
+            <% 
+            if (prospectCompetitorCalculation && prospectCompetitorCalculation.date && prospectCompetitorCalculation.date.length > 0) {
+              for (let i = 0; i < prospectCompetitorCalculation.date.length; i++) { 
+                const monthDate = prospectCompetitorCalculation.date[i] || 'N/A';
+                const prospectValue = prospectCompetitorCalculation.prospect[i] !== undefined ? prospectCompetitorCalculation.prospect[i] : 'N/A';
+                const marketAvgValue = prospectCompetitorCalculation.marketAvg[i] !== undefined ? prospectCompetitorCalculation.marketAvg[i] : 'N/A';
+                const competitorValue = prospectCompetitorCalculation.competitor[i] !== undefined ? prospectCompetitorCalculation.competitor[i] : 'N/A';
+            %>
+              <tr>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
+                  <%= monthDate %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                  <strong style="color: black">
+                    <%= typeof prospectValue === 'number' ? '$' + prospectValue.toLocaleString() : prospectValue %>
+                  </strong>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  <%= typeof marketAvgValue === 'number' ? '$' + Number(marketAvgValue.toFixed(1)).toLocaleString() : marketAvgValue %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  <%= typeof competitorValue === 'number' ? '$' + competitorValue.toLocaleString() : competitorValue %>
+                </td>
+              </tr>
+            <% 
+              }
+            } else {
+              // Fallback to old calculation if prospectCompetitorCalculation is not available
+              const yearlyData = revenueRange[currentYear.toString()];
+              let totalClient = 0, totalMarketAvg = 0, totalCompetitor = 0;
+              
+              Object.entries(yearlyData).forEach(([month, data]) => {
+                const client = data.lower;
+                const marketAvg = (data.upper + data.lower) / 2;
+                const competitor = data.upper;
+                
+                totalClient += client;
+                totalMarketAvg += marketAvg;
+                totalCompetitor += competitor;
+            %>
+              <tr>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);font-weight: 500;color: #000;">
+                  <%= new Date(currentYear, month - 1).toLocaleString('default', { month: 'long' }) %> '<%=
+                      currentYear.toString().slice(-2) %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                  <strong style="color: black">
+                    $<%= client.toLocaleString() %>
+                  </strong>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  $<%= Number(marketAvg.toFixed(1)).toLocaleString() %>
+                </td>
+                <td class="table-body-cell" style="font-family: var(--font-body-text); font-weight: 500;color: #000;">
+                  $<%= competitor.toLocaleString() %>
+                </td>
+              </tr>
+            <% }); %>
+            <% 
+              // Store the totals for use outside this block
+              prospectCompetitorCalculation = {
+                prospectSum: totalClient,
+                marketAvgSum: totalMarketAvg,
+                competitorSum: totalCompetitor
+              };
+            }
+            %>
+                <tr>
+                  <td class="table-body-cell"
+                    style="font-weight: 700; color: #000; font-family: var(--font-body-text);">
+                    TOTAL
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      <%= typeof prospectCompetitorCalculation.prospectSum === 'number' ? '$' + prospectCompetitorCalculation.prospectSum.toLocaleString() : 'N/A' %>
+                    </strong>
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      <%= typeof prospectCompetitorCalculation.marketAvgSum === 'number' ? '$' + Number(prospectCompetitorCalculation.marketAvgSum.toFixed(2)).toLocaleString() : 'N/A' %>
+                    </strong>
+                  </td>
+                  <td class="table-body-cell" style="font-family: var(--font-body-text);">
+                    <strong style="color: black; font-size: 18px">
+                      <%= typeof prospectCompetitorCalculation.competitorSum === 'number' ? '$' + prospectCompetitorCalculation.competitorSum.toLocaleString() : 'N/A' %>
+                    </strong>
+                  </td>
+                </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="box" style="
+          font-family: var(--font-body-text);
+          border: 1px solid var(--clr-primary);
+          padding: 20px;
+          padding-bottom: 50px;
+          margin-bottom: -40px;
+          position: relative;
+          background: none;
+          letter-spacing: 0.6px;
+          font-size: 1.1rem;
+          line-height: 1.5;
+        "
+      >
+        <% 
+        const revenueRandomOption = Math.floor(Math.random() * 3) + 1;
+
+        const revenueProjectionTexts = {
+            1: {
+                higher: `The revenue projections for your property indicates a strong earning potential, exceeding the performance of a top competitor in the market. This advantage suggests that the property is well-positioned due to favorable pricing, stronger demand, or superior amenities. To maintain this lead, we recommend fine-tuning dynamic pricing strategies, optimizing listing visibility, and enhancing guest engagement to secure premium bookings. With Luxury Lodging's expertise, we will ensure that the property not only sustains its advantage but also capitalizes on additional revenue opportunities throughout the year.`,
+                lower: `The initial revenue projection for your property currently falls below that of a specific competitor, indicating an opportunity to refine the approach and increase earnings through strategic adjustments. Factors such as pricing optimization, improved listing presentation and offerings, and enhanced guest experience can directly influence performance and close the gap. By leveraging real-time market insights and revenue management expertise, we will implement a targeted strategy to improve bookings and elevate earnings. With the right adjustments, we can effectively compete with and potentially surpass top competitors in both occupancy and revenue.`
+            },
+            2: {
+                higher: `The projected revenue for your property is set to outperform a top competitor, signaling a strong position within the market. This indicates that the property has key advantages—whether in pricing strategy, location appeal, or amenity offerings—that drive higher demand. However, maintaining this lead requires continuous optimization to ensure the property remains ahead as market conditions shift. Through Luxury Lodging's proactive revenue management, data-driven pricing adjustments, and guest-centric strategies, we will not only sustain this advantage but also explore opportunities to further maximize profitability and secure high-value bookings.`,
+                lower: `While the current revenue projection for your property is below that of a top competitor, this presents a clear opportunity for strategic improvement. Often, the difference in performance can be attributed to listing optimization and appeal, competitive pricing, or guest experience enhancements—all of which can be fine-tuned for better results. With Luxury Lodging's expertise in dynamic pricing, market positioning, and operational excellence, we will implement targeted strategies to increase visibility, optimize rates, and attract more bookings. The goal is not just to close the gap but to position your property as a top performer within its competitive set, ensuring long-term revenue growth and profitability.`
+            },
+            3: {
+                higher: `The revenue projections for your property indicate a strong market position, surpassing the estimated earnings of a top competitor. This performance advantage suggests that the property is already leveraging key strengths such as a competitive pricing model, desirable amenities, or a well-optimized listing. However, outperforming a competitor is not just about holding an edge—it's about sustained strategy and proactive revenue management. By continuously refining pricing structures, enhancing the guest experience, and leveraging data-driven insights, Luxury Lodging ensures that your property not only maintains its lead but also maximizes every revenue opportunity available.`,
+                lower: `While your property currently lags behind a top competitor in projected revenue, this is a fixable gap—one that strategic management can close and even reverse. Revenue performance is never static; it's a result of pricing precision, visibility, and guest experience. By implementing targeted adjustments—such as fine-tuning pricing tiers, strengthening listing appeal, and optimizing booking incentives—Luxury Lodging will reposition your property for stronger earnings. Our proactive approach ensures that the property doesn't just compete—it stands out, attracts more bookings, and secures higher returns over time.`
+            }
+        };
+
+        const selectedRevenueText = revenueProjectionTexts[revenueRandomOption];
+        %>
+
+        <p>
+            <%= (prospectCompetitorCalculation && typeof prospectCompetitorCalculation.prospectSum === 'number' && 
+                typeof prospectCompetitorCalculation.marketAvgSum === 'number' && 
+                prospectCompetitorCalculation.prospectSum > prospectCompetitorCalculation.marketAvgSum) ? 
+                selectedRevenueText.higher : selectedRevenueText.lower %>
+        </p>
+      </div>
+    </div>
+    <div class="image-section" style="position: relative; background-color: #000; margin-top: -40px;">
+      <img src="<%= propertyDetails.images[5] %>" alt="" style="opacity: 0.5" />
+      <h6 style="
+          position: absolute;
+          top: 15%;
+          transform: translateY(-50%);
+          text-align: right;
+          font-family: var(--font-cursive);
+          width: 100%;
+          font-size: 1.2rem;
+          color: white;
+          padding-right: 30px;
+          line-height: 1.2;
+          font-weight: 400;
+        ">
+        continue to learn more...
+      </h6>
+    </div>
+    <div style="display: inline-block; z-index: 0">
+      <img style="position: absolute; bottom: 0; right: 0" src="<%= LOGO_WHITE_URL %>" alt="reload page"
+        width="130" />
+    </div>
+    </div>
+  </td>
+</tr>

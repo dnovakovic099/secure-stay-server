@@ -8,13 +8,26 @@ import { appDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
-import path from "path";
+import logger from "./utils/logger.utils";
+
+// 🔹 Handle uncaught exceptions at the very top
+process.on("uncaughtException", (err) => {
+  logger.error("🔥 Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("🚨 Unhandled Promise Rejection:", reason);
+});
 
 const main = async () => {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
+  // app.use(express.json());
   app.use("/uploads", express.static("uploads"));
+  app.use("/public", express.static("public"));
+  app.use("/assets",express.static("assets"));
+
   app.listen(process.env.PORT);
   scheduleGetReservation();
   app.use(appRoutes);
