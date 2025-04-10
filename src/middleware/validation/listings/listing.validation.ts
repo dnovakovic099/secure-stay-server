@@ -78,6 +78,8 @@ export const validateSaveListingDetail = (request: Request, response: Response, 
     listingId: Joi.number().required(),
     propertyOwnershipType: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned"),
     statementDurationType: Joi.string().required().valid("Monthly", "Weekly & Bi-weekly").allow(null, ""),
+    claimProtection: Joi.boolean().required(),
+    hidePetFee: Joi.boolean().required()
   });
 
   const { error } = schema.validate(request.body);

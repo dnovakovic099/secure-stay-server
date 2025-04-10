@@ -332,11 +332,13 @@ export class AccountingReportService {
       id: number;
       listingMapId: number;
       channelId: number;
+      cleaningFee: number;
     },
     clientId: string,
     clientSecret: string,
     pmFee: number,
-    isClaimProtection: boolean
+    isClaimProtection: boolean,
+    hidePetFee: boolean
   ) {
     // Fetch finance standard fields
     const financeStandardField = await this.hostaWayClient.financeStandardField(
@@ -363,6 +365,7 @@ export class AccountingReportService {
     let insuranceFee = 0;
     let airbnbCommission = 0;
     let vrboCommission = 0;
+    let airbnbCleaningFeeIssue = false;
 
     // Constants for special listingMapId cases
     // const specialListingMapIds = [286718, 286720];
@@ -376,16 +379,24 @@ export class AccountingReportService {
 
     //   return adjustedOwnerPayout * pmFee;
     // };
+    if (reservation.cleaningFee != financeStandardField.cleaningFeeValue) {
+      airbnbCleaningFeeIssue = true;
+    }
 
     linenFeeAirbnb = financeStandardField?.linenFeeAirbnb || 0;
     insuranceFee = financeStandardField?.insuranceFee || 0;
 
     // Calculate financial fields based on channelId
     if (reservation.channelId === 2018) {
+
+      if (airbnbCleaningFeeIssue && linenFeeAirbnb == 0) {
+        linenFeeAirbnb = financeStandardField.cleaningFeeValue - reservation.cleaningFee;
+      }
+
       airbnbPayoutSum = financeStandardField.airbnbPayoutSum;
       // ownerPayout = airbnbPayoutSum + directPayout; // old formula
-      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1)) : 0;
-      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
+      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
+      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
       airbnbCommission = (airbnbPayoutSum + claimsProtection - linenFeeAirbnb) * pmFee;
       pmCommission = (airbnbCommission + vrboCommission);
       ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
@@ -407,7 +418,7 @@ export class AccountingReportService {
         financeStandardField.baseRate,
         financeStandardField.cleaningFeeValue,
         totalTax,
-        financeStandardField.petFee,
+        hidePetFee ? 0 : financeStandardField.petFee,
         financeStandardField.weeklyDiscount,
         financeStandardField.couponDiscount,
         financeStandardField.monthlyDiscount,
@@ -417,9 +428,9 @@ export class AccountingReportService {
 
       paymentProcessing = (directPayout * 0.03);
       // ownerPayout = airbnbPayoutSum + directPayout;
-      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb - insuranceFee) * (-0.1)) : 0;
-      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb - insuranceFee);
-      vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing - insuranceFee) * pmFee;
+      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
+      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
+      vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing) * pmFee;
       pmCommission = (airbnbCommission + vrboCommission);
       ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
     }
@@ -449,6 +460,7 @@ export class AccountingReportService {
 
       let pmFee = (listingPmFee.find((listing) => listing.listingId == reservation.listingMapId)?.pmFee) / 100 || 0;
       let isClaimProtection = !!listingDetail.claimProtection;
+      let hidePetFee = !!listingDetail.hidePetFee;
 
       //calculate ownerPayout, paymentProcessing and pmCommission
       let {
@@ -460,7 +472,7 @@ export class AccountingReportService {
         revenue,
         managementFee,
         payout,
-      } = await this.calculateFinancialFields(reservation, clientId, clientSecret, pmFee, isClaimProtection);
+      } = await this.calculateFinancialFields(reservation, clientId, clientSecret, pmFee, isClaimProtection, hidePetFee);
 
       let totalNights = reservation.nights;
       let totalAmount = reservation.totalPrice;
