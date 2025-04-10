@@ -27,4 +27,7 @@ export class MobileUsersEntity {
 
   @Column({ type: 'varchar', length: 100, nullable: false })
   user_id: string;
+
+  @Column({ nullable: true, default: null })
+  referralCode: string;
 }
