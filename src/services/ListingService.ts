@@ -286,6 +286,8 @@ export class ListingService {
   public async updateListingDetail(body: Partial<ListingDetail>, listingDetail: Partial<ListingDetail>, userId: string) {
     listingDetail.propertyOwnershipType = body.propertyOwnershipType;
     listingDetail.statementDurationType = body.statementDurationType;
+    listingDetail.claimProtection= body.claimProtection;
+    listingDetail.hidePetFee=body.hidePetFee;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }
