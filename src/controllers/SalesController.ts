@@ -44,7 +44,7 @@ import {
   REVENUE_ICONS,
   BADGE_RIGHT_TOP,
   BADGE_LEFT_BOTTOM,
-  } from "../constants";
+} from "../constants";
 import path from "path";
 import ejs from "ejs";
 import fs from "fs";
@@ -52,9 +52,24 @@ import logger from "../utils/logger.utils";
 import { calculateProspectCompetitor } from "../helpers/calculateProspectCompetitor";
 import { calculateMonthlyAverageRevPAR } from "../helpers/calculateMonthlyAverageRevPAR";
 import { findTop4PeakSeasons } from "../helpers/findTop4PeakSeasons";
+import * as XLSX from 'xlsx';
+import { promisify } from 'util';
+import { calculateRevenue } from "../helpers/calculateRevenue";
+import { randomUUID } from 'crypto';
 
 interface CustomRequest extends Request {
   user?: any;
+}
+
+const readFileAsync = promisify(fs.readFile);
+
+interface ExcelRow {
+  address?: string;
+  Address?: string;
+  bathCount?: string | number;
+  BathCount?: string | number;
+  bedCount?: string | number;
+  BedCount?: string | number;
 }
 
 export class SalesController {
@@ -154,7 +169,7 @@ export class SalesController {
       await new Promise(resolve => setTimeout(resolve, 20000));
 
 
-      
+
       if (!listings.length) {
         await browser.close();
         response
@@ -166,9 +181,9 @@ export class SalesController {
       await new Promise(resolve => setTimeout(resolve, 20000));
       const apiResponse = await setBedBathGuestCounts(page, rest);
 
-      const screenShots = await takeScreenShots(page,rest.beds);
+      const screenShots = await takeScreenShots(page, rest.beds);
 
-      if(screenShots.error) {
+      if (screenShots.error) {
         await browser.close();
         return response.status(400).json({
           error: screenShots.error,
@@ -233,25 +248,25 @@ export class SalesController {
           screenshotSessionId,
           propertyScreenshotSessionId,
           details,
-          rating:listingRating,
+          rating: listingRating,
           metrics,
         } = fetchedClient.listing;
 
 
         const {
-          occupancy:listingOccupancy,
+          occupancy: listingOccupancy,
         } = metrics;
 
         const competitorRating = fetchedCompetitor.rating;
 
 
         const {
-          occupancy:competitorOccupancy,
+          occupancy: competitorOccupancy,
         } = fetchedCompetitor.metrics;
 
         console.log("screenshotSessionId", screenshotSessionId);
 
-        const {propertyScreenshotSessionId:specificCompetitorScreenshotSessionId} = fetchedCompetitor;
+        const { propertyScreenshotSessionId: specificCompetitorScreenshotSessionId } = fetchedCompetitor;
 
         console.log("specificCompetitorScreenshotSessionId", specificCompetitorScreenshotSessionId);
 
@@ -282,13 +297,13 @@ export class SalesController {
         const occupancySection3SS = imageToBase64(
           path.join(screenshotFolderPath, "occupancySection3.png")
         );
-        
+
         const averageMonthlyOccupancyChartSS = imageToBase64(
           path.join(screenshotFolderPath, "averageMonthlyOccupancyChart.png")
         );
 
 
-       
+
 
         const revparCsvFilePath = path.join(screenshotFolderPath, 'revparHighestInYear_last_12_month.csv');
         const revparCsvData = fs.readFileSync(revparCsvFilePath, 'utf8');
@@ -354,52 +369,52 @@ export class SalesController {
             path.join(propertyScreenshotFolderPath, "statSection.png")
           ),
           airbnbLink: "",
-          occupancy:listingOccupancy,
-          rating:listingRating,
+          occupancy: listingOccupancy,
+          rating: listingRating,
         };
 
         const listingAirbnbLinkPath = path.join(propertyScreenshotFolderPath, "airbnb-link.txt");
         const listingAirbnbLink = fs.readFileSync(listingAirbnbLinkPath, "utf8").trim();
-      specificListing.airbnbLink = listingAirbnbLink;
+        specificListing.airbnbLink = listingAirbnbLink;
 
-      const specificCompetitor = {
-        heroSection: imageToBase64(
-          path.join(specificCompetitorScreenshotFolderPath, "heroSection.png")
-        ),
-        middleSection: imageToBase64(
-          path.join(specificCompetitorScreenshotFolderPath, "imgSection.png")
-        ),
-        statSection: imageToBase64(
-          path.join(specificCompetitorScreenshotFolderPath, "statSection.png")
-        ),
-        airbnbLink: "",
-        occupancy:competitorOccupancy,
-        rating:competitorRating,
-      };
+        const specificCompetitor = {
+          heroSection: imageToBase64(
+            path.join(specificCompetitorScreenshotFolderPath, "heroSection.png")
+          ),
+          middleSection: imageToBase64(
+            path.join(specificCompetitorScreenshotFolderPath, "imgSection.png")
+          ),
+          statSection: imageToBase64(
+            path.join(specificCompetitorScreenshotFolderPath, "statSection.png")
+          ),
+          airbnbLink: "",
+          occupancy: competitorOccupancy,
+          rating: competitorRating,
+        };
 
-      let competitorRevenuePotential = null;
+        let competitorRevenuePotential = null;
 
-      const competitorRevenuePotentialPath = path.join(specificCompetitorScreenshotFolderPath, "competitor-revenue-potential.txt");
-      if (fs.existsSync(competitorRevenuePotentialPath)) {
-        const revenueString = fs.readFileSync(competitorRevenuePotentialPath, "utf8").trim();
-        competitorRevenuePotential = parseFloat(revenueString);
-      }
+        const competitorRevenuePotentialPath = path.join(specificCompetitorScreenshotFolderPath, "competitor-revenue-potential.txt");
+        if (fs.existsSync(competitorRevenuePotentialPath)) {
+          const revenueString = fs.readFileSync(competitorRevenuePotentialPath, "utf8").trim();
+          competitorRevenuePotential = parseFloat(revenueString);
+        }
 
-      console.log("competitorRevenuePotential", competitorRevenuePotential);
+        console.log("competitorRevenuePotential", competitorRevenuePotential);
 
-      const competitorNamePath = path.join(specificCompetitorScreenshotFolderPath, "competitor-name.txt");
-      const competitorName = fs.readFileSync(competitorNamePath, "utf8").trim();
-      console.log("competitorName", competitorName);
-      
-      const prospectCompetitorCalculation = {
-        competitor: [] as number[],
-        competitorSum: 0,
-        prospect: [] as number[],
-        prospectSum: 0,
-        marketAvg: [] as number[],
-        marketAvgSum: 0,
-        date: [] as string[],
-      }
+        const competitorNamePath = path.join(specificCompetitorScreenshotFolderPath, "competitor-name.txt");
+        const competitorName = fs.readFileSync(competitorNamePath, "utf8").trim();
+        console.log("competitorName", competitorName);
+
+        const prospectCompetitorCalculation = {
+          competitor: [] as number[],
+          competitorSum: 0,
+          prospect: [] as number[],
+          prospectSum: 0,
+          marketAvg: [] as number[],
+          marketAvgSum: 0,
+          date: [] as string[],
+        }
 
       if(competitorRevenuePotential && revenueListFromCSV.length > 0) {
         const {competitor, prospect} = calculateProspectCompetitor(revenueListFromCSV, (Number(competitorRevenuePotential)*1000));
@@ -412,13 +427,13 @@ export class SalesController {
         prospectCompetitorCalculation.marketAvgSum = revenueListFromCSV.reduce((sum, val) => sum + val, 0);
       }
 
-      console.log("prospectCompetitorCalculation", prospectCompetitorCalculation);
+        console.log("prospectCompetitorCalculation", prospectCompetitorCalculation);
 
 
 
-      const competitorAirbnbLinkPath = path.join(specificCompetitorScreenshotFolderPath, "airbnb-link.txt");
-      const competitorAirbnbLink = fs.readFileSync(competitorAirbnbLinkPath, "utf8").trim();
-      specificCompetitor.airbnbLink = competitorAirbnbLink;
+        const competitorAirbnbLinkPath = path.join(specificCompetitorScreenshotFolderPath, "airbnb-link.txt");
+        const competitorAirbnbLink = fs.readFileSync(competitorAirbnbLinkPath, "utf8").trim();
+        specificCompetitor.airbnbLink = competitorAirbnbLink;
 
 
         // Calculations for PDF
@@ -447,7 +462,7 @@ export class SalesController {
           PAGE_3_IMAGE,
           PAGE_4_IMAGE: propertyStatisticsGraphSS,
           BG_SECTION_IMAGE,
-          PAGE_4_CARDS:{
+          PAGE_4_CARDS: {
             occupancySection1: occupancySection1SS,
             occupancySection2: occupancySection2SS,
             occupancySection3: occupancySection3SS,
@@ -576,10 +591,10 @@ export class SalesController {
       //   waitUntil: "load",
       // });
       const apiResponse = await getDataForSpecificListing(page, listingLink);
-      const {screenshotSessionId, error} = await extractImagesFromListingLink(page);
+      const { screenshotSessionId, error } = await extractImagesFromListingLink(page);
       console.log("ssid===>>", apiResponse, screenshotSessionId, error)
 
-      if(error) {
+      if (error) {
         await browser.close();
         return response.status(400).json({
           error: error,
@@ -591,7 +606,7 @@ export class SalesController {
         return response.json({
           success: true,
           ...apiResponse.data.payload,
-         ssid:screenshotSessionId,
+          ssid: screenshotSessionId,
         });
       }
       await browser.close();
@@ -640,10 +655,10 @@ export class SalesController {
       //   waitUntil: "load",
       // });
       const apiResponse = await getDataForSpecificListing(page, competitorListingLink);
-      const {screenshotSessionId, error} = await extractImagesFromCompetitorListingLink(page);
+      const { screenshotSessionId, error } = await extractImagesFromCompetitorListingLink(page);
       console.log("ssid===>>", apiResponse, screenshotSessionId, error);
 
-      if(error) {
+      if (error) {
         await browser.close();
         return response.status(400).json({
           error: error,
@@ -655,7 +670,7 @@ export class SalesController {
         return response.json({
           success: true,
           ...apiResponse.data.payload,
-          ssid:screenshotSessionId,
+          ssid: screenshotSessionId,
         });
       }
       await browser.close();
@@ -672,6 +687,229 @@ export class SalesController {
         }
       }
       return next(error);
+    }
+  }
+
+  async uploadRevenueReport(request: Request, response: Response, next: NextFunction) {
+    try {
+      const files = request.files as { [fieldname: string]: Express.Multer.File[] };
+      if (!files || !files['file'] || files['file'].length === 0) {
+        return response.status(400).json({
+          error: "No file uploaded",
+        });
+      }
+
+      const file = files['file'][0];
+      const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+      const allowedExtensions = ['csv', 'xls', 'xlsx'];
+
+      if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+        return response.status(400).json({
+          error: "Invalid file type. Please upload a CSV or Excel file.",
+        });
+      }
+
+      let data;
+      const fileBuffer = await readFileAsync(file.path);
+
+      if (fileExtension === 'csv') {
+        const text = fileBuffer.toString('utf-8');
+        const rows = text.split("\n").filter(row => row.trim() !== "");
+
+        if (rows.length < 2) {
+          throw new Error("File is empty or contains only headers");
+        }
+
+        data = rows.slice(1).map(row => {
+          // Find the last two commas to separate address from bedCount and bathCount
+          const lastCommaIndex = row.lastIndexOf(',');
+          const secondLastCommaIndex = row.lastIndexOf(',', lastCommaIndex - 1);
+
+          if (lastCommaIndex === -1 || secondLastCommaIndex === -1) {
+            throw new Error("Invalid row format. Expected: 'address, bedCount, bathCount'");
+          }
+
+          const address = row.substring(0, secondLastCommaIndex).trim().replace(/"/g, '');
+          const bedCount = row.substring(secondLastCommaIndex + 1, lastCommaIndex).trim().replace(/"/g, '');
+          const bathCount = row.substring(lastCommaIndex + 1).trim().replace(/"/g, '');
+
+          return {
+            address,
+            bedCount: parseInt(bedCount) || 0,
+            bathCount: parseInt(bathCount) || 0
+          };
+        });
+
+        if (data.length > 10) {
+          throw new Error("The file should not contain more than 10 rows.");
+        }
+      } else {
+        // Handle Excel files (both XLS and XLSX)
+        const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
+
+        if (jsonData.length === 0) {
+          throw new Error("File is empty or contains no data");
+        }
+
+        if (jsonData.length > 10) {
+          throw new Error("The file should not contain more than 10 rows.");
+        }
+        data = jsonData.map(row => {
+          const keys = Object.keys(row);
+          const address = typeof row[keys[0]] === 'string' ? row[keys[0]].trim().replace(/"/g, '') : '';
+          const bedCount = typeof row[keys[1]] === 'string' ? row[keys[1]].trim().replace(/"/g, '') : row[keys[1]];
+          const bathCount = typeof row[keys[2]] === 'string' ? row[keys[2]].trim().replace(/"/g, '') : row[keys[2]];
+
+          return {
+            address,
+            bedCount: parseInt(bedCount) || 0,
+            bathCount: parseInt(bathCount) || 0
+          };
+        });
+      }
+
+      // Clean up the uploaded file
+      await fs.promises.unlink(file.path);
+
+
+      const report: {
+        address: string;
+        bedCount: number;
+        bathCount: number;
+        revenue: string;
+
+      }[] = [];
+
+
+      const credentials: LoginCredentials = {
+        email: process.env.AIRDNA_EMAIL,
+        password: process.env.AIRDNA_PASSWORD,
+      };
+
+      let browser: Browser;
+      try {
+        browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
+        const page = await browser.newPage();
+        page.setDefaultTimeout(60000);
+        const customUA = generateRandomUA();
+
+        await page.setUserAgent(customUA);
+        await page.setViewport({ width: 1920, height: 1080 });
+
+        const isLoggedIn = await login(page, credentials);
+        if (!isLoggedIn) {
+          await browser.close();
+          return response.status(400).json({
+            error: "Unable to Log into AirDna"
+          });
+        }
+
+        for (const row of data) {
+          const { address, bedCount, bathCount } = row;
+          await new Promise(resolve => setTimeout(resolve, 20000));
+          const searchInputSelector =
+            'input[placeholder="Search market, submarket, or address"]';
+          await page.click(searchInputSelector);
+          await page.type(searchInputSelector, address as string);
+
+          const dropdownSelector = ".MuiAutocomplete-popper li";
+          await page.waitForSelector(dropdownSelector);
+
+          const listings = await page.$$(dropdownSelector);
+          // await page.waitForNetworkIdle();
+          await new Promise(resolve => setTimeout(resolve, 20000));
+
+
+
+          if (!listings.length) {
+            await browser.close();
+            response
+              .status(404)
+              .json({ error: "No Listings available for this address" });
+          }
+          await listings[0].click();
+          // await page.waitForNetworkIdle();
+          await new Promise(resolve => setTimeout(resolve, 20000));
+
+          const revenue = await calculateRevenue(page, address, bedCount, bathCount);
+          
+          // Format revenue: Remove '$' and 'K', convert to number with comma formatting
+          let formattedRevenue = 0;
+          if (typeof revenue === 'string') {
+            // Remove dollar sign first
+            const revenueWithoutDollar = revenue.replace('$', '');
+            
+            // Check if it has 'K' suffix and process accordingly
+            if (revenueWithoutDollar.endsWith('K')) {
+              const numValue = parseFloat(revenueWithoutDollar.replace('K', ''));
+              formattedRevenue = numValue * 1000;
+            } else {
+              formattedRevenue = parseFloat(revenueWithoutDollar);
+            }
+          }
+
+          // Format with commas and add dollar sign back
+          const revenueWithCommas = '$' + formattedRevenue.toLocaleString();
+          
+          report.push({
+            address,
+            bedCount,
+            bathCount,
+            revenue: revenueWithCommas
+          });
+          await new Promise(resolve => setTimeout(resolve, 10000));
+        }
+
+        await browser.close();
+
+        // Generate CSV content
+        const csvHeader = 'Address,Bed Count,Bath Count,Revenue\n';
+        const csvRows = report.map(row => 
+          `"${row.address}",${row.bedCount},${row.bathCount},"${row.revenue}"`
+        ).join('\n');
+        const csvContent = csvHeader + csvRows;
+
+        // Create a unique directory for the CSV file
+        const sessionId = randomUUID();
+        const csvDir = path.join('public', sessionId);
+        await fs.promises.mkdir(csvDir, { recursive: true });
+
+        // Save CSV file
+        const csvFileName = 'revenue-report.csv';
+        const csvFilePath = path.join(csvDir, csvFileName);
+        await fs.promises.writeFile(csvFilePath, csvContent);
+
+        // Generate the public URL for the CSV file
+        const csvUrl = `${process.env.BASE_URL}/public/${sessionId}/${csvFileName}`;
+
+        return response.status(200).json({
+          success: true,
+          data: report,
+          csvUrl: csvUrl
+        });
+
+      } catch (error) {
+        console.error("Error processing file:", error);
+        await browser.close();
+        return response.status(500).json({
+          error: "Error processing file",
+          details: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+
+
+
+
+
+    } catch (error) {
+      console.error("Error processing file:", error);
+      return response.status(500).json({
+        error: "Error processing file",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   }
 

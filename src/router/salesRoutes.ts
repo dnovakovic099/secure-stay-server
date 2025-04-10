@@ -45,4 +45,13 @@ router.route("/generatePdf/:client_id").get(
   // fileUpload.fields([{ name: "attachments", maxCount: 10 }]),
   salesController.generatePdf
 );
+
+
+router.route("/upload-revenue-report").post(
+  // verifySession,
+  fileUpload('revenue-report').fields([{ name: 'file', maxCount: 1 }]),
+  salesController.uploadRevenueReport
+);
+
+
 export default router;

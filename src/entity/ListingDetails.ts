@@ -17,6 +17,9 @@ export class ListingDetail {
     @Column({ default: false, nullable: true })
     claimProtection: boolean;
 
+    @Column({default: false, nullable:true})
+    hidePetFee: boolean;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
