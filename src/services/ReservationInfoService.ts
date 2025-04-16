@@ -288,7 +288,7 @@ export class ReservationInfoService {
     if (guestName) {
       qb.andWhere(
         "(LOWER(reservation.guestName) LIKE :gn OR LOWER(reservation.guestFirstName) LIKE :gn OR LOWER(reservation.guestLastName) LIKE :gn)",
-        { gn: `%${guestName.toLowerCase()}%` }
+        { gn: `%${guestName.trim().toLowerCase()}%` }
       );
     }
 
