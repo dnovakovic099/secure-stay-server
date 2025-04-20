@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan} from "typeorm";
+import { Between, Not, LessThan, In } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -74,7 +74,9 @@ export class IssuesService {
         }
 
         if (status) {
-            queryOptions.where.status = status;
+            const statusArray = status.split(',').map(s => s.trim());
+            
+            queryOptions.where.status = In(statusArray);
         }   
 
         if (listingId) {
