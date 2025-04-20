@@ -1,5 +1,9 @@
 import { NextFunction, Request, Response } from "express";
 import { IssuesService } from "../services/IssuesService";
+import path from 'path';
+import fs from 'fs';
+
+const UPLOADS_PATH = path.join(process.cwd(), 'public/issues'); 
 
 export class IssuesController {
     async getIssues(request: Request, response: Response) {
@@ -67,13 +71,40 @@ export class IssuesController {
         try {
             const id = parseInt(request.params.id);
             const userId = request.user.id;
-
-            let fileNames: string[] = [];
-            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            
+            // Get current issue
+            const currentIssue = await issuesService.getIssueById(id);
+            const currentFiles = JSON.parse(currentIssue.fileNames || '[]');
+            
+            // Process deleted files
+            const deletedFiles = JSON.parse(request.body.deletedFiles || '[]');
+            
+            // Delete files physically
+            for (const fileName of deletedFiles) {
+                const filePath = path.join(UPLOADS_PATH, fileName);
+                try {
+                    await fs.promises.unlink(filePath);
+                } catch (err) {
+                    console.error(`Failed to delete file ${fileName}:`, err);
+                }
             }
+            
+            // Update file list, removing deleted files
+            const updatedFiles = currentFiles.filter(file => !deletedFiles.includes(file));
+            
+            // Add new files if they exist
+            let newFiles: string[] = [];
+            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
+                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            }
+            // Combine existing and new files
+            const finalFileNames = [...updatedFiles, ...newFiles];
+            // Update issue data with new file list
+            const result = await issuesService.updateIssue(id, {
+                ...request.body,
+                fileNames: JSON.stringify(finalFileNames)
+            }, userId, newFiles);
 
-            const result = await issuesService.updateIssue(id, request.body, userId, fileNames);
             return response.status(200).json({
                 status: true,
                 data: result
@@ -121,6 +152,31 @@ export class IssuesController {
 
         } catch (error) {
             return next(error);
+        }
+    }
+
+    async getAttachment(request: any, response: Response) {
+        try {
+            const fileName = request.params.fileName;
+            const filePath = path.join(process.cwd(), 'public/issues', fileName);
+            
+            // Check if file exists
+            try {
+                await fs.promises.access(filePath);
+            } catch {
+                return response.status(404).json({
+                    status: false,
+                    message: 'File not found'
+                });
+            }
+
+            // Send file
+            return response.sendFile(filePath);
+        } catch (error) {
+            return response.status(400).json({
+                status: false,
+                message: error.message
+            });
         }
     }
 } 

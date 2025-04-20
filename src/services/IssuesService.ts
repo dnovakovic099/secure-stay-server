@@ -125,13 +125,6 @@ export class IssuesService {
             data.completed_by = null;
         }
 
-        let updatedFileNames = [];
-        if (issue.fileNames) {
-            updatedFileNames = JSON.parse(issue.fileNames);
-        }
-        if (fileNames && fileNames.length > 0) {
-            updatedFileNames = [...updatedFileNames, ...fileNames];
-        }
         let listing_name = '';
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
@@ -141,7 +134,6 @@ export class IssuesService {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
             updated_by: userId,
-            fileNames: JSON.stringify(updatedFileNames)
         });
 
         return await this.issueRepo.save(issue);
@@ -217,5 +209,13 @@ export class IssuesService {
                 reservation_id: reservationId
             }
         });
+    }
+
+    async getIssueById(id: number) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw new Error('Issue not found');
+        }
+        return issue;
     }
 } 
