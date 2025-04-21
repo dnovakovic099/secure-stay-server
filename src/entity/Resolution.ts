@@ -9,7 +9,7 @@ export class Resolution {
     category: string;
 
     @Column({ type: "text", nullable: true })
-    otherCategoryDescription: string;
+    description: string;
 
     @Column()
     listingMapId: number;
@@ -17,14 +17,14 @@ export class Resolution {
     @Column()
     guestName: string;
 
+    @Column()
+    reservationId: number;
+
     @Column({ type: "date" })
     claimDate: Date;
 
     @Column({ type: "decimal", precision: 10, scale: 2 })
     amount: number;
-
-    @Column()
-    userId: string;
 
     @CreateDateColumn()
     createdAt: Date;

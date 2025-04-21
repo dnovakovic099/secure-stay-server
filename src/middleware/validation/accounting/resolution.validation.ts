@@ -5,13 +5,13 @@ export const validateCreateResolution = (request: Request, response: Response, n
     const schema = Joi.object({
         category: Joi.string()
             .required()
-            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others")
+            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution")
             .messages({
                 'any.required': 'Category is required',
-                'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others'
+                'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others, resolution'
             }),
 
-        otherCategoryDescription: Joi.string().allow('').optional(),
+        description: Joi.string().allow(null, '').required(),
 
         listingMapId: Joi.number()
             .required()
@@ -19,6 +19,13 @@ export const validateCreateResolution = (request: Request, response: Response, n
                 'number.base': 'Listing Map ID must be a number',
                 'any.required': 'Listing Map ID is required'
             }),
+            
+        reservationId: Joi.number()
+        .required()
+        .messages({
+            'number.base': 'reservationId must be a number',
+            'any.required': 'reservationId is required'
+        }),
 
         guestName: Joi.string()
             .required()
@@ -36,11 +43,9 @@ export const validateCreateResolution = (request: Request, response: Response, n
             }),
 
         amount: Joi.number()
-            .min(0)
             .required()
             .messages({
                 'number.base': 'Amount must be a number',
-                'number.min': 'Amount must be a positive number',
                 'any.required': 'Amount is required'
             })
     });
