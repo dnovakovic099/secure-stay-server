@@ -86,7 +86,8 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
             .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
-        payment_information: Joi.string().allow(null, '')
+        payment_information: Joi.string().allow(null, ''),
+        deletedFiles: Joi.string().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);

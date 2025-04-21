@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan} from "typeorm";
+import { Between, Not, LessThan, In } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -74,7 +74,9 @@ export class IssuesService {
         }
 
         if (status) {
-            queryOptions.where.status = status;
+            const statusArray = status.split(',').map(s => s.trim());
+            
+            queryOptions.where.status = In(statusArray);
         }   
 
         if (listingId) {
@@ -123,13 +125,6 @@ export class IssuesService {
             data.completed_by = null;
         }
 
-        let updatedFileNames = [];
-        if (issue.fileNames) {
-            updatedFileNames = JSON.parse(issue.fileNames);
-        }
-        if (fileNames && fileNames.length > 0) {
-            updatedFileNames = [...updatedFileNames, ...fileNames];
-        }
         let listing_name = '';
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
@@ -139,7 +134,6 @@ export class IssuesService {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
             updated_by: userId,
-            fileNames: JSON.stringify(updatedFileNames)
         });
 
         return await this.issueRepo.save(issue);
@@ -215,5 +209,13 @@ export class IssuesService {
                 reservation_id: reservationId
             }
         });
+    }
+
+    async getIssueById(id: number) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw new Error('Issue not found');
+        }
+        return issue;
     }
 } 
