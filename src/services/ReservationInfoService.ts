@@ -9,6 +9,7 @@ import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
 import { UpsellOrderService } from "./UpsellOrderService";
 import sendEmail from "../utils/sendEmai";
+import { ResolutionService } from "./ResolutionService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -384,7 +385,7 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.save(reservation);
   }
 
-  async checkAirbnbClosedResoultionSum(reservation: any) {
+  private async checkAirbnbClosedResoultionSum(reservation: any) {
     if (!reservation) {
       return false;
     }
@@ -396,6 +397,40 @@ export class ReservationInfoService {
 
     return financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
   }
+
+  async handleAirbnbClosedResolution(reservation: any) {
+    const exists = await this.checkAirbnbClosedResoultionSum(reservation);
+    if (!exists) return;
+
+    await this.createResolution(reservation); // actual resolution logic
+    await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
+  }
+
+  private async createResolution(reservation: any) {
+    const resolutionObj = this.prepareResolutionObject(reservation);
+    if (!resolutionObj) return;
+    const resolutionService = new ResolutionService();
+    await resolutionService.createResolution(resolutionObj, null);
+  }
+
+  private prepareResolutionObject(reservation: any) {
+    const financeField = reservation?.financeField;
+    if (!financeField) return null;
+
+    const airbnbClosedResolutionSumAmount = financeField.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value || 0;
+
+    return {
+      category: "resolution",
+      description: "",
+      listingMapId: reservation?.listingMapId,
+      reservationId: reservation?.id,
+      guestName: reservation.guestName,
+      claimDate: reservation.updatedOn,
+      amount: airbnbClosedResolutionSumAmount
+    };
+
+  }
+
 
   async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
     const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName}`;

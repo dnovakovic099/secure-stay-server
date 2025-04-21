@@ -17,11 +17,7 @@ export class UnifiedWebhookController {
                     break;
                 case "reservation.updated":
                     await reservationInfoService.updateReservationInfo(body.data.id, body.data);
-                    const isAirbnbClosedResolutionSumExists = await reservationInfoService.checkAirbnbClosedResoultionSum(body.data);
-                    if (isAirbnbClosedResolutionSumExists) {
-                        // notify through email
-                        await reservationInfoService.notifyAboutAirbnbClosedResolutionSum(body.data);
-                    }
+                    await reservationInfoService.handleAirbnbClosedResolution(body.data);
                     break;
                 case "message.received":
                     // this.handleReservationCancelled(body);
