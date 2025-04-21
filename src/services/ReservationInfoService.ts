@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
 import { UpsellOrderService } from "./UpsellOrderService";
+import sendEmail from "../utils/sendEmai";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -381,6 +382,70 @@ export class ReservationInfoService {
 
     reservation.isProcessedInStatement = isProcessedInStatement;
     return await this.reservationInfoRepository.save(reservation);
+  }
+
+  async checkAirbnbClosedResoultionSum(reservation: any) {
+    if (!reservation) {
+      return false;
+    }
+
+    const financeField = reservation.financeField;
+    if (!financeField) {
+      return false;
+    }
+
+    return financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+  }
+
+  async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
+    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName}`;
+    const html = `
+                <html>
+                  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); padding: 20px;">
+                      <h2 style="color: #007BFF; border-bottom: 2px solid #007BFF; padding-bottom: 10px;">Airbnb Closed Resolution Sum</h2>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Guest Name:</strong> ${reservation?.guestName}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-In:</strong> ${reservation?.arrivalDate}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-Out:</strong> ${reservation?.departureDate}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Listing:</strong> ${reservation?.listingMapId}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Airbnb Closed Resolution Amount:</strong> ${reservation?.financeField?.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Updated On:</strong> ${reservation?.updatedOn}
+                      </p>
+                      <p style="margin: 30px 0 0; font-size: 14px; color: #777;">Thank you!</p>
+                    </div>
+                  </body>
+                </html>
+
+        `;
+
+    const receipientsList = [
+      "ferdinand@luxurylodgingpm.com",
+      "receipts@luxurylodgingstr.com"
+    ];
+
+    const results = await Promise.allSettled(
+      receipientsList.map(receipient =>
+        sendEmail(subject, html, process.env.EMAIL_FROM, receipient)
+      )
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.error(`Failed to send email to recipient #${index}`, result?.reason);
+      }
+    });
+    
   }
 
 
