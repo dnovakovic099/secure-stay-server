@@ -401,9 +401,11 @@ export class ReservationInfoService {
   async handleAirbnbClosedResolution(reservation: any) {
     const exists = await this.checkAirbnbClosedResoultionSum(reservation);
     if (!exists) return;
-
+    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
     await this.createResolution(reservation); // actual resolution logic
+    logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`)
     await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
+    logger.info(`[ReservationInfoService] Email notification sent for airbnbClosedResolutionSum of reservationId ${reservation?.id}`)
   }
 
   private async createResolution(reservation: any) {
