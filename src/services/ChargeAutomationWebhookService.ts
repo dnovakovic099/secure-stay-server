@@ -4,6 +4,7 @@ import { UpsellOrder } from '../entity/UpsellOrder';
 import { HostAwayClient } from '../client/HostAwayClient';
 import { appDatabase } from "../utils/database.util";
 import { ownerDetails } from '../constant';
+import logger from '../utils/logger.utils';
 
 interface WebhookData {
     event: string;
@@ -32,8 +33,9 @@ export class ChargeAutomationWebhookService {
     }
 
     async processWebhook(webhookData: WebhookData): Promise<{ status: string; message: string }> {
+        logger.info(`[ChargeAutomationWebhookService][processWebhook] webhook data received`, JSON.stringify(webhookData));
         if (webhookData.event !== 'booking.upsell.purchased') {
-            console.log(`Skipping webhook with event type: ${webhookData.event}`);
+            logger.info(`[ChargeAutomationWebhookService][processWebhook] Skipping webhook with event type: ${webhookData.event}`);
             return {
                 status: 'skipped',
                 message: 'Not a booking.upsell.purchased event'
@@ -42,6 +44,8 @@ export class ChargeAutomationWebhookService {
 
         let processedCount = 0;
         let skippedCount = 0;
+
+        logger.info(`[ChargeAutomationWebhookService][processWebhook] processing webhook data`);
 
         for (const item of webhookData.data) {
             try {
@@ -53,22 +57,6 @@ export class ChargeAutomationWebhookService {
                     process.env.HOST_AWAY_CLIENT_ID,
                     process.env.HOST_AWAY_CLIENT_SECRET
                 );
-
-                const startOfDay = new Date(orderDate.setHours(0, 0, 0, 0));
-                const endOfDay = new Date(orderDate.setHours(23, 59, 59, 999));
-
-                const existingOrder = await this.upsellOrderRepo.findOne({
-                    where: {
-                        listing_id: reservationInfo.listingMapId,
-                        order_date: Between(startOfDay, endOfDay)
-                    }
-                });
-
-                if (existingOrder) {
-                  console.log(`Skipping duplicate order for listing ${reservationInfo.listingMapId}`);
-                  skippedCount++;
-                  continue;
-                }
 
                 const order = {
                     status: item.client_approval_status === 1 ? 'Approved' : 'Denied',
@@ -87,9 +75,9 @@ export class ChargeAutomationWebhookService {
                 };
 
                 await this.upsellOrderRepo.save(order);
-
+                logger.info(`[ChargeAutomationWebhookService][processWebhook] Upsell order for reservation ${item.pms_booking_id} saved successfully`);
             } catch (error) {
-                console.error(`Error processing order for ${item.pms_booking_id}:`, error);
+                logger.error(`[ChargeAutomationWebhookService][processWebhook] Error processing order for ${item.pms_booking_id}:`, error);
             }
         }
 

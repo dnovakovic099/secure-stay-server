@@ -17,6 +17,15 @@ export class IssuesService {
 
     async createIssue(data: Partial<Issue>, userId: string, fileNames?: string[]) {
         const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
+
+        if (data.status === 'Completed') {
+            data.completed_at = new Date();
+            data.completed_by = userId;
+        } else {
+            data.completed_at = null;
+            data.completed_by = null;
+        }
+
         const newIssue = this.issueRepo.create({
             ...data,
             listing_name: listing_name,
@@ -107,8 +116,11 @@ export class IssuesService {
         }
 
         if (data.status === 'Completed') {
-            data.completed_at = this.formatDate(new Date()) as any;
+            data.completed_at = new Date();
             data.completed_by = userId;
+        } else {
+            data.completed_at = null;
+            data.completed_by = null;
         }
 
         let updatedFileNames = [];
