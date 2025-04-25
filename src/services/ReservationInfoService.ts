@@ -400,7 +400,9 @@ export class ReservationInfoService {
       return false;
     }
 
-    return financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+    const isAirbnbClosedResolutionSumExists = financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+    logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] isAirbnbClosedResolutionSumExists=', isAirbnbClosedResolutionSumExists);
+    return isAirbnbClosedResolutionSumExists;
   }
 
   async handleAirbnbClosedResolution(reservation: any) {
