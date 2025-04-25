@@ -390,11 +390,13 @@ export class ReservationInfoService {
 
   private async checkAirbnbClosedResoultionSum(reservation: any) {
     if (!reservation) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation object found.')
       return false;
     }
 
     const financeField = reservation.financeField;
     if (!financeField) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found.')
       return false;
     }
 
@@ -403,6 +405,7 @@ export class ReservationInfoService {
 
   async handleAirbnbClosedResolution(reservation: any) {
     const exists = await this.checkAirbnbClosedResoultionSum(reservation);
+    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] reservation: ${reservation?.id}`)
     if (!exists) return;
     logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
     await this.createResolution(reservation); // actual resolution logic
