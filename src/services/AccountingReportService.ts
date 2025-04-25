@@ -14,7 +14,7 @@ import { OwnerStatementIncomeEntity } from "../entity/OwnerStatementIncome";
 import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
 import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
-import { getReservationDaysInRange, formatDate, getCurrentDateInUTC } from "../helpers/date";
+import { getReservationDaysInRange, formatDate, getCurrentDateInUTC, isSameOrAfterDate } from "../helpers/date";
 import { ListingService } from "./ListingService";
 import { ownerDetails } from "../constant";
 import { ResolutionService } from "./ResolutionService";
@@ -312,20 +312,6 @@ export class AccountingReportService {
     return await transactionManager.save(newOwnerStatement);
   }
 
-  // private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
-  //   const financeCalculatedField = await this.hostaWayClient.financeCalculatedField(reservationId, clientId, clientSecret);
-  //   if (!financeCalculatedField || financeCalculatedField?.length == 0) {
-  //     throw new Error(`FinanceCalculatedField not found for reservationId: ${reservationId}`);
-  //   }
-
-  //   let ownerPayout = financeCalculatedField.find((obj) => obj?.formulaName == "ownerPayout").formulaResult || 0;
-  //   let pmCommission = financeCalculatedField.find((obj) => obj?.formulaName == "pmCommission").formulaResult || 0;
-  //   let paymentProcessing = financeCalculatedField.find((obj) => obj?.formulaName == "PaymentProcessing").formulaResult || 0;
-  //   let channelFee = financeCalculatedField.find((obj) => obj?.formulaName == "ChannelFee").formulaResult || 0;
-  //   let totalTax = financeCalculatedField.find((obj) => obj?.formulaName == "totalTax").formulaResult || 0;
-
-  //   return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
-  // }
 
   private async calculateFinancialFields(
     reservation: {
@@ -333,6 +319,7 @@ export class AccountingReportService {
       listingMapId: number;
       channelId: number;
       cleaningFee: number;
+      arrivalDate: string;
     },
     clientId: string,
     clientSecret: string,
@@ -365,20 +352,9 @@ export class AccountingReportService {
     let insuranceFee = 0;
     let airbnbCommission = 0;
     let vrboCommission = 0;
+    let resortFeeAirbnb = 0;
     let airbnbCleaningFeeIssue = false;
 
-    // Constants for special listingMapId cases
-    // const specialListingMapIds = [286718, 286720];
-
-    // Helper function to calculate PM Commission
-    // const calculatePmCommission = (): number => {
-    //   const cleaningFeeAdjustment = financeStandardField.cleaningFeeValue - paymentProcessing + channelFee;
-    //   const adjustedOwnerPayout = specialListingMapIds.includes(reservation.listingMapId)
-    //     ? ownerPayout - cleaningFeeAdjustment
-    //     : ownerPayout;
-
-    //   return adjustedOwnerPayout * pmFee;
-    // };
     if (reservation.cleaningFee != financeStandardField.cleaningFeeValue) {
       airbnbCleaningFeeIssue = true;
     }
@@ -394,10 +370,13 @@ export class AccountingReportService {
       }
 
       airbnbPayoutSum = financeStandardField.airbnbPayoutSum;
-      // ownerPayout = airbnbPayoutSum + directPayout; // old formula
       claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
       subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
       airbnbCommission = (airbnbPayoutSum + claimsProtection - linenFeeAirbnb) * pmFee;
+      if (isSameOrAfterDate(reservation.arrivalDate, "2025-04-11")) {
+        subTotalPrice = airbnbPayoutSum + directPayout - resortFeeAirbnb;
+        airbnbCommission = (airbnbPayoutSum - resortFeeAirbnb) * pmFee;
+      }
       pmCommission = (airbnbCommission + vrboCommission);
       ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
     } else {
@@ -427,16 +406,16 @@ export class AccountingReportService {
       ].reduce((sum, field) => sum + field, 0);
 
       paymentProcessing = (directPayout * 0.03);
-      // ownerPayout = airbnbPayoutSum + directPayout;
       claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
       subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
       vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing) * pmFee;
+      if (isSameOrAfterDate(reservation.arrivalDate, "2025-04-11")) {
+        subTotalPrice = airbnbPayoutSum + directPayout - resortFeeAirbnb;
+        vrboCommission = (directPayout - channelFee - paymentProcessing) * pmFee;
+      }
       pmCommission = (airbnbCommission + vrboCommission);
       ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
     }
-
-    // Calculate PM Commission
-    // pmCommission = calculatePmCommission(); // old method
 
     return {
       ownerPayout,
