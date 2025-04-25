@@ -30,6 +30,9 @@ export class ReservationInfoService {
   }
 
   async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>) {
+    logger.info(`[ReservationInfoService][updateReservationInfo] Updating Reservation Object for reservation id: ${id} ${updateData.guestName}`);
+    logger.info(`[ReservationInfoService][updateReservationInfo] Incoming Host Note: ${updateData.hostNote}`);
+    
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
