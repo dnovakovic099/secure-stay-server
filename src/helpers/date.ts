@@ -114,4 +114,14 @@ export const getFormattedUTCDateTime = (): string => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
 };
 
+export const isSameOrAfterDate = (dateToCheck: string, referenceDate: string): boolean => {
+  const normalize = (dateStr: string): Date => {
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  return normalize(dateToCheck) >= normalize(referenceDate);
+}
+
 
