@@ -319,7 +319,7 @@ export class AccountingReportService {
       listingMapId: number;
       channelId: number;
       cleaningFee: number;
-      arrivalDate: string;
+      reservationDate: string;
     },
     clientId: string,
     clientSecret: string,
@@ -361,6 +361,7 @@ export class AccountingReportService {
 
     linenFeeAirbnb = financeStandardField?.linenFeeAirbnb || 0;
     insuranceFee = financeStandardField?.insuranceFee || 0;
+    resortFeeAirbnb = financeStandardField?.resortFeeAirbnb || 0;
 
     // Calculate financial fields based on channelId
     if (reservation.channelId === 2018) {
@@ -373,7 +374,7 @@ export class AccountingReportService {
       claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
       subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
       airbnbCommission = (airbnbPayoutSum + claimsProtection - linenFeeAirbnb) * pmFee;
-      if (isSameOrAfterDate(reservation.arrivalDate, "2025-04-11")) {
+      if (isSameOrAfterDate(reservation.reservationDate, "2025-04-11")) {
         subTotalPrice = airbnbPayoutSum + directPayout - resortFeeAirbnb;
         airbnbCommission = (airbnbPayoutSum - resortFeeAirbnb) * pmFee;
       }
@@ -405,11 +406,11 @@ export class AccountingReportService {
         financeStandardField.otherFees,
       ].reduce((sum, field) => sum + field, 0);
 
-      paymentProcessing = (directPayout * 0.03);
+      paymentProcessing = reservation.channelId == 2005 ? 0 : (directPayout * 0.03);
       claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
       subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
       vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing) * pmFee;
-      if (isSameOrAfterDate(reservation.arrivalDate, "2025-04-11")) {
+      if (isSameOrAfterDate(reservation.reservationDate, "2025-04-11")) {
         subTotalPrice = airbnbPayoutSum + directPayout - resortFeeAirbnb;
         vrboCommission = (directPayout - channelFee - paymentProcessing) * pmFee;
       }
