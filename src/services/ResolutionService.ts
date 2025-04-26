@@ -17,8 +17,9 @@ interface ResolutionQuery {
 
 interface ResolutionData {
     category: string;
-    otherCategoryDescription?: string;
+    description?: string;
     listingMapId: number;
+    reservationId: number;
     guestName: string;
     claimDate: string;
     amount: number;
@@ -29,7 +30,8 @@ enum CategoryKey {
     SECURITY_DEPOSIT = 'security_deposit',
     PET_FEE = 'pet_fee',
     EXTRA_CLEANING = 'extra_cleaning',
-    OTHERS = 'others'
+    OTHERS = 'others',
+    RESOLUTION = 'resolution'
 }
 
 const categoriesList: Record<CategoryKey, string> = {
@@ -38,21 +40,22 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.PET_FEE]: "Pet Fee",
     [CategoryKey.EXTRA_CLEANING]: "Extra Cleaning",
     [CategoryKey.OTHERS]: "Others",
+    [CategoryKey.RESOLUTION]: "Resolution",
 };
 
 export class ResolutionService {
     private resolutionRepo = appDatabase.getRepository(Resolution);
     private listingRepository = appDatabase.getRepository(Listing);
 
-    async createResolution(data: ResolutionData, userId: string) {
+    async createResolution(data: ResolutionData, userId: string | null) {
         const resolution = new Resolution();
         resolution.category = data.category;
-        resolution.otherCategoryDescription = data.otherCategoryDescription;
+        resolution.description = data.description;
         resolution.listingMapId = data.listingMapId;
+        resolution.reservationId = data.reservationId;
         resolution.guestName = data.guestName;
         resolution.claimDate = new Date(data.claimDate);
         resolution.amount = data.amount;
-        resolution.userId = userId;
         resolution.createdAt = new Date();
         resolution.updatedAt = new Date();
         resolution.createdBy = userId;
@@ -78,7 +81,6 @@ export class ResolutionService {
 
         const resolutions = await this.resolutionRepo.find({
             where: {
-                userId,
                 ...(listingId && { listingMapId: Number(listingId) }),
                 ...(categoryArray?.length && { 
                     category: In(categoryArray)
@@ -112,7 +114,7 @@ export class ResolutionService {
         const columns = [
             "ID",
             "Category",
-            "Other Category",
+            "Description",
             "Address",
             "Guest Name",
             "Claim Date",
@@ -123,7 +125,7 @@ export class ResolutionService {
         const rows = resolutions.map((resolution) => [
             resolution.id,
             categoriesList[resolution.category as CategoryKey] ?? 'Unknown Category',
-            resolution.otherCategoryDescription ?? 'N/A',
+            resolution.description ?? 'N/A',
             listingNameMap[resolution.listingMapId] || 'N/A',
             resolution.guestName,
             format(resolution.claimDate, "yyyy-MM-dd"),
@@ -139,7 +141,7 @@ export class ResolutionService {
 
     async getResolutionById(resolutionId: number, userId: string) {
         const resolution = await this.resolutionRepo.findOne({
-            where: { id: resolutionId, userId }
+            where: { id: resolutionId, createdBy: userId }
         });
 
         if (!resolution) {

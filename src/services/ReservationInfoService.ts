@@ -8,6 +8,8 @@ import * as XLSX from 'xlsx';
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
 import { UpsellOrderService } from "./UpsellOrderService";
+import sendEmail from "../utils/sendEmai";
+import { ResolutionService } from "./ResolutionService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -28,6 +30,9 @@ export class ReservationInfoService {
   }
 
   async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>) {
+    logger.info(`[ReservationInfoService][updateReservationInfo] Updating Reservation Object for reservation id: ${id} ${updateData.guestName}`);
+    logger.info(`[ReservationInfoService][updateReservationInfo] Incoming Host Note: ${updateData.hostNote}`);
+    
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
@@ -381,6 +386,111 @@ export class ReservationInfoService {
 
     reservation.isProcessedInStatement = isProcessedInStatement;
     return await this.reservationInfoRepository.save(reservation);
+  }
+
+  private async checkAirbnbClosedResoultionSum(reservation: any) {
+    if (!reservation) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation object found.')
+      return false;
+    }
+
+    const financeField = reservation.financeField;
+    if (!financeField) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found.')
+      return false;
+    }
+
+    const isAirbnbClosedResolutionSumExists = financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+    logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] isAirbnbClosedResolutionSumExists=', isAirbnbClosedResolutionSumExists);
+    return isAirbnbClosedResolutionSumExists;
+  }
+
+  async handleAirbnbClosedResolution(reservation: any) {
+    const exists = await this.checkAirbnbClosedResoultionSum(reservation);
+    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] reservation: ${reservation?.id}`)
+    if (!exists) return;
+    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
+    await this.createResolution(reservation); // actual resolution logic
+    logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`)
+    await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
+    logger.info(`[ReservationInfoService] Email notification sent for airbnbClosedResolutionSum of reservationId ${reservation?.id}`)
+  }
+
+  private async createResolution(reservation: any) {
+    const resolutionObj = this.prepareResolutionObject(reservation);
+    if (!resolutionObj) return;
+    const resolutionService = new ResolutionService();
+    await resolutionService.createResolution(resolutionObj, null);
+  }
+
+  private prepareResolutionObject(reservation: any) {
+    const financeField = reservation?.financeField;
+    if (!financeField) return null;
+
+    const airbnbClosedResolutionSumAmount = financeField.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value || 0;
+
+    return {
+      category: "resolution",
+      description: "",
+      listingMapId: reservation?.listingMapId,
+      reservationId: reservation?.id,
+      guestName: reservation.guestName,
+      claimDate: reservation.updatedOn,
+      amount: airbnbClosedResolutionSumAmount
+    };
+
+  }
+
+
+  async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
+    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName}`;
+    const html = `
+                <html>
+                  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); padding: 20px;">
+                      <h2 style="color: #007BFF; border-bottom: 2px solid #007BFF; padding-bottom: 10px;">Airbnb Closed Resolution Sum</h2>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Guest Name:</strong> ${reservation?.guestName}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-In:</strong> ${reservation?.arrivalDate}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-Out:</strong> ${reservation?.departureDate}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Listing:</strong> ${reservation?.listingMapId}
+                      </p>
+                                           <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Airbnb Closed Resolution Amount:</strong> ${reservation?.financeField?.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Updated On:</strong> ${reservation?.updatedOn}
+                      </p>
+                      <p style="margin: 30px 0 0; font-size: 14px; color: #777;">Thank you!</p>
+                    </div>
+                  </body>
+                </html>
+
+        `;
+
+    const receipientsList = [
+      "ferdinand@luxurylodgingpm.com",
+      "receipts@luxurylodgingstr.com"
+    ];
+
+    const results = await Promise.allSettled(
+      receipientsList.map(receipient =>
+        sendEmail(subject, html, process.env.EMAIL_FROM, receipient)
+      )
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.error(`Failed to send email to recipient #${index}`, result?.reason);
+      }
+    });
+    
   }
 
 

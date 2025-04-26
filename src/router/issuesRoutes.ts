@@ -43,4 +43,6 @@ router.route('/export')
 
 router.route('/reservation/:reservationId').get(verifySession, issuesController.getIssuesByReservationId);
 
+router.route('/attachment/:fileName').get(issuesController.getAttachment);
+
 export default router;

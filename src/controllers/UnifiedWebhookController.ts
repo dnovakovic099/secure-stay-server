@@ -17,6 +17,7 @@ export class UnifiedWebhookController {
                     break;
                 case "reservation.updated":
                     await reservationInfoService.updateReservationInfo(body.data.id, body.data);
+                    await reservationInfoService.handleAirbnbClosedResolution(body.data);
                     break;
                 case "message.received":
                     // this.handleReservationCancelled(body);
