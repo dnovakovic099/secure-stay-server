@@ -6,7 +6,7 @@ import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
-import { isReactionMessage } from "../helpers/helpers";
+import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers";
 
 interface MessageType {
     id: number;
@@ -175,7 +175,8 @@ export class MessagingService {
             logger.info(`isAnswered is ${isAnswered} for messageId ${msg.messageId}`);
             if (!isAnswered) {
                 const isReactionMsg = isReactionMessage(msg.body);
-                if (isReactionMsg) {
+                const isEmojiOrThankYouMsg= isEmojiOrThankYouMessage(msg.body);
+                if (isReactionMsg || isEmojiOrThankYouMsg) {
                     await this.updateMessageAsAnswered(msg);
                 } else {
                     const isValidInquiryMessage = await this.checkValidInquiryReservation(msg);
