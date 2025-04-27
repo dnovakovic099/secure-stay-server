@@ -125,3 +125,20 @@ export const isSameOrAfterDate = (dateToCheck: string, referenceDate: string): b
 }
 
 
+export function getStartOfThreeMonthsAgo() {
+  const today = new Date();
+
+  // Move back 2 months because we want the starting month of the 3rd month before
+  today.setMonth(today.getMonth() - 2);
+
+  // Set the date to the 1st
+  today.setDate(1);
+
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+  const day = '01'; // Always 1st day
+
+  return `${year}-${month}-${day}`;
+}
+
+
