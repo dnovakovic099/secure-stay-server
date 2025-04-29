@@ -14,7 +14,7 @@ import { OwnerStatementIncomeEntity } from "../entity/OwnerStatementIncome";
 import { OwnerStatementExpenseEntity } from "../entity/OwnerStatementExpense";
 import { ReservationService } from "./ReservationService";
 import { ExpenseService } from "./ExpenseService";
-import { getReservationDaysInRange, formatDate, getCurrentDateInUTC } from "../helpers/date";
+import { getReservationDaysInRange, formatDate, getCurrentDateInUTC, isSameOrAfterDate } from "../helpers/date";
 import { ListingService } from "./ListingService";
 import { ownerDetails } from "../constant";
 import { ResolutionService } from "./ResolutionService";
@@ -23,6 +23,9 @@ import { UpsellOrder } from "../entity/UpsellOrder";
 import { Resolution } from "../entity/Resolution";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ListingDetail } from "../entity/ListingDetails";
+import { FinancialCalculationStrategy } from "../helpers/owner-statement/FinancialCalculationStategy";
+import { DefaultFinancialCalculationStrategy } from "../helpers/owner-statement/DefaultFinancialCalculationStrategy";
+import { PostApril2025Strategy } from "../helpers/owner-statement/PostApril2025Strategy";
 
 interface ReservationType {
   guestName: string;
@@ -312,20 +315,6 @@ export class AccountingReportService {
     return await transactionManager.save(newOwnerStatement);
   }
 
-  // private async calculateFinancialFields(reservationId: number, clientId: string, clientSecret: string) {
-  //   const financeCalculatedField = await this.hostaWayClient.financeCalculatedField(reservationId, clientId, clientSecret);
-  //   if (!financeCalculatedField || financeCalculatedField?.length == 0) {
-  //     throw new Error(`FinanceCalculatedField not found for reservationId: ${reservationId}`);
-  //   }
-
-  //   let ownerPayout = financeCalculatedField.find((obj) => obj?.formulaName == "ownerPayout").formulaResult || 0;
-  //   let pmCommission = financeCalculatedField.find((obj) => obj?.formulaName == "pmCommission").formulaResult || 0;
-  //   let paymentProcessing = financeCalculatedField.find((obj) => obj?.formulaName == "PaymentProcessing").formulaResult || 0;
-  //   let channelFee = financeCalculatedField.find((obj) => obj?.formulaName == "ChannelFee").formulaResult || 0;
-  //   let totalTax = financeCalculatedField.find((obj) => obj?.formulaName == "totalTax").formulaResult || 0;
-
-  //   return { ownerPayout, pmCommission, paymentProcessing, channelFee, totalTax };
-  // }
 
   private async calculateFinancialFields(
     reservation: {
@@ -333,6 +322,7 @@ export class AccountingReportService {
       listingMapId: number;
       channelId: number;
       cleaningFee: number;
+      reservationDate: string;
     },
     clientId: string,
     clientSecret: string,
@@ -351,103 +341,23 @@ export class AccountingReportService {
       throw new Error(`financeStandardField not found for reservationId: ${reservation.id}`);
     }
 
-    // Initialize financial variables
-    let channelFee = 0;
-    let airbnbPayoutSum = 0;
-    let totalTax = 0; 
-    let directPayout = 0;
-    let ownerPayout = 0; 
-    let paymentProcessing = 0;
-    let pmCommission = 0;
-    let subTotalPrice = 0;
-    let claimsProtection = 0;
-    let linenFeeAirbnb = 0;
-    let insuranceFee = 0;
-    let airbnbCommission = 0;
-    let vrboCommission = 0;
-    let airbnbCleaningFeeIssue = false;
+    const strategies: FinancialCalculationStrategy[] = [
+      new PostApril2025Strategy(),
+      new DefaultFinancialCalculationStrategy(),
+    ];
 
-    // Constants for special listingMapId cases
-    // const specialListingMapIds = [286718, 286720];
-
-    // Helper function to calculate PM Commission
-    // const calculatePmCommission = (): number => {
-    //   const cleaningFeeAdjustment = financeStandardField.cleaningFeeValue - paymentProcessing + channelFee;
-    //   const adjustedOwnerPayout = specialListingMapIds.includes(reservation.listingMapId)
-    //     ? ownerPayout - cleaningFeeAdjustment
-    //     : ownerPayout;
-
-    //   return adjustedOwnerPayout * pmFee;
-    // };
-    if (reservation.cleaningFee != financeStandardField.cleaningFeeValue) {
-      airbnbCleaningFeeIssue = true;
+    const strategy = strategies.find(s => s.appliesTo(reservation.reservationDate));
+    if (!strategy) {
+      throw new Error("No financial calculation strategy found for the given reservation date.");
     }
 
-    linenFeeAirbnb = financeStandardField?.linenFeeAirbnb || 0;
-    insuranceFee = financeStandardField?.insuranceFee || 0;
-
-    // Calculate financial fields based on channelId
-    if (reservation.channelId === 2018) {
-
-      if (airbnbCleaningFeeIssue && linenFeeAirbnb == 0) {
-        linenFeeAirbnb = financeStandardField.cleaningFeeValue - reservation.cleaningFee;
-      }
-
-      airbnbPayoutSum = financeStandardField.airbnbPayoutSum;
-      // ownerPayout = airbnbPayoutSum + directPayout; // old formula
-      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
-      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
-      airbnbCommission = (airbnbPayoutSum + claimsProtection - linenFeeAirbnb) * pmFee;
-      pmCommission = (airbnbCommission + vrboCommission);
-      ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
-    } else {
-      channelFee = (financeStandardField.hostChannelFee);
-
-      totalTax = [
-        financeStandardField.vat,
-        financeStandardField.hotelTax,
-        financeStandardField.lodgingTax,
-        financeStandardField.salesTax,
-        financeStandardField.transientOccupancyTax,
-        financeStandardField.cityTax,
-        financeStandardField.roomTax,
-        financeStandardField.otherTaxes,
-      ].reduce((sum, tax) => sum + tax, 0);
-
-      directPayout = [
-        financeStandardField.baseRate,
-        financeStandardField.cleaningFeeValue,
-        totalTax,
-        hidePetFee ? 0 : financeStandardField.petFee,
-        financeStandardField.weeklyDiscount,
-        financeStandardField.couponDiscount,
-        financeStandardField.monthlyDiscount,
-        financeStandardField.cancellationPayout,
-        financeStandardField.otherFees,
-      ].reduce((sum, field) => sum + field, 0);
-
-      paymentProcessing = (directPayout * 0.03);
-      // ownerPayout = airbnbPayoutSum + directPayout;
-      claimsProtection = isClaimProtection ? ((airbnbPayoutSum + directPayout - linenFeeAirbnb) * (-0.1)) : 0;
-      subTotalPrice = (airbnbPayoutSum + directPayout + claimsProtection - linenFeeAirbnb);
-      vrboCommission = (directPayout + claimsProtection - channelFee - paymentProcessing) * pmFee;
-      pmCommission = (airbnbCommission + vrboCommission);
-      ownerPayout = (subTotalPrice - pmCommission - channelFee - paymentProcessing);
-    }
-
-    // Calculate PM Commission
-    // pmCommission = calculatePmCommission(); // old method
-
-    return {
-      ownerPayout,
-      pmCommission,
-      paymentProcessing,
-      channelFee,
-      totalTax,
-      revenue: subTotalPrice,
-      payout: ownerPayout,
-      managementFee: pmCommission
-    };
+    return strategy.calculate(reservation, financeStandardField, {
+      clientId,
+      clientSecret,
+      pmFee,
+      isClaimProtection,
+      hidePetFee,
+    });
   }
 
   private handleProratedCalculation(totalAmount: number, totalNights: number, calculableNights: number): number {
