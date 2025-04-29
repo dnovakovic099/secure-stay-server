@@ -24,5 +24,5 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
-  schedule.scheduleJob("*/5 * * * *", syncReservation);
+  schedule.scheduleJob("0 * * * *", syncReservation);
 }
