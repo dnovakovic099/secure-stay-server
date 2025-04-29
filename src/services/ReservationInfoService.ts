@@ -27,6 +27,11 @@ export class ReservationInfoService {
     if (isExist) {
       return await this.updateReservationInfo(reservation.id, reservation);
     }
+    const validReservationStatuses = ["new", "modified", "ownerStay"];
+    const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
+    if (isValidReservationStatus) {
+      await this.notifyMobileUser(reservation);
+    }
 
     const newReservation = this.reservationInfoRepository.create(reservation);
     return await this.reservationInfoRepository.save(newReservation);
