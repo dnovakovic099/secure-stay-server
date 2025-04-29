@@ -365,7 +365,7 @@ export class ReservationInfoService {
   async syncReservations(startingDate: string) {
     const reservations = await this.hostAwayClient.syncReservations(startingDate);
     for (const reservation of reservations) {
-      logger.info(`ReservationID: ${reservation.id}`);
+      // logger.info(`ReservationID: ${reservation.id}`);
       await this.saveReservationInfo(reservation);
     }
     return {
@@ -390,19 +390,24 @@ export class ReservationInfoService {
 
   private async checkAirbnbClosedResoultionSum(reservation: any) {
     if (!reservation) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation object found.')
       return false;
     }
 
     const financeField = reservation.financeField;
     if (!financeField) {
+      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found.')
       return false;
     }
 
-    return financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+    const isAirbnbClosedResolutionSumExists = financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
+    logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] isAirbnbClosedResolutionSumExists=', isAirbnbClosedResolutionSumExists);
+    return isAirbnbClosedResolutionSumExists;
   }
 
   async handleAirbnbClosedResolution(reservation: any) {
     const exists = await this.checkAirbnbClosedResoultionSum(reservation);
+    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] reservation: ${reservation?.id}`)
     if (!exists) return;
     logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
     await this.createResolution(reservation); // actual resolution logic
