@@ -11,9 +11,11 @@ import { UpsellOrderService } from "./UpsellOrderService";
 import sendEmail from "../utils/sendEmai";
 import { ResolutionService } from "./ResolutionService";
 import axios from "axios";
+import { Listing } from "../entity/Listing";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+  private listingInfoRepository = appDatabase.getRepository(Listing)
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -489,10 +491,14 @@ export class ReservationInfoService {
   async notifyMobileUser(reservation: any) {
     try {
       const url = "https://luxurylodgingpm.co/luxury_lodging_mobile_api/reservation/new-reservation";
+      const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
       const body = {
         guestName: reservation?.guestName,
         arrivalDate: reservation?.arrivalDate,
-        departureDate: reservation?.departureDate
+        departureDate: reservation?.departureDate,
+        totalPrice: reservation?.totalPrice,
+        guestFirstName: reservation?.guestFirstName,
+        listingName: listingInfo.externalListingName
       };
       const response = await axios.post(url, body, {
         headers: {
