@@ -45,7 +45,7 @@ export class ReservationInfoService {
 
     if (!isCurrentStatusValid && isUpdatedStatusValid) {
       // send Notification
-      this.notifyMobileUser(updateData);
+      await this.notifyMobileUser(updateData);
     }
 
     reservation.listingMapId = updateData.listingMapId;
