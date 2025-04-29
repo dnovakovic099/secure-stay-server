@@ -38,6 +38,16 @@ export class ReservationInfoService {
       return null;
     }
 
+    const validReservationStatuses = ["new", "modified", "ownerStay"];
+
+    const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
+    const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
+
+    if (!isCurrentStatusValid && isUpdatedStatusValid) {
+      // send Notification
+      this.notifyMobileUser(updateData);
+    }
+
     reservation.listingMapId = updateData.listingMapId;
     reservation.listingName = updateData.listingName;
     reservation.channelId = updateData.channelId;
