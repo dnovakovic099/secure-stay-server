@@ -10,9 +10,12 @@ import logger from "../utils/logger.utils";
 import { UpsellOrderService } from "./UpsellOrderService";
 import sendEmail from "../utils/sendEmai";
 import { ResolutionService } from "./ResolutionService";
+import axios from "axios";
+import { Listing } from "../entity/Listing";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+  private listingInfoRepository = appDatabase.getRepository(Listing)
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -33,6 +36,16 @@ export class ReservationInfoService {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
+    }
+
+    const validReservationStatuses = ["new", "modified", "ownerStay"];
+
+    const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
+    const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
+
+    if (!isCurrentStatusValid && isUpdatedStatusValid) {
+      // send Notification
+      this.notifyMobileUser(updateData);
     }
 
     reservation.listingMapId = updateData.listingMapId;
@@ -488,6 +501,34 @@ export class ReservationInfoService {
       }
     });
     
+  }
+
+  async notifyMobileUser(reservation: any) {
+    try {
+      const url = "https://luxurylodgingpm.co/luxury_lodging_mobile_api/reservation/new-reservation";
+      const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
+      const body = {
+        guestName: reservation?.guestName,
+        arrivalDate: reservation?.arrivalDate,
+        departureDate: reservation?.departureDate,
+        totalPrice: reservation?.totalPrice,
+        guestFirstName: reservation?.guestFirstName,
+        listingName: listingInfo.externalListingName
+      };
+      const response = await axios.post(url, body, {
+        headers: {
+          "x-internal-source": "securestay.ai"
+        }
+      });
+      if (response.status !== 200) {
+        logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
+      }
+      logger.info('[notifyMobileUser] Processed notification to mobile user for new reservation');
+      return response.data;
+    } catch (error) {
+      logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
+      return null;
+    }
   }
 
 

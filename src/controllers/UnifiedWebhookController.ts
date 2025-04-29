@@ -14,6 +14,7 @@ export class UnifiedWebhookController {
             switch (body.event) {
                 case "reservation.created":
                     await reservationInfoService.saveReservationInfo(body.data);
+                    // await reservationInfoService.notifyMobileUser(body.data);
                     break;
                 case "reservation.updated":
                     await reservationInfoService.updateReservationInfo(body.data.id, body.data);
