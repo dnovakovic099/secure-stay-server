@@ -34,6 +34,8 @@ export class ReservationInfoService {
     }
 
     const newReservation = this.reservationInfoRepository.create(reservation);
+    logger.info(`[saveReservationInfo] Reservation saved successfully.`);
+    logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
   }
 
@@ -108,6 +110,7 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
 
+    logger.info(`[updateReservationInfo] Reservation updated successfully.[${reservation.id}-${reservation.guestName}]`)
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -525,12 +528,16 @@ export class ReservationInfoService {
           "x-internal-source": "securestay.ai"
         }
       });
+      
       if (response.status !== 200) {
+        logger.error(`[notifyMobileUser] Response status: ${response.status}`)
         logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
       }
+
       logger.info('[notifyMobileUser] Processed notification to mobile user for new reservation');
       return response.data;
     } catch (error) {
+      logger.error(error);
       logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
       return null;
     }
