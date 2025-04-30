@@ -513,7 +513,7 @@ export class ReservationInfoService {
 
   async notifyMobileUser(reservation: any) {
     try {
-      const url = "https://luxurylodgingpm.co/luxury_lodging_mobile_api/reservation/new-reservation";
+      const url = `${process.env.MOBILE_API_BASE_URL}/reservation/new-reservation`;
       const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
       const body = {
         guestName: reservation?.guestName,
@@ -521,7 +521,8 @@ export class ReservationInfoService {
         departureDate: reservation?.departureDate,
         totalPrice: reservation?.totalPrice,
         guestFirstName: reservation?.guestFirstName,
-        listingName: listingInfo.externalListingName
+        listingName: listingInfo.externalListingName,
+        listingMapId: reservation?.listingMapId
       };
       const response = await axios.post(url, body, {
         headers: {

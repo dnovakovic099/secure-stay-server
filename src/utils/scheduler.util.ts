@@ -3,6 +3,7 @@ import { checkForPendingRefundRequest, checkForUnresolvedReviews, checkUnaswered
 import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
 import { syncReservation } from "../scripts/syncReservation";
+import { syncHostawayUser } from "../scripts/syncHostawayUser";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -25,4 +26,6 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
   schedule.scheduleJob("0 * * * *", syncReservation);
+
+  schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 }
