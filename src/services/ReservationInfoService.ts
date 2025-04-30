@@ -414,12 +414,12 @@ export class ReservationInfoService {
 
     const financeField = reservation.financeField;
     if (!financeField) {
-      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found.')
+      logger.info(`[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found for reservation ${reservation?.id}.`)
       return false;
     }
 
     const isAirbnbClosedResolutionSumExists = financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
-    logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] isAirbnbClosedResolutionSumExists=', isAirbnbClosedResolutionSumExists);
+    logger.info(`[ReservationInfoService] [checkAirbnbClosedResolutionSum]  isAirbnbClosedResolutionSumExists for reservation[${reservation?.id}] is ${isAirbnbClosedResolutionSumExists ? "true" : "false"}`);
     return isAirbnbClosedResolutionSumExists;
   }
 
