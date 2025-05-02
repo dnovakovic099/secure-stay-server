@@ -513,7 +513,7 @@ export class ReservationInfoService {
 
   async notifyMobileUser(reservation: any) {
     try {
-      const url = `${process.env.MOBILE_API_BASE_URL}/reservation/new-reservation`;
+      const url = `${process.env.OWNER_PORTAL_API_BASE_URL}/new-reservation`;
       const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
       const body = {
         guestName: reservation?.guestName,
