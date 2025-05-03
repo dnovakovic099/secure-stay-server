@@ -10,9 +10,12 @@ import logger from "../utils/logger.utils";
 import { UpsellOrderService } from "./UpsellOrderService";
 import sendEmail from "../utils/sendEmai";
 import { ResolutionService } from "./ResolutionService";
+import axios from "axios";
+import { Listing } from "../entity/Listing";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+  private listingInfoRepository = appDatabase.getRepository(Listing)
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -24,8 +27,15 @@ export class ReservationInfoService {
     if (isExist) {
       return await this.updateReservationInfo(reservation.id, reservation);
     }
+    const validReservationStatuses = ["new", "modified", "ownerStay"];
+    const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
+    if (isValidReservationStatus) {
+      await this.notifyMobileUser(reservation);
+    }
 
     const newReservation = this.reservationInfoRepository.create(reservation);
+    logger.info(`[saveReservationInfo] Reservation saved successfully.`);
+    logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
   }
 
@@ -33,6 +43,16 @@ export class ReservationInfoService {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
+    }
+
+    const validReservationStatuses = ["new", "modified", "ownerStay"];
+
+    const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
+    const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
+
+    if (!isCurrentStatusValid && isUpdatedStatusValid) {
+      // send Notification
+      await this.notifyMobileUser(updateData);
     }
 
     reservation.listingMapId = updateData.listingMapId;
@@ -90,6 +110,7 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
 
+    logger.info(`[updateReservationInfo] Reservation updated successfully.[${reservation.id}-${reservation.guestName}]`)
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -393,12 +414,12 @@ export class ReservationInfoService {
 
     const financeField = reservation.financeField;
     if (!financeField) {
-      logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found.')
+      logger.info(`[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation finance field found for reservation ${reservation?.id}.`)
       return false;
     }
 
     const isAirbnbClosedResolutionSumExists = financeField.some((data: any) => data.name == "airbnbClosedResolutionsSum");
-    logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] isAirbnbClosedResolutionSumExists=', isAirbnbClosedResolutionSumExists);
+    logger.info(`[ReservationInfoService] [checkAirbnbClosedResolutionSum]  isAirbnbClosedResolutionSumExists for reservation[${reservation?.id}] is ${isAirbnbClosedResolutionSumExists ? "true" : "false"}`);
     return isAirbnbClosedResolutionSumExists;
   }
 
@@ -488,6 +509,39 @@ export class ReservationInfoService {
       }
     });
     
+  }
+
+  async notifyMobileUser(reservation: any) {
+    try {
+      const url = `${process.env.OWNER_PORTAL_API_BASE_URL}/new-reservation`;
+      const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
+      const body = {
+        guestName: reservation?.guestName,
+        arrivalDate: reservation?.arrivalDate,
+        departureDate: reservation?.departureDate,
+        totalPrice: reservation?.totalPrice,
+        guestFirstName: reservation?.guestFirstName,
+        listingName: listingInfo.externalListingName,
+        listingMapId: reservation?.listingMapId
+      };
+      const response = await axios.post(url, body, {
+        headers: {
+          "x-internal-source": "securestay.ai"
+        }
+      });
+      
+      if (response.status !== 200) {
+        logger.error(`[notifyMobileUser] Response status: ${response.status}`)
+        logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
+      }
+
+      logger.info('[notifyMobileUser] Processed notification to mobile user for new reservation');
+      return response.data;
+    } catch (error) {
+      logger.error(error);
+      logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
+      return null;
+    }
   }
 
 
