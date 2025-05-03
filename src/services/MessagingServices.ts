@@ -127,6 +127,42 @@ export class MessagingService {
         return;
     }
 
+    async getUnansweredMessages(page: number, limit: number) {
+        const messages = await this.messageRepository.find({
+            where: {
+                answered: false,
+            },
+            skip: (page - 1) * limit,
+            take: limit,
+        });
+
+        const total = await this.messageRepository.count({
+            where: {
+                answered: false,
+            },
+        });
+
+
+        return {
+            data: messages,
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    async updateMessageStatus(messageId: number, answered: boolean) {
+        const message = await this.messageRepository.findOne({ where: { id: messageId } });
+        if (!message) {
+            throw CustomErrorHandler.notFound('Message not found');
+        }
+        message.answered = answered;
+        return await this.messageRepository.save(message);
+    }
+
     private async saveIncomingGuestMessage(message: MessageType) {
         const newMessage = new Message();
         newMessage.messageId = message.id;
