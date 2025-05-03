@@ -7,6 +7,7 @@ import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
 import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 interface MessageType {
     id: number;
@@ -128,31 +129,33 @@ export class MessagingService {
     }
 
     async getUnansweredMessages(page: number, limit: number) {
-        const messages = await this.messageRepository.find({
-            where: {
-                answered: false,
-            },
-            skip: (page - 1) * limit,
-            take: limit,
-        });
-
-        const total = await this.messageRepository.count({
-            where: {
-                answered: false,
-            },
-        });
-
+        const [messages, total] = await this.messageRepository
+            .createQueryBuilder('message')
+            .leftJoinAndMapOne(
+                'message.reservation',
+                ReservationInfoEntity,
+                'reservation',
+                'message.reservationId = reservation.id'
+            )
+            .where('message.answered = :answered', { answered: false })
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getManyAndCount();
 
         return {
-            data: messages,
+            data: messages.map(msg => ({
+                ...msg,
+                guestName: msg['reservation']?.guestName || null,
+            })),
             meta: {
                 total,
                 page,
                 limit,
-                totalPages: Math.ceil(total / limit)
-            }
+                totalPages: Math.ceil(total / limit),
+            },
         };
     }
+
 
     async updateMessageStatus(messageId: number, answered: boolean) {
         const message = await this.messageRepository.findOne({ where: { id: messageId } });
