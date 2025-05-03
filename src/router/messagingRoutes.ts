@@ -19,6 +19,10 @@ router.route('/supportmessage').post(verifyMobileSession, validateSupportMessage
 
 router.route('/conversation-webhook').post(messagingController.handleConversation);
 
+router.route('/unanswered-messages').get(messagingController.getUnansweredMessages);
+
+router.route('/unanswered-messages/:id').put(messagingController.updateMessageStatus);
+
 export default router
 
 
