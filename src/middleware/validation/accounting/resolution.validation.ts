@@ -47,7 +47,17 @@ export const validateCreateResolution = (request: Request, response: Response, n
             .messages({
                 'number.base': 'Amount must be a number',
                 'any.required': 'Amount is required'
-            })
+            }),
+
+        arrivalDate: Joi.string().required().messages({
+            'string.empty': 'Arrival date is required',
+            'any.required': 'Arrival date is required'
+        }),
+        
+        departureDate: Joi.string().required().messages({
+            'string.empty': 'Departure date is required',
+            'any.required': 'Departure date is required'
+        }),
     });
 
     const { error } = schema.validate(request.body);

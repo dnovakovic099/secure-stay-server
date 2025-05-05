@@ -26,6 +26,12 @@ export class Resolution {
     @Column({ type: "decimal", precision: 10, scale: 2 })
     amount: number;
 
+    @Column({ nullable: true })
+    arrivalDate: string;
+
+    @Column({ nullable: true })
+    departureDate: string;
+
     @CreateDateColumn()
     createdAt: Date;
 

@@ -454,14 +454,19 @@ export class ReservationInfoService {
       reservationId: reservation?.id,
       guestName: reservation.guestName,
       claimDate: reservation.updatedOn,
-      amount: airbnbClosedResolutionSumAmount
+      amount: airbnbClosedResolutionSumAmount,
+      arrivalDate: reservation.arrivalDate,
+      departureDate: reservation.departureDate
     };
 
   }
 
 
   async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
-    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName}`;
+
+    const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+
+    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${reservation?.id}`;
     const html = `
                 <html>
                   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
@@ -477,7 +482,7 @@ export class ReservationInfoService {
                         <strong>Check-Out:</strong> ${reservation?.departureDate}
                       </p>
                                            <p style="margin: 20px 0; font-size: 16px;">
-                        <strong>Listing:</strong> ${reservation?.listingMapId}
+                        <strong>Listing:</strong> ${listingInfo?.internalListingName}
                       </p>
                                            <p style="margin: 20px 0; font-size: 16px;">
                         <strong>Airbnb Closed Resolution Amount:</strong> ${reservation?.financeField?.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value}
