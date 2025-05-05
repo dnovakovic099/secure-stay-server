@@ -522,7 +522,8 @@ export class ReservationInfoService {
         totalPrice: reservation?.totalPrice,
         guestFirstName: reservation?.guestFirstName,
         listingName: listingInfo.externalListingName,
-        listingMapId: reservation?.listingMapId
+        listingMapId: reservation?.listingMapId,
+        id: reservation?.id
       };
       const response = await axios.post(url, body, {
         headers: {
