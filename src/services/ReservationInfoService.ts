@@ -466,7 +466,14 @@ export class ReservationInfoService {
 
     const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
 
-    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${reservation?.id}`;
+    let searchKey = "";
+    const channelReservationId = reservation?.channelReservationId;
+    const searchKeys = channelReservationId.split('-');
+    if (searchKeys && searchKeys.length > 0) {
+      searchKey = searchKeys[searchKeys.length - 1];
+    }
+    
+    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
     const html = `
                 <html>
                   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
