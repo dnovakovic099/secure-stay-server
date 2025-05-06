@@ -505,6 +505,54 @@ export class UsersService {
         };
     }
 
+    async updateMobileUser(userInfo: {
+        id: number;
+        hostawayId?: number;
+        revenueSharing?: number;
+        firstName?: string;
+        lastName?: string | null;
+        email?: string;
+        password?: string;
+    }, updatedBy: string, id: string) {
+        const { password, ...updateData } = userInfo;
+
+        // Find the existing user
+        const existingUser = await this.mobileUser.findOne({ where: { id: Number(id) } });
+        if (!existingUser) {
+            return {
+                status: false,
+                message: "User not found!!!",
+            };
+        }
+
+        // If password is provided, hash it and update password-related fields
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updateData['password'] = hashedPassword;
+            updateData['lastPasswordChangedAt'] = new Date();
+            updateData['lastPasswordChangedBy'] = updatedBy;
+        }
+
+        // Update the user with new data
+        const updatedUser = await this.mobileUser.update(id, {
+            ...updateData,
+            updatedBy,
+            updatedAt: new Date()
+        });
+
+        if (updatedUser.affected === 1) {
+            return {
+                status: true,
+                message: "User updated successfully!!!",
+            };
+        }
+
+        return {
+            status: false,
+            message: "Failed to update user!!!",
+        };
+    }
+
 }
 
 

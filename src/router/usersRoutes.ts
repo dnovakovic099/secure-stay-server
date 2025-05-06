@@ -1,6 +1,5 @@
-
 import { Router } from 'express';
-import { validateCreateMobileUser, validateEmailForForgetPassword, validateGetMobileUsersList, validateUserForGoogleLogin, validationForGoogleSignUp } from '../middleware/validation/user/user.validation';
+import { validateCreateMobileUser, validateEmailForForgetPassword, validateGetMobileUsersList, validateUserForGoogleLogin, validationForGoogleSignUp, validateUpdateMobileUser } from '../middleware/validation/user/user.validation';
 import { UsersController } from '../controllers/UsersController';
 import verifySession from '../middleware/verifySession';
 
@@ -57,6 +56,14 @@ router
         verifySession,
         validateGetMobileUsersList,
         usersController.getMobileUsersList
+    );
+
+router
+    .route('/updatemobileuser/:id')
+    .put(
+        verifySession,
+        validateUpdateMobileUser,
+        usersController.updateMobileUser
     );
 
 export default router
