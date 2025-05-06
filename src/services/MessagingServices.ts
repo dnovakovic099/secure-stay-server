@@ -7,6 +7,7 @@ import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
 import logger from "../utils/logger.utils";
 import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 interface MessageType {
     id: number;
@@ -125,6 +126,44 @@ export class MessagingService {
             logger.info(`Guest message saved successfully messageId: ${message.id} conversationId: ${message.conversationId}`);
         }
         return;
+    }
+
+    async getUnansweredMessages(page: number, limit: number) {
+        const [messages, total] = await this.messageRepository
+            .createQueryBuilder('message')
+            .leftJoinAndMapOne(
+                'message.reservation',
+                ReservationInfoEntity,
+                'reservation',
+                'message.reservationId = reservation.id'
+            )
+            .where('message.answered = :answered', { answered: false })
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getManyAndCount();
+
+        return {
+            data: messages.map(msg => ({
+                ...msg,
+                guestName: msg['reservation']?.guestName || null,
+            })),
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit),
+            },
+        };
+    }
+
+
+    async updateMessageStatus(messageId: number, answered: boolean) {
+        const message = await this.messageRepository.findOne({ where: { id: messageId } });
+        if (!message) {
+            throw CustomErrorHandler.notFound('Message not found');
+        }
+        message.answered = answered;
+        return await this.messageRepository.save(message);
     }
 
     private async saveIncomingGuestMessage(message: MessageType) {

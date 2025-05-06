@@ -9,6 +9,7 @@ import sendEmail from "../utils/sendEmai";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { v4 as uuidv4 } from 'uuid';
+import axios from "axios";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -182,6 +183,10 @@ export class ReviewService {
                         reservationId: reviewData?.reservationId || null
                     });
 
+                    if (existingReview.rating != 10 && reviewData.rating == 10) {
+                        await this.process5StarRatings(reviewData);
+                    }
+
                 } else {
                     // Create a new review entity and save it
                     const newReview = this.reviewRepository.create({
@@ -203,6 +208,10 @@ export class ReviewService {
                         reservationId: reviewData?.reservationId || null,
                     });
                     await this.reviewRepository.save(newReview);
+
+                    if (reviewData.rating == 10) {
+                        await this.process5StarRatings(reviewData);
+                    }
                 }
             }
         } catch (error) {
@@ -328,6 +337,41 @@ export class ReviewService {
     private async createReview(obj: any) {
         const newReview = this.reviewRepository.create(obj);
         return await this.reviewRepository.save(newReview);
+    }
+
+    private async process5StarRatings(review) {
+        const reviewerName = review.reviewerName;
+        const listingMapId = review.listingMapId;
+        const rating = 5.0;
+        const reviewId = review.id;
+
+        try {
+            const url = `${process.env.OWNER_PORTAL_API_BASE_URL}/new-review`;
+            const body = {
+                reviewerName,
+                listingMapId,
+                rating,
+                reviewId
+            };
+            const response = await axios.post(url, body, {
+                headers: {
+                    "x-internal-source": "securestay.ai"
+                }
+            });
+
+            if (response.status !== 200) {
+                logger.error(`[process5StarRatings] Response status: ${response.status}`);
+                logger.error(`[process5StarRatings] Failed to send notification to mobile user for new review by ${reviewerName}`);
+            }
+
+            logger.info(`[process5StarRatings] Processed notification to mobile user for new review by ${reviewerName}`);
+            return response.data;
+        } catch (error) {
+            logger.error(error);
+            logger.error('[process5StarRatings] Failed to send notification to mobile user for new review');
+            return null;
+        }
+
     }
 
 }

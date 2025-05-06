@@ -136,6 +136,33 @@ export class MessagingController {
         }
     }
 
+    async getUnansweredMessages(request: Request, response: Response, next: NextFunction) {
+        try {
+            const page = parseInt(request.query.page as string) || 1;
+            const limit = parseInt(request.query.limit as string) || 10;
+            const messagesService = new MessagingService();
+            const messages = await messagesService.getUnansweredMessages(page, limit);
+            return response.send({
+                status: true,
+                ...messages
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateMessageStatus(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { id } = request.params;
+            const { answered } = request.body;
+            const messagesService = new MessagingService();
+            await messagesService.updateMessageStatus(Number(id), answered);
+            return response.status(200).json(dataUpdated('Message status updated successfully'));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async handleConversation(request: Request, response: Response, next: NextFunction) {
         try {
             const messagingService = new MessagingService();

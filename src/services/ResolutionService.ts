@@ -23,6 +23,8 @@ interface ResolutionData {
     guestName: string;
     claimDate: string;
     amount: number;
+    arrivalDate: string;
+    departureDate: string;
 }
 
 enum CategoryKey {
@@ -59,6 +61,8 @@ export class ResolutionService {
         resolution.createdAt = new Date();
         resolution.updatedAt = new Date();
         resolution.createdBy = userId;
+        resolution.arrivalDate = data.arrivalDate;
+        resolution.departureDate = data.departureDate;
 
         return await this.resolutionRepo.save(resolution);
     }
@@ -102,12 +106,12 @@ export class ResolutionService {
             .filter((id, index, self) => id != null && self.indexOf(id) === index);
 
         const listings = await this.listingRepository.find({
-            select: ["id", "address"],
+            select: ["id", "address", "internalListingName"],
             where: { id: In(listingMapIds) }
         });
 
         const listingNameMap = listings.reduce((acc, listing) => {
-            acc[listing.id] = listing.address;
+            acc[listing.id] = listing.internalListingName;
             return acc;
         }, {});
 
@@ -115,10 +119,12 @@ export class ResolutionService {
             "ID",
             "Category",
             "Description",
-            "Address",
+            "Listing",
             "Guest Name",
             "Claim Date",
             "Amount",
+            "Check In",
+            "Check Out",
             "Created At"
         ];
 
@@ -130,7 +136,9 @@ export class ResolutionService {
             resolution.guestName,
             format(resolution.claimDate, "yyyy-MM-dd"),
             Number(resolution.amount),
-            format(resolution.createdAt, "yyyy-MM-dd")
+            resolution.arrivalDate,
+            resolution.departureDate,
+            format(resolution.createdAt, "yyyy-MM-dd"),
         ]);
 
         return {
