@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import logger from "../utils/logger.utils";
 import { ReservationInfoService } from "../services/ReservationInfoService";
+import { runAsync } from "../utils/asyncUtils";
 
 export class UnifiedWebhookController {
 
@@ -18,7 +19,7 @@ export class UnifiedWebhookController {
                     break;
                 case "reservation.updated":
                     await reservationInfoService.updateReservationInfo(body.data.id, body.data);
-                    await reservationInfoService.handleAirbnbClosedResolution(body.data);
+                    runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
                     break;
                 case "message.received":
                     // this.handleReservationCancelled(body);
