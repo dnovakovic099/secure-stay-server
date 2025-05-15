@@ -138,6 +138,7 @@ export class MessagingService {
                 'message.reservationId = reservation.id'
             )
             .where('message.answered = :answered', { answered: false })
+            .orderBy('message.createdAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit)
             .getManyAndCount();
