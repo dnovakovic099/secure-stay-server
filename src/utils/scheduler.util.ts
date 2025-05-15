@@ -4,6 +4,8 @@ import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
 import { syncReservation } from "../scripts/syncReservation";
 import { syncHostawayUser } from "../scripts/syncHostawayUser";
+import { OccupancyReportService } from "../services/OccupancyReportService";
+import logger from "./logger.utils";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -28,4 +30,16 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 * * * *", syncReservation);
 
   schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
+
+  // Schedule daily occupancy report at 8 AM EST
+  schedule.scheduleJob({ hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      logger.info('SendDailyOccupancyReport scheduler ran...')
+      const occupancyReportService = new OccupancyReportService();
+      await occupancyReportService.sendDailyReport();
+      logger.info('SendDailyOccupancyReport scheduler completed...')
+    } catch (error) {
+      logger.error("Error sending daily occupancy report:", error);
+    }
+  });
 }

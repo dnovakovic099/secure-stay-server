@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+
 export function getCurrentDateInUTC(){
   // Get the current date in UTC
   const currentDate = new Date();
@@ -58,10 +60,10 @@ export function formatDate(dateString: string) {
 }
 
 export function getReservationDaysInRange(
-  fromDate: string,
-  toDate: string,
-  reservationStartDate: string,
-  reservationEndDate: string
+  fromDate: any,
+  toDate: any,
+  reservationStartDate: any,
+  reservationEndDate: any
 ): number {
   // Convert strings to Date objects
   const from = new Date(fromDate);
@@ -140,5 +142,16 @@ export function getStartOfThreeMonthsAgo() {
 
   return `${year}-${month}-${day}`;
 }
+
+export function getDatesBetween(start: Date, end: Date): string[] {
+  const dates = [];
+  const current = new Date(start);
+  while (current <= end) {
+    dates.push(format(current, "yyyy-MM-dd"));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
 
 

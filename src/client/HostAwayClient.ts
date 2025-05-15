@@ -257,6 +257,24 @@ export class HostAwayClient {
     }
   }
 
+  public async getCalendar(clientId: string, clientSecret: string, listingId: string, fromDate: string | Date, toDate: string | Date) {
+    let url = `https://api.hostaway.com/v1/listings/${listingId}/calendar?startDate=${fromDate}&endDate=${toDate}`;
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(`[getCalendar] `,error);
+      return null;
+    }
+  }
+
   public async getListingByUserId(userId: number, clientId: string, clientSecret: string) {
     let url = `https://api.hostaway.com/v1/listings?userId=${userId}`;
 
