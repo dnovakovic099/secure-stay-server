@@ -12,6 +12,7 @@ import sendEmail from "../utils/sendEmai";
 import { ResolutionService } from "./ResolutionService";
 import axios from "axios";
 import { Listing } from "../entity/Listing";
+import { runAsync } from "../utils/asyncUtils";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -27,10 +28,15 @@ export class ReservationInfoService {
     if (isExist) {
       return await this.updateReservationInfo(reservation.id, reservation);
     }
+
     const validReservationStatuses = ["new", "modified", "ownerStay"];
     const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
     if (isValidReservationStatus) {
-      await this.notifyMobileUser(reservation);
+      runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
+    }
+
+    if (reservation.status == "inquiry" && reservation.channelId==2018) {
+      runAsync(this.notifyNewInquiryReservation(reservation),"notifyNewInquiryReservation");
     }
 
     const newReservation = this.reservationInfoRepository.create(reservation);
@@ -52,7 +58,7 @@ export class ReservationInfoService {
 
     if (!isCurrentStatusValid && isUpdatedStatusValid) {
       // send Notification
-      await this.notifyMobileUser(updateData);
+      runAsync(this.notifyMobileUser(updateData), "notifyMobileUser");
     }
 
     reservation.listingMapId = updateData.listingMapId;
@@ -555,6 +561,52 @@ export class ReservationInfoService {
       logger.error('[notifyMobileUser] Failed to send notification to mobile user for new reservation');
       return null;
     }
+  }
+
+  async notifyNewInquiryReservation(reservation: any) {
+    const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const ha_reservation_msg_link = `https://dashboard.hostaway.com/v3/messages/inbox/${reservation.id}`;
+
+    const subject = `URGENT! Pre-approve Airbnb Inquiry - ${reservation.id}`;
+    const html = `
+                <html>
+                  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); padding: 20px;">
+                      <h2 style="color: #007BFF; border-bottom: 2px solid #007BFF; padding-bottom: 10px;">URGENT! Pre-approve Airbnb Inquiry</h2>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Guest Name:</strong> ${reservation?.guestName}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-In:</strong> ${reservation?.arrivalDate}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Listing:</strong> ${listingInfo?.internalListingName}
+                      </p>
+                        <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>HA Inquiry Message Link:</strong> ${ha_reservation_msg_link}
+                      </p>
+                      <p style="margin: 30px 0 0; font-size: 14px; color: #777;">Thank you!</p>
+                    </div>
+                  </body>
+                </html>
+
+        `;
+
+    const receipientsList = [
+      "ferdinand@luxurylodgingpm.com",
+    ];
+
+    const results = await Promise.allSettled(
+      receipientsList.map(receipient =>
+        sendEmail(subject, html, process.env.EMAIL_FROM, receipient)
+      )
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.error(`Failed to send email to recipient #${index}`, result?.reason);
+      }
+    });
   }
 
 

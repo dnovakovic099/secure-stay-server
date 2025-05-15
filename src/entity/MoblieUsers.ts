@@ -1,5 +1,5 @@
 // Import necessary modules from TypeORM
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 // Define the entity class
 @Entity({ name: 'mobileUsers' })
@@ -30,4 +30,19 @@ export class MobileUsersEntity {
 
   @Column({ nullable: true, default: null })
   referralCode: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  updatedBy: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastPasswordChangedAt: Date;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  lastPasswordChangedBy: string;
 }

@@ -145,5 +145,16 @@ export class UsersController{
             return next(error);
         }
     };
+
+    async updateMobileUser(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            const updatedBy = request.user.id;
+            const userId = request.params.id;
+            return response.send(await usersService.updateMobileUser(request.body, updatedBy, userId));
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
 

@@ -79,3 +79,21 @@ export const validateGetMobileUsersList = (request: Request, response: Response,
     }
     next();
 };
+
+export const validateUpdateMobileUser = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        email: Joi.string().email().optional(),
+        firstName: Joi.string().optional(),
+        lastName: Joi.string().allow('', null).optional(),
+        revenueSharing: Joi.number().optional().allow(null),
+        hostawayId: Joi.number().optional(),
+        password: Joi.string().optional()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
