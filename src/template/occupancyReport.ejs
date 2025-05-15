@@ -153,7 +153,7 @@
                                                                                 <tr>
                                                                                     <% if (ownerStayLines.length> 0 && blockedLines.length > 0) { %>
                                                                                         <td valign="top" style="width: 50%; padding-right: 10px;">
-                                                                                            <strong>Notes: Owner stay</strong><br>
+                                                                                            <strong>Notes: Owner stay (within 30D)</strong><br>
                                                                                             <% ownerStayLines.forEach(function(line) { %>
                                                                                                 <div>
                                                                                                     <%= line %>
@@ -161,7 +161,7 @@
                                                                                                 <% }); %>
                                                                                         </td>
                                                                                         <td valign="top" style="width: 50%; padding-left: 10px;">
-                                                                                            <strong>Notes: Blocked dates</strong><br>
+                                                                                            <strong>Notes: Blocked dates (within 30D)</strong><br>
                                                                                             <% blockedLines.forEach(function(line) { %>
                                                                                                 <div>
                                                                                                     <%= line %>
