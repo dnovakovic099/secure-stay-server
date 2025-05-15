@@ -71,9 +71,8 @@ export class OccupancyReportService {
             // Step 3: Define email details
             const subject = "Daily Occupancy Rate Report";
             const recipients = [
-                // "admin@luxurylodgingpm.com",
-                // "ferdinand@luxurylodgingpm.com",
-                "prasannakb440@gmail.com"
+                "admin@luxurylodgingpm.com",
+                "ferdinand@luxurylodgingpm.com",
             ];
 
             // Step 4: Send email to each recipient

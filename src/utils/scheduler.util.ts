@@ -32,7 +32,7 @@ export function scheduleGetReservation() {
   schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
   // Schedule daily occupancy report at 8 AM EST
-  schedule.scheduleJob({ hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+  schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, async () => {
     try {
       logger.info('SendDailyOccupancyReport scheduler ran...')
       const occupancyReportService = new OccupancyReportService();
