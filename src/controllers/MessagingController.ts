@@ -140,8 +140,9 @@ export class MessagingController {
         try {
             const page = parseInt(request.query.page as string) || 1;
             const limit = parseInt(request.query.limit as string) || 10;
+            const answered = request.query.answered === 'true';
             const messagesService = new MessagingService();
-            const messages = await messagesService.getUnansweredMessages(page, limit);
+            const messages = await messagesService.getUnansweredMessages(page, limit, answered);
             return response.send({
                 status: true,
                 ...messages

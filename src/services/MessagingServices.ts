@@ -128,7 +128,7 @@ export class MessagingService {
         return;
     }
 
-    async getUnansweredMessages(page: number, limit: number) {
+    async getUnansweredMessages(page: number, limit: number, answered: boolean) {
         const [messages, total] = await this.messageRepository
             .createQueryBuilder('message')
             .leftJoinAndMapOne(
@@ -137,7 +137,7 @@ export class MessagingService {
                 'reservation',
                 'message.reservationId = reservation.id'
             )
-            .where('message.answered = :answered', { answered: false })
+            .where('message.answered = :answered', { answered })
             .orderBy('message.createdAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit)
