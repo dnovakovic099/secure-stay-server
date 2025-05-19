@@ -21,7 +21,6 @@ export class UpsellOrderService {
             where: {}
         };
 
-        // Handle date filtering
         if (fromDate && toDate) {
             const startDate = new Date(fromDate);
             startDate.setHours(0, 0, 0, 0);
@@ -29,21 +28,17 @@ export class UpsellOrderService {
             const endDate = new Date(toDate);
             endDate.setHours(23, 59, 59, 999);
 
-            // Validate dateType
             const validDateTypes = ['order_date', 'arrival_date', 'departure_date'];
             if (!validDateTypes.includes(dateType)) {
-                dateType = 'order_date'; // Default to order_date if invalid
+                dateType = 'order_date';
             }
 
             queryOptions.where[dateType] = Between(startDate, endDate);
         }
-
-        // Handle status filter
         if (status) {
             queryOptions.where.status = status;
         }
 
-        // Handle listing_id filter
         if (listing_id) {
             queryOptions.where.listing_id = listing_id;
         }
