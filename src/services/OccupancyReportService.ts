@@ -148,7 +148,7 @@ export class OccupancyReportService {
 
             for (const recipient of recipients) {
                 try {
-                    const info = await transporter.sendMail({
+                    await transporter.sendMail({
                         from: process.env.EMAIL_FROM,
                         to: recipient,
                         subject,
@@ -162,7 +162,6 @@ export class OccupancyReportService {
                         ]
                     });
                     logger.info("Email sent successfully");
-                    return info;
                 } catch (error) {
                     logger.error("Error sending email", error);
                 }
