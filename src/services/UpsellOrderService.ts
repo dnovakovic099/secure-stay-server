@@ -13,27 +13,37 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '') {
-
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date') {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
-            take: limit
+            take: limit,
+            where: {}
         };
 
+        // Handle date filtering
         if (fromDate && toDate) {
-            queryOptions.where = {
-                order_date: Between(
-                    new Date(fromDate),
-                    new Date(toDate)
-                )
-            };
+            const startDate = new Date(fromDate);
+            startDate.setHours(0, 0, 0, 0);
+            
+            const endDate = new Date(toDate);
+            endDate.setHours(23, 59, 59, 999);
+
+            // Validate dateType
+            const validDateTypes = ['order_date', 'arrival_date', 'departure_date'];
+            if (!validDateTypes.includes(dateType)) {
+                dateType = 'order_date'; // Default to order_date if invalid
+            }
+
+            queryOptions.where[dateType] = Between(startDate, endDate);
         }
 
+        // Handle status filter
         if (status) {
             queryOptions.where.status = status;
-        }   
+        }
 
+        // Handle listing_id filter
         if (listing_id) {
             queryOptions.where.listing_id = listing_id;
         }
