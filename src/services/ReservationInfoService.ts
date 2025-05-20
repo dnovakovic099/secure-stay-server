@@ -35,8 +35,10 @@ export class ReservationInfoService {
       runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
     }
 
-    if (reservation.status == "inquiry" && reservation.channelId==2018) {
-      runAsync(this.notifyNewInquiryReservation(reservation),"notifyNewInquiryReservation");
+    if (reservation.status == "inquiry" && reservation.channelId == 2018) {
+      setTimeout(() => {
+        runAsync(this.notifyNewInquiryReservation(reservation), "notifyNewInquiryReservation");
+      }, 5 * 60 * 1000);  //delay the notification by 5 min 
     }
 
     const newReservation = this.reservationInfoRepository.create(reservation);
