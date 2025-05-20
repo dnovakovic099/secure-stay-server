@@ -130,7 +130,7 @@ export class ExpenseService {
         });
 
         const listingNameMap = listings.reduce((acc, listing) => {
-            acc[listing.id] = listing.address;
+            acc[listing.id] = listing.internalListingName;
             return acc;
         }, {});
 
@@ -138,8 +138,8 @@ export class ExpenseService {
             "Expense Id",
             "Status",
             "Amount",
-            "Address",
-            "Expense Date",
+            "Listing",
+            "Date Added",
             "Description",
             "Catgories",
             "Contractor Name",
