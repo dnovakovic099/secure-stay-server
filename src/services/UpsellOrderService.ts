@@ -86,7 +86,7 @@ export class UpsellOrderService {
     }
 
     async getUpsellsByReservationId(reservationId: number) {
-        const orders = await this.upsellOrderRepo.find({ where: { booking_id: String(reservationId) } });
+        const orders = await this.upsellOrderRepo.find({ where: { booking_id: String(reservationId), status:"Approved" } });
         return orders.map(order => ({
             type: order.type,
             upsellId: String(order.id)
