@@ -61,7 +61,7 @@ export class ReservationInfoService {
       runAsync(this.notifyMobileUser(updateData), "notifyMobileUser");
     }
 
-    if (updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
+    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
 
