@@ -16,14 +16,13 @@
                         <td>
                             <h2 style="margin-top: 0; color: #333;">📉 Low Occupancy Report</h2>
                             <p style="font-size: 14px; color: #555;">This report highlights properties with occupancy
-                                rates below 65% for next 14 days, based on the Hostaway calendar.</p>
+                                rates below 50% for next 7 days, based on the Hostaway calendar.</p>
 
-                            <% const categories={ own: '🏠 Own Properties' , arbitraged: '🏘 Arbitraged Properties' ,
+                            <% const categories={ own: '🏠 Own Properties' , arbitraged: '💸 Arbitraged Properties' ,
                                 pmClients: '🤝 PM Clients' }; %>
 
                                 <% function groupConsecutiveDates(dates) { if (!dates || dates.length===0) return [];
-                                    const sortedDates=dates.map(d=>
-                                    new Date(d)).sort((a, b) => a - b);
+                                    const sortedDates=dates.map(d=> new Date(d)).sort((a, b) => a - b);
                                     const groups = [];
                                     let start = sortedDates[0];
                                     let end = start;
@@ -38,180 +37,181 @@
                                         : `${s.toLocaleDateString("en-US", options)}–${e.toLocaleDateString("en-US",
                                         options)}`;
                                         });
+                                        } %>
+
+                                        <% function getOccupancyStyle(period, value, isFuture) { if (!isFuture) { if
+                                            (period==="7days" && value < 25) return { color: "#b71c1c" , emoji: "" }; if
+                                            (period==="14days" && value < 50) return { color: "#d32f2f" , emoji: "" };
+                                            if (period==="30days" && value < 60) return { color: "#f57c00" , emoji: ""
+                                            }; if (period==="90days" && value < 70) return { color: "#fbc02d" ,
+                                            emoji: "" }; } else { if (period==="7days" && value < 50) return { color: ""
+                                            , emoji: "⚠️" }; if (period==="14days" && value < 25) return { color: "" ,
+                                            emoji: "⚠️" }; } return { color: "" , emoji: "" }; } %>
+
+<%
+function renderOccupancyTd(period, value, isFuture) {
+    const { color, emoji } = getOccupancyStyle(period, value, isFuture);
+    const shouldBeBold = color || emoji; // Bold if either is present
+    const style = ` style="text-align: center;${color ? ` color: ${color};` : ''}${shouldBeBold ? ' font-weight: bold;' : ''}"`;
+    return `<td${style}>${value}% ${emoji || ''}</td>`;
+}
+%>
+
+
+                        <% for (const categoryKey in categories) { const properties=data[categoryKey]; if (properties &&
+                            properties.length> 0) { %>
+
+                            <h3 style="color: white; border-bottom: 1px solid #ddd; padding-bottom: 5px;background-color: #b59f6e;padding-left: 5px;padding-top:2px;">
+                                <%= categories[categoryKey] %>
+                            </h3>
+
+                            <% properties.forEach(property=> {
+                                let showProperty = false;
+
+                                ['7days', '14days', '30days', '90days'].forEach(period => {
+                                if (
+                                parseFloat(property.pastRates[period].occupancyRate) < 65 ||
+                                    parseFloat(property.futureRates[period].occupancyRate) < 65 ) { showProperty=true; }
+                                    }); if (!showProperty) return; %>
+
+                                    <table width="100%" cellpadding="10" cellspacing="0"
+                                        style="margin-bottom: 20px; border: 1px solid #e0e0e0; border-radius: 6px; table-layout: fixed;">
+                                        <colgroup>
+                                            <col style="width: 200px; word-wrap: break-word;">
+                                            <% for (let i=0; i < 8; i++) { %>
+                                                <col style="width: 10%;">
+                                                <% } %>
+                                        </colgroup>
+                                        <tr style="background-color: #f3f6f9;">
+                                            <th align="left" style="text-align: left;">Property</th>
+                                            <th style="text-align: center;">Past 90</th>
+                                            <th style="text-align: center;">Past 30</th>
+                                            <th style="text-align: center;">Past 14</th>
+                                            <th style="text-align: center;">Past 7</th>
+                                            <th style="text-align: center;">Next 7</th>
+                                            <th style="text-align: center;">Next 14</th>
+                                            <th style="text-align: center;">Next 30</th>
+                                            <th style="text-align: center;">Next 90</th>
+                                        </tr>
+                                        <tr>
+                                            <td
+                                                style="word-wrap: break-word; word-break: break-word; text-align: left;">
+                                                <a href="https://dashboard.hostaway.com/v3/calendar/redirect/monthly/<%= property.listingId %>/<%= property.currentYear %>/<%= property.currentMonth %>"
+                                                    target="_blank">
+                                                    <%= property.listingName %>
+                                                </a>
+                                            </td>
+                                            <%- renderOccupancyTd('90days', property.pastRates["90days"].occupancyRate,
+                                                false) %>
+                                                <%- renderOccupancyTd('30days',
+                                                    property.pastRates["30days"].occupancyRate, false) %>
+                                                    <%- renderOccupancyTd('14days',
+                                                        property.pastRates["14days"].occupancyRate, false) %>
+                                                        <%- renderOccupancyTd('7days',
+                                                            property.pastRates["7days"].occupancyRate, false) %>
+                                                            <%- renderOccupancyTd('7days',
+                                                                property.futureRates["7days"].occupancyRate, true) %>
+                                                                <%- renderOccupancyTd('14days',
+                                                                    property.futureRates["14days"].occupancyRate, true)
+                                                                    %>
+                                                                    <%- renderOccupancyTd('30days',
+                                                                        property.futureRates["30days"].occupancyRate,
+                                                                        true) %>
+                                                                        <%- renderOccupancyTd('90days',
+                                                                            property.futureRates["90days"].occupancyRate,
+                                                                            true) %>
+                                        </tr>
+
+                                        <% const notesLines=[]; const past30=property.pastRates['30days']; const
+                                            future30=property.futureRates['30days']; const ownerStayLines=[]; const
+                                            blockedLines=[]; function formatNoteLine(label, dates) { const
+                                            ranges=groupConsecutiveDates(dates); const count=dates.length; const
+                                            dayLabel=count===1 ? 'day' : 'days' ; return `${label}: ${count} ${dayLabel}
+                                            (${ranges.join(', ')})`;
                                         }
-                                        %>
 
-                                        <% for (const categoryKey in categories) { %>
-                                            <% const properties=data[categoryKey]; %>
-                                                <% if (properties && properties.length> 0) { %>
-                                                    <h3
-                                                        style="color: #2c3e50; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
-                                                        <%= categories[categoryKey] %>
-                                                    </h3>
+                                        if (past30.ownerStayDates && past30.ownerStayDates.length > 0) {
+                                            ownerStayLines.push(formatNoteLine(' Past', past30.ownerStayDates)); } if
+                                            (future30.ownerStayDates && future30.ownerStayDates.length> 0) {
+                                            ownerStayLines.push(formatNoteLine('Upcoming', future30.ownerStayDates));
+                                            }
 
-                                                    <% properties.forEach(property=> {
-                                                        let showProperty = false;
+                                            if (past30.blockedDates && past30.blockedDates.length > 0) {
+                                            blockedLines.push(formatNoteLine('Past', past30.blockedDates));
+                                            }
+                                            if (future30.blockedDates && future30.blockedDates.length > 0) {
+                                            blockedLines.push(formatNoteLine('Upcoming', future30.blockedDates));
+                                            }
+                                            %>
 
-                                                        ['7days', '14days', '30days', '90days'].forEach(period => {
-                                                        if (
-                                                        parseFloat(property.pastRates[period].occupancyRate) < 65 ||
-                                                            parseFloat(property.futureRates[period].occupancyRate) < 65
-                                                            ) { showProperty=true; } }); if (!showProperty) return; %>
-
-                                                            <table width="100%" cellpadding="10" cellspacing="0"
-                                                                style="margin-bottom: 20px; border: 1px solid #e0e0e0; border-radius: 6px; table-layout: fixed;">
-                                                                <colgroup>
-                                                                    <col style="width: 200px; word-wrap: break-word;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                    <col style="width: 10%;">
-                                                                </colgroup>
-                                                                <tr style="background-color: #f3f6f9;">
-                                                                    <th align="left" style="text-align: left;">Property
-                                                                    </th>
-                                                                    <th style="text-align: center;">Past 7</th>
-                                                                    <th style="text-align: center;">Past 14</th>
-                                                                    <th style="text-align: center;">Past 30</th>
-                                                                    <th style="text-align: center;">Past 90</th>
-                                                                    <th style="text-align: center;">Next 7</th>
-                                                                    <th style="text-align: center;">Next 14</th>
-                                                                    <th style="text-align: center;">Next 30</th>
-                                                                    <th style="text-align: center;">Next 90</th>
-                                                                </tr>
-                                                                <tr>
-                                                                    <td style="word-wrap: break-word; word-break: break-word; text-align: left;">
-                                                                        <a href="https://dashboard.hostaway.com/v3/calendar/redirect/monthly/<%= property.listingId %>/<%= property.currentYear %>/<%= property.currentMonth %>" target="_blank">
-                                                                            <%= property.listingName %>
-                                                                        </a>
+                                            <% if (ownerStayLines.length> 0 || blockedLines.length > 0) { %>
+                                                <tr>
+                                                    <td colspan="9" style="padding-top: 10px;">
+                                                        <table width="100%" cellpadding="0" cellspacing="0"
+                                                            style="font-size: 13px; color: #999;">
+                                                            <tr>
+                                                                <% if (ownerStayLines.length> 0 && blockedLines.length >
+                                                                    0) { %>
+                                                                    <td valign="top"
+                                                                        style="width: 50%; padding-right: 10px;">
+                                                                        <strong>Notes: Owner stay (within
+                                                                            30D)</strong><br>
+                                                                        <% ownerStayLines.forEach(line=> { %>
+                                                                            <div>
+                                                                                <%= line %>
+                                                                            </div>
+                                                                            <% }) %>
                                                                     </td>
-
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.pastRates["7days"].occupancyRate %>
-                                                                            %
+                                                                    <td valign="top"
+                                                                        style="width: 50%; padding-left: 10px;">
+                                                                        <strong>Notes: Blocked dates (within
+                                                                            30D)</strong><br>
+                                                                        <% blockedLines.forEach(line=> { %>
+                                                                            <div>
+                                                                                <%= line %>
+                                                                            </div>
+                                                                            <% }) %>
                                                                     </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.pastRates["14days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.pastRates["30days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.pastRates["90days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.futureRates["7days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.futureRates["14days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.futureRates["30days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                    <td style="text-align: center;">
-                                                                        <%= property.futureRates["90days"].occupancyRate
-                                                                            %>%
-                                                                    </td>
-                                                                </tr>
-
-                                                            <% const notesLines=[]; const past30=property.pastRates['30days']; const future30=property.futureRates['30days'];
-                                                                function formatNoteLine(label, dates) { const ranges=groupConsecutiveDates(dates); const count=dates.length; const
-                                                                dayLabel=count===1 ? 'day' : 'days' ; return `${label}: ${count} ${dayLabel} (${ranges.join(', ')})`;
-                                                              }
-                                                            
-                                                              const ownerStayLines = [];
-                                                              const blockedLines = [];
-                                                            
-                                                              if (past30.ownerStayDates && past30.ownerStayDates.length > 0) {
-                                                                ownerStayLines.push(formatNoteLine(' Past', past30.ownerStayDates)); } if (future30.ownerStayDates &&
-                                                                future30.ownerStayDates.length> 0) {
-                                                                ownerStayLines.push(formatNoteLine('Upcoming', future30.ownerStayDates));
-                                                                }
-                                                            
-                                                                if (past30.blockedDates && past30.blockedDates.length > 0) {
-                                                                blockedLines.push(formatNoteLine('Past', past30.blockedDates));
-                                                                }
-                                                                if (future30.blockedDates && future30.blockedDates.length > 0) {
-                                                                blockedLines.push(formatNoteLine('Upcoming', future30.blockedDates));
-                                                                }
-                                                                %>
-                                                            
-                                                                <% if (ownerStayLines.length> 0 || blockedLines.length > 0) { %>
-                                                                    <tr>
-                                                                        <td colspan="9" style="padding-top: 10px;">
-                                                                            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; color: #999;">
-                                                                                <tr>
-                                                                                    <% if (ownerStayLines.length> 0 && blockedLines.length > 0) { %>
-                                                                                        <td valign="top" style="width: 50%; padding-right: 10px;">
-                                                                                            <strong>Notes: Owner stay (within 30D)</strong><br>
-                                                                                            <% ownerStayLines.forEach(function(line) { %>
-                                                                                                <div>
-                                                                                                    <%= line %>
-                                                                                                </div>
-                                                                                                <% }); %>
-                                                                                        </td>
-                                                                                        <td valign="top" style="width: 50%; padding-left: 10px;">
-                                                                                            <strong>Notes: Blocked dates (within 30D)</strong><br>
-                                                                                            <% blockedLines.forEach(function(line) { %>
-                                                                                                <div>
-                                                                                                    <%= line %>
-                                                                                                </div>
-                                                                                                <% }); %>
-                                                                                        </td>
-                                                                                        <% } else if (ownerStayLines.length> 0) { %>
-                                                                                            <td>
-                                                                                                <strong>Notes: Owner stay (within 30D)</strong><br>
-                                                                                                <% ownerStayLines.forEach(function(line) { %>
-                                                                                                    <div>
-                                                                                                        <%= line %>
-                                                                                                    </div>
-                                                                                                    <% }); %>
-                                                                                            </td>
-                                                                                            <% } else if (blockedLines.length> 0) { %>
-                                                                                                <td>
-                                                                                                    <strong>Notes: Blocked dates (within 30D)</strong><br>
-                                                                                                    <% blockedLines.forEach(function(line) { %>
-                                                                                                        <div>
-                                                                                                            <%= line %>
-                                                                                                        </div>
-                                                                                                        <% }); %>
-                                                                                                </td>
-                                                                                                <% } %>
-                                                                                </tr>
-                                                                            </table>
+                                                                    <% } else if (ownerStayLines.length> 0) { %>
+                                                                        <td>
+                                                                            <strong>Notes: Owner stay (within
+                                                                                30D)</strong><br>
+                                                                            <% ownerStayLines.forEach(line=> { %>
+                                                                                <div>
+                                                                                    <%= line %>
+                                                                                </div>
+                                                                                <% }) %>
                                                                         </td>
-                                                                    </tr>
-                                                                    <% } %>
+                                                                        <% } else if (blockedLines.length> 0) { %>
+                                                                            <td>
+                                                                                <strong>Notes: Blocked dates (within
+                                                                                    30D)</strong><br>
+                                                                                <% blockedLines.forEach(line=> { %>
+                                                                                    <div>
+                                                                                        <%= line %>
+                                                                                    </div>
+                                                                                    <% }) %>
+                                                                            </td>
+                                                                            <% } %>
+                                                            </tr>
+                                                        </table>
+                                                    </td>
+                                                </tr>
+                                                <% } %>
 
+                                    </table>
 
+                                    <% }); %>
+                                        <% } %>
+                                            <% } %>
 
-                                                            </table>
-
-                                                            <% }); %>
-                                                                <% } %>
-                                                                    <% } %>
-
-                                                                        <p style=" font-size: 12px; color: #888;">Report
-                                                                            generated based on current data from the
-                                                                            Hostaway
-                                                                            calendar.</p>
-                        </td>
-                    </tr>
-                </table>
-                <p style="font-size: 11px; color: #aaa; margin-top: 20px;">© 2025
-                    Your Company Name</p>
+                                                <p style="font-size: 12px; color: #888;">Report generated based on
+                                                    current data from the Hostaway calendar.</p>
             </td>
         </tr>
+    </table>
+    </td>
+    </tr>
     </table>
 </body>
 
