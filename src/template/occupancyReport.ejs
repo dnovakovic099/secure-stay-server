@@ -65,14 +65,7 @@ function renderOccupancyTd(period, value, isFuture) {
                                 <%= categories[categoryKey] %>
                             </h3>
 
-                            <% properties.forEach(property=> {
-                                let showProperty = false;
-
-                                ['7days', '14days', '30days', '90days'].forEach(period => {
-                                if (
-                                parseFloat(property.pastRates[period].occupancyRate) < 65 ||
-                                    parseFloat(property.futureRates[period].occupancyRate) < 65 ) { showProperty=true; }
-                                    }); if (!showProperty) return; %>
+                            <% properties.forEach(property=> { %>
 
                                     <table width="100%" cellpadding="10" cellspacing="0"
                                         style="margin-bottom: 20px; border: 1px solid #e0e0e0; border-radius: 6px; table-layout: fixed;">
