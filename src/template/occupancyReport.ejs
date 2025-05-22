@@ -40,7 +40,7 @@
                                         } %>
 
                                         <% function getOccupancyStyle(period, value, isFuture) { if (!isFuture) { if
-                                            (period==="7days" && value < 25) return { color: "#b71c1c" , emoji: "" }; if
+                                            (period==="7days" && value < 25) return { color: "#b71c1c" , emoji: "", isP7: 1 }; if
                                             (period==="14days" && value < 50) return { color: "#d32f2f" , emoji: "" };
                                             if (period==="30days" && value < 60) return { color: "#f57c00" , emoji: ""
                                             }; if (period==="90days" && value < 70) return { color: "#fbc02d" ,
@@ -50,9 +50,9 @@
 
 <%
 function renderOccupancyTd(period, value, isFuture) {
-    const { color, emoji } = getOccupancyStyle(period, value, isFuture);
+    const { color, emoji, isP7 } = getOccupancyStyle(period, value, isFuture);
     const shouldBeBold = color || emoji; // Bold if either is present
-    const style = ` style="text-align: center;${color ? ` color: ${color};` : ''}${shouldBeBold ? ' font-weight: bold;' : ''}"`;
+    const style = ` style="text-align: center;${color ? ` color: ${color};` : ''}${shouldBeBold ? ' font-weight: bold;' : ''} ${isP7==1 ? 'border-right: 2px solid #ccc;' : ''}"`;
     return `<td${style}>${value}% ${emoji || ''}</td>`;
 }
 %>
@@ -80,7 +80,7 @@ function renderOccupancyTd(period, value, isFuture) {
                                             <th style="text-align: center;">Past 90</th>
                                             <th style="text-align: center;">Past 30</th>
                                             <th style="text-align: center;">Past 14</th>
-                                            <th style="text-align: center;">Past 7</th>
+                                            <th style="text-align: center; border-right: 2px solid #ccc;">Past 7</th>
                                             <th style="text-align: center;">Next 7</th>
                                             <th style="text-align: center;">Next 14</th>
                                             <th style="text-align: center;">Next 30</th>
