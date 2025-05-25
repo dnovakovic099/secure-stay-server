@@ -104,7 +104,9 @@ export const validateUpdateExpenseStatus = (request: Request, response: Response
 
 export const validateGetExpenseList = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        listingId: Joi.number().required().allow(''),
+        // listingId: Joi.number().required().allow(''),
+        listingId: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
+        listingGroup: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned").allow(null, ""),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required(),
@@ -117,7 +119,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
             .allow(''),
         categories: Joi.string().required().allow(''),
-        contractorName: Joi.string().required().allow(''),
+        contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(''),

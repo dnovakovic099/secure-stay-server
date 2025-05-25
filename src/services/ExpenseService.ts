@@ -10,6 +10,7 @@ import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { format } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
+import { ListingDetail } from "../entity/ListingDetails";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -18,6 +19,7 @@ export class ExpenseService {
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
+    private listingDetailRepository = appDatabase.getRepository(ListingDetail);
 
     async createExpense(request: any, userId: string, fileNames?: string[]) {
         const {
@@ -84,6 +86,7 @@ export class ExpenseService {
     async getExpenseList(request: Request, userId: string) {
         const {
             listingId,
+            listingGroup,
             fromDate,
             toDate,
             status,
@@ -98,18 +101,40 @@ export class ExpenseService {
 
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
+        let listingGroupIds: number[] = [];
+
+        if (listingGroup) {
+            listingGroupIds = (
+                await this.listingDetailRepository.find({
+                    where: { propertyOwnershipType: String(listingGroup) }
+                })
+            ).map(listing => listing.listingId);
+        }
+
+        // Decide which listing IDs to use
+        const effectiveListingIds =
+            Array.isArray(listingId) && listingId.length > 0
+                ? listingId.map(Number)
+                : listingGroupIds;
+
         const expenses = await this.expenseRepo.find({
             where: {
                 // userId,
-                ...(listingId && { listingMapId: Number(listingId) }),
+                ...(effectiveListingIds.length > 0 && {
+                    listingMapId: In(effectiveListingIds),
+                }),
                 expenseDate: Between(String(fromDate), String(toDate)),
-                isDeleted: expenseState == "active" ? 0 : 1,
-                ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
+                isDeleted: expenseState === "active" ? 0 : 1,
+                ...(status !== "" && {
+                    status: In(
+                        status
+                            ? [status]
+                            : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
+                    ),
+                }),
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
-                ...(contractorName && {
-                    contractorName: Raw(alias => `${alias} LIKE :contractorName`, {
-                        contractorName: `${contractorName}%`
-                    })
+                ...(Array.isArray(contractorName) && contractorName.length > 0 && {
+                    contractorName: In(contractorName),
                 }),
                 ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
                 ...(categoriesFilter.length > 0 && {
