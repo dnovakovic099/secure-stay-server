@@ -3,6 +3,8 @@ import Joi from "joi";
 
 export const validateReviewDetailsRequest = (request: Request, response: Response, next: NextFunction) => {
     const removalAttemptSchema = Joi.object({
+        id: Joi.number().allow(null),
+        reviewDetailId: Joi.number().allow(null),
         dateAttempted: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .required()
