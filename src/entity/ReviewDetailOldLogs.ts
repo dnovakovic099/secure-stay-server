@@ -11,7 +11,7 @@ export class ReviewDetailOldLogs {
     reviewDetail: ReviewDetailEntity;
 
     @Column({ type: 'bigint', nullable: false })
-    reviewDetailId: number;  // Foreign key to ReviewDetailEntity
+    reviewDetailId: number;
 
     @Column({ nullable: true })
     guestPhone: string;
@@ -24,21 +24,6 @@ export class ReviewDetailOldLogs {
 
     @Column({ nullable: true })
     date: string;
-
-    @Column({ nullable: true })
-    firstContactDate: string;
-    
-    @Column({ nullable: true })
-    lastContactDate: string;
-
-    @Column({ type: "text", nullable: true })
-    methodsTried: string;
-
-    @Column({ type: "text", nullable: true })
-    methodsLeft: string;
-
-    @Column({ type: "text", nullable: true })
-    notes: string;
 
     @Column({ nullable: true })
     claimResolutionStatus: string;
