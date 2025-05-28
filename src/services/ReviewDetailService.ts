@@ -9,6 +9,9 @@ import { RemovalAttemptEntity } from "../entity/RemovalAttempt";
 import { Between } from "typeorm";
 import { sendReviewUpdateEmail } from "./ReviewDetailEmailService";
 import { UsersEntity } from "../entity/Users";
+import { ExpenseService } from "./ExpenseService";
+import { ResolutionService } from "./ResolutionService";
+import { format } from "date-fns";
 
 export class ReviewDetailService {
     private reviewDetailRepository = appDatabase.getRepository(ReviewDetailEntity);
@@ -16,6 +19,8 @@ export class ReviewDetailService {
     private reviewDetailOldLogsRepository = appDatabase.getRepository(ReviewDetailOldLogs);
     private removalAttemptRepository = appDatabase.getRepository(RemovalAttemptEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
+    private expenseService = new ExpenseService();
+    private resolutionService = new ResolutionService();
 
     private async getUserName(userId: string): Promise<string> {
         try {
@@ -32,6 +37,43 @@ export class ReviewDetailService {
             logger.error(`Error getting user name: ${error.message}`);
             return userId;
         }
+    }
+
+    private async createExpenseForResolution(reviewDetail: ReviewDetailEntity, userId: string) {
+        const expenseObj = {
+            body: {
+                listingMapId: reviewDetail.review.listingMapId,
+                expenseDate: format(new Date(), 'yyyy-MM-dd'),
+                concept: `Resolution for review ${reviewDetail.reviewId}`,
+                amount: reviewDetail.resolutionAmount,
+                categories: JSON.stringify([12]), // Using category 12 as per existing code
+                dateOfWork: null,
+                contractorName: " ",
+                contractorNumber: null,
+                findings: `${reviewDetail.review.reviewerName} - <a href="https://securestay.ai/luxury-lodging/reviews?id=${reviewDetail.reviewId}" target="_blank" style="color: blue; text-decoration: underline;">Review Link</a>`,
+                status: "Pending Approval",
+                paymentMethod: null,
+                createdBy: userId
+            }
+        };
+
+        return await this.expenseService.createExpense(expenseObj, userId);
+    }
+
+    private async createResolutionForReview(reviewDetail: ReviewDetailEntity, userId: string) {
+        const resolutionData = {
+            category: "others",
+            description: `Resolution for review ${reviewDetail.reviewId}`,
+            listingMapId: reviewDetail.review.listingMapId,
+            reservationId: reviewDetail.review.reservationId,
+            guestName: reviewDetail.review.reviewerName,
+            claimDate: format(new Date(), 'yyyy-MM-dd'),
+            amount: reviewDetail.resolutionAmount,
+            arrivalDate: reviewDetail.review.arrivalDate,
+            departureDate: reviewDetail.review.departureDate
+        };
+
+        return await this.resolutionService.createResolution(resolutionData, userId);
     }
 
     public async saveReviewDetail(reviewId: string, details: Partial<ReviewDetailEntity>, userId: string) {
@@ -75,6 +117,15 @@ export class ReviewDetailService {
                 await this.removalAttemptRepository.save(removalAttempts);
             }
 
+            // Create expense and resolution if resolution amount is provided
+            if (details.resolutionAmount) {
+                const expense = await this.createExpenseForResolution(savedReviewDetail, userId);
+                savedReviewDetail.expenseId = expense.id;
+                await this.reviewDetailRepository.save(savedReviewDetail);
+
+                await this.createResolutionForReview(savedReviewDetail, userId);
+            }
+
             return this.getReviewDetailWithAttempts(savedReviewDetail.id);
         } catch (error) {
             logger.error(`Error saving review detail: ${error.message}`);
@@ -86,7 +137,7 @@ export class ReviewDetailService {
         try {
             const reviewDetail = await this.reviewDetailRepository.findOne({ 
                 where: { reviewId }, 
-                relations: ['oldLog', 'removalAttempts'] 
+                relations: ['oldLog', 'removalAttempts', 'review'] 
             });
             
             if (!reviewDetail) {
@@ -135,6 +186,22 @@ export class ReviewDetailService {
                     })
                 );
                 await this.removalAttemptRepository.save(removalAttempts);
+            }
+
+            // Handle resolution amount changes
+            if (updatedDetails.resolutionAmount && updatedDetails.resolutionAmount !== reviewDetail.oldLog.resolutionAmount) {
+                // If there was a previous expense, delete it
+                if (reviewDetail.expenseId) {
+                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
+                    await this.expenseService.deleteExpense(expense.expenseId, userId);
+                }
+
+                // Create new expense and resolution
+                const expense = await this.createExpenseForResolution(reviewDetail, userId);
+                reviewDetail.expenseId = expense.id;
+                await this.reviewDetailRepository.save(reviewDetail);
+
+                await this.createResolutionForReview(reviewDetail, userId);
             }
 
             return this.getReviewDetailWithAttempts(reviewDetail.id);

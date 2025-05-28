@@ -30,6 +30,15 @@ export class ReviewDetailEntity {
     @Column({ nullable: true })
     claimResolutionStatus: string;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    resolutionAmount: number;
+
+    @Column({ nullable: true })
+    resolutionDateRequested: string;
+
+    @Column({ nullable: true })
+    expenseId: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
