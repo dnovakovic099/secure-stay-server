@@ -42,6 +42,9 @@ export class ExpenseEntity {
     @Column({ type: 'varchar', nullable: true })
     dateOfWork: string;
 
+    @Column({ type: 'varchar', nullable: true })
+    datePaid: string;
+
     @Column({ type: 'text', nullable: true })
     findings: string;
 
