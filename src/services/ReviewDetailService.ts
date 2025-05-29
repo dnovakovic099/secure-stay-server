@@ -139,7 +139,7 @@ export class ReviewDetailService {
                 where: { reviewId }, 
                 relations: ['oldLog', 'removalAttempts', 'review'] 
             });
-            
+
             if (!reviewDetail) {
                 throw CustomErrorHandler.notFound(`Review detail not found for review ID ${reviewId}`);
             }
@@ -161,6 +161,44 @@ export class ReviewDetailService {
             }
 
             const userName = await this.getUserName(userId);
+
+            // Handle resolution amount changes
+            const currentResolutionAmount = reviewDetail.resolutionAmount;
+            const newResolutionAmount = updatedDetails.resolutionAmount;
+            console.log({currentResolutionAmount, newResolutionAmount}, 'currentResolutionAmount, newResolutionAmount');
+
+            // Case 1: Resolution amount was not present and now being provided
+            if (!currentResolutionAmount && newResolutionAmount) {
+                const expense = await this.createExpenseForResolution({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+                reviewDetail.expenseId = expense.id;
+                await this.createResolutionForReview({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+            }
+            // Case 2: Resolution amount was present and remains unchanged - do nothing
+            else if (currentResolutionAmount === newResolutionAmount) {
+                // No action needed
+            }
+            // Case 3: Resolution amount was present and now removed
+            else if (currentResolutionAmount && !newResolutionAmount) {
+                if (reviewDetail.expenseId) {
+                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
+                    await this.expenseService.deleteExpense(expense.expenseId, userId);
+                    reviewDetail.expenseId = null;
+                }
+            }
+            // Case 4: Resolution amount was present and changed
+            else if (currentResolutionAmount && newResolutionAmount && currentResolutionAmount !== newResolutionAmount) {
+                if (reviewDetail.expenseId) {
+                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
+                    // Create a new expense with updated amount
+                    const newExpense = await this.createExpenseForResolution({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+                    // Delete the old expense
+                    await this.expenseService.deleteExpense(expense.expenseId, userId);
+                    // Update the expense ID
+                    reviewDetail.expenseId = newExpense.id;
+                }
+                // Create a new resolution with updated amount
+                await this.createResolutionForReview({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+            }
 
             // Update the review detail itself
             Object.assign(reviewDetail, {
@@ -186,46 +224,6 @@ export class ReviewDetailService {
                     })
                 );
                 await this.removalAttemptRepository.save(removalAttempts);
-            }
-
-            // Handle resolution amount changes
-            const oldResolutionAmount = reviewDetail.oldLog.resolutionAmount;
-            const newResolutionAmount = updatedDetails.resolutionAmount;
-
-            // Case 1: Resolution amount was not present and now being provided
-            if (!oldResolutionAmount && newResolutionAmount) {
-                const expense = await this.createExpenseForResolution(reviewDetail, userId);
-                reviewDetail.expenseId = expense.id;
-                await this.reviewDetailRepository.save(reviewDetail);
-                await this.createResolutionForReview(reviewDetail, userId);
-            }
-            // Case 2: Resolution amount was present and remains unchanged - do nothing
-            else if (oldResolutionAmount === newResolutionAmount) {
-                // No action needed
-            }
-            // Case 3: Resolution amount was present and now removed
-            else if (oldResolutionAmount && !newResolutionAmount) {
-                if (reviewDetail.expenseId) {
-                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    await this.expenseService.deleteExpense(expense.expenseId, userId);
-                    reviewDetail.expenseId = null;
-                    await this.reviewDetailRepository.save(reviewDetail);
-                }
-            }
-            // Case 4: Resolution amount was present and changed
-            else if (oldResolutionAmount && newResolutionAmount && oldResolutionAmount !== newResolutionAmount) {
-                if (reviewDetail.expenseId) {
-                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    // Create a new expense with updated amount
-                    const newExpense = await this.createExpenseForResolution(reviewDetail, userId);
-                    // Delete the old expense
-                    await this.expenseService.deleteExpense(expense.expenseId, userId);
-                    // Update the expense ID
-                    reviewDetail.expenseId = newExpense.id;
-                    await this.reviewDetailRepository.save(reviewDetail);
-                }
-                // Create a new resolution with updated amount
-                await this.createResolutionForReview(reviewDetail, userId);
             }
 
             return this.getReviewDetailWithAttempts(reviewDetail.id);

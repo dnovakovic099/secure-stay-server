@@ -30,7 +30,7 @@ export class ReviewDetailEntity {
     @Column({ nullable: true })
     claimResolutionStatus: string;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    @Column({ nullable: true })
     resolutionAmount: number;
 
     @Column({ nullable: true })
