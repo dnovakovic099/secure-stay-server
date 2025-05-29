@@ -44,13 +44,13 @@ export class ReviewDetailService {
             body: {
                 listingMapId: reviewDetail.review.listingMapId,
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: `Resolution for review ${reviewDetail.reviewId}`,
+                concept: `Resolution for review removal (${reviewDetail.review.reviewerName})`,
                 amount: reviewDetail.resolutionAmount,
-                categories: JSON.stringify([12]), // Using category 12 as per existing code
+                categories: JSON.stringify([17]),
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
-                findings: `${reviewDetail.review.reviewerName} - <a href="https://securestay.ai/luxury-lodging/reviews?id=${reviewDetail.reviewId}" target="_blank" style="color: blue; text-decoration: underline;">Review Link</a>`,
+                findings: "",
                 status: "Pending Approval",
                 paymentMethod: null,
                 createdBy: userId
@@ -62,7 +62,7 @@ export class ReviewDetailService {
 
     private async createResolutionForReview(reviewDetail: ReviewDetailEntity, userId: string) {
         const resolutionData = {
-            category: "others",
+            category: "review_removal",
             description: `Resolution for review ${reviewDetail.reviewId}`,
             listingMapId: reviewDetail.review.listingMapId,
             reservationId: reviewDetail.review.reservationId,
@@ -189,18 +189,42 @@ export class ReviewDetailService {
             }
 
             // Handle resolution amount changes
-            if (updatedDetails.resolutionAmount && updatedDetails.resolutionAmount !== reviewDetail.oldLog.resolutionAmount) {
-                // If there was a previous expense, delete it
-                if (reviewDetail.expenseId) {
-                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    await this.expenseService.deleteExpense(expense.expenseId, userId);
-                }
+            const oldResolutionAmount = reviewDetail.oldLog.resolutionAmount;
+            const newResolutionAmount = updatedDetails.resolutionAmount;
 
-                // Create new expense and resolution
+            // Case 1: Resolution amount was not present and now being provided
+            if (!oldResolutionAmount && newResolutionAmount) {
                 const expense = await this.createExpenseForResolution(reviewDetail, userId);
                 reviewDetail.expenseId = expense.id;
                 await this.reviewDetailRepository.save(reviewDetail);
-
+                await this.createResolutionForReview(reviewDetail, userId);
+            }
+            // Case 2: Resolution amount was present and remains unchanged - do nothing
+            else if (oldResolutionAmount === newResolutionAmount) {
+                // No action needed
+            }
+            // Case 3: Resolution amount was present and now removed
+            else if (oldResolutionAmount && !newResolutionAmount) {
+                if (reviewDetail.expenseId) {
+                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
+                    await this.expenseService.deleteExpense(expense.expenseId, userId);
+                    reviewDetail.expenseId = null;
+                    await this.reviewDetailRepository.save(reviewDetail);
+                }
+            }
+            // Case 4: Resolution amount was present and changed
+            else if (oldResolutionAmount && newResolutionAmount && oldResolutionAmount !== newResolutionAmount) {
+                if (reviewDetail.expenseId) {
+                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
+                    // Create a new expense with updated amount
+                    const newExpense = await this.createExpenseForResolution(reviewDetail, userId);
+                    // Delete the old expense
+                    await this.expenseService.deleteExpense(expense.expenseId, userId);
+                    // Update the expense ID
+                    reviewDetail.expenseId = newExpense.id;
+                    await this.reviewDetailRepository.save(reviewDetail);
+                }
+                // Create a new resolution with updated amount
                 await this.createResolutionForReview(reviewDetail, userId);
             }
 

@@ -33,7 +33,8 @@ enum CategoryKey {
     PET_FEE = 'pet_fee',
     EXTRA_CLEANING = 'extra_cleaning',
     OTHERS = 'others',
-    RESOLUTION = 'resolution'
+    RESOLUTION = 'resolution',
+    REVIEW_REMOVAL = 'review_removal'
 }
 
 const categoriesList: Record<CategoryKey, string> = {
@@ -43,6 +44,7 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.EXTRA_CLEANING]: "Extra Cleaning",
     [CategoryKey.OTHERS]: "Others",
     [CategoryKey.RESOLUTION]: "Resolution",
+    [CategoryKey.REVIEW_REMOVAL]: "Review Removal"
 };
 
 export class ResolutionService {
