@@ -28,7 +28,9 @@ export class ListingImage {
   @Column({ nullable: true })
   sortOrder: number;
 
-  @ManyToOne(() => Listing, (listing) => listing.images)
+  @ManyToOne(() => Listing, (listing) => listing.images,{
+    onDelete: "CASCADE"
+  })
   @JoinColumn({ name: "listing_id" })
   listing: number;
 }
