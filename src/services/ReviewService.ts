@@ -94,7 +94,7 @@ export class ReviewService {
                     ...condition,
                     reviewDetail: reviewDetailCondition,
                 },
-                relations: ['reviewDetail'],
+                relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
                 skip: (page - 1) * limit,
                 take: limit,
                 order

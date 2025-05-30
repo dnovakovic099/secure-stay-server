@@ -1,23 +1,32 @@
 import { NextFunction, Request, Response } from "express";
-import Joi, { custom } from "joi";
+import Joi from "joi";
 
 export const validateReviewDetailsRequest = (request: Request, response: Response, next: NextFunction) => {
+    const removalAttemptSchema = Joi.object({
+        id: Joi.number().allow(null),
+        reviewDetailId: Joi.number().allow(null),
+        dateAttempted: Joi.string()
+            .pattern(/^\d{4}-\d{2}-\d{2}$/)
+            .required()
+            .messages({ 'string.pattern.base': 'dateAttempted must be in the format "yyyy-mm-dd"' }),
+        details: Joi.string().required(),
+        result: Joi.string().required().valid('Removed', 'Denied', 'Pending')
+    });
+
     const schema = Joi.object({
         date: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
-            .messages({ 'string.pattern.base': 'date must be in the format "yyyy-mm-dd"' }),
-        firstContactDate: Joi.string()
-            .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .required()
-            .messages({ 'string.pattern.base': 'firstContactDate must be in the format "yyyy-mm-dd"' }).allow(null, ""),
-        lastContactDate: Joi.string()
+            .messages({ 'string.pattern.base': 'date must be in the format "yyyy-mm-dd"' }),
+        claimResolutionStatus: Joi.string().valid('N/A', 'Pending', 'Completed', 'Denied').allow(null, ''),
+        whoUpdated: Joi.string().allow(null, ''),
+        removalAttempts: Joi.array().items(removalAttemptSchema).max(3),
+        resolutionAmount: Joi.number().precision(2).allow(null),
+        expenseId: Joi.number().allow(null),
+        resolutionDateRequested: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
-            .messages({ 'string.pattern.base': 'lastContactDate must be in the format "yyyy-mm-dd"' }).allow(null, ""),
-        methodsTried: Joi.string().required().allow("", null),
-        methodsLeft: Joi.string().required().allow("", null),
-        notes: Joi.string().required().allow("", null),
-        claimResolutionStatus: Joi.string().required().valid('N/A', 'Pending', 'Completed', 'Denied'),
-        whoUpdated: Joi.string().required()
+            .allow(null, '')
+            .messages({ 'string.pattern.base': 'resolutionDateRequested must be in the format "yyyy-mm-dd"' })
     });
 
     const { error } = schema.validate(request.body);

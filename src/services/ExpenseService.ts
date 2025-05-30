@@ -56,19 +56,19 @@ export class ExpenseService {
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
 
-        // const hostawayExpense = await this.createHostawayExpense({
-        //     listingMapId,
-        //     expenseDate,
-        //     concept,
-        //     amount,
-        //     categories,
-        // }, userId);
+        const hostawayExpense = await this.createHostawayExpense({
+            listingMapId,
+            expenseDate,
+            concept,
+            amount,
+            categories,
+        }, userId);
 
-        // if (!hostawayExpense) {
-        //     throw new CustomErrorHandler(500, 'Failed to create expense');
-        // } 
+        if (!hostawayExpense) {
+            throw new CustomErrorHandler(500, 'Failed to create expense');
+        } 
 
-        // newExpense.expenseId = hostawayExpense?.id;
+        newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
         return expense;
     }
@@ -287,26 +287,22 @@ export class ExpenseService {
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
 
-        if (datePaid && datePaid !== "") {
-            expense.datePaid = datePaid;
-        }
-
-        if (fileNames.length > 0) {
+        if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
 
         //update hostaway expense
-        // const result = expense.expenseId && await this.updateHostawayExpense({
-        //     listingMapId,
-        //     expenseDate,
-        //     concept,
-        //     amount,
-        //     categories,
-        // }, userId, expense.expenseId);
+        const result = expense.expenseId && await this.updateHostawayExpense({
+            listingMapId,
+            expenseDate,
+            concept,
+            amount,
+            categories,
+        }, userId, expense.expenseId);
 
-        // if(!result){
-        //     throw new CustomErrorHandler(500,'Unable to update expense');
-        // }
+        if(!result){
+            throw new CustomErrorHandler(500,'Unable to update expense');
+        }
 
         await this.expenseRepo.save(expense);
         return expense;
