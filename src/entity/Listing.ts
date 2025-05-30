@@ -44,10 +44,16 @@ export class Listing {
   @Column()
   currencyCode: string;
 
-  @OneToMany(() => ListingImage, (image) => image.listing)
+  @OneToMany(() => ListingImage, (image) => image.listing,{
+    cascade: true,
+    onDelete: "CASCADE"
+  })
   images: ListingImage[];
 
-  @OneToMany(() => GuideBook, (guideBook) => guideBook.listing)
+  @OneToMany(() => GuideBook, (guideBook) => guideBook.listing,{
+    cascade: true,
+    onDelete: "CASCADE"
+  })
   guideBook: GuideBook[];
 
   @Column()

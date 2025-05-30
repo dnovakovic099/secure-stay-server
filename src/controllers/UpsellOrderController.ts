@@ -13,9 +13,18 @@ export class UpsellOrderController {
             const fromDate = request.query.fromDate as string || '';
             const toDate = request.query.toDate as string || '';
             const status = request.query.status as string || ''; 
-            const listingId = request.query.listingId as string || ''; 
+            const listingId = request.query.listingId as string || '';
+            const frontendDateType = request.query.dateType as string || 'purchase';
 
-            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId);
+            const dateTypeMapping: { [key: string]: string } = {
+                'purchase': 'order_date',
+                'arrival': 'arrival_date',
+                'departure': 'departure_date'
+            };
+
+            const dateType = dateTypeMapping[frontendDateType] || 'order_date';
+
+            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId, dateType);
             
             return response.send({
                 status: true,
