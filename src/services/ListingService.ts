@@ -29,52 +29,49 @@ export class ListingService {
 
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
+    const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({
+      where: { userId, account: "pm" },
+    });
 
-    const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({ where: { userId, account: "pm" } });
     if (!hostawayCredentials) {
-      throw CustomErrorHandler.notFound('Hoastaway credentials not found');
+      throw CustomErrorHandler.notFound('Hostaway credentials not found');
     }
 
     const { clientId, clientSecret } = hostawayCredentials;
-
     const listings = await this.hostAwayClient.getListing(clientId, clientSecret);
 
     try {
-      await appDatabase.manager.transaction(
-        async (transactionalEntityManager) => {
-          for (let i = 0; i < listings.length; i++) {
-            const existingListing = await transactionalEntityManager.findOneBy(
-              Listing,
-              { id: listings[i]?.id, userId }
-            );
+      await appDatabase.manager.transaction(async (transactionalEntityManager) => {
+        // Step 1: Fetch all listings for user and delete them (cascade deletes images too)
+        const existingUserListings = await transactionalEntityManager.find(Listing, {
+          where: { userId },
+        });
 
-            if (!existingListing) {
-              const listingObj = this.createListingObject(listings[i], userId);
-              const savedListing = await transactionalEntityManager.save(
-                Listing,
-                listingObj
-              );
-              await this.saveListingImages(
-                transactionalEntityManager,
-                listings[i]["listingImages"],
-                savedListing.listingId
-              );
-            }else{
-              existingListing.ownerName = ownerDetails[existingListing.id]?.name || "";
-              existingListing.ownerEmail = ownerDetails[existingListing.id]?.email || "";
-              existingListing.ownerPhone = ownerDetails[existingListing.id]?.phone || "";
-
-              await transactionalEntityManager.save(existingListing)
-            }
-          }
+        if (existingUserListings.length > 0) {
+          const userListingIds = existingUserListings.map(l => l.listingId);
+          await transactionalEntityManager.delete(Listing, { listingId: In(userListingIds) });
         }
-      );
+
+        // Step 2: Insert fresh listings from Hostaway
+        for (const listing of listings) {
+          const listingObj = this.createListingObject(listing, userId);
+          const savedListing = await transactionalEntityManager.save(Listing, listingObj);
+
+          await this.saveListingImages(
+            transactionalEntityManager,
+            listing["listingImages"],
+            savedListing.listingId
+          );
+        }
+      });
+
       return 1;
     } catch (error) {
       console.error("Error syncing listings:", error);
       throw error;
     }
   }
+
 
   // Create a listing object from hostaway client data
   private createListingObject(data: any, userId: string) {
