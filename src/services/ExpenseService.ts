@@ -257,7 +257,7 @@ export class ExpenseService {
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
 
-        if (fileNames.length > 0) {
+        if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
 
