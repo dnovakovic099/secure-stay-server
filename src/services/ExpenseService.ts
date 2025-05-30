@@ -10,6 +10,7 @@ import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { format } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
+import { ListingDetail } from "../entity/ListingDetails";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -18,6 +19,7 @@ export class ExpenseService {
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
+    private listingDetailRepository = appDatabase.getRepository(ListingDetail);
 
     async createExpense(request: any, userId: string, fileNames?: string[]) {
         const {
@@ -32,6 +34,7 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
+            datePaid
         } = request.body;
 
 
@@ -51,6 +54,7 @@ export class ExpenseService {
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
+        newExpense.datePaid = datePaid ? datePaid : "";
 
         const hostawayExpense = await this.createHostawayExpense({
             listingMapId,
@@ -84,6 +88,7 @@ export class ExpenseService {
     async getExpenseList(request: Request, userId: string) {
         const {
             listingId,
+            listingGroup,
             fromDate,
             toDate,
             status,
@@ -98,18 +103,40 @@ export class ExpenseService {
 
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
+        let listingGroupIds: number[] = [];
+
+        if (listingGroup) {
+            listingGroupIds = (
+                await this.listingDetailRepository.find({
+                    where: { propertyOwnershipType: String(listingGroup) }
+                })
+            ).map(listing => listing.listingId);
+        }
+
+        // Decide which listing IDs to use
+        const effectiveListingIds =
+            Array.isArray(listingId) && listingId.length > 0
+                ? listingId.map(Number)
+                : listingGroupIds;
+
         const expenses = await this.expenseRepo.find({
             where: {
                 // userId,
-                ...(listingId && { listingMapId: Number(listingId) }),
+                ...(effectiveListingIds.length > 0 && {
+                    listingMapId: In(effectiveListingIds),
+                }),
                 expenseDate: Between(String(fromDate), String(toDate)),
-                isDeleted: expenseState == "active" ? 0 : 1,
-                ...(status !== "" && { status: In(status ? [status] : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]) }),
+                isDeleted: expenseState === "active" ? 0 : 1,
+                ...(status !== "" && {
+                    status: In(
+                        status
+                            ? [status]
+                            : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
+                    ),
+                }),
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
-                ...(contractorName && {
-                    contractorName: Raw(alias => `${alias} LIKE :contractorName`, {
-                        contractorName: `${contractorName}%`
-                    })
+                ...(Array.isArray(contractorName) && contractorName.length > 0 && {
+                    contractorName: In(contractorName),
                 }),
                 ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
                 ...(categoriesFilter.length > 0 && {
@@ -140,6 +167,7 @@ export class ExpenseService {
             "Amount",
             "Listing",
             "Date Added",
+            "Date Paid",
             "Description",
             "Catgories",
             "Contractor Name",
@@ -184,6 +212,7 @@ export class ExpenseService {
                 expense.amount,
                 listingNameMap[expense.listingMapId] || 'N/A',
                 expense.expenseDate,
+                expense.datePaid,
                 expense.concept,
                 categoryNames,
                 expense.contractorName,
@@ -236,7 +265,8 @@ export class ExpenseService {
             contractorNumber,
             findings,
             status,
-            paymentMethod
+            paymentMethod,
+            datePaid
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -279,7 +309,7 @@ export class ExpenseService {
     }
 
     async updateExpenseStatus(request: Request, userId: string,) {
-        const { expenseId, status } = request.body;
+        const { expenseId, status, datePaid } = request.body;
         const expense = await this.expenseRepo.find({ where: { expenseId: In(expenseId) } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
@@ -287,6 +317,9 @@ export class ExpenseService {
 
         expense.forEach((element) => {
             element.status = status;
+            if (datePaid !== "") {
+                element.datePaid = datePaid;
+            }
             element.updatedBy = userId;
             element.updatedAt = new Date();
         });
