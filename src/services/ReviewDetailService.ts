@@ -12,6 +12,8 @@ import { UsersEntity } from "../entity/Users";
 import { ExpenseService } from "./ExpenseService";
 import { ResolutionService } from "./ResolutionService";
 import { format } from "date-fns";
+import { ExpenseEntity } from "../entity/Expense";
+import { Resolution } from "../entity/Resolution";
 
 export class ReviewDetailService {
     private reviewDetailRepository = appDatabase.getRepository(ReviewDetailEntity);
@@ -19,6 +21,7 @@ export class ReviewDetailService {
     private reviewDetailOldLogsRepository = appDatabase.getRepository(ReviewDetailOldLogs);
     private removalAttemptRepository = appDatabase.getRepository(RemovalAttemptEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
+    private resolutionRepository = appDatabase.getRepository(Resolution);
     private expenseService = new ExpenseService();
     private resolutionService = new ResolutionService();
 
@@ -60,6 +63,28 @@ export class ReviewDetailService {
         return await this.expenseService.createExpense(expenseObj, userId);
     }
 
+    private async updateExpenseForResolution(expense: ExpenseEntity, amount: number, userId: string) {
+        
+        const expenseObj = {
+            body: {
+                expenseId: expense.expenseId,
+                listingMapId: expense.listingMapId,
+                expenseDate: expense.expenseDate,
+                concept: expense.concept,
+                amount: amount,
+                categories: expense.categories,
+                dateOfWork: expense.dateOfWork,
+                contractorName: expense.contractorName,
+                contractorNumber: expense.contractorNumber,
+                findings: expense.findings,
+                status: expense.status,
+                paymentMethod: expense.paymentMethod,
+            }
+        };
+
+        return await this.expenseService.updateExpense(expenseObj, userId);
+    }
+
     private async createResolutionForReview(reviewDetail: ReviewDetailEntity, userId: string) {
         const resolutionData = {
             category: "review_removal",
@@ -74,6 +99,24 @@ export class ReviewDetailService {
         };
 
         return await this.resolutionService.createResolution(resolutionData, userId);
+    }
+
+    private async updateResolutionForReview(resolution: Resolution, amount: number, userId: string) {
+        const resolutionData = {
+            id: resolution.id,
+            category: resolution.category,
+            description: resolution.description,
+            listingMapId: resolution.listingMapId,
+            reservationId: resolution.reservationId,
+            guestName: resolution.guestName,
+            claimDate: new Date(resolution.claimDate),
+            amount: amount,
+            updatedBy: userId,
+            arrivalDate: resolution.arrivalDate,
+            departureDate: resolution.departureDate,
+        };
+
+        return await this.resolutionService.updateResolution(resolutionData, userId);
     }
 
     public async saveReviewDetail(reviewId: string, details: Partial<ReviewDetailEntity>, userId: string) {
@@ -120,10 +163,10 @@ export class ReviewDetailService {
             // Create expense and resolution if resolution amount is provided
             if (details.resolutionAmount) {
                 const expense = await this.createExpenseForResolution(savedReviewDetail, userId);
-                savedReviewDetail.expenseId = expense.id;
+                const resolution = await this.createResolutionForReview(savedReviewDetail, userId);
+                savedReviewDetail.expenseId = expense.id;  
+                savedReviewDetail.resolutionId = resolution.id;
                 await this.reviewDetailRepository.save(savedReviewDetail);
-
-                await this.createResolutionForReview(savedReviewDetail, userId);
             }
 
             return this.getReviewDetailWithAttempts(savedReviewDetail.id);
@@ -170,8 +213,9 @@ export class ReviewDetailService {
             // Case 1: Resolution amount was not present and now being provided
             if (!currentResolutionAmount && newResolutionAmount) {
                 const expense = await this.createExpenseForResolution({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+                const resolution = await this.createResolutionForReview({ ...reviewDetail, resolutionAmount: newResolutionAmount }, userId);
                 reviewDetail.expenseId = expense.id;
-                await this.createResolutionForReview({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+                reviewDetail.resolutionId = resolution.id;
             }
             // Case 2: Resolution amount was present and remains unchanged - do nothing
             else if (currentResolutionAmount === newResolutionAmount) {
@@ -182,22 +226,23 @@ export class ReviewDetailService {
                 if (reviewDetail.expenseId) {
                     const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
                     await this.expenseService.deleteExpense(expense.expenseId, userId);
+                    await this.resolutionService.deleteResolution(reviewDetail.resolutionId, userId);
                     reviewDetail.expenseId = null;
+                    reviewDetail.resolutionId = null;
                 }
             }
             // Case 4: Resolution amount was present and changed
             else if (currentResolutionAmount && newResolutionAmount && currentResolutionAmount !== newResolutionAmount) {
                 if (reviewDetail.expenseId) {
                     const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    // Create a new expense with updated amount
-                    const newExpense = await this.createExpenseForResolution({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
-                    // Delete the old expense
-                    await this.expenseService.deleteExpense(expense.expenseId, userId);
-                    // Update the expense ID
-                    reviewDetail.expenseId = newExpense.id;
+                    // Update expense with updated amount
+                    await this.updateExpenseForResolution(expense, updatedDetails.resolutionAmount, userId);   
                 }
-                // Create a new resolution with updated amount
-                await this.createResolutionForReview({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
+                if (reviewDetail.resolutionId) {
+                    const resolution = await this.resolutionRepository.findOne({ where: { id: reviewDetail.resolutionId } });
+                    //Update resolution with updated amount
+                    await this.updateResolutionForReview(resolution, updatedDetails.resolutionAmount, userId);
+                }
             }
 
             // Update the review detail itself
@@ -207,6 +252,8 @@ export class ReviewDetailService {
                 updatedBy: userId,
                 updatedAt: new Date()
             });
+
+            
 
             await this.reviewDetailRepository.save(reviewDetail);
 

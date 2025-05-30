@@ -39,6 +39,9 @@ export class ReviewDetailEntity {
     @Column({ nullable: true })
     expenseId: number;
 
+    @Column({ nullable: true })
+    resolutionId: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
