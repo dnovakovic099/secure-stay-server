@@ -122,7 +122,6 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
 
-    logger.info(`[updateReservationInfo] Reservation updated successfully.[${reservation.id}-${reservation.guestName}]`)
     return await this.reservationInfoRepository.save(reservation);
   }
 
