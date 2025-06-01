@@ -30,11 +30,14 @@ export class OccupancyRateService {
             arbitraged: [],
         };
 
-        const lowOccupancy = {
-            pmClients: [],
+        const ownArbitrageLowOccupancy = {
             own: [],
             arbitraged: [],
         };
+
+        const pmClientsLowOccupancy={
+            pmClients: [],
+        }
 
         for (const listing of listings) {
             const detail = listingDetails.find(d => d.listingId === listing.id);
@@ -123,24 +126,24 @@ export class OccupancyRateService {
                 case "Luxury Lodging Owned":
                     result.own.push(occupancyData);
                     if (Number(futureRates["7days"].occupancyRate) < 50) {
-                        lowOccupancy.own.push(occupancyData);
+                        ownArbitrageLowOccupancy.own.push(occupancyData);
                     }
                     break;
                 case "Arbitrage":
                     result.arbitraged.push(occupancyData);
                     if (Number(futureRates["7days"].occupancyRate) < 50) {
-                        lowOccupancy.arbitraged.push(occupancyData);
+                        ownArbitrageLowOccupancy.arbitraged.push(occupancyData);
                     }
                     break;
                 case "Property Management":
                     result.pmClients.push(occupancyData);
                     if (Number(futureRates["7days"].occupancyRate) < 50) {
-                        lowOccupancy.pmClients.push(occupancyData);
+                        pmClientsLowOccupancy.pmClients.push(occupancyData);
                     }
                     break;
             }
         }
 
-        return { result, lowOccupancy };
+        return { result, pmClientsLowOccupancy, ownArbitrageLowOccupancy };
     }
 }

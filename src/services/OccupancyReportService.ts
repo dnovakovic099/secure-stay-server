@@ -159,7 +159,7 @@ export class OccupancyReportService {
 
     public async sendDailyReport(): Promise<void> {
         try {
-            const { result, lowOccupancy } = await this.occupancyRateService.getOccupancyPercent();
+            const { result, pmClientsLowOccupancy, ownArbitrageLowOccupancy } = await this.occupancyRateService.getOccupancyPercent();
             // const mockData = {
             //     own: [
             //         {
@@ -182,48 +182,64 @@ export class OccupancyReportService {
             //     pmClients: []
             // };
 
-            const html = await this.generateEmailHtml(lowOccupancy);
+            const ownArbitrageHtml = await this.generateEmailHtml(ownArbitrageLowOccupancy);
+            const pmClientHtml = await this.generateEmailHtml(pmClientsLowOccupancy);
             const excelBuffer = await this.generateExcelBuffer(result);
 
-            const subject = `Daily Occupancy Rate Report - ${format(new Date(), 'MMMM dd, yyyy')}`;
-            const recipients = [
-                "admin@luxurylodgingpm.com",
-                "ferdinand@luxurylodgingpm.com"
-            ];
+            await this.sendOccupancyReportEmail(
+                `Owned + Arbitraged Occupancy Rate Report - ${format(new Date(), 'MMMM dd, yyyy')}`,
+                ownArbitrageHtml,
+                excelBuffer
+            );
 
-            const transporter = nodemailer.createTransport({
-                service: "gmail",
-                auth: {
-                    user: process.env.EMAIL_FROM,
-                    pass: "hjtp sial fgez mmoz",
-                },
-            });
+            await this.sendOccupancyReportEmail(
+                `PM Clients Occupancy Rate Report - ${format(new Date(), 'MMMM dd, yyyy')}`,
+                pmClientHtml,
+                excelBuffer
+            );
 
-            for (const recipient of recipients) {
-                try {
-                    await transporter.sendMail({
-                        from: process.env.EMAIL_FROM,
-                        to: recipient,
-                        subject,
-                        html,
-                        attachments: [
-                            {
-                                filename: "Occupancy_Report.xlsx",
-                                content: excelBuffer,
-                                contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            }
-                        ]
-                    });
-                    logger.info(`Email sent successfully to ${recipient}`);
-                } catch (error) {
-                    logger.error(`Error sending email to ${recipient}:`, error);
-                }
-            }
 
             logger.info("Daily occupancy report sending process completed.");
         }
         catch (error) {
             logger.error("Error sending daily occupancy report:", error);
+        }
+    }
+
+    private async sendOccupancyReportEmail(subject: string, html: any, excelBuffer: any) {
+        const recipients = [
+            "admin@luxurylodgingpm.com",
+            "ferdinand@luxurylodgingpm.com",
+            // "prasannakb440@gmail.com"
+        ];
+
+        const transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: {
+                user: process.env.EMAIL_FROM,
+                pass: "hjtp sial fgez mmoz",
+            },
+        });
+
+        for (const recipient of recipients) {
+            try {
+                await transporter.sendMail({
+                    from: process.env.EMAIL_FROM,
+                    to: recipient,
+                    subject,
+                    html,
+                    attachments: [
+                        {
+                            filename: "Occupancy_Report.xlsx",
+                            content: excelBuffer,
+                            contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        }
+                    ]
+                });
+                logger.info(`Email sent successfully to ${recipient}`);
+            } catch (error) {
+                logger.error(`Error sending email to ${recipient}:`, error);
+            }
         }
     }
 }
