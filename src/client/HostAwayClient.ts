@@ -102,13 +102,35 @@ export class HostAwayClient {
       const url = `https://api.hostaway.com/v1/listings`;
       const token = await this.getAccessToken(clientId, clientSecret);
 
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Cache-control": "no-cache",
-        },
-      });
-      return response.data.result;
+      const limit = 100; // or max allowed by Hostaway
+      let offset = 0;
+      let hasMore = true;
+      const allListings: any[] = [];
+
+      while (hasMore) {
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache",
+          },
+          params: {
+            limit,
+            offset,
+          },
+        });
+
+        const listings = response.data.result || [];
+        allListings.push(...listings);
+
+        // If fewer than 'limit' items are returned, we've reached the end
+        if (listings.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
+      }
+
+      return allListings;
     } catch (error) {
       throw error;
     }
