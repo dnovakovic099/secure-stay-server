@@ -98,7 +98,6 @@ export class OccupancyReportService {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet("Occupancy Report");
 
-        // --- Updated: Added 'Blocked Notes' column ---
         worksheet.columns = [
             { header: 'Property Type', key: 'type', width: 15 },
             { header: 'Listing Name', key: 'listingName', width: 30 },
@@ -110,7 +109,6 @@ export class OccupancyReportService {
             { header: 'Blocked Dates', key: 'blockedDates', width: 40 },
             { header: 'Blocked Notes', key: 'blockedNotes', width: 50 } // New column for notes
         ];
-        // --- End Updated ---
 
         worksheet.getRow(1).font = { bold: true };
 
@@ -128,9 +126,7 @@ export class OccupancyReportService {
                         const blockedObjects = details.blockedDates || []; // This is the array of objects
 
                         const blockedDates = blockedObjects.map((item: { date: string; }) => item.date);
-                        // --- New: Format blocked notes for Excel ---
                         const blockedNotesFormatted = this.formatBlockedNotesForExcel(blockedObjects);
-                        // --- End New ---
 
                         worksheet.addRow({
                             type: typeLabel,
@@ -156,35 +152,69 @@ export class OccupancyReportService {
         return Buffer.from(uint8Array);
     }
 
+    /**
+     * Sorts a list of listings based on future occupancy rates, prioritizing low occupancy.
+     * Order: <50% for 7 days, then <50% for 14 days, then <50% for 30 days, then good occupancy.
+     * Ensures no repetitive listings across categories.
+     * @param listings An array of listing objects.
+     * @returns The sorted array of listings.
+     */
+    private sortListingsByOccupancy(listings) {
+        const lowOccupancy7Days: any[] = [];
+        const lowOccupancy14Days: any[] = [];
+        const lowOccupancy30Days: any[] = [];
+        const goodOccupancy: any[] = [];
+        const processedListing = new Set<string>(); // Using listingName as a unique identifier
+
+        listings.forEach(listing => {
+            const listingId = listing.listingId;
+            if (processedListing.has(listingId)) {
+                return; // Skip if this listing has already been categorized
+            }
+
+            const future7DaysOccupancy = listing.futureRates?.['7days']?.occupancyRate;
+            const future14DaysOccupancy = listing.futureRates?.['14days']?.occupancyRate;
+            const future30DaysOccupancy = listing.futureRates?.['30days']?.occupancyRate;
+
+            if (future7DaysOccupancy !== undefined && future7DaysOccupancy < 50) {
+                lowOccupancy7Days.push(listing);
+                processedListing.add(listingId);
+            } else if (future14DaysOccupancy !== undefined && future14DaysOccupancy < 50) {
+                lowOccupancy14Days.push(listing);
+                processedListing.add(listingId);
+            } else if (future30DaysOccupancy !== undefined && future30DaysOccupancy < 50) {
+                lowOccupancy30Days.push(listing);
+                processedListing.add(listingId);
+            } else {
+                goodOccupancy.push(listing);
+                processedListing.add(listingId);
+            }
+        });
+
+        lowOccupancy7Days.length > 0 && lowOccupancy7Days.unshift({ info: "🛈 Following are the properties with occupancy rates below 50% for next 7 days, based on the Hostaway calendar." });
+        lowOccupancy14Days.length>0 && lowOccupancy14Days.unshift({ info: "🛈 Following are the properties with occupancy rates below 50% for next 14 days, based on the Hostaway calendar." });
+        lowOccupancy30Days.length>0 && lowOccupancy30Days.unshift({ info: "🛈 Following are the properties with occupancy rates below 50% for next 30 days, based on the Hostaway calendar." });
+        goodOccupancy.length > 0 && goodOccupancy.unshift({ info: "🛈 Following are the properties with occupancy rates above 50% for next 7, 14 and 30 days, based on the Hostaway calendar." });
+
+        // Concatenate the sorted categories
+        return [...lowOccupancy7Days, ...lowOccupancy14Days, ...lowOccupancy30Days, ...goodOccupancy];
+    }
+
 
     public async sendDailyReport(): Promise<void> {
         try {
             const { result, pmClientsLowOccupancy, ownArbitrageLowOccupancy } = await this.occupancyRateService.getOccupancyPercent();
-            // const mockData = {
-            //     own: [
-            //         {
-            //             listingName: "Ocean View Villa",
-            //             pastRates: {
-            //                 "90days": { occupancyRate: 40, ownerStayDates: ["2025-04-01", "2025-04-02"], blockedDates: [{ date: "2025-04-03", note: "Test note" }] },
-            //                 "30days": { occupancyRate: 35, ownerStayDates: ["2025-05-01"], blockedDates: [{ date: "2025-05-03", note: "Accidental cancellation of Yvonne Ronceros" }, { date: "2025-05-04", note: "Accidental cancellation of Yvonne Ronceros" }, { date: "2025-05-08", note: "Testing the second note" }] },
-            //                 "14days": { occupancyRate: 20, ownerStayDates: [], blockedDates: [{ date: "2025-05-10", note: "" }] },
-            //                 "7days": { occupancyRate: 15, ownerStayDates: [], blockedDates: [] }
-            //             },
-            //             futureRates: {
-            //                 "7days": { occupancyRate: 10, ownerStayDates: [], blockedDates: [] },
-            //                 "14days": { occupancyRate: 25, ownerStayDates: ["2025-04-01", "2025-04-02"], blockedDates: [] },
-            //                 "30days": { occupancyRate: 30, ownerStayDates: ["2025-04-01", "2025-04-02"], blockedDates: [{ date: "2025-04-01", note: "Something went wrong" }] },
-            //                 "90days": { occupancyRate: 50, ownerStayDates: [], blockedDates: [] }
-            //             }
-            //         }
-            //     ],
-            //     arbitraged: [],
-            //     pmClients: []
-            // };
+            // Apply sorting to the main result object for Excel
+            const sortedResult = {
+                own: this.sortListingsByOccupancy(result.own),
+                arbitraged: this.sortListingsByOccupancy(result.arbitraged),
+                pmClients: this.sortListingsByOccupancy(result.pmClients)
+            };
 
-            const ownArbitrageHtml = await this.generateEmailHtml(ownArbitrageLowOccupancy);
-            const pmClientHtml = await this.generateEmailHtml(pmClientsLowOccupancy);
-            const excelBuffer = await this.generateExcelBuffer(result);
+
+            const ownArbitrageHtml = await this.generateEmailHtml({ own: sortedResult.own, arbitraged: sortedResult.arbitraged });
+            const pmClientHtml = await this.generateEmailHtml({ pmClients: sortedResult.pmClients });
+            const excelBuffer = await this.generateExcelBuffer(sortedResult);
 
             await this.sendOccupancyReportEmail(
                 `Owned + Arbitraged Occupancy Rate Report - ${format(new Date(), 'MMMM dd, yyyy')}`,
@@ -198,7 +228,6 @@ export class OccupancyReportService {
                 excelBuffer
             );
 
-
             logger.info("Daily occupancy report sending process completed.");
         }
         catch (error) {
@@ -206,18 +235,17 @@ export class OccupancyReportService {
         }
     }
 
-    private async sendOccupancyReportEmail(subject: string, html: any, excelBuffer: any) {
+    private async sendOccupancyReportEmail(subject: string, html: string, excelBuffer: Buffer) {
         const recipients = [
             "admin@luxurylodgingpm.com",
-            "ferdinand@luxurylodgingpm.com",
-            // "prasannakb440@gmail.com"
+            "ferdinand@luxurylodgingpm.com"
         ];
 
         const transporter = nodemailer.createTransport({
             service: "gmail",
             auth: {
                 user: process.env.EMAIL_FROM,
-                pass: "hjtp sial fgez mmoz",
+                pass: "hjtp sial fgez mmoz", // Consider using environment variables or a more secure way to manage this password
             },
         });
 
