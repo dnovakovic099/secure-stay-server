@@ -31,9 +31,16 @@ export class ExpenseController {
 
             //check either attachments are present or not
             let fileNames: string[] = [];
+            let newFiles: string[] = [];
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
             }
+
+            // Parse oldFiles safely
+            const oldFiles: string[] = JSON.parse(request.body.oldFiles) || [];
+
+            fileNames = [...oldFiles, ...newFiles];
+
             const expenseData = await expenseService.updateExpense(request, userId, fileNames);
 
             return response.send(expenseData);
