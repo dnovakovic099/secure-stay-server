@@ -84,7 +84,8 @@ export const validateUpdateExpense = (request: Request, response: Response, next
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required().allow(null, "")
+        }).required().allow(null, ""),
+        oldFiles: Joi.string().required().allow(null, ""),
     });
 
     const { error } = schema.validate(request.body);

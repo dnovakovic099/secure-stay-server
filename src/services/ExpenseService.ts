@@ -286,7 +286,7 @@ export class ExpenseService {
         expense.paymentMethod = paymentMethod;
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
-
+        expense.datePaid = datePaid ? datePaid : "";
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
