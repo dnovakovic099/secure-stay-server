@@ -118,7 +118,7 @@ export class RefundRequestService {
             body: {
                 listingMapId: body.listingId,
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: body.notes,
+                concept: body.explaination,
                 amount: body.refundAmount,
                 categories: JSON.stringify([12]),
                 dateOfWork: null,
@@ -186,6 +186,7 @@ export class RefundRequestService {
                 refundRequest.expenseId = null;
             }
             refundRequest.status = status;
+            refundRequest.updatedBy = userId;
         }
 
       await this.refundRequestRepo.save(refundRequest);

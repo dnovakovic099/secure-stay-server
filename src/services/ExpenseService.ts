@@ -80,7 +80,9 @@ export class ExpenseService {
         amount: number;
         categories: string;
     }, userId: string) {
-        const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        // const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
+        const clientId = process.env.HOST_AWAY_CLIENT_ID;
+        const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
         const hostawayExpense = await this.hostAwayClient.createExpense(requestBody, { clientId, clientSecret });
         return hostawayExpense;
     }
