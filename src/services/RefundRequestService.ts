@@ -8,6 +8,8 @@ import sendEmail from "../utils/sendEmai";
 import { formatCurrency } from "../helpers/helpers";
 import logger from "../utils/logger.utils";
 import { UsersEntity } from "../entity/Users";
+import { buildRefundRequestMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -65,7 +67,7 @@ export class RefundRequestService {
             if (refundRequest) {
                 await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
                 if (isStatusChanged) {
-                  await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager, refundRequest.id);
+                  // await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager, refundRequest.id);
                 }
 
               await this.sendEmailForUpdatedRefundRequest(refundRequest);
@@ -77,6 +79,10 @@ export class RefundRequestService {
             if (body.status === "Approved") {
               await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager, refundRequest.id);
             }
+
+          //send slack message for Approval or Rejection
+          const slackMessage = buildRefundRequestMessage(newRefundRequest);
+          await sendSlackMessage(slackMessage);
 
             //send email notfication
             await this.sendEmailForNewRefundRequest(newRefundRequest)

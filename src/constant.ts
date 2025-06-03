@@ -66,3 +66,8 @@ export const ownerDetails = {
     345111: { name: "Albert Patroni", email: "Aandvwelding@gmail.com", phone: "(609) 457-6848" },
     346195: { name: "Bryan Derby", email: "Bryanderby@frontier.com", phone: "(502) 533-7880" }
 };
+
+export const slackInteractivityEventNames={
+    APPROVE_REFUND_REQUEST: "approve_refund_request",
+    DENY_REFUND_REQUEST: "deny_refund_request",
+}
