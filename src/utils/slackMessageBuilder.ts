@@ -3,7 +3,7 @@ import { RefundRequestEntity } from "../entity/RefundRequest";
 import { formatCurrency } from "../helpers/helpers";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
-    const channelName = "#social";
+    const channelName = "#bookkeeping";
     const slackMessage = {
         channel: channelName,
         text: `New Refund Request for ${refundRequest.guestName}`,
