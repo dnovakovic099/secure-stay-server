@@ -33,7 +33,8 @@ enum CategoryKey {
     PET_FEE = 'pet_fee',
     EXTRA_CLEANING = 'extra_cleaning',
     OTHERS = 'others',
-    RESOLUTION = 'resolution'
+    RESOLUTION = 'resolution',
+    REVIEW_REMOVAL = 'review_removal'
 }
 
 const categoriesList: Record<CategoryKey, string> = {
@@ -43,6 +44,7 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.EXTRA_CLEANING]: "Extra Cleaning",
     [CategoryKey.OTHERS]: "Others",
     [CategoryKey.RESOLUTION]: "Resolution",
+    [CategoryKey.REVIEW_REMOVAL]: "Review Removal"
 };
 
 export class ResolutionService {
@@ -63,6 +65,23 @@ export class ResolutionService {
         resolution.createdBy = userId;
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
+
+        return await this.resolutionRepo.save(resolution);
+    }
+
+    async updateResolution(updatedData: Partial<Resolution>, userId: string | null) {
+        const resolution = await this.resolutionRepo.findOne({ where: { id: updatedData.id } });
+        
+        resolution.category = updatedData.category;
+        resolution.description = updatedData.description;
+        resolution.listingMapId = updatedData.listingMapId;
+        resolution.reservationId = updatedData.reservationId;
+        resolution.guestName = updatedData.guestName;
+        resolution.claimDate = new Date(updatedData.claimDate);
+        resolution.amount = updatedData.amount;
+        resolution.updatedBy = userId;
+        resolution.arrivalDate = updatedData.arrivalDate;
+        resolution.departureDate = updatedData.departureDate;
 
         return await this.resolutionRepo.save(resolution);
     }

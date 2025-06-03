@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { ReviewDetailOldLogs } from './ReviewDetailOldLogs';
 import { ReviewEntity } from './Review';
+import { RemovalAttemptEntity } from './RemovalAttempt';
 
 @Entity('review_details')
 export class ReviewDetailEntity {
@@ -27,21 +28,19 @@ export class ReviewDetailEntity {
     date: string;
 
     @Column({ nullable: true })
-    firstContactDate: string;
-    @Column({ nullable: true })
-    lastContactDate: string;
-
-    @Column({ type: "text", nullable: true })
-    methodsTried: string;
-
-    @Column({ type: "text", nullable: true })
-    methodsLeft: string;
-
-    @Column({ type: "text", nullable: true })
-    notes: string;
-
-    @Column({ nullable: true })
     claimResolutionStatus: string;
+
+    @Column({ nullable: true })
+    resolutionAmount: number;
+
+    @Column({ nullable: true })
+    resolutionDateRequested: string;
+
+    @Column({ nullable: true })
+    expenseId: number;
+
+    @Column({ nullable: true })
+    resolutionId: number;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
@@ -61,4 +60,7 @@ export class ReviewDetailEntity {
     // Optional One-to-One relationship with ReviewDetailOldLogs
     @OneToOne(() => ReviewDetailOldLogs, oldLog => oldLog.reviewDetail, { nullable: true })
     oldLog: ReviewDetailOldLogs;
+
+    @OneToMany(() => RemovalAttemptEntity, removalAttempt => removalAttempt.reviewDetail)
+    removalAttempts: RemovalAttemptEntity[];
 }
