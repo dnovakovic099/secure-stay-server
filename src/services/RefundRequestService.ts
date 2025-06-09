@@ -8,7 +8,7 @@ import sendEmail from "../utils/sendEmai";
 import { formatCurrency } from "../helpers/helpers";
 import logger from "../utils/logger.utils";
 import { UsersEntity } from "../entity/Users";
-import { buildRefundRequestMessage } from "../utils/slackMessageBuilder";
+import { buildRefundRequestMessage, buildRefundRequestReminderMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 
 export class RefundRequestService {
@@ -315,6 +315,8 @@ export class RefundRequestService {
                 requestByUsers[user.email].push(request);
             }
         }
+
+      await sendSlackMessage(buildRefundRequestReminderMessage(refundRequests));
 
         // Send email to admin for all refund requests
         if (refundRequests.length == 1) {
