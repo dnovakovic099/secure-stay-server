@@ -2,14 +2,16 @@ import { Request, NextFunction, Response } from "express";
 import Joi from "joi";
 
 export const validateCreateTask = (request: Request, response: Response, next: NextFunction) => {
-    const schema = Joi.object({
-        status: Joi.string()
-            .valid("Assigned", "In Progress", "Need Attention", "Completed")
-            .default("Assigned")
-            .required(),
+    const schema = Joi.object({        
         listing_id: Joi.string().required(),
-        assignee_id: Joi.string().required(),
-        task: Joi.string().required(),
+        tasks: Joi.array().items(Joi.object({
+            assignee_id: Joi.string().required(),
+            task: Joi.string().required(),
+            status: Joi.string()
+                .valid("Assigned", "In Progress", "Need Attention", "Completed")
+                .default("Assigned")
+                .required(),
+        })),
     });
 
     const { error } = schema.validate(request.body);

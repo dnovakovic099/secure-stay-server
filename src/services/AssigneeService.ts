@@ -10,7 +10,6 @@ export class AssigneeService {
 
         const newAssignee = new AssigneeEntity();
         newAssignee.assigneeName = assigneeName;
-        newAssignee.assigneeNumber = assigneeNumber;
 
         const assignee = await this.assigneeInfoRepo.save(newAssignee);
         return assignee;

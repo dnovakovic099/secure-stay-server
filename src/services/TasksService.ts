@@ -7,13 +7,18 @@ import { AssigneeEntity } from "../entity/AssigneeInfo";
 export class TasksService {
     private taskRepo = appDatabase.getRepository(Task);
 
-    async createTask(data: Partial<Task>, userId: string) {
-        const newTask = this.taskRepo.create({
-            ...data,
-        });
+    async createTask(data: { listing_id: string, tasks: Array<{ assignee_id: string, task: string, status: string }> }) {
+      
+        const tasksToCreate = data.tasks.map(taskData => ({
+            listing_id: data.listing_id,
+            assignee_id: taskData.assignee_id,
+            task: taskData.task,
+            status: taskData.status || 'Assigned',
+        }));
 
-        const savedTask = await this.taskRepo.save(newTask);
-        return savedTask;
+        const newTasks = this.taskRepo.create(tasksToCreate);
+        const savedTasks = await this.taskRepo.save(newTasks);
+        return savedTasks;
     }
 
     async getTasks(

@@ -7,7 +7,4 @@ export class AssigneeEntity {
 
     @Column()
     assigneeName: string;
-
-    @Column({ nullable: true })
-    assigneeNumber: string;
 }
