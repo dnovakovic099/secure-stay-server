@@ -79,7 +79,7 @@ export class UnifiedWebhookController {
                         const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Approved", user, true);
                         if (refundRequest) {
                             logger.info(`User ${user} approved refund request ${actionData.guestName} for ${actionData.amount}`);
-                            messageText = `✅ <@${user}> approved *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*.`;
+                            messageText = `✅ <@${user}> approved *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*. *<https://securestay.ai/issues?id=${JSON.parse(actionData.issueId).join(",")}|View Issue>*`;
                             await this.sendResponseInSlack(responseUrl, messageText);
                         } else {
                             messageText = `Something went wrong. ❌ Failed to approve refund request for *${actionData.guestName}*.`;
@@ -100,7 +100,7 @@ export class UnifiedWebhookController {
                         const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Denied", user, true);
                         if (refundRequest) {
                             logger.info(`User ${user} denied refund request ${actionData.guestName} for ${actionData.amount}`);
-                            messageText = `<@${user}> denied *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*.`;
+                            messageText = `<@${user}> denied *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*. *<https://securestay.ai/issues?id=${JSON.parse(actionData.issueId).join(",")}|View Issue>*`;
                             await this.sendResponseInSlack(responseUrl, messageText);
                         } else {
                             messageText = `Something went wrong. ❌ Failed to deny refund request for *${actionData.guestName}*.`;

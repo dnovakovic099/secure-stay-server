@@ -13,7 +13,7 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: "*You have a new refund request:*"
+                    text: `*You have a new refund request:* *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
                 }
             },
             {
@@ -37,7 +37,8 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
                             id: refundRequest.id,
                             guestName: refundRequest.guestName,
                             listingName: refundRequest.listingName,
-                            amount: refundRequest.refundAmount
+                            amount: refundRequest.refundAmount,
+                            issueId: refundRequest.issueId
                         })
                             }`
                     },
@@ -50,7 +51,8 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
                             id: refundRequest.id,
                             guestName: refundRequest.guestName,
                             listingName: refundRequest.listingName,
-                            amount: refundRequest.refundAmount
+                            amount: refundRequest.refundAmount,
+                            issueId: refundRequest.issueId
                         })
                             }`
                     }
@@ -81,7 +83,8 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
                         { type: "mrkdwn", text: `*Reservation:*\n${request.guestName}` },
                         { type: "mrkdwn", text: `*Listing:*\n${request.listingName}` },
                         { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(request.refundAmount)}` },
-                        { type: "mrkdwn", text: `*Explanation:*\n${request.explaination}` }
+                        { type: "mrkdwn", text: `*Explanation:*\n${request.explaination}` },
+                        { type: "mrkdwn", text: `*<https://securestay.ai/issues?id=${JSON.parse(request.issueId).join(",")}|View Issue>*` }
                     ]
                 },
                 {
@@ -130,7 +133,7 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently`
+                    text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently. *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
                 }
             },
             {
@@ -158,7 +161,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : "⏳"} <@${user}> ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : "⏳"} <@${user}> ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
                 }
             },
         ]
