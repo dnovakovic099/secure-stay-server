@@ -2,10 +2,11 @@ import { slackInteractivityEventNames } from "../constant";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { formatCurrency } from "../helpers/helpers";
 
+const REFUND_REQUEST_CHANNEL = "#bookkeeping";
+
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
-    const channelName = "#bookkeeping";
     const slackMessage = {
-        channel: channelName,
+        channel: REFUND_REQUEST_CHANNEL,
         text: `New Refund Request for ${refundRequest.guestName}`,
         blocks: [
             {
@@ -62,9 +63,8 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
 };
 
 export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEntity[]) => {
-    const channelName = "#social";
     const slackMessage = {
-        channel: channelName,
+        channel: REFUND_REQUEST_CHANNEL,
         text: `You have ${refundRequest.length} pending refund requests`,
         blocks: [
             {
@@ -119,4 +119,51 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
 
     return slackMessage;
 };
+
+
+export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
+    const slackMessage = {
+        channel: REFUND_REQUEST_CHANNEL,
+        text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Reservation:*\n${refundRequest.guestName}` },
+                    { type: "mrkdwn", text: `*Listing:*\n${refundRequest.listingName}` },
+                    { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}` },
+                    { type: "mrkdwn", text: `*Explanation:*\n${refundRequest.explaination}` },
+                    { type: "mrkdwn", text: `*Status:*\n${refundRequest.status}` }
+                ]
+            }
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
+    const slackMessage = {
+        channel: REFUND_REQUEST_CHANNEL,
+        text: `${user} updated the status of refund request for ${refundRequest.guestName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : "⏳"} <@${user}> ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+}
 
