@@ -5,11 +5,7 @@ export class Task {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({
-        type: "enum",
-        enum: ["Assigned", "In Progress", "Need Attention", "Completed"],
-        default: "Assigned"
-    })
+    @Column()
     status: string;
 
     @Column()

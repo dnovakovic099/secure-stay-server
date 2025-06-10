@@ -6,7 +6,7 @@ export class AssigneeService {
     private assigneeInfoRepo = appDatabase.getRepository(AssigneeEntity);
 
     async saveAssigneeInfo(request: Request) {
-        const { assigneeName, assigneeNumber } = request.body;
+        const { assigneeName } = request.body;
 
         const newAssignee = new AssigneeEntity();
         newAssignee.assigneeName = assigneeName;
