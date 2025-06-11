@@ -13,6 +13,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { SlackMessageService } from "./SlackMessageService";
 import updateSlackMessage from "../utils/updateSlackMsg";
+import { ExpenseStatus } from "../entity/Expense";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -213,7 +214,7 @@ export class RefundRequestService {
                 contractorName: " ",
                 contractorNumber: null,
                 findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color: blue; text-decoration: underline;">Refund Request Link</a>`,
-                status: "Pending Approval",
+                status: ExpenseStatus.APPROVED,
                 paymentMethod: null,
                 createdBy: userId
             }
