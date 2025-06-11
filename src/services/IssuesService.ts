@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan, In } from "typeorm";
+import { Between, Not, LessThan, In, MoreThan } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -75,6 +75,14 @@ export class IssuesService {
                 startDate,
                 endDate
             );
+        }
+
+        if (fromDate) {
+            queryOptions.where.created_at = MoreThan(fromDate);
+        }
+
+        if (toDate) {
+            queryOptions.where.created_at = LessThan(toDate);
         }
 
         if (status) {
