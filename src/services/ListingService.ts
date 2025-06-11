@@ -11,6 +11,7 @@ import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
 import { ownerDetails } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
+import { ListingTags } from "../entity/ListingTags";
 
 interface ListingUpdate {
   listingId: number;
@@ -62,6 +63,12 @@ export class ListingService {
             listing["listingImages"],
             savedListing.listingId
           );
+
+          await this.saveListingTags(
+            transactionalEntityManager,
+            listing["listingTags"],
+            savedListing.listingId
+          )
         }
       });
 
@@ -125,6 +132,20 @@ export class ListingService {
     }));
 
     await entityManager.save(ListingImage, imageObjs);
+  }
+
+  // Save listing tags
+  private async saveListingTags(
+    entityManager: EntityManager,
+    tags: {id:number;name:string}[],
+    listingId: number
+  ) {
+    const listingTagsObjs = tags.map((tag) => ({
+      tagId: tag.id,
+      name: tag.name,
+      listing: listingId,
+    }))
+    await entityManager.save(ListingTags, listingTagsObjs);
   }
 
   async getListings(userId: string) {

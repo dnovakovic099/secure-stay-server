@@ -8,6 +8,7 @@ import {
 } from "typeorm";
 import { ListingImage } from "./ListingImage";
 import { GuideBook } from "./GuideBook";
+import { ListingTags } from "./ListingTags";
 
 @Entity("listing_info") // Specify the name of your MySQL table
 export class Listing {
@@ -49,6 +50,12 @@ export class Listing {
     onDelete: "CASCADE"
   })
   images: ListingImage[];
+
+  @OneToMany(() => ListingTags, (tags) => tags.listing,{
+    cascade: true,
+    onDelete: "CASCADE"
+  })
+  listingTags: ListingTags[];
 
   @OneToMany(() => GuideBook, (guideBook) => guideBook.listing,{
     cascade: true,
