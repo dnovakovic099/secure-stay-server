@@ -24,6 +24,7 @@ import ownerInfoRoutes from "./ownerInfoRoutes";
 import refundRequestRoutes from "./refundRequestRoutes";
 import reportsRoutes from "./reportsRoutes";
 import ownerPortalRoutes from "./ownerPortalRoutes";
+import taskRoutes from "./tasksRoutes";
 const router = Router();
 
 router.use('/device', deviceRoutes);
@@ -36,6 +37,7 @@ router.use('/accounting', accountingRoutes);
 router.use('/upsell', upsellRoutes);
 router.use('/issues', issueRoutes);
 router.use('/claims', claimRoutes);
+router.use('/tasks', taskRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/category', categoryRoutes);
 router.use(fileRoutes);
