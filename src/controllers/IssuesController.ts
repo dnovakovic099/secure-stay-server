@@ -18,6 +18,7 @@ export class IssuesController {
             const isClaimOnly = request.query.isClaimOnly === 'true';
             const claimAmount = request.query.claimAmount as string;
             const guestName = request.query.guestName as string;
+            const issueIds = request.query.issueIds as string;
 
             const result = await issuesService.getIssues(
                 page, 
@@ -28,7 +29,8 @@ export class IssuesController {
                 listingId,
                 isClaimOnly,
                 claimAmount,
-                guestName
+                guestName,
+                issueIds
             );
             
             return response.send({
