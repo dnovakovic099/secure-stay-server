@@ -8,12 +8,17 @@ import sendEmail from "../utils/sendEmai";
 import { formatCurrency } from "../helpers/helpers";
 import logger from "../utils/logger.utils";
 import { UsersEntity } from "../entity/Users";
-import { buildRefundRequestMessage } from "../utils/slackMessageBuilder";
+import { buildRefundRequestMessage, buildRefundRequestReminderMessage, buildUpdatedRefundRequestMessage, buildUpdatedStatusRefundRequestMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { SlackMessageService } from "./SlackMessageService";
+import updateSlackMessage from "../utils/updateSlackMsg";
+import { ExpenseStatus } from "../entity/Expense";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
         const newRefundRequest = new RefundRequestEntity();
@@ -56,40 +61,124 @@ export class RefundRequestService {
         return await transactionalEntityManager.save(refundRequest);
     }
 
-    async saveRefundRequest(
-        body: Partial<RefundRequestEntity>,
-        userId: string,
-        attachments: string[],
-        refundRequest?: RefundRequestEntity
-    ) {
-        return await appDatabase.transaction(async (transactionalEntityManager) => {
-            const isStatusChanged = refundRequest && refundRequest.status !== body.status;
-            if (refundRequest) {
-                await this.updateRefundRequest(transactionalEntityManager, refundRequest, body, userId, attachments);
-                if (isStatusChanged) {
-                  // await this.handleExpense(body.status, refundRequest, userId, transactionalEntityManager, refundRequest.id);
-                }
+  async saveRefundRequest(
+    body: Partial<RefundRequestEntity>,
+    userId: string,
+    attachments: string[],
+    refundRequest?: RefundRequestEntity
+  ) {
+    const slackMessageService = new SlackMessageService();
+    const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+    const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
 
-              await this.sendEmailForUpdatedRefundRequest(refundRequest);
+    return await appDatabase.transaction(async (transactionManager) => {
+      if (refundRequest) {
+        return this.updateRefundRequestFlow(
+          transactionManager,
+          body,
+          userId,
+          attachments,
+          refundRequest,
+          user,
+          slackMessageService
+        );
+      }
 
-                return refundRequest;
-            }
+      return this.createRefundRequestFlow(
+        transactionManager,
+        body,
+        userId,
+        attachments,
+        user,
+        slackMessageService
+      );
+    });
+  }
 
-            const newRefundRequest = await this.createRefundRequest(transactionalEntityManager, body, userId, attachments);
-            if (body.status === "Approved") {
-              await this.handleExpense(body.status, newRefundRequest, userId, transactionalEntityManager, refundRequest.id);
-            }
+  private async updateRefundRequestFlow(
+    transactionManager: EntityManager,
+    body: Partial<RefundRequestEntity>,
+    userId: string,
+    attachments: string[],
+    refundRequest: RefundRequestEntity,
+    user: string,
+    slackMessageService: SlackMessageService
+  ) {
+    const isStatusChanged = refundRequest.status !== body.status;
 
-          //send slack message for Approval or Rejection
-          const slackMessage = buildRefundRequestMessage(newRefundRequest);
-          await sendSlackMessage(slackMessage);
+    await this.updateRefundRequest(transactionManager, refundRequest, body, userId, attachments);
 
-            //send email notfication
-            await this.sendEmailForNewRefundRequest(newRefundRequest)
-
-            return newRefundRequest;
-        });
+    if (isStatusChanged) {
+      await this.handleExpense(body.status, refundRequest, userId, transactionManager, refundRequest.id);
     }
+
+    try {
+      const slackMessageInfo = await this.slackMessageRepo.findOne({
+        where: {
+          entityType: "refund_request",
+          entityId: refundRequest.id
+        }
+      });
+
+      if (slackMessageInfo) {
+        const slackMessage = isStatusChanged
+          ? buildUpdatedStatusRefundRequestMessage(refundRequest, user)
+          : buildUpdatedRefundRequestMessage(refundRequest, user);
+
+        await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+      }
+    } catch (error) {
+      logger.error("Slack update failed", error);
+    }
+
+    try {
+      await this.sendEmailForUpdatedRefundRequest(refundRequest);
+    } catch (error) {
+      logger.error("Email notification failed (update)", error);
+    }
+
+    return refundRequest;
+  }
+
+  private async createRefundRequestFlow(
+    transactionManager: EntityManager,
+    body: Partial<RefundRequestEntity>,
+    userId: string,
+    attachments: string[],
+    user: string,
+    slackMessageService: SlackMessageService
+  ) {
+    const newRefundRequest = await this.createRefundRequest(transactionManager, body, userId, attachments);
+
+    if (body.status === "Approved") {
+      await this.handleExpense(body.status, newRefundRequest, userId, transactionManager, newRefundRequest.id);
+    }
+
+    try {
+      const slackMessage = buildRefundRequestMessage(newRefundRequest);
+      const slackResponse = await sendSlackMessage(slackMessage);
+
+      await slackMessageService.saveSlackMessageInfo({
+        channel: slackResponse.channel,
+        messageTs: slackResponse.ts,
+        threadTs: slackResponse.ts,
+        entityType: "refund_request",
+        entityId: newRefundRequest.id,
+        originalMessage: JSON.stringify(slackMessage)
+      });
+    } catch (error) {
+      logger.error("Slack creation failed", error);
+    }
+
+    try {
+      await this.sendEmailForNewRefundRequest(newRefundRequest);
+    } catch (error) {
+      logger.error("Email notification failed (new)", error);
+    }
+
+    return newRefundRequest;
+  }
+
 
     private async handleExpense(
         status: string,
@@ -125,7 +214,7 @@ export class RefundRequestService {
                 contractorName: " ",
                 contractorNumber: null,
                 findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color: blue; text-decoration: underline;">Refund Request Link</a>`,
-                status: "Pending Approval",
+                status: ExpenseStatus.APPROVED,
                 paymentMethod: null,
                 createdBy: userId
             }
@@ -167,11 +256,19 @@ export class RefundRequestService {
         return { data, total };
     }
 
-    async updateRefundRequestStatus(id: number, status: string, userId: string) {
+    async updateRefundRequestStatus(id: number, status: string, userId: string, isRequestFromSlack?:boolean) {
         const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
         if (!refundRequest) {
             throw CustomErrorHandler.notFound('Refund request not found');
         }
+      const slackMessageInfo = await this.slackMessageRepo.findOne({
+        where: {
+          entityType: "refund_request",
+          entityId: id
+        }
+      })
+      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+      const user = userInfo ? userInfo.firstName + " " + userInfo.lastName : userId;
 
         const isStatusChanged = refundRequest && refundRequest.status !== status;
         if (isStatusChanged) {
@@ -190,6 +287,11 @@ export class RefundRequestService {
         }
 
       await this.refundRequestRepo.save(refundRequest);
+      if (slackMessageInfo && !isRequestFromSlack) {
+        await updateSlackMessage(buildUpdatedStatusRefundRequestMessage(refundRequest, user), slackMessageInfo.messageTs, slackMessageInfo.channel);
+        const slackMessage = isStatusChanged ? buildUpdatedStatusRefundRequestMessage(refundRequest, user) : buildUpdatedRefundRequestMessage(refundRequest, user);
+        await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+      }
       await this.sendEmailForUpdatedRefundRequest(refundRequest);
       return refundRequest
     }
@@ -315,6 +417,8 @@ export class RefundRequestService {
                 requestByUsers[user.email].push(request);
             }
         }
+
+      await sendSlackMessage(buildRefundRequestReminderMessage(refundRequests));
 
         // Send email to admin for all refund requests
         if (refundRequests.length == 1) {
