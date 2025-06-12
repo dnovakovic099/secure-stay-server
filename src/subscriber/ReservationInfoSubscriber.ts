@@ -45,7 +45,7 @@ export class ReservationInfoSubscriber
         const diff = getDiff(oldData, newData);
 
         // nothing changed?
-        // if (Object.keys(diff).length === 0) return;
+        if (Object.keys(diff).length === 0) return;
 
         const log = manager.create(ReservationInfoLog, {
             reservationInfoId: entity.id,
