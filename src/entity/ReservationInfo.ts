@@ -35,8 +35,8 @@ export class ReservationInfoEntity {
     @Column({ type: 'tinyint', nullable: true })
     isProcessed: boolean;
 
-    @Column({ type: 'datetime', nullable: true })
-    reservationDate: Date;
+    @Column({ nullable: true })
+    reservationDate: string;
 
     @Column({ length: 100, nullable: true }) // Reduced length
     guestName: string;
@@ -89,11 +89,11 @@ export class ReservationInfoEntity {
     @Column({ type: 'date', nullable: true })
     departureDate: Date;
 
-    @Column({ type: 'time', nullable: true })
-    checkInTime: string;
+    @Column({ nullable: true })
+    checkInTime: number;
 
-    @Column({ type: 'time', nullable: true })
-    checkOutTime: string;
+    @Column({ nullable: true })
+    checkOutTime: number;
 
     @Column({ type: 'int', nullable: true }) // Reduced size
     nights: number;
@@ -101,8 +101,8 @@ export class ReservationInfoEntity {
     @Column({ length: 20, nullable: true }) // Reduced length
     phone: string;
 
-    @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
-    totalPrice: number;
+    @Column({ nullable: true }) // Replaced DECIMAL with FLOAT
+    totalPrice: string;
 
     @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     taxAmount: number;

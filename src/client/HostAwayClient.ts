@@ -479,7 +479,7 @@ export class HostAwayClient {
 
     while (hasMoreData) {
       try {
-        let url = `https://api.hostaway.com/v1/reservations?departureStartDate=${date}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
+        let url = `https://api.hostaway.com/v1/reservations?arrivalStartDate=${date}&limit=${limit}&offset=${offset}&sortOrder=arrivalDate`;
 
         const response = await axios.get(url, {
           headers: {
