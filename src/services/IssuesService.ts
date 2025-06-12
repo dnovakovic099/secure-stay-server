@@ -75,14 +75,14 @@ export class IssuesService {
                 startDate,
                 endDate
             );
-        }
-
-        if (fromDate) {
-            queryOptions.where.created_at = MoreThan(fromDate);
-        }
-
-        if (toDate) {
-            queryOptions.where.created_at = LessThan(toDate);
+        } else if (fromDate) {
+            const startDate = new Date(fromDate);
+            startDate.setUTCHours(0, 0, 0, 0);
+            queryOptions.where.created_at = MoreThan(startDate);
+        } else if (toDate) {
+            const endDate = new Date(toDate);
+            endDate.setUTCHours(23, 59, 59, 999);
+            queryOptions.where.created_at = LessThan(endDate);
         }
 
         if (status) {
