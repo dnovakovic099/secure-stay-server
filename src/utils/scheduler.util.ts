@@ -6,6 +6,7 @@ import { syncReservation } from "../scripts/syncReservation";
 import { syncHostawayUser } from "../scripts/syncHostawayUser";
 import { OccupancyReportService } from "../services/OccupancyReportService";
 import logger from "./logger.utils";
+import { ReservationInfoService } from "../services/ReservationInfoService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -42,4 +43,32 @@ export function scheduleGetReservation() {
       logger.error("Error sending daily occupancy report:", error);
     }
   });
+
+  schedule.scheduleJob(
+    { hour: 1, minute: 0, dayOfWeek: 0, tz: "America/New_York" }, // Sunday @ 1 AM EST
+    async () => {
+      try {
+        logger.info('Scheduled task for extended reservation weekly report ran...');
+        const reservationInfoService = new ReservationInfoService();
+        await reservationInfoService.processExtendedReservations("weekly");
+      } catch (error) {
+        logger.error("Error in scheduled task for extended reservation report:", error);
+      }
+    }
+  );
+
+  schedule.scheduleJob(
+    { hour: 1, minute: 0, date: 1, tz: "America/New_York" }, // 1st day of the month at 1 AM EST
+    async () => {
+      try {
+        logger.info('Scheduled task for extended reservation monthly report ran...');
+        const reservationInfoService = new ReservationInfoService();
+        await reservationInfoService.processExtendedReservations("monthly");
+      } catch (error) {
+        logger.error("Error in scheduled task for monthly extended reservation report:", error);
+      }
+    }
+  );
+
+
 }
