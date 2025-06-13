@@ -12,6 +12,7 @@ import { ListingUpdateEntity } from "../entity/ListingUpdate";
 import { ownerDetails } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingTags } from "../entity/ListingTags";
+import logger from "../utils/logger.utils";
 
 interface ListingUpdate {
   listingId: number;
@@ -338,7 +339,7 @@ export class ListingService {
       try {
         await this.syncHostawayListing(account.userId);
       } catch (error) {
-        console.error(`Error syncing listings for user ${account.userId}:`, error);
+        logger.error(`Error syncing listings for user ${account.userId}:`, error);
       }
     }
   }
