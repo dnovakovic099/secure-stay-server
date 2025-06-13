@@ -7,6 +7,7 @@ import { syncHostawayUser } from "../scripts/syncHostawayUser";
 import { OccupancyReportService } from "../services/OccupancyReportService";
 import logger from "./logger.utils";
 import { ReservationInfoService } from "../services/ReservationInfoService";
+import { ListingService } from "../services/ListingService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -69,6 +70,19 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  schedule.scheduleJob(
+    { hour: 3, minute: 0, tz: "America/New_York" }, // Daily at 3 AM EST
+    async () => {
+      try {
+        logger.info('Sync listings for all users ran...');
+        const listingService = new ListingService();
+        await listingService.autoSyncListings();
+        logger.info('Sync listings for all users completed...');
+      } catch (error) {
+        logger.error("Error syncing listings for all users:", error);
+      }
+    })
 
 
 }
