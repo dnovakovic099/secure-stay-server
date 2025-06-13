@@ -675,8 +675,9 @@ export class ReservationInfoService {
         from: `${fromDate} 00:00:00.000000`,
         to: `${toDate} 23:59:59.999999`,
       })
+      .andWhere("log.action = :action", { action: 'UPDATE' })
       .andWhere(`
-    JSON_CONTAINS_PATH(log.diff, 'one', '$.airbnbExpectedPayoutAmount')
+    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights')
   `)
       .orderBy("log.changedAt", "DESC")
       .getMany();
