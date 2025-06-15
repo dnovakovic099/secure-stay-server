@@ -75,8 +75,8 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null, ""),
-        contractorName: Joi.string().required(),
-        contractorNumber: Joi.string().required().allow(null),
+        contractorName: Joi.string().required().allow(null, ""),
+        contractorNumber: Joi.string().required().allow(null, ""),
         findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
