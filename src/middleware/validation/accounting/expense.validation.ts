@@ -75,8 +75,8 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null, ""),
-        contractorName: Joi.string().required(),
-        contractorNumber: Joi.string().required().allow(null),
+        contractorName: Joi.string().required().allow(null, ""),
+        contractorNumber: Joi.string().required().allow(null, ""),
         findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
             .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
@@ -116,7 +116,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
     const schema = Joi.object({
         // listingId: Joi.number().required().allow(''),
         listingId: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
-        listingGroup: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned").allow(null, ""),
+        // listingGroup: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned").allow(null, ""),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required(),
@@ -130,10 +130,10 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .allow(''),
         categories: Joi.string().required().allow(''),
         contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
-        dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
-            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required().allow(''),
-        expenseState: Joi.string().required().valid("active", "deleted")
+        dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
+        expenseState: Joi.string().required().valid("active", "deleted"),
+        paymentMethod: Joi.string().required().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").allow(''),
+        tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null)
     });
 
     const { error } = schema.validate(request.query);
