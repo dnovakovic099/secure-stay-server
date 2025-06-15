@@ -100,7 +100,25 @@ export class ReviewService {
                 order
             });
 
-            return { reviews, totalCount };
+            const reviewList = [];
+
+            // Process reviews to include additional fields
+            for (const review of reviews) {
+                const reservationInfoService = new ReservationInfoService();
+                const reservationInfo = await reservationInfoService.getReservationById(review.reservationId);
+                if (!reservationInfo) {
+                    logger.warn(`Reservation not found for review with ID: ${review.id}`);
+                }
+                const reviewPlain = {
+                    ...review,
+                    guestPhone: reservationInfo?.phone || null,
+                    bookingAmount: reservationInfo?.totalPrice || null,
+                    guestEmail: reservationInfo?.guestEmail || null,
+                };
+                reviewList.push(reviewPlain);
+            }
+
+            return { reviewList, totalCount };
         } catch (error) {
             logger.error(`Failed to get reviews`, error);
             throw error;
