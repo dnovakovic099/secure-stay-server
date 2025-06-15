@@ -130,10 +130,10 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .allow(''),
         categories: Joi.string().required().allow(''),
         contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
-        dateType: Joi.string().required().allow('expenseDate', 'dateAdded', 'datePaid'),
+        dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
         expenseState: Joi.string().required().valid("active", "deleted"),
         paymentMethod: Joi.string().required().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").allow(''),
-        // tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null)
+        tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null)
     });
 
     const { error } = schema.validate(request.query);
