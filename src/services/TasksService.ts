@@ -101,6 +101,7 @@ export class TasksService {
         Object.assign(task, {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
+            updated_by: userId
         });
 
         return await this.taskRepo.save(task);
