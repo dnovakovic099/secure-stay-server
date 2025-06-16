@@ -36,7 +36,7 @@ export class TasksController {
     async createTask(request: any, response: Response) {
         const tasksService = new TasksService();
         try {
-            const result = await tasksService.createTask(request.body);
+            const result = await tasksService.createTask(request.body, request.user.id);
             return response.status(201).json({
                 status: true,
                 data: result
