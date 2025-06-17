@@ -234,4 +234,13 @@ export class IssuesService {
         }
         return issue;
     }
+
+    async getIssuesByListingId(listingId: string) {
+        return await this.issueRepo.find({ 
+            where: { 
+                listing_id: String(listingId),
+                status: Not('Completed')
+            } 
+        });
+    }
 } 
