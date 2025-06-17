@@ -13,10 +13,16 @@ import { ResolutionService } from "./ResolutionService";
 import axios from "axios";
 import { Listing } from "../entity/Listing";
 import { runAsync } from "../utils/asyncUtils";
+import { ReservationInfoLog } from "../entity/ReservationInfologs";
+import { format } from "date-fns";
+import { ListingDetail } from "../entity/ListingDetails";
+import { getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
   private listingInfoRepository = appDatabase.getRepository(Listing)
+  private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
+  private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -660,6 +666,188 @@ export class ReservationInfoService {
       }
     });
   }
+
+
+  async getExtendedReservations(fromDate: string, toDate: string) {
+    const reservationLogs = await this.reservationInfoLogsRepo
+      .createQueryBuilder("log")
+      .where("log.changedAt BETWEEN :from AND :to", {
+        from: `${fromDate} 00:00:00.000000`,
+        to: `${toDate} 23:59:59.999999`,
+      })
+      .andWhere("log.action = :action", { action: 'UPDATE' })
+      .andWhere(`
+    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights')
+  `)
+      .orderBy("log.changedAt", "DESC")
+      .getMany();
+
+    return reservationLogs;
+  }
+
+  async getListingIdsByStatementDurationType(durationType: string): Promise<number[]> {
+    const listings = await this.listingDetailRepo.find({
+      where: {
+        statementDurationType: durationType == "monthly" ? "Monthly" : "Weekly & Bi-weekly"
+      }
+    });
+
+    if (!listings || listings.length === 0) {
+      logger.info(`[getListingIdsByStatementDurationType] No listings found for duration type: ${durationType}`);
+      return [];
+    }
+
+    return listings.map(listing => listing.listingId);
+  }
+
+  async getDateRangeByStatementDurationType(durationType: string): Promise<{ fromDate: string, toDate: string; }> {
+    let fromDate = "";
+    let toDate = "";
+
+    if (durationType === "weekly") {
+      fromDate = getLast7DaysDate(format(new Date(), 'yyyy-MM-dd'));
+      toDate = format(new Date(), 'yyyy-MM-dd');
+    } else if (durationType === "monthly") {
+      const { firstDate, lastDate } = getPreviousMonthRange(format(new Date(), 'yyyy-MM-dd'));
+      fromDate = firstDate;
+      toDate = lastDate;
+    }
+
+    return { fromDate, toDate };
+  }
+
+  async processExtendedReservations(duration: string) {
+    const listingIds = await this.getListingIdsByStatementDurationType(duration);
+    const { fromDate, toDate } = await this.getDateRangeByStatementDurationType(duration);
+
+    if (!listingIds || listingIds.length === 0) {
+      logger.info(`[processExtendedReservations] No listings found for duration: ${duration}`);
+      return [];
+    }
+
+    logger.info(`[processExtendedReservations] Processing extended reservations from ${fromDate} to ${toDate}`);
+    const extendedReservations = await this.getExtendedReservations(fromDate, toDate);
+    logger.info(`[processExtendedReservations] Found ${extendedReservations.length} extended reservations between ${fromDate} and ${toDate}`);
+    if (!extendedReservations || extendedReservations.length === 0) {
+      logger.info(`[processExtendedReservations] No extended reservations found between ${fromDate} and ${toDate}`);
+      return [];
+    }
+
+    const processedReservations = [];
+    for (const log of extendedReservations) {
+      const oldData = log.oldData;
+      const newData = log.newData;
+      const listingId = oldData.listingMapId;
+      const changedAt = log.changedAt;
+
+      listingIds.includes(listingId) && processedReservations.push({
+        listingName: oldData.listingName,
+        guestName: oldData.guestName,
+        oldArrivalDate: format(oldData.arrivalDate, 'MMM dd'),
+        oldDepartureDate: format(oldData.departureDate, 'MMM dd'),
+        newArrivalDate: format(newData.arrivalDate, 'MMM dd'),
+        newDepartureDate: format(newData.departureDate, 'MMM dd'),
+        oldTotalPrice: oldData.totalPrice,
+        newTotalPrice: newData.totalPrice,
+        changedAt: changedAt
+      });
+    }
+
+    logger.info(`[processExtendedReservations] Processed ${processedReservations.length} extended reservations.`);
+    if (processedReservations.length > 0) {
+      const subject = `Extended Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
+      await this.sendEmailForExtendedReservations(processedReservations, subject);
+    } else {
+      logger.info(`[processExtendedReservations] No processed reservations to send email.`);
+    }
+  }
+
+  async sendEmailForExtendedReservations(processedReservations: {
+    listingName: string;
+    guestName: string;
+    oldArrivalDate: string;
+    oldDepartureDate: string;
+    newArrivalDate: string;
+    newDepartureDate: string;
+    oldTotalPrice: number;
+    newTotalPrice: number;
+    changedAt: Date;
+  }[], subject: string) {
+
+    // Generate table rows dynamically
+    const rowsHtml = processedReservations.map(reservation => {
+      return `
+      <tr style="background-color: #fff; border-bottom: 1px solid #ddd;">
+        <td style="padding: 12px 16px; vertical-align: middle;">${reservation.guestName}</td>
+        <td style="padding: 12px 16px; vertical-align: middle;">${reservation.listingName}</td>
+
+        <td style="padding: 12px 16px; vertical-align: middle; font-size: 14px; color: #444;">
+          <span style="color: #999;">${reservation.oldArrivalDate}</span> &nbsp;➟&nbsp; <span style="font-weight: 600; color: #2a71d0;">${reservation.newArrivalDate}</span>
+        </td>
+
+        <td style="padding: 12px 16px; vertical-align: middle; font-size: 14px; color: #444;">
+          <span style="color: #999;">${reservation.oldDepartureDate}</span> &nbsp;➟&nbsp; <span style="font-weight: 600; color: #2a71d0;">${reservation.newDepartureDate}</span>
+        </td>
+
+        <td style="padding: 12px 16px; vertical-align: middle; font-size: 14px; color: #444;">
+          <span style="color: #999;">$${reservation.oldTotalPrice}</span> &nbsp;➟&nbsp; <span style="font-weight: 600; color: #2a71d0;">$${reservation.newTotalPrice.toFixed(2)}</span>
+        </td>
+      </tr>
+    `;
+    }).join("");
+
+    const html = `
+                   <!DOCTYPE html>
+                   <html>
+                   <head>
+                   <title>Extended Reservation Report</title>
+                   </head>
+                   <body>
+                   
+                   <table
+                     role="table"
+                     width="100%"
+                     cellspacing="0"
+                     cellpadding="8"
+                     border="0"
+                     style="border-collapse: collapse; font-family: Arial, sans-serif; color: #333;"
+                   >
+                     <thead>
+                       <tr style="background-color: #2a71d0; color: #fff; font-weight: bold; text-align: left;">
+                         <th style="padding: 12px 16px; border-bottom: 3px solid #1c4fa0;">Guest Name</th>
+                         <th style="padding: 12px 16px; border-bottom: 3px solid #1c4fa0;">Listing</th>
+                         <th style="padding: 12px 16px; border-bottom: 3px solid #1c4fa0;">Check-in Date</th>
+                         <th style="padding: 12px 16px; border-bottom: 3px solid #1c4fa0;">Check-out Date</th>
+                         <th style="padding: 12px 16px; border-bottom: 3px solid #1c4fa0;">Total Paid Amount</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       ${rowsHtml}
+                     </tbody>
+                   </table>
+                   
+                   </body>
+                   </html>
+                 `;
+
+    const receipientsList = [
+      "ferdinand@luxurylodgingpm.com",
+      "admin@luxurylodgingpm.com",
+    ];
+
+    const results = await Promise.allSettled(
+      receipientsList.map(receipient =>
+        sendEmail(subject, html, process.env.EMAIL_FROM, receipient)
+      )
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.error(`Failed to send email to recipient #${index}`, result?.reason);
+      }
+    });
+  }
+
 
 
 }

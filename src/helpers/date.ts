@@ -153,5 +153,51 @@ export function getDatesBetween(start: Date, end: Date): string[] {
   return dates;
 }
 
+export function getLast7DaysDate(inputDateStr: string) {
+  const inputDate = new Date(inputDateStr);
+
+  // Subtract 6 days (to include the input date as day 1)
+  const pastDate = new Date(inputDate.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+  const yyyy = pastDate.getFullYear();
+  const mm = String(pastDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(pastDate.getDate()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function getPreviousMonthRange(currentDateStr: string): { firstDate: string; lastDate: string; } {
+  const currentDate = new Date(currentDateStr);
+
+  if (isNaN(currentDate.getTime())) {
+    throw new Error("Invalid date format. Use yyyy-mm-dd.");
+  }
+
+  // Go to the 1st of the current month
+  const firstDayCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+
+  // Get last day of previous month by subtracting 1 day in milliseconds
+  const lastDayPrevMonth = new Date(firstDayCurrentMonth.getTime() - 1);
+
+  // First day of previous month
+  const firstDayPrevMonth = new Date(lastDayPrevMonth.getFullYear(), lastDayPrevMonth.getMonth(), 1);
+
+  const formatDate = (date: Date): string => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  return {
+    firstDate: formatDate(firstDayPrevMonth),
+    lastDate: formatDate(lastDayPrevMonth)
+  };
+}
+
+
+
+
+
 
 

@@ -82,3 +82,25 @@ export const formatCurrency = (amount: number) => {
         .replace('$', '$ ');
 };
 
+export function getDiff(
+    oldObj: Record<string, any>,
+    newObj: Record<string, any>
+): Record<string, { old: any; new: any; }> {
+    const diff: Record<string, { old: any; new: any; }> = {};
+    for (const key of Object.keys(newObj)) {
+        const oldVal = oldObj[key];
+        const newVal = newObj[key];
+
+        const bothDates = oldVal instanceof Date && newVal instanceof Date;
+        const dateChanged =
+            bothDates && oldVal.getTime() !== newVal.getTime();
+
+        const primitiveChanged =
+            !bothDates && oldVal != newVal;
+
+        if (dateChanged || primitiveChanged) {
+            diff[key] = { old: oldVal, new: newVal };
+        }
+    }
+    return diff;
+}

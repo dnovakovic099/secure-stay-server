@@ -139,7 +139,7 @@ export class ReviewDetailService {
                 ...details,
                 guestEmail: reservation?.guestEmail || '',
                 guestPhone: reservation?.phone || '',
-                bookingAmount: reservation?.totalPrice,
+                bookingAmount: Number(reservation?.totalPrice),
                 reviewId,
                 review,
                 createdBy: userId,

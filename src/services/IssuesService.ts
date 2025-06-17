@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan, In } from "typeorm";
+import { Between, Not, LessThan, In, MoreThan } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -45,7 +45,9 @@ export class IssuesService {
         listingId: string = '',
         isClaimOnly?: boolean,
         claimAmount?: string,
-        guestName?: string
+        guestName?: string,
+        issueIds?: string,
+        reservationId?: string
     ) {
         const queryOptions: any = {
             where: {},
@@ -57,6 +59,15 @@ export class IssuesService {
             take: limit
         };
 
+        if (reservationId) {
+            queryOptions.where.reservation_id = reservationId;
+        }
+
+        if (issueIds) {
+            const idsArray = issueIds.split(',').map(id => Number(id.trim()));
+            queryOptions.where.id = In(idsArray);
+        }
+
         if (fromDate && toDate) {
             const startDate = new Date(fromDate);
             startDate.setHours(0, 0, 0, 0);
@@ -65,17 +76,22 @@ export class IssuesService {
             endDate.setDate(endDate.getDate() + 1);
             endDate.setUTCHours(0, 0, 0, 0);
 
-            queryOptions.where = {
-                created_at: Between(
-                    startDate,
-                    endDate
-                )
-            };
+            queryOptions.where.created_at = Between(
+                startDate,
+                endDate
+            );
+        } else if (fromDate) {
+            const startDate = new Date(fromDate);
+            startDate.setUTCHours(0, 0, 0, 0);
+            queryOptions.where.created_at = MoreThan(startDate);
+        } else if (toDate) {
+            const endDate = new Date(toDate);
+            endDate.setUTCHours(23, 59, 59, 999);
+            queryOptions.where.created_at = LessThan(endDate);
         }
 
         if (status) {
             const statusArray = status.split(',').map(s => s.trim());
-            
             queryOptions.where.status = In(statusArray);
         }   
 

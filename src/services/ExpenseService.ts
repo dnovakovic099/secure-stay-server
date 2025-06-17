@@ -11,6 +11,7 @@ import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { format } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
 import { ListingDetail } from "../entity/ListingDetails";
+import { ListingService } from "./ListingService";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -87,47 +88,50 @@ export class ExpenseService {
         return hostawayExpense;
     }
 
+    private async getListingIdByTags(tags: number[]): Promise<number[]> {
+        const listingService = new ListingService();
+        const listings = await listingService.getListingsByTagIds(tags);
+
+        const listingIds = listings.map(listing => listing.id);
+        const distinctIds = Array.from(new Set(listingIds));
+
+        return distinctIds;
+    }
+
+
     async getExpenseList(request: Request, userId: string) {
         const {
             listingId,
-            listingGroup,
             fromDate,
             toDate,
             status,
             categories: categoryIds,
             contractorName,
-            dateOfWork,
-            expenseState
+            expenseState,
+            dateType,
+            paymentMethod,
+            tags
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
-        const skip = (page - 1) * limit;
-
+        const skip = (page - 1) * limit;        
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
-        let listingGroupIds: number[] = [];
-
-        if (listingGroup) {
-            listingGroupIds = (
-                await this.listingDetailRepository.find({
-                    where: { propertyOwnershipType: String(listingGroup) }
-                })
-            ).map(listing => listing.listingId);
-        }
+        //fetch all the listingIds assciated with the tags
+        const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
 
         // Decide which listing IDs to use
         const effectiveListingIds =
             Array.isArray(listingId) && listingId.length > 0
                 ? listingId.map(Number)
-                : listingGroupIds;
-
-        const expenses = await this.expenseRepo.find({
+                : listingIdsFromTags;
+        const [expenses, total] = await this.expenseRepo.findAndCount({
             where: {
                 // userId,
                 ...(effectiveListingIds.length > 0 && {
                     listingMapId: In(effectiveListingIds),
                 }),
-                expenseDate: Between(String(fromDate), String(toDate)),
+                [`${dateType}`]: Between(String(fromDate), String(toDate)),
                 isDeleted: expenseState === "active" ? 0 : 1,
                 ...(status !== "" && {
                     status: In(
@@ -136,11 +140,15 @@ export class ExpenseService {
                             : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
                     ),
                 }),
+                ...(paymentMethod !== "" && {
+                    paymentMethod: In([paymentMethod])
+                }),
+
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                     contractorName: In(contractorName),
                 }),
-                ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
+                // ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
                 ...(categoriesFilter.length > 0 && {
                     categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
                 }),
@@ -163,33 +171,13 @@ export class ExpenseService {
             return acc;
         }, {});
 
-        const columns = [
-            "Expense Id",
-            "Status",
-            "Amount",
-            "Listing",
-            "Date Added",
-            "Date Paid",
-            "Description",
-            "Catgories",
-            "Contractor Name",
-            "Contractor Number",
-            "Findings",
-            "Payment Method",
-            "Created At",
-            "Updated At",
-            "Updated By",
-            "Attachments",
-        ];
-
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
         const users = await this.usersRepository.find();
 
-        const rows = expenses.map((expense) => {
+        const data = expenses.map((expense) => {
             const fileLinks = expense.fileNames
                 ? expense.fileNames.split(',').map(fileName => {
-                    // Strip unwanted quotes and brackets and return a proper link
                     const cleanFileName = fileName.replace(/[\[\]"]/g, '');
                     return `${cleanFileName}`;
                 }).join(', ')
@@ -198,40 +186,70 @@ export class ExpenseService {
             const categoryNames = expense.categories
                 ? expense.categories.split(',').map(id => {
                     const cleanId = id.replace(/[\[\]"]/g, '');
-                    // Find the category name matching the cleaned ID
                     const category = categories.find(category => category.id === Number(cleanId));
-
-                    // Return the category name if found, otherwise return a placeholder
                     return category ? category.categoryName : 'Unknown Category';
                 }).join(', ')
                 : '';
 
             const user = users.find(user => user.uid == expense.updatedBy);
 
-            return [
-                expense.expenseId,
-                expense.status,
-                expense.amount,
-                listingNameMap[expense.listingMapId] || 'N/A',
-                expense.expenseDate,
-                expense.datePaid,
-                expense.concept,
-                categoryNames,
-                expense.contractorName,
-                expense.contractorNumber,
-                expense.findings,
-                expense.paymentMethod,
-                format(expense.createdAt, "yyyy-MM-dd"),
-                format(expense.updatedAt, "yyyy-MM-dd"),
-                (user && `${user?.firstName} ${user?.lastName}`) || "",
-                fileLinks,
-            ];
+            return {
+                expenseId: expense.expenseId,
+                status: expense.status,
+                amount: expense.amount,
+                listing: listingNameMap[expense.listingMapId] || 'N/A',
+                dateAdded: expense.expenseDate,
+                dateOfWork: expense.dateOfWork,
+                datePaid: expense.datePaid,
+                description: expense.concept,
+                categories: categoryNames,
+                contractorName: expense.contractorName,
+                contractorNumber: expense.contractorNumber,
+                findings: expense.findings,
+                paymentMethod: expense.paymentMethod,
+                createdAt: format(expense.createdAt, "yyyy-MM-dd"),
+                updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
+                updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
+                attachments: fileLinks,
+            };
         });
 
+        //calculate total expense filter values in given period of time without limit and page.
+        const qb = this.expenseRepo
+            .createQueryBuilder('expense')
+            .select('SUM(expense.amount)', 'totalExpense')
+            .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
+            .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
+            .andWhere('expense.expenseId IS NOT NULL');
+
+        if (effectiveListingIds.length > 0) {
+            qb.andWhere('expense.listingMapId IN (:...listingIds)', { listingIds: effectiveListingIds });
+        }
+
+        if (status !== "") {
+            qb.andWhere('expense.status IN (:...statuses)', {
+                statuses: [status],
+            });
+        }
+
+        if (Array.isArray(contractorName) && contractorName.length > 0) {
+            qb.andWhere('expense.contractorName IN (:...contractors)', { contractors: contractorName });
+        }
+
+        if (categoriesFilter.length > 0) {
+            qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
+                regex: categoriesFilter.join('|'),
+            });
+        }
+
+        const { totalExpense } = await qb.getRawOne();
+
+
         return {
-            columns,
-            rows
-        };
+            data,
+            totalExpense,
+            total
+        }
     }
 
     async getExpenseById(expenseId: number, userId: string) {
