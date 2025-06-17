@@ -47,6 +47,16 @@ export class IssuesController {
         }
     }
 
+    async getUnresolvedIssues(request: Request, response: Response) {
+        const issuesService = new IssuesService();
+        const listingId = request.query.listingId as string || '';
+        const issues = await issuesService.getIssuesByListingId(listingId);
+        return response.json({
+            status: true,
+            data: issues
+        });
+    }
+
     async createIssue(request: any, response: Response) {
         const issuesService = new IssuesService();
         try {
