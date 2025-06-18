@@ -11,6 +11,7 @@ import { MobileUsersEntity } from "../entity/MoblieUsers";
 import { format } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
 import { ListingDetail } from "../entity/ListingDetails";
+import { ListingService } from "./ListingService";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -87,47 +88,50 @@ export class ExpenseService {
         return hostawayExpense;
     }
 
+    private async getListingIdByTags(tags: number[]): Promise<number[]> {
+        const listingService = new ListingService();
+        const listings = await listingService.getListingsByTagIds(tags);
+
+        const listingIds = listings.map(listing => listing.id);
+        const distinctIds = Array.from(new Set(listingIds));
+
+        return distinctIds;
+    }
+
+
     async getExpenseList(request: Request, userId: string) {
         const {
             listingId,
-            listingGroup,
             fromDate,
             toDate,
             status,
             categories: categoryIds,
             contractorName,
-            dateOfWork,
-            expenseState
+            expenseState,
+            dateType,
+            paymentMethod,
+            tags
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
-        const skip = (page - 1) * limit;
-
+        const skip = (page - 1) * limit;        
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
-        let listingGroupIds: number[] = [];
-
-        if (listingGroup) {
-            listingGroupIds = (
-                await this.listingDetailRepository.find({
-                    where: { propertyOwnershipType: String(listingGroup) }
-                })
-            ).map(listing => listing.listingId);
-        }
+        //fetch all the listingIds assciated with the tags
+        const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
 
         // Decide which listing IDs to use
         const effectiveListingIds =
             Array.isArray(listingId) && listingId.length > 0
                 ? listingId.map(Number)
-                : listingGroupIds;
-
+                : listingIdsFromTags;
         const [expenses, total] = await this.expenseRepo.findAndCount({
             where: {
                 // userId,
                 ...(effectiveListingIds.length > 0 && {
                     listingMapId: In(effectiveListingIds),
                 }),
-                expenseDate: Between(String(fromDate), String(toDate)),
+                [`${dateType}`]: Between(String(fromDate), String(toDate)),
                 isDeleted: expenseState === "active" ? 0 : 1,
                 ...(status !== "" && {
                     status: In(
@@ -136,11 +140,15 @@ export class ExpenseService {
                             : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
                     ),
                 }),
+                ...(paymentMethod !== "" && {
+                    paymentMethod: In([paymentMethod])
+                }),
+
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                     contractorName: In(contractorName),
                 }),
-                ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
+                // ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
                 ...(categoriesFilter.length > 0 && {
                     categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
                 }),
@@ -210,7 +218,7 @@ export class ExpenseService {
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
             .select('SUM(expense.amount)', 'totalExpense')
-            .where('expense.expenseDate BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+            .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
             .andWhere('expense.expenseId IS NOT NULL');
 
@@ -226,10 +234,6 @@ export class ExpenseService {
 
         if (Array.isArray(contractorName) && contractorName.length > 0) {
             qb.andWhere('expense.contractorName IN (:...contractors)', { contractors: contractorName });
-        }
-
-        if (dateOfWork) {
-            qb.andWhere('expense.dateOfWork = :dateOfWork', { dateOfWork });
         }
 
         if (categoriesFilter.length > 0) {

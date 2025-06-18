@@ -46,7 +46,8 @@ export class IssuesService {
         isClaimOnly?: boolean,
         claimAmount?: string,
         guestName?: string,
-        issueIds?: string
+        issueIds?: string,
+        reservationId?: string
     ) {
         const queryOptions: any = {
             where: {},
@@ -57,6 +58,10 @@ export class IssuesService {
             skip: (page - 1) * limit,
             take: limit
         };
+
+        if (reservationId) {
+            queryOptions.where.reservation_id = reservationId;
+        }
 
         if (issueIds) {
             const idsArray = issueIds.split(',').map(id => Number(id.trim()));
@@ -228,5 +233,14 @@ export class IssuesService {
             throw new Error('Issue not found');
         }
         return issue;
+    }
+
+    async getIssuesByListingId(listingId: string) {
+        return await this.issueRepo.find({ 
+            where: { 
+                listing_id: String(listingId),
+                status: Not('Completed')
+            } 
+        });
     }
 } 

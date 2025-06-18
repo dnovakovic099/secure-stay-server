@@ -14,7 +14,7 @@ export class Task {
     @Column()
     assignee_id: string;
 
-    @Column()
+    @Column({ type: 'text' })
     task: string;
 
     @CreateDateColumn()
@@ -28,4 +28,10 @@ export class Task {
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({ type: 'datetime', nullable: true })
+    completed_at: Date;
+
+    @Column({ nullable: true })
+    completed_by: string;
 }

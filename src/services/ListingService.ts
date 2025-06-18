@@ -181,6 +181,17 @@ export class ListingService {
     return result;
   }
 
+  async getListingsByTagIds(tagIds: number[]) {
+    const listings = await this.listingRepository
+      .createQueryBuilder("listing")
+      .leftJoinAndSelect("listing.listingTags", "listingTags")
+      .where("listingTags.tagId IN (:...tagIds)", { tagIds })
+      .getMany();
+
+    return listings;
+  }
+
+
   async getDeviceIdByListingId(listing_id: number) {
     const listing = await this.listingRepository.findOne({
       where: { id: listing_id },
