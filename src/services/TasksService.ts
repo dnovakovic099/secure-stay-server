@@ -139,7 +139,7 @@ export class TasksService {
             throw CustomErrorHandler.notFound('Task not found');
         }
 
-        task.add_to_post_stay = true;
+        task.add_to_post_stay = !task.add_to_post_stay;
         task.updated_by = userId;
 
         return await this.taskRepo.save(task);
