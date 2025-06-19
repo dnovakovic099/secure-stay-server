@@ -4,6 +4,8 @@ import { Between} from "typeorm";
 import { Listing } from "../entity/Listing";
 import { AssigneeEntity } from "../entity/AssigneeInfo";
 import { UsersEntity } from "../entity/Users";
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { format } from "date-fns";
 
 export class TasksService {
     private taskRepo = appDatabase.getRepository(Task);
@@ -79,6 +81,9 @@ export class TasksService {
                 updated_by: user.find(user => user?.uid === task?.updated_by)?.firstName || "",
                 completed_by: user.find(user => user?.uid === task?.completed_by)?.firstName || "",
                 created_by: user.find(user => user?.uid === task?.created_by)?.firstName || "",
+                created_at: format(task.created_at, 'yyyy-MM-dd'),
+                updated_at: task.updated_at ? format(task.updated_at, 'yyyy-MM-dd') : "",
+                completed_at: task.completed_at ? format(task.completed_at, 'yyyy-MM-dd') : "",
             })),
             meta: {
                 total,
@@ -121,7 +126,22 @@ export class TasksService {
         return await this.taskRepo.save(task);
     }
 
-    async deleteTask(id: number) {
-        return await this.taskRepo.delete(id);
+    async deleteTask(id: number, userId: string) {
+        await this.taskRepo.update(id, {
+            deletedAt: new Date(),
+            deleted_by: userId,
+        });
+    }
+
+    async addToPostStay(id: number, userId: string) {
+        const task = await this.taskRepo.findOne({ where: { id } });
+        if (!task) {
+            throw CustomErrorHandler.notFound('Task not found');
+        }
+
+        task.add_to_post_stay = true;
+        task.updated_by = userId;
+
+        return await this.taskRepo.save(task);
     }
 } 

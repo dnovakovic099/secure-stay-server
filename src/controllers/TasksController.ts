@@ -68,17 +68,35 @@ export class TasksController {
         }
     }
 
-    async deleteTask(request: Request, response: Response) {
+    async deleteTask(request: any, response: Response) {
         const tasksService = new TasksService();
         try {
             const { id } = request.params;
-            await tasksService.deleteTask(Number(id));
+            const userId = request.user.id;
+            await tasksService.deleteTask(Number(id), userId);
             return response.send({
                 status: true,
-                message: "Order deleted successfully"
+                message: "Task deleted successfully"
             });
         } catch (error) {
             return response.send({
+                status: false,
+                message: error.message
+            });
+        }
+    }
+
+    async addToPostStay(request: any, response: Response) {
+        try {
+            const { id } = request.params;
+            const tasksService = new TasksService();
+            const result = await tasksService.addToPostStay(Number(id), request.user.id);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            return response.status(400).json({
                 status: false,
                 message: error.message
             });
