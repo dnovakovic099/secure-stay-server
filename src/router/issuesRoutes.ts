@@ -45,4 +45,6 @@ router.route('/reservation/:reservationId').get(verifySession, issuesController.
 
 router.route('/attachment/:fileName').get(issuesController.getAttachment);
 
+router.route('/unresolved').get(verifySession, issuesController.getUnresolvedIssues);
+
 export default router;
