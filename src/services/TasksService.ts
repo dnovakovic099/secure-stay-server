@@ -29,7 +29,7 @@ export class TasksService {
         limit: number = 10, 
         fromDate: string = '', 
         toDate: string = '', 
-        status: string = '', 
+        status: any, 
         listingId: any,
     ) {
         const queryOptions: any = {
@@ -59,8 +59,8 @@ export class TasksService {
             };
         }
 
-        if (status) {
-            queryOptions.where.status = status;
+        if (status && Array.isArray(status)) {
+            queryOptions.where.status = In(status);
         }   
 
         if (listingId && Array.isArray(listingId)) {
