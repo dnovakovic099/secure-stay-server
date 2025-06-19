@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Task } from "../entity/Task";
-import { Between} from "typeorm";
+import { Between, In} from "typeorm";
 import { Listing } from "../entity/Listing";
 import { AssigneeEntity } from "../entity/AssigneeInfo";
 import { UsersEntity } from "../entity/Users";
@@ -30,7 +30,7 @@ export class TasksService {
         fromDate: string = '', 
         toDate: string = '', 
         status: string = '', 
-        listingId: string = '',
+        listingId: any,
     ) {
         const queryOptions: any = {
             where: {},
@@ -63,8 +63,8 @@ export class TasksService {
             queryOptions.where.status = status;
         }   
 
-        if (listingId) {
-            queryOptions.where.listing_id = listingId;
+        if (listingId && Array.isArray(listingId)) {
+            queryOptions.where.listing_id = In(listingId);
         }
 
         const [tasks, total] = await this.taskRepo.findAndCount(queryOptions);

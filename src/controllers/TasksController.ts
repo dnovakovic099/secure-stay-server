@@ -10,7 +10,7 @@ export class TasksController {
             const fromDate = request.query.fromDate as string || '';
             const toDate = request.query.toDate as string || '';
             const status = request.query.status as string || ''; 
-            const listingId = request.query.listingId as string || '';
+            const listingId = request.query.listingId;
 
             const result = await tasksService.getTasks(
                 page, 
