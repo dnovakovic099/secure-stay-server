@@ -38,14 +38,15 @@ export class ExpenseService {
             datePaid
         } = request.body;
 
+        const negatedAmount = amount * (-1);
 
         const newExpense = new ExpenseEntity();
         newExpense.listingMapId = listingMapId;
         newExpense.expenseDate = expenseDate;
         newExpense.concept = concept;
-        newExpense.amount = amount;
+        newExpense.amount = negatedAmount;
         newExpense.isDeleted = 0;
-        newExpense.categories = JSON.stringify(categories);
+        newExpense.categories = categories;
         newExpense.contractorName = contractorName;
         newExpense.dateOfWork = dateOfWork;
         newExpense.contractorNumber = contractorNumber;
@@ -61,8 +62,8 @@ export class ExpenseService {
             listingMapId,
             expenseDate,
             concept,
-            amount,
-            categories,
+            amount: negatedAmount,
+            categories: JSON.parse(categories),
         }, userId);
 
         if (!hostawayExpense) {
@@ -196,7 +197,7 @@ export class ExpenseService {
             return {
                 expenseId: expense.expenseId,
                 status: expense.status,
-                amount: expense.amount,
+                amount: Math.abs(expense.amount),
                 listing: listingNameMap[expense.listingMapId] || 'N/A',
                 dateAdded: expense.expenseDate,
                 dateOfWork: expense.dateOfWork,
@@ -217,7 +218,7 @@ export class ExpenseService {
         //calculate total expense filter values in given period of time without limit and page.
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
-            .select('SUM(expense.amount)', 'totalExpense')
+            .select('SUM(ABS(expense.amount))', 'totalExpense')
             .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
             .andWhere('expense.expenseId IS NOT NULL');
@@ -257,6 +258,7 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+        expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
         return expense;
     }
 
@@ -293,10 +295,13 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+
+        const negatedAmount = amount * (-1);
+
         expense.listingMapId = listingMapId;
         expense.expenseDate = expenseDate;
         expense.concept = concept;
-        expense.amount = amount;
+        expense.amount = negatedAmount;
         expense.categories = categories;
         expense.dateOfWork = dateOfWork;
         expense.contractorName = contractorName;
@@ -316,8 +321,8 @@ export class ExpenseService {
             listingMapId,
             expenseDate,
             concept,
-            amount,
-            categories,
+            amount: negatedAmount,
+            categories: JSON.parse(categories),
         }, userId, expense.expenseId);
 
         if(!result){
@@ -403,7 +408,7 @@ export class ExpenseService {
         //filter expenses by listing map id
         const filteredExpenses = expenses.filter(expense => listings.some(listing => expense.listingMapId === listing.id));
 
-        let totalExpense = filteredExpenses.reduce((sum, item) => sum + item.amount, 0) || 0;
+        let totalExpense = filteredExpenses.reduce((sum, item) => sum + Math.abs(item.amount), 0) || 0;
 
         return { totalExpense };
 
@@ -416,6 +421,7 @@ export class ExpenseService {
 
     public async getExpense(id: number) {
         const expense = await this.expenseRepo.findOne({ where: { id } });
+        expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
         return expense;
     }
 }

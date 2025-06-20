@@ -16,7 +16,13 @@ export class CategoryService {
     }
 
     async getAllCategories() {
-        return await this.categoryRepo.find();
+        return await this.categoryRepo
+            .createQueryBuilder("category")
+            .select([
+                "category.hostawayId AS id",
+                "category.categoryName AS categoryName"
+            ])
+            .getRawMany();
     }
 
 }
