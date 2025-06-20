@@ -133,18 +133,13 @@ export class ExpenseService {
                     listingMapId: In(effectiveListingIds),
                 }),
                 [`${dateType}`]: Between(String(fromDate), String(toDate)),
-                isDeleted: expenseState === "active" ? 0 : 1,
-                ...(status !== "" && {
-                    status: In(
-                        status
-                            ? [status]
-                            : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
-                    ),
+               ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1}),
+                ...(Array.isArray(status) && status.length > 0 && {
+                    status: In(status),
                 }),
-                ...(paymentMethod !== "" && {
-                    paymentMethod: In([paymentMethod])
+                ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
+                    paymentMethod: In(paymentMethod),
                 }),
-
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                     contractorName: In(contractorName),

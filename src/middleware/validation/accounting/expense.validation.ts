@@ -125,14 +125,24 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         }).required(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
-            .allow(''),
+        status: Joi.array()
+            .items(
+                Joi.string().valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+            )
+            .min(1)
+            .required()
+            .allow('', null),
         categories: Joi.string().required().allow(''),
         contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
         dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
-        expenseState: Joi.string().required().valid("active", "deleted"),
-        paymentMethod: Joi.string().required().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").allow(''),
+        expenseState: Joi.string().required().valid("active", "deleted").allow(null, ""),
+        paymentMethod: Joi.array()
+            .items(
+                Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
+            )
+            .min(1)
+            .required()
+            .allow('', null),
         tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null)
     });
 
