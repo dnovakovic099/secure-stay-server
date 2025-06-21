@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, In, MoreThan, Raw } from "typeorm";
+import { Between, In, IsNull, MoreThan, Not, Raw } from "typeorm";
 import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -482,6 +482,7 @@ export class ExpenseService {
             where: {
                 amount: MoreThan(0),
                 isDeleted: 0,
+                expenseId: Not(IsNull()),
             },
             order: {
                 id: 'DESC', // Order by ID descending
