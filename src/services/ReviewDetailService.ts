@@ -49,7 +49,7 @@ export class ReviewDetailService {
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
                 concept: `Resolution for review removal (${reviewDetail.review.reviewerName})`,
                 amount: reviewDetail.resolutionAmount,
-                categories: JSON.stringify([17]),
+                categories: JSON.stringify([23551]),
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
