@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity('tasks')
 export class Task {
@@ -17,6 +17,9 @@ export class Task {
     @Column({ type: 'text' })
     task: string;
 
+    @Column({ type: "boolean", default: false })
+    add_to_post_stay: boolean;
+
     @CreateDateColumn()
     created_at: Date;
 
@@ -34,4 +37,10 @@ export class Task {
 
     @Column({ nullable: true })
     completed_by: string;
+
+    @DeleteDateColumn({ type: 'timestamp', nullable: true })
+    deletedAt: Date;
+
+    @Column({ nullable: true })
+    deleted_by: string;
 }
