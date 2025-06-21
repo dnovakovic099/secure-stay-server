@@ -40,4 +40,10 @@ router.route('/assignees')
         assigneeController.saveAssigneeInfo
     );
 
+    router.route('/add-to-post-stay/:id')
+    .put(
+        verifySession,
+        tasksController.addToPostStay
+    );
+
 export default router;
