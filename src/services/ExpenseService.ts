@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, In, Raw } from "typeorm";
+import { Between, In, MoreThan, Raw } from "typeorm";
 import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -12,6 +12,8 @@ import { format } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingService } from "./ListingService";
+import { CategoryEntity } from "../entity/Category";
+import logger from "../utils/logger.utils";
 
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
@@ -21,6 +23,7 @@ export class ExpenseService {
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private listingDetailRepository = appDatabase.getRepository(ListingDetail);
+    private categoryRepo = appDatabase.getRepository(CategoryEntity);
 
     async createExpense(request: any, userId: string, fileNames?: string[]) {
         const {
@@ -38,14 +41,15 @@ export class ExpenseService {
             datePaid
         } = request.body;
 
+        const negatedAmount = amount * (-1);
 
         const newExpense = new ExpenseEntity();
         newExpense.listingMapId = listingMapId;
         newExpense.expenseDate = expenseDate;
         newExpense.concept = concept;
-        newExpense.amount = amount;
+        newExpense.amount = negatedAmount;
         newExpense.isDeleted = 0;
-        newExpense.categories = JSON.stringify(categories);
+        newExpense.categories = categories;
         newExpense.contractorName = contractorName;
         newExpense.dateOfWork = dateOfWork;
         newExpense.contractorNumber = contractorNumber;
@@ -61,8 +65,8 @@ export class ExpenseService {
             listingMapId,
             expenseDate,
             concept,
-            amount,
-            categories,
+            amount: negatedAmount,
+            categories: JSON.parse(categories),
         }, userId);
 
         if (!hostawayExpense) {
@@ -132,18 +136,13 @@ export class ExpenseService {
                     listingMapId: In(effectiveListingIds),
                 }),
                 [`${dateType}`]: Between(String(fromDate), String(toDate)),
-                isDeleted: expenseState === "active" ? 0 : 1,
-                ...(status !== "" && {
-                    status: In(
-                        status
-                            ? [status]
-                            : [ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE]
-                    ),
+               ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1}),
+                ...(Array.isArray(status) && status.length > 0 && {
+                    status: In(status),
                 }),
-                ...(paymentMethod !== "" && {
-                    paymentMethod: In([paymentMethod])
+                ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
+                    paymentMethod: In(paymentMethod),
                 }),
-
                 expenseId: Raw(alias => `${alias} IS NOT NULL`),
                 ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                     contractorName: In(contractorName),
@@ -196,7 +195,7 @@ export class ExpenseService {
             return {
                 expenseId: expense.expenseId,
                 status: expense.status,
-                amount: expense.amount,
+                amount: Math.abs(expense.amount),
                 listing: listingNameMap[expense.listingMapId] || 'N/A',
                 dateAdded: expense.expenseDate,
                 dateOfWork: expense.dateOfWork,
@@ -217,7 +216,7 @@ export class ExpenseService {
         //calculate total expense filter values in given period of time without limit and page.
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
-            .select('SUM(expense.amount)', 'totalExpense')
+            .select('SUM(ABS(expense.amount))', 'totalExpense')
             .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
             .andWhere('expense.expenseId IS NOT NULL');
@@ -257,6 +256,7 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+        expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
         return expense;
     }
 
@@ -293,10 +293,13 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+
+        const negatedAmount = amount * (-1);
+
         expense.listingMapId = listingMapId;
         expense.expenseDate = expenseDate;
         expense.concept = concept;
-        expense.amount = amount;
+        expense.amount = negatedAmount;
         expense.categories = categories;
         expense.dateOfWork = dateOfWork;
         expense.contractorName = contractorName;
@@ -316,8 +319,8 @@ export class ExpenseService {
             listingMapId,
             expenseDate,
             concept,
-            amount,
-            categories,
+            amount: negatedAmount,
+            categories: JSON.parse(categories),
         }, userId, expense.expenseId);
 
         if(!result){
@@ -403,7 +406,7 @@ export class ExpenseService {
         //filter expenses by listing map id
         const filteredExpenses = expenses.filter(expense => listings.some(listing => expense.listingMapId === listing.id));
 
-        let totalExpense = filteredExpenses.reduce((sum, item) => sum + item.amount, 0) || 0;
+        let totalExpense = filteredExpenses.reduce((sum, item) => sum + Math.abs(item.amount), 0) || 0;
 
         return { totalExpense };
 
@@ -416,6 +419,116 @@ export class ExpenseService {
 
     public async getExpense(id: number) {
         const expense = await this.expenseRepo.findOne({ where: { id } });
+        expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
         return expense;
     }
+
+    public async migrateExpenseCategoryIdsInRange(fromId: number, toId: number) {
+        const expenses = await this.expenseRepo.find({
+            where: {
+                id: Between(fromId, toId)
+            }
+        });
+
+        for (const expense of expenses) {
+            try {
+                let raw = expense.categories;
+                let parsed: any;
+
+                // Handle double-stringified or regular JSON
+                try {
+                    parsed = JSON.parse(raw);
+                    if (typeof parsed === 'string') {
+                        parsed = JSON.parse(parsed); // double-stringified
+                    }
+                } catch (err) {
+                    logger.warn(`⚠️ Skipping invalid JSON in expense ID ${expense.id}`);
+                    continue;
+                }
+
+                if (!Array.isArray(parsed)) {
+                    logger.warn(`⚠️ Skipping non-array categories in expense ID ${expense.id}`);
+                    continue;
+                }
+
+                const oldCategoryIds: number[] = parsed;
+                const hostawayIds: number[] = [];
+
+                for (const id of oldCategoryIds) {
+                    const category = await this.categoryRepo.findOne({ where: { id } });
+                    if (category?.hostawayId != null) {
+                        hostawayIds.push(category.hostawayId);
+                    } else {
+                        logger.warn(`No hostawayId for category.id ${id} (expense ID ${expense.id})`);
+                    }
+                }
+
+                expense.categories = hostawayIds.length > 0 ? JSON.stringify(hostawayIds) : JSON.stringify(oldCategoryIds);
+                await this.expenseRepo.save(expense);
+                logger.info(`✅ Migrated expense ID ${expense.id}`);
+            } catch (err) {
+                logger.error(`❌ Failed to migrate expense ID ${expense.id}:`, err);
+            }
+        }
+
+        logger.info("✅ Completed category migration for specified range.");
+    }
+
+
+
+    async fixPositiveExpensesAndSync(userId: string, limit?: number) {
+        // Fetch up to 10 most recent positive, non-deleted expenses
+        const expenses = await this.expenseRepo.find({
+            where: {
+                amount: MoreThan(0),
+                isDeleted: 0,
+            },
+            order: {
+                id: 'DESC', // Order by ID descending
+            },
+            take: limit || 10, // Limit to 10
+        });
+
+        if (expenses.length === 0) {
+            return { message: 'No positive expenses found to update.' };
+        }
+
+        const updatedExpenses = [];
+        const failedExpenses = [];
+
+        for (const expense of expenses) {
+            const negatedAmount = expense.amount * -1;
+
+            const result = await this.updateHostawayExpense({
+                listingMapId: String(expense.listingMapId),
+                expenseDate: expense.expenseDate,
+                concept: expense.concept,
+                amount: negatedAmount,
+                categories: JSON.parse(expense.categories),
+            }, userId, expense.expenseId);
+
+            if (result) {
+                expense.amount = negatedAmount;
+                expense.updatedBy = userId;
+                expense.updatedAt = new Date();
+                updatedExpenses.push(expense);
+            } else {
+                failedExpenses.push(expense.expenseId);
+            }
+
+            // Optional: small delay (200ms) if needed for pacing
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Save only successfully synced expenses
+        await this.expenseRepo.save(updatedExpenses);
+
+        return {
+            message: `${updatedExpenses.length} of ${expenses.length} expenses updated and synced with Hostaway.`,
+            updatedIds: updatedExpenses.map(e => e.expenseId),
+            failedIds: failedExpenses,
+        };
+    }
+
+
 }
