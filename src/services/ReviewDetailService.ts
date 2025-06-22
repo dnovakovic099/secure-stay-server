@@ -122,23 +122,23 @@ export class ReviewDetailService {
         return await this.resolutionService.updateResolution(resolutionData, userId);
     }
 
-    private async createRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, userId: string) {
+    private async createRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, review: ReviewEntity, userId: string) {
         //find the issueId and requestedBy
         const issueIds = await this.issueRepo.find({
             where: {
-                reservation_id: String(attempt.reviewDetail.review.reservationId),
+                reservation_id: String(review.reservationId),
             }
         }).then(issues => issues.map(issue => issue.id));
 
         const requestedBy = await this.getUserName(userId);
 
         const refundRequest = {
-            reservationId: attempt.reviewDetail.review.reservationId,
-            listingId: attempt.reviewDetail.review.listingMapId,
-            guestName: attempt.reviewDetail.review.guestName,
-            listingName: attempt.reviewDetail.review.listingName,
-            checkIn: attempt.reviewDetail.review.arrivalDate,
-            checkOut: attempt.reviewDetail.review.departureDate,
+            reservationId: review.reservationId,
+            listingId: review.listingMapId,
+            guestName: review.guestName,
+            listingName: review.listingName,
+            checkIn: review.arrivalDate,
+            checkOut: review.departureDate,
             issueId: JSON.stringify(issueIds),
             explaination: attempt.details,
             refundAmount: attempt.resolutionAmount || 0,
@@ -222,7 +222,7 @@ export class ReviewDetailService {
             // Save removal attempts if any
             if (details.removalAttempts && details.removalAttempts.length > 0) {
                 const removalAttempts = details.removalAttempts.map(async (attempt) => {
-                    const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, userId);
+                    const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, review, userId);
                     return this.removalAttemptRepository.create({
                         ...attempt,
                         reviewDetailId: savedReviewDetail.id,
@@ -253,7 +253,7 @@ export class ReviewDetailService {
         }
     }
 
-    private async handleUpdateCaseForExistingAtempt(attempt: RemovalAttemptEntity, reviewDetailId: number, userId: string) {
+    private async handleUpdateCaseForExistingAtempt(attempt: RemovalAttemptEntity, reviewDetailId: number, review: ReviewEntity, userId: string) {
         const existingAttempt = await this.removalAttemptRepository.findOne({ where: { id: attempt.id } });
         if (existingAttempt.resolutionAmount) {
             //CASE 1: if resolution amount was present previously and now updated with some other value
@@ -294,7 +294,7 @@ export class ReviewDetailService {
             return this.removalAttemptRepository.save(existingAttempt);
         } else {
             //CASE 3: if resolution amount was not present previously and now added
-            const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, userId);
+            const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, review, userId);
             Object.assign(existingAttempt, {
                 ...attempt,
                 reviewDetailId: reviewDetailId,
@@ -352,9 +352,9 @@ export class ReviewDetailService {
             if (updatedDetails.removalAttempts) {
                 const removalAttempts = updatedDetails.removalAttempts.map(async (attempt) => {
                     if (attempt.id) {
-                        return await this.handleUpdateCaseForExistingAtempt(attempt, reviewDetail.id, userId);
+                        return await this.handleUpdateCaseForExistingAtempt(attempt, reviewDetail.id, reviewDetail.review, userId);
                     } else {
-                        const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, userId);
+                        const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, reviewDetail.review, userId);
                         const newAttempt = this.removalAttemptRepository.create({
                             ...attempt,
                             reviewDetailId: reviewDetail.id,
