@@ -605,6 +605,7 @@ export class ReservationInfoService {
 
     const receipientsList = [
       "ferdinand@luxurylodgingpm.com",
+      "operations@luxurylodgingpm.com"
     ];
 
     const results = await Promise.allSettled(
@@ -652,6 +653,7 @@ export class ReservationInfoService {
 
     const receipientsList = [
       "ferdinand@luxurylodgingpm.com",
+      "operations@luxurylodgingpm.com"
     ];
 
     const results = await Promise.allSettled(

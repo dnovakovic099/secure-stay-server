@@ -107,4 +107,29 @@ export class ExpenseController {
             return next(error);
         }
     }
+
+    async migrateExpenseCatgory(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const fromId = request.body.fromId || 1; // Default to 1 if not provided
+            const toId = request.body.toId;
+            const result = await expenseService.migrateExpenseCategoryIdsInRange(fromId, toId);
+            return response.status(200).json({ message: 'Expense categories migrated successfully', result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+
+    async fixPositiveExpensesAndSync(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const limit = request.query.limit;
+            const result = await expenseService.fixPositiveExpensesAndSync(userId, Number(limit));
+            return response.status(200).json({ message: 'Positive expenses fixed and synced successfully', result });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

@@ -122,4 +122,16 @@ router.route('/deleteresolution/:resolutionId')
         resolutionController.deleteResolution
     );
 
+router.route('/migrateexpensecategories')
+.post(
+    verifySession,
+    expenseController.migrateExpenseCatgory
+)
+
+router.route('/fixpositiveexpensesandsync')
+    .get(
+        verifySession,
+        expenseController.fixPositiveExpensesAndSync
+    );
+
 export default router;

@@ -9,4 +9,6 @@ router.route('/ha-unified-webhook').post(unifiedWebhookController.handleWebhookR
 
 router.route('/slack-interactivity-webhook').post(bodyParser.urlencoded({ extended: true }), unifiedWebhookController.handleSlackInteractivity);
 
+router.route('/hostbuddy-webhook').post(unifiedWebhookController.handleHostBuddyWebhook);
+
 export default router;

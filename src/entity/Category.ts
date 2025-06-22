@@ -7,4 +7,7 @@ export class CategoryEntity {
 
     @Column()
     categoryName: string;
+
+    @Column({nullable:true})
+    hostawayId: number;
 }

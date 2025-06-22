@@ -209,11 +209,11 @@ export class RefundRequestService {
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
                 concept: body.explaination,
                 amount: body.refundAmount,
-                categories: JSON.stringify([12]),
+                categories: JSON.stringify([23546]),
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
-                findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color: blue; text-decoration: underline;">Refund Request Link</a>`,
+                findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>`,
                 status: ExpenseStatus.APPROVED,
                 paymentMethod: null,
                 createdBy: userId
