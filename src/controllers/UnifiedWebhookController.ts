@@ -138,4 +138,22 @@ export class UnifiedWebhookController {
             logger.error('Failed to send response to Slack:', error);
         }
     }
+
+    async handleHostBuddyWebhook(request: Request, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+
+            logger.info('[handleHostBuddyWebhook]Received HostBuddy webhook request');
+            logger.info(`[handleHostBuddyWebhook]HostBuddy webhook request body: ${JSON.stringify(body)}`);
+
+            logger.info(`Received HostBuddy webhook for event: ${body?.event}`);
+
+            logger.info(`HostBuddy webhook data: ${JSON.stringify(body?.data)}`);
+
+            return response.status(200).send("Ok");
+        } catch (error) {
+            logger.error(`Error handling HostBuddy webhook: ${error?.message}`);
+            return response.status(200).send("Ok");
+        }
+    }
 }
