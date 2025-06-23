@@ -1,8 +1,10 @@
 import { slackInteractivityEventNames } from "../constant";
+import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { formatCurrency } from "../helpers/helpers";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
+const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -169,4 +171,36 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
 
     return slackMessage;
 }
+
+
+export const buildIssueSlackMessage = (issue: Issue) => {
+    return {
+        channel: ISSUE_NOTIFICATION_CHANNEL,
+        text: `New Issue reported for ${issue.listing_name} by ${issue?.guest_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New Issue reported for 🏠 ${issue.listing_name} by 🙍 ${issue?.guest_name}* *<https://securestay.ai/issues?id=${issue.id}|View Issue>*`
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Issue Description:*\n${issue.issue_description || 'No details provided'}`
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Created By:* ${issue.creator || 'Uncategorized'}`
+                },
+            }
+        ]
+    };
+};
+
 

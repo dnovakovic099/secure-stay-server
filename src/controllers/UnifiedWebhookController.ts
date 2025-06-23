@@ -198,7 +198,7 @@ export class UnifiedWebhookController {
         const reservationService = new ReservationService();
         const channels = await reservationService.getChannelList();
         const channel = channels.find(c => c.channelId === reservationInfo.channelId).channelName;
-        const creator = "HostBuddy";
+        const creator = "Hostbuddy";
 
         const data: Partial<Issue> = {
             channel,
@@ -209,7 +209,7 @@ export class UnifiedWebhookController {
             guest_contact_number: reservationInfo.phone,
             issue_description: description,
             creator,
-            status: "In Progress",
+            status: "New",
             reservation_id: String(reservationInfo.id),
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
