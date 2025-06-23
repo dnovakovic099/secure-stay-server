@@ -6,11 +6,16 @@ import axios from "axios";
 import { slackInteractivityEventNames } from "../constant";
 import { formatCurrency } from "../helpers/helpers";
 import { RefundRequestService } from "../services/RefundRequestService";
+import { IssuesService } from "../services/IssuesService";
+import { Issue } from "../entity/Issue";
+import { ReservationService } from "../services/ReservationService";
 
 export class UnifiedWebhookController {
 
     constructor() {
         this.handleSlackInteractivity = this.handleSlackInteractivity.bind(this);
+        this.handleCreateIssue = this.handleCreateIssue.bind(this);
+        this.handleHostBuddyWebhook = this.handleHostBuddyWebhook.bind(this);
     }
 
     async handleWebhookResponse(request: Request, response: Response, next: NextFunction) {
@@ -145,15 +150,79 @@ export class UnifiedWebhookController {
 
             logger.info('[handleHostBuddyWebhook]Received HostBuddy webhook request');
             logger.info(`[handleHostBuddyWebhook]HostBuddy webhook request body: ${JSON.stringify(body)}`);
+            // Process the HostBuddy webhook here
+            if (!body || !body.action_items || !Array.isArray(body.action_items)) {
+                logger.error("[handleHostBuddyWebhook]Invalid HostBuddy webhook request body");
+                return response.status(400).send("Invalid request body");
+            }
 
-            logger.info(`Received HostBuddy webhook for event: ${body?.event}`);
-
-            logger.info(`HostBuddy webhook data: ${JSON.stringify(body?.data)}`);
+            for (let item of body.action_items) {
+                logger.info(`[handleHostBuddyWebhook]Processing action item: ${JSON.stringify(item)}`);
+                switch (item.category) {
+                    case "MAINTENANCE":
+                    case "CLEANLINESS": {
+                        logger.info(`[handleHostBuddyWebhook]Creating issue for action item: ${JSON.stringify(item)}`);
+                        await this.handleCreateIssue(item);
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
 
             return response.status(200).send("Ok");
         } catch (error) {
             logger.error(`Error handling HostBuddy webhook: ${error?.message}`);
-            return response.status(200).send("Ok");
+            logger.error(error.stack);
+            return next(error);
+        }
+    }
+
+    private async handleCreateIssue(item: any) {
+        const guest_name = item.guest_name;
+        const description = item.item;
+        const status = item.status;
+        
+        if (status !== "incomplete") {
+            logger.info(`[handleHostBuddyWebhook][handleCreateIssue] Action item status is not 'incomplete', skipping issue creation.`);
+            return;
+        }
+
+        const reservationInfoService = new ReservationInfoService();
+        const reservationInfo = await reservationInfoService.getReservationInfoByGuestName(guest_name);
+        if (!reservationInfo) {
+            logger.warn(`[handleHostBuddyWebhook][handleCreateIssue] No reservation info found for guest: ${guest_name}`);
+            return;
+        }
+
+        const reservationService = new ReservationService();
+        const channels = await reservationService.getChannelList();
+        const channel = channels.find(c => c.channelId === reservationInfo.channelId).channelName;
+        const creator = "HostBuddy";
+
+        const data: Partial<Issue> = {
+            channel,
+            listing_id: String(reservationInfo.listingMapId),
+            check_in_date: reservationInfo.arrivalDate,
+            reservation_amount: Number(reservationInfo.totalPrice),
+            guest_name: reservationInfo.guestName,
+            guest_contact_number: reservationInfo.phone,
+            issue_description: description,
+            creator,
+            status: "In Progress",
+            reservation_id: String(reservationInfo.id),
+            claim_resolution_status: "N/A",
+            estimated_reasonable_price: 0,
+            final_price: 0,
+            claim_resolution_amount: 0
+        };
+        try {
+            const issueService = new IssuesService();
+            const issue = await issueService.createIssue(data, creator, []);
+            logger.info(`[handleHostBuddyWebhook][handleCreateIssue] Issue created successfully`);
+            return issue;
+        } catch (error) {
+            logger.error(`[handleHostBuddyWebhook][handleCreateIssue] Error creating issue: ${error.message}`);
         }
     }
 }
