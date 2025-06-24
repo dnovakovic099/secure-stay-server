@@ -11,9 +11,9 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly ,reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly  } = request.query;
 
-            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort });
+            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly });
 
             return response.status(200).json({
                 success: true,
