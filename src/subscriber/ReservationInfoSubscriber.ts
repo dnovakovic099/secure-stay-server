@@ -19,7 +19,6 @@ export class ReservationInfoSubscriber
     }
 
     async afterInsert(event: InsertEvent<ReservationInfoEntity>) {
-        logger.info(`ReservationInfoSubscriber: afterInsert called for entity ID ${event.entity.id}`);
         const { entity, manager } = event;
         const log = manager.create(ReservationInfoLog, {
             reservationInfoId: entity.id,
@@ -36,7 +35,6 @@ export class ReservationInfoSubscriber
     }
 
     async afterUpdate(event: UpdateEvent<ReservationInfoEntity>) {
-        logger.info(`ReservationInfoSubscriber: afterUpdate called for entity ID ${event.entity.id}`);
         const { databaseEntity, entity, manager } = event;
         if (!databaseEntity || !entity) return;
 

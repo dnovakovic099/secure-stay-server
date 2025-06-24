@@ -4,7 +4,7 @@ import Joi from "joi";
 export const validateCreateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help")
+            .valid("In Progress", "Overdue", "Completed", "Need Help", "New")
             .default("In Progress")
             .required(),
         listing_id: Joi.number().required(),
@@ -53,7 +53,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
 export const validateUpdateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help"),
+            .valid("In Progress", "Overdue", "Completed", "Need Help", "New"),
         listing_id: Joi.number(),
         listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),

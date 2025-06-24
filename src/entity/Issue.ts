@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity('issues')
 export class Issue {
@@ -7,7 +7,7 @@ export class Issue {
 
     @Column({
         type: "enum",
-        enum: ["In Progress", "Overdue", "Completed", "Need Help"],
+        enum: ["New", "In Progress", "Overdue", "Completed", "Need Help"],
         default: "In Progress"
     })
     status: string;
