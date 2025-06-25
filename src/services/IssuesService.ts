@@ -89,14 +89,13 @@ export class IssuesService {
             endDate.setUTCHours(23, 59, 59, 999);
             queryOptions.where.created_at = LessThan(endDate);
         }
+        
+        if (status && Array.isArray(status)) {
+            queryOptions.where.status = In(status);
+        }  
 
-        if (status) {
-            const statusArray = status.split(',').map(s => s.trim());
-            queryOptions.where.status = In(statusArray);
-        }   
-
-        if (listingId) {
-            queryOptions.where.listing_name = listingId;
+        if (listingId && Array.isArray(listingId)) {
+            queryOptions.where.listing_id = In(listingId);
         }
 
         if (isClaimOnly) {
