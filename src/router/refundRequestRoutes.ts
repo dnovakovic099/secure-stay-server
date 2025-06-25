@@ -33,4 +33,6 @@ router.route('/:reservationId').get(verifySession, refundRequestController.getRe
 
 router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, refundRequestController.updateRefundRequestStatus);
 
+router.route('/getrefundrequestbyid/:id').get(verifySession, refundRequestController.getRefundRequestById);
+
 export default router;

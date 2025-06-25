@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+    Entity,
+    PrimaryGeneratedColumn,
+    Column,
+    CreateDateColumn,
+    UpdateDateColumn,
+    DeleteDateColumn
+} from 'typeorm';
 
 @Entity('refund_request_info')
 export class RefundRequestEntity {
@@ -53,9 +60,15 @@ export class RefundRequestEntity {
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
 
+    @DeleteDateColumn({ type: 'timestamp', nullable: true })
+    deletedAt: Date;
+
     @Column({ nullable: true })
     createdBy: string;
 
     @Column({ nullable: true })
     updatedBy: string;
+
+    @Column({ nullable: true })
+    deletedBy: string;
 }
