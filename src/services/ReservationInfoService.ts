@@ -851,5 +851,14 @@ export class ReservationInfoService {
   }
 
 
+  async getReservationInfoByGuestName(guestName: string) {
+    if (!guestName) {
+      return null;
+    }
+    const reservationInfo = await this.reservationInfoRepository.findOne({ where: { guestName } });
+    return reservationInfo;
+  }
+
+
 
 }

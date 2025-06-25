@@ -156,7 +156,10 @@ export class IssuesService {
     }
 
     async deleteIssue(id: number) {
-        return await this.issueRepo.delete(id);
+        const issue = await this.issueRepo.findOneBy({ id });
+        if (issue) {
+            return await this.issueRepo.remove(issue);
+        }
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {
