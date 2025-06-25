@@ -158,30 +158,29 @@ export class ReviewDetailService {
         return refundRequst.id;
     }
 
-    private async updateRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, userId: string) {
+    private async updateRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, refundRequestId: number, review: ReviewEntity, userId: string) {
         //find the issueId and requestedBy
         const issueIds = await this.issueRepo.find({
             where: {
-                reservation_id: String(attempt.reviewDetail.review.reservationId),
+                reservation_id: String(review.reservationId),
             }
         }).then(issues => issues.map(issue => issue.id));
 
-        const requestedBy = await this.getUserName(userId);
 
         const refundRequest = {
-            reservationId: attempt.reviewDetail.review.reservationId,
-            listingId: attempt.reviewDetail.review.listingMapId,
-            guestName: attempt.reviewDetail.review.guestName,
-            listingName: attempt.reviewDetail.review.listingName,
-            checkIn: attempt.reviewDetail.review.arrivalDate,
-            checkOut: attempt.reviewDetail.review.departureDate,
+            reservationId: review.reservationId,
+            listingId: review.listingMapId,
+            guestName: review.guestName,
+            listingName: review.listingName,
+            checkIn: review.arrivalDate,
+            checkOut: review.departureDate,
             issueId: JSON.stringify(issueIds),
             explaination: attempt.details,
             refundAmount: attempt.resolutionAmount || 0,
         };
 
         const refundRequestService = new RefundRequestService();
-        const existingRefundRequest = await refundRequestService.getRefundRequestById(attempt.refundRequestId);
+        const existingRefundRequest = await refundRequestService.getRefundRequestById(refundRequestId);
         const refundRequst = await refundRequestService.saveRefundRequest(refundRequest, userId, [], existingRefundRequest);
         if (!refundRequst) {
             logger.info('Error updating refund request');
@@ -258,7 +257,7 @@ export class ReviewDetailService {
         if (existingAttempt.resolutionAmount) {
             //CASE 1: if resolution amount was present previously and now updated with some other value
             if (attempt.resolutionAmount !== existingAttempt.resolutionAmount) {
-                const refundRequestId = await this.updateRefundRequestForRemovalAttempt(attempt, userId);
+                const refundRequestId = await this.updateRefundRequestForRemovalAttempt(attempt, existingAttempt.refundRequestId, review, userId);
                 Object.assign(existingAttempt, {
                     ...attempt,
                     reviewDetailId: reviewDetailId,
