@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, Not } from "typeorm";
+import { Between, In, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 
 export class UpsellOrderService {
@@ -35,12 +35,13 @@ export class UpsellOrderService {
 
             queryOptions.where[dateType] = Between(startDate, endDate);
         }
-        if (status) {
-            queryOptions.where.status = status;
-        }
 
-        if (listing_id) {
-            queryOptions.where.listing_id = listing_id;
+        if (status && Array.isArray(status)) {
+            queryOptions.where.status = In(status);
+        }  
+
+        if (listing_id && Array.isArray(listing_id)) {
+            queryOptions.where.listing_id = In(listing_id);
         }
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
