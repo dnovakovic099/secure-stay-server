@@ -743,6 +743,7 @@ export class ReservationInfoService {
       const changedAt = log.changedAt;
 
       listingIds.includes(listingId) && processedReservations.push({
+        reservationId: log.reservationInfoId,
         listingName: oldData.listingName,
         guestName: oldData.guestName,
         oldArrivalDate: format(oldData.arrivalDate, 'MMM dd'),
@@ -751,14 +752,16 @@ export class ReservationInfoService {
         newDepartureDate: format(newData.departureDate, 'MMM dd'),
         oldTotalPrice: oldData.totalPrice,
         newTotalPrice: newData.totalPrice,
-        changedAt: changedAt
+        changedAt: changedAt,
+        status: oldData.status
       });
     }
 
     logger.info(`[processExtendedReservations] Processed ${processedReservations.length} extended reservations.`);
     if (processedReservations.length > 0) {
       const subject = `Extended Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
-      await this.sendEmailForExtendedReservations(processedReservations, subject);
+      const filteredReservations = processedReservations.filter(reservation => reservation.status !== "ownerStay");
+      await this.sendEmailForExtendedReservations(filteredReservations, subject);
     } else {
       logger.info(`[processExtendedReservations] No processed reservations to send email.`);
     }
@@ -774,13 +777,14 @@ export class ReservationInfoService {
     oldTotalPrice: number;
     newTotalPrice: number;
     changedAt: Date;
+    reservationId: number;
   }[], subject: string) {
 
     // Generate table rows dynamically
     const rowsHtml = processedReservations.map(reservation => {
       return `
       <tr style="background-color: #fff; border-bottom: 1px solid #ddd;">
-        <td style="padding: 12px 16px; vertical-align: middle;">${reservation.guestName}</td>
+        <td style="padding: 12px 16px; vertical-align: middle;"><a href="https://dashboard.hostaway.com/reservations/${reservation.reservationId}"  target="_blank" style="color: #007bff; text-decoration: none;">${reservation.guestName}</a></td>
         <td style="padding: 12px 16px; vertical-align: middle;">${reservation.listingName}</td>
 
         <td style="padding: 12px 16px; vertical-align: middle; font-size: 14px; color: #444;">
@@ -833,8 +837,9 @@ export class ReservationInfoService {
                  `;
 
     const receipientsList = [
-      "ferdinand@luxurylodgingpm.com",
-      "admin@luxurylodgingpm.com",
+      // "ferdinand@luxurylodgingpm.com",
+      // "admin@luxurylodgingpm.com",
+      "prasannakb440@gmail.com"
     ];
 
     const results = await Promise.allSettled(
