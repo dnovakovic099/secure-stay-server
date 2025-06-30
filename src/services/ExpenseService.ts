@@ -15,6 +15,18 @@ import { ListingService } from "./ListingService";
 import { CategoryEntity } from "../entity/Category";
 import logger from "../utils/logger.utils";
 
+interface ExpenseBulkUpdateObject {
+    expenseDate: string;
+    dateOfWork: string;
+    status: ExpenseStatus;
+    paymentMethod: string;
+    categories: string;
+    concept: string;
+    listingMapId: number;
+    amount: number;
+    expenseId: number[];
+}
+
 export class ExpenseService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private listingRepository = appDatabase.getRepository(Listing);
@@ -373,7 +385,7 @@ export class ExpenseService {
         await this.hostAwayClient.deleteExpense(expenseId, clientId, clientSecret);
     }
 
-    private async updateHostawayExpense(requestBody: {
+    public async updateHostawayExpense(requestBody: {
         listingMapId: string;
         expenseDate: string;
         concept: string;
@@ -531,5 +543,77 @@ export class ExpenseService {
         };
     }
 
+    public async bulkUpdateExpense(body: ExpenseBulkUpdateObject, userId: string) {
+        const {
+            expenseId,
+            expenseDate,
+            dateOfWork,
+            status,
+            paymentMethod,
+            categories,
+            concept,
+            listingMapId,
+            amount,
+        } = body;
+
+        const failedExpenseUpdate: number[] = [];
+        const failedHostawayExpenseUpdate: number[] = [];
+
+        for (const id of expenseId) {
+            const expense = await this.expenseRepo.findOne({ where: { expenseId: id } });
+
+            if (!expense) {
+                logger.error(`Expense with expenseId ${id} not found.`);
+                failedExpenseUpdate.push(id);
+                continue;
+            }
+
+            // Update fields if provided
+            if (expenseDate) expense.expenseDate = expenseDate;
+            if (dateOfWork) expense.dateOfWork = dateOfWork;
+            if (status) expense.status = status;
+            if (paymentMethod) expense.paymentMethod = paymentMethod;
+            if (categories) expense.categories = categories;
+            if (concept) expense.concept = concept;
+            if (listingMapId) expense.listingMapId = listingMapId;
+            if (amount !== undefined && amount !== null) expense.amount = amount * -1;
+
+            expense.updatedBy = userId;
+            expense.updatedAt = new Date();
+
+            await this.expenseRepo.save(expense);
+            // Sync with Hostaway
+            try {
+                const result = await this.updateHostawayExpense(
+                    {
+                        listingMapId: String(listingMapId || expense.listingMapId),
+                        expenseDate: expenseDate || expense.expenseDate,
+                        concept: concept || expense.concept,
+                        amount: (amount !== undefined && amount !== null ? amount * -1 : expense.amount),
+                        categories: JSON.parse(categories || expense.categories),
+                    },
+                    userId,
+                    expense.expenseId
+                );
+
+                if (!result) {
+                    logger.error(`Failed to update Hostaway expense for expenseId ${id}`);
+                    failedHostawayExpenseUpdate.push(id);
+                }
+            } catch (err) {
+                logger.error(`Hostaway update error for expenseId ${id}: ${err.message}`);
+                failedHostawayExpenseUpdate.push(id);
+            }
+            
+        }
+
+        return {
+            failedExpenseUpdate,
+            failedHostawayExpenseUpdate,
+        };
+    }
+
 
 }
+
+
