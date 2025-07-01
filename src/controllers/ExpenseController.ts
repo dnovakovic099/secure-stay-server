@@ -132,4 +132,15 @@ export class ExpenseController {
             return next(error);
         }
     }
+
+    async bulkUpdateExpenses(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const result = await expenseService.bulkUpdateExpense(request.body, userId);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
