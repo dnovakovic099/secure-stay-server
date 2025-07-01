@@ -14,7 +14,7 @@ import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
 
 @EventSubscriber()
-export class ReservationInfoSubscriber
+export class IssuesSubscriber
     implements EntitySubscriberInterface<Issue> {
 
     listenTo() {

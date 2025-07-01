@@ -14,6 +14,7 @@ import { ListingDetail } from "../entity/ListingDetails";
 import { ListingService } from "./ListingService";
 import { CategoryEntity } from "../entity/Category";
 import logger from "../utils/logger.utils";
+import { haExpenseUpdateQueue } from "../queue/haQueue";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -584,24 +585,22 @@ export class ExpenseService {
             await this.expenseRepo.save(expense);
             // Sync with Hostaway
             try {
-                const result = await this.updateHostawayExpense(
-                    {
-                        listingMapId: String(listingMapId || expense.listingMapId),
-                        expenseDate: expenseDate || expense.expenseDate,
-                        concept: concept || expense.concept,
-                        amount: (amount !== undefined && amount !== null ? amount * -1 : expense.amount),
-                        categories: JSON.parse(categories || expense.categories),
-                    },
-                    userId,
-                    expense.expenseId
-                );
+                const payload = {
+                    listingMapId: String(listingMapId || expense.listingMapId),
+                    expenseDate: expenseDate || expense.expenseDate,
+                    concept: concept || expense.concept,
+                    amount: amount !== undefined && amount !== null ? amount * -1 : expense.amount,
+                    categories: JSON.parse(categories || expense.categories),
+                };
 
-                if (!result) {
-                    logger.error(`Failed to update Hostaway expense for expenseId ${id}`);
-                    failedHostawayExpenseUpdate.push(id);
-                }
+                await haExpenseUpdateQueue.add('syncHostawayExpense', {
+                    payload,
+                    userId,
+                    expenseId: expense.expenseId,
+                });
+
             } catch (err) {
-                logger.error(`Hostaway update error for expenseId ${id}: ${err.message}`);
+                logger.error(`Queueing Hostaway job failed for expenseId ${id}: ${err.message}`);
                 failedHostawayExpenseUpdate.push(id);
             }
             
