@@ -4,7 +4,9 @@
   "description": "Boarding pass app for reservation",
   "main": "index.js",
   "scripts": {
-    "start": "npx ts-node-dev src/app.ts"
+    "dev": "npx ts-node-dev src/app.ts",
+    "build": "tsc",
+    "start":"NODE_ENV=production node dist/out-tsc/app.js"
   },
   "author": "Viktor",
   "license": "ISC",
@@ -48,6 +50,7 @@
     "@types/node": "^20.11.5",
     "ejs": "^3.1.10",
     "ts-node": "^10.9.2",
+    "type-fest": "^4.41.0",
     "typescript": "^5.3.3"
   }
 }
