@@ -837,9 +837,8 @@ export class ReservationInfoService {
                  `;
 
     const receipientsList = [
-      // "ferdinand@luxurylodgingpm.com",
-      // "admin@luxurylodgingpm.com",
-      "prasannakb440@gmail.com"
+      "ferdinand@luxurylodgingpm.com",
+      "admin@luxurylodgingpm.com",
     ];
 
     const results = await Promise.allSettled(
