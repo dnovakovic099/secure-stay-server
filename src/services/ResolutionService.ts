@@ -194,4 +194,13 @@ export class ResolutionService {
             }
         });
     }
+
+    async getResolutionByReservationId(reservationId: number) {
+        return await this.resolutionRepo.findOne({
+            where: { 
+                reservationId,
+                category: "resolution"
+             },
+        });
+    }
 } 
