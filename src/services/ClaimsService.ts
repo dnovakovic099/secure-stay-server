@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Claim } from "../entity/Claim";
-import { Between, Not, LessThan} from "typeorm";
+import { Between, Not, LessThan, In} from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
@@ -64,12 +64,12 @@ export class ClaimsService {
             };
         }
 
-        if (status) {
-            queryOptions.where.status = status;
-        }   
+        if (status && Array.isArray(status)) {
+            queryOptions.where.status = In(status);
+        }
 
-        if (listingId) {
-            queryOptions.where.listing_name = listingId;
+        if (listingId && Array.isArray(listingId)) {
+            queryOptions.where.listing_id = In(listingId);
         }
 
         if (claimAmount) {
