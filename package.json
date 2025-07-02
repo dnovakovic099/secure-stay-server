@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Boarding pass app for reservation",
   "main": "index.js",
-  "scripts": {
-    "dev": "npx ts-node-dev src/app.ts",
-    "build": "tsc",
-    "start":"NODE_ENV=production node dist/out-tsc/app.js"
-  },
+"scripts": {
+  "dev": "npx ts-node-dev src/app.ts",
+  "dev:haworker": "npx ts-node-dev src/worker/haWorker.ts",
+  "build": "tsc",
+  "start": "NODE_ENV=production node dist/out-tsc/app.js",
+  "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js"
+},
   "author": "Viktor",
   "license": "ISC",
   "dependencies": {
@@ -18,11 +20,13 @@
     "@types/multer": "^1.4.11",
     "axios": "^1.6.5",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.56.0",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "dotenv": "^16.4.1",
     "exceljs": "^4.4.0",
     "express": "^4.18.2",
+    "ioredis": "^5.6.1",
     "joi": "^17.12.2",
     "jsonwebtoken": "^9.0.2",
     "moment": "^2.30.1",

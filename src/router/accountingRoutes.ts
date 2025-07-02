@@ -1,7 +1,7 @@
 import { ExpenseController } from "../controllers/ExpenseController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateCreateExpense, validateGetExpenseList, validateUpdateExpense, validateUpdateExpenseStatus } from "../middleware/validation/accounting/expense.validation";
+import { validateBulkUpdateExpense, validateCreateExpense, validateGetExpenseList, validateUpdateExpense, validateUpdateExpenseStatus } from "../middleware/validation/accounting/expense.validation";
 import { IncomeController } from "../controllers/IncomeControllers";
 import { validateGetIncomeStatement, validateRevenueCalculationRequest } from "../middleware/validation/accounting/income.validation";
 import fileUpload from "../utils/upload.util";
@@ -47,6 +47,8 @@ router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getT
 router.route('/getexpense/:expenseId').get(verifySession, expenseController.getExpenseById);
 
 router.route('/deleteexpense/:expenseId').delete(verifySession, expenseController.deleteExpense);
+
+router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
 

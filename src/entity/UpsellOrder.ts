@@ -36,13 +36,16 @@ export class UpsellOrder {
     booking_id: string;
 
     @Column({ type: 'date', nullable: true })
-    arrival_date: Date;
+    arrival_date: string;
 
     @Column({ type: 'date', nullable: true })
-    departure_date: Date;
+    departure_date: string;
 
     @Column({ nullable: true })
     phone: string;
+
+    @Column({ nullable: true })
+    ha_id: number;
 
     @CreateDateColumn()
     created_at: Date;

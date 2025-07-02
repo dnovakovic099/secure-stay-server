@@ -17,12 +17,14 @@ import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
 import { getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { Resolution } from "../entity/Resolution";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
   private listingInfoRepository = appDatabase.getRepository(Listing)
   private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
+  private resolutionRepo = appDatabase.getRepository(Resolution);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -454,13 +456,29 @@ export class ReservationInfoService {
 
   async handleAirbnbClosedResolution(reservation: any) {
     const exists = await this.checkAirbnbClosedResoultionSum(reservation);
-    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] reservation: ${reservation?.id}`)
-    if (!exists) return;
     logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
-    await this.createResolution(reservation); // actual resolution logic
-    logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`)
-    await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
-    logger.info(`[ReservationInfoService] Email notification sent for airbnbClosedResolutionSum of reservationId ${reservation?.id}`)
+    if (!exists) return;
+
+    //check if the resolution is already present in the db
+    const resolutionService = new ResolutionService();
+    const existingResolution = await resolutionService.getResolutionByReservationId(reservation.id);
+    
+    if (existingResolution) {
+      logger.info(`[ReservationInfoService] Resolution already exists for reservation ${reservation?.id}, skipping creation.`);
+      const airbnbClosedResolutionSumAmount = reservation.financeField.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value || 0;
+
+      if (existingResolution.amount !== airbnbClosedResolutionSumAmount) {
+        logger.info(`[ReservationInfoService] Updating resolution for reservation ${reservation?.id} from $${existingResolution.amount} to $${airbnbClosedResolutionSumAmount}`);
+        existingResolution.amount = airbnbClosedResolutionSumAmount;
+        await this.resolutionRepo.save(existingResolution);
+        await this.notifyAboutAirbnbClosedResolutionSum(reservation, true); // notify about update
+      }
+      return;
+    } else {
+      await this.createResolution(reservation); // actual resolution logic
+      logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`);
+      await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
+    }
   }
 
   private async createResolution(reservation: any) {
@@ -491,7 +509,7 @@ export class ReservationInfoService {
   }
 
 
-  async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
+  async notifyAboutAirbnbClosedResolutionSum(reservation: any, isUpdated: boolean = false) {
 
     const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
 
@@ -502,7 +520,10 @@ export class ReservationInfoService {
       searchKey = searchKeys[searchKeys.length - 1];
     }
     
-    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    let subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    if(isUpdated){
+      subject = `Updated: Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    }
     const html = `
                 <html>
                   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
@@ -849,9 +870,8 @@ export class ReservationInfoService {
                  `;
 
     const receipientsList = [
-      // "ferdinand@luxurylodgingpm.com",
-      // "admin@luxurylodgingpm.com",
-      "prasannakb440@gmail.com"
+      "ferdinand@luxurylodgingpm.com",
+      "admin@luxurylodgingpm.com",
     ];
 
     const results = await Promise.allSettled(
