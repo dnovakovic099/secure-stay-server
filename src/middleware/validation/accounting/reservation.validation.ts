@@ -19,7 +19,7 @@ export const validateGetReservationList = (request: Request, response: Response,
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
             'any.required': 'todayDate is required'
         }),
-        listingMapId: Joi.string().allow(''),
+        listingMapId: Joi.array().items(Joi.number()).min(1).allow("", null),
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
         limit: Joi.number().required()
