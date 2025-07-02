@@ -168,4 +168,22 @@ export class ClientTicketService {
         return { message: `Client ticket with ID ${id} deleted successfully.` };
     }
 
+    public async updateClientTicketStatus(id: number, status: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
+        }
+
+        clientTicket.status = status;
+        clientTicket.updatedBy = userId;
+
+        if (status === "Completed") {
+            clientTicket.completedOn = new Date().toISOString();;
+            clientTicket.completedBy = userId;
+        }
+
+        await this.clientTicketRepo.save(clientTicket);
+        return clientTicket;
+    }
+
 }

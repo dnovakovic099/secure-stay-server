@@ -94,3 +94,21 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
     }
     next();
 };
+
+
+export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid("New", "In Progress", "Completed")
+            .messages({
+                'any.required': 'Status is required',
+                'any.only': 'Status must be one of New, In Progress, or Completed'
+            }),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+}

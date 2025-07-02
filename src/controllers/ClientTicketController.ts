@@ -79,4 +79,22 @@ export class ClientTicketController {
             next(error);
         }
     }
+
+    async updateClientTicketStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user?.id;
+            const { id, status } = request.body;
+
+            const ticketService = new ClientTicketService();
+            const result = await ticketService.updateClientTicketStatus(id, status, userId);
+
+            return response.status(200).json({
+                success: true,
+                message: "Client ticket status updated successfully",
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
