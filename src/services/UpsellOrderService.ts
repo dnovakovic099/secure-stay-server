@@ -62,6 +62,19 @@ export class UpsellOrderService {
     }
 
     async updateOrder(id: number, data: Partial<UpsellOrder>, userId: string) {
+        const existingOrder = await this.upsellOrderRepo.findOne({ where: { id } });
+        if (existingOrder.ha_id) {
+            if (existingOrder.status == "Approved" && data.status && data.status !== "Approved") {
+                //delete the expense in HostAway
+                const clientId = process.env.HOST_AWAY_CLIENT_ID;
+                const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
+                await this.hostAwayClient.deleteExpense(existingOrder.ha_id, clientId, clientSecret);
+                logger.info(`Deleted extras with ID ${existingOrder.ha_id} in HostAway for order ID ${id}`);
+                existingOrder.ha_id = null; // Reset ha_id after deletion
+                await this.upsellOrderRepo.save(existingOrder);
+            }
+        }
+
         await this.upsellOrderRepo.update(id, { ...data, updated_by: userId, updated_at: new Date() });
         return await this.upsellOrderRepo.findOne({ where: { id } });
     }
@@ -119,14 +132,16 @@ export class UpsellOrderService {
         const pmListings = await listingService.getListingsByTagIds([62778]);
         const isPmListing = pmListings.some(listing => listing.id == Number(upsell.listing_id));
 
-        const processingFee = upsell.cost * 0.03;
-        let netAmount = Math.round(upsell.cost - processingFee);
-
+        let netAmount = 0;
         if (isPmListing) {
+            const processingFee = upsell.cost * 0.03;
+            netAmount = Math.round(upsell.cost - processingFee);
             const listingPmFee = await listingService.getListingPmFee();
             let pmFeePercent = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0.1; // default to 10% if not found
             const pmFee = netAmount * pmFeePercent;
             netAmount = netAmount - pmFee;
+        } else {
+            netAmount = upsell.cost;
         }
 
         return {

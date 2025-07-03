@@ -157,7 +157,7 @@ export class ReservationInfoService {
         checkOutStartDate?: string;
         checkOutEndDate?: string;
         todayDate?: string;
-        listingMapId?: string;
+          listingMapId?: string[];
         guestName?: string;
         page?: string;
         limit?: string;
@@ -186,7 +186,7 @@ export class ReservationInfoService {
    */
   private async getCase1Default(
     todayDateStr: string,
-    listingMapId: string | undefined,
+    listingMapId: string[] | undefined,
     guestName: string | undefined,
     page: number,
     limit: number 
@@ -194,14 +194,20 @@ export class ReservationInfoService {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName);
+    const qbToday = this.buildBaseQuery(guestName);
+    if (listingMapId && listingMapId.length > 0) {
+      qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+    }
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today: todayDateStr });
     qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
       excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName);
+    const qbFuture = this.buildBaseQuery(guestName);
+    if (listingMapId && listingMapId.length > 0) {
+      qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+    }
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today: todayDateStr });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
       excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
@@ -210,7 +216,10 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(listingMapId, guestName);
+    const qbPast = this.buildBaseQuery(guestName);
+    if (listingMapId && listingMapId.length > 0) {
+      qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+    }
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today: todayDateStr });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
       excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
@@ -257,8 +266,11 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string | undefined, guestName: string | undefined, page: number, limit: number) {
-    const qb = this.buildBaseQuery(listingMapId, guestName);
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number) {
+    const qb = this.buildBaseQuery(guestName);
+    if (listingMapId && listingMapId.length > 0) {
+      qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+    }
     if (checkInStartDate && checkInEndDate) {
       qb.andWhere("DATE(reservation.arrivalDate) BETWEEN :start AND :end", {
         start: checkInStartDate,
