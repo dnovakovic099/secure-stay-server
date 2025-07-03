@@ -42,7 +42,7 @@ export const validateUpdateActionItems = (request: Request, response: Response, 
 
 export const getActionItemsValidation = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").optional(),
+        category: Joi.array().items(Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER")).min(1).optional(),
         page: Joi.number().integer().min(1).default(1),
         limit: Joi.number().integer().min(1).default(10),
         listingId: Joi.array().items(Joi.string()).min(1).optional(),
