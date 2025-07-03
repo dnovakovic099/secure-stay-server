@@ -20,6 +20,7 @@ interface ReservationDetailPostStayAuditDTO {
     keysAndLocks?: KeysAndLocks;
     guestBookCheck?: GuestBookCheck;
     securityDepositStatus?: SecurityDepositStatus;
+    approvedUpsells?: string;
 }
 
 interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostStayAuditDTO {
@@ -64,7 +65,8 @@ export class ReservationDetailPostStayAuditService {
             utilityIssues: dto.utilityIssues,
             keysAndLocks: dto.keysAndLocks,
             guestBookCheck: dto.guestBookCheck,
-            securityDepositStatus: dto.securityDepositStatus
+            securityDepositStatus: dto.securityDepositStatus,
+            approvedUpsells: dto.approvedUpsells,
         });
 
         return await this.postStayAuditRepository.save(audit);
@@ -100,6 +102,7 @@ export class ReservationDetailPostStayAuditService {
         audit.completionStatus = this.determineCompletionStatus(audit);
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
+        audit.approvedUpsells = dto.approvedUpsells ?? audit.approvedUpsells;
 
         return await this.postStayAuditRepository.save(audit);
     }

@@ -30,7 +30,8 @@ export class ReservationDetailPostStayAuditController {
                 utilityIssues,
                 keysAndLocks,
                 guestBookCheck,
-                securityDepositStatus
+                securityDepositStatus,
+                approvedUpsells
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -57,7 +58,8 @@ export class ReservationDetailPostStayAuditController {
                 utilityIssues: utilityIssues as UtilityIssues,
                 keysAndLocks: keysAndLocks as KeysAndLocks,
                 guestBookCheck: guestBookCheck as GuestBookCheck,
-                securityDepositStatus: securityDepositStatus as SecurityDepositStatus
+                securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
+                approvedUpsells: approvedUpsells
             }, userId);
 
             return res.status(201).json(audit);
@@ -85,6 +87,7 @@ export class ReservationDetailPostStayAuditController {
                 guestBookCheck,
                 securityDepositStatus,
                 deletedAttachments,
+                approvedUpsells
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -112,7 +115,8 @@ export class ReservationDetailPostStayAuditController {
                 guestBookCheck: guestBookCheck as GuestBookCheck,
                 securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
                 deletedAttachments: deletedAttachments,
-                newAttachments: JSON.stringify(newAttachments)
+                newAttachments: JSON.stringify(newAttachments),
+                approvedUpsells: approvedUpsells
             }, userId);
 
             return res.status(200).json(audit);

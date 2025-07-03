@@ -22,6 +22,12 @@ export class RemovalAttemptEntity {
     @Column({ type: 'enum', enum: ['Removed', 'Denied', 'Pending'] })
     result: string;
 
+    @Column({ nullable: true })
+    resolutionAmount: number;
+
+    @Column({nullable:true})
+    refundRequestId: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

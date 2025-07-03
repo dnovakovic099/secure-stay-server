@@ -80,4 +80,18 @@ export class RefundRequestController {
             return next(error);
         }
     }
+
+    async getRefundRequestById(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const refundRequestService = new RefundRequestService();
+            const id = Number(request.params.id);
+            const refundRequest = await refundRequestService.getRefundRequestById(id);
+            if (!refundRequest) {
+                return response.status(404).json({ status: false, message: 'Refund request not found.' });
+            }
+            return response.status(200).json(refundRequest);
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

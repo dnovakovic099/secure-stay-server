@@ -78,8 +78,7 @@ export const validateUpdateClaim = (request: Request, response: Response, next: 
         payee: Joi.string().allow(null, ''),
         payment_status: Joi.string()
             .valid("Not Paid", "Paid", "Partially Paid")
-            .default("Not Paid")
-            .required(),
+            .default("Not Paid"),
     });
 
     const { error } = schema.validate(request.body);

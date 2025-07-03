@@ -1,10 +1,14 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, Not } from "typeorm";
+import { Between, In, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
+import logger from "../utils/logger.utils";
+import { HostAwayClient } from "../client/HostAwayClient";
+import { ListingService } from "./ListingService";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
+    private hostAwayClient = new HostAwayClient();
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
@@ -35,12 +39,13 @@ export class UpsellOrderService {
 
             queryOptions.where[dateType] = Between(startDate, endDate);
         }
-        if (status) {
-            queryOptions.where.status = status;
-        }
 
-        if (listing_id) {
-            queryOptions.where.listing_id = listing_id;
+        if (status && Array.isArray(status)) {
+            queryOptions.where.status = In(status);
+        }  
+
+        if (listing_id && Array.isArray(listing_id)) {
+            queryOptions.where.listing_id = In(listing_id);
         }
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
@@ -70,8 +75,8 @@ export class UpsellOrderService {
             where: {
                 listing_id: String(listingId),
                 arrival_date: Between(
-                    new Date(fromDate),
-                    new Date(toDate)
+                    fromDate,
+                    toDate
                 ),
                 type: "Early Check-in"
             }
@@ -81,8 +86,8 @@ export class UpsellOrderService {
             where: {
                 listing_id: String(listingId),
                 departure_date: Between(
-                    new Date(fromDate),
-                    new Date(toDate),
+                    fromDate,
+                    toDate
                 ),
                 type: Not("Early Check-in")
             }
@@ -96,5 +101,73 @@ export class UpsellOrderService {
             type: order.type,
             upsellId: String(order.id)
         }));
+    }
+
+    private async getUpsellsByCheckoutDate(date: string) {
+        return await this.upsellOrderRepo.find({
+            where: {
+                departure_date: date,
+                status: "Approved"
+            }
+        });
+    }
+
+    private async prepareExtrasObject(upsell: UpsellOrder) {
+        const categories = JSON.stringify([19780]);
+
+        const listingService = new ListingService();
+        const pmListings = await listingService.getListingsByTagIds([62778]);
+        const isPmListing = pmListings.some(listing => listing.id == Number(upsell.listing_id));
+
+        const processingFee = upsell.cost * 0.03;
+        let netAmount = Math.round(upsell.cost - processingFee);
+
+        if (isPmListing) {
+            const listingPmFee = await listingService.getListingPmFee();
+            let pmFeePercent = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0.1; // default to 10% if not found
+            const pmFee = netAmount * pmFeePercent;
+            netAmount = netAmount - pmFee;
+        }
+
+        return {
+            listingMapId: upsell.listing_id,
+            expenseDate: upsell.departure_date,
+            concept: upsell.type,
+            amount: netAmount,
+            categories: JSON.parse(categories),
+            reservationId: Number(upsell.booking_id)
+        };
+    }
+
+    public async processCheckoutDateUpsells(date: string) {
+        const upsells = await this.getUpsellsByCheckoutDate(date);
+        if (upsells.length === 0) {
+            logger.info(`No upsells found for checkout date: ${date}`);
+            return [];
+        }
+
+        for (const upsell of upsells) {
+            if (upsell.ha_id) {
+                continue;
+            }
+            try {
+                //create expense in hostaway
+                const requestBody = await this.prepareExtrasObject(upsell);
+                const clientId = process.env.HOST_AWAY_CLIENT_ID;
+                const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
+
+                const hostawayExpense = await this.hostAwayClient.createExpense(requestBody, { clientId, clientSecret });
+                if (hostawayExpense) {
+                    const expenseId = hostawayExpense.id;
+                    upsell.ha_id = expenseId;
+                    await this.upsellOrderRepo.save(upsell);
+                } else {
+                    throw new Error("Failed to create expense in HostAway");
+                }
+
+            } catch (error) {
+                logger.error(`Error processing upsell for checkout date ${date}: ${error.message}`);
+            }
+        }
     }
 }

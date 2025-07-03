@@ -17,12 +17,14 @@ import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
 import { getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { Resolution } from "../entity/Resolution";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
   private listingInfoRepository = appDatabase.getRepository(Listing)
   private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
+  private resolutionRepo = appDatabase.getRepository(Resolution);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -442,13 +444,29 @@ export class ReservationInfoService {
 
   async handleAirbnbClosedResolution(reservation: any) {
     const exists = await this.checkAirbnbClosedResoultionSum(reservation);
-    logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] reservation: ${reservation?.id}`)
-    if (!exists) return;
     logger.info(`[ReservationInfoService][handleAirbnbClosedResolution] handling AirbnbClosedResolutionSum for reservation: ${reservation?.id}`)
-    await this.createResolution(reservation); // actual resolution logic
-    logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`)
-    await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
-    logger.info(`[ReservationInfoService] Email notification sent for airbnbClosedResolutionSum of reservationId ${reservation?.id}`)
+    if (!exists) return;
+
+    //check if the resolution is already present in the db
+    const resolutionService = new ResolutionService();
+    const existingResolution = await resolutionService.getResolutionByReservationId(reservation.id);
+    
+    if (existingResolution) {
+      logger.info(`[ReservationInfoService] Resolution already exists for reservation ${reservation?.id}, skipping creation.`);
+      const airbnbClosedResolutionSumAmount = reservation.financeField.find((data: any) => data.name == "airbnbClosedResolutionsSum")?.value || 0;
+
+      if (existingResolution.amount !== airbnbClosedResolutionSumAmount) {
+        logger.info(`[ReservationInfoService] Updating resolution for reservation ${reservation?.id} from $${existingResolution.amount} to $${airbnbClosedResolutionSumAmount}`);
+        existingResolution.amount = airbnbClosedResolutionSumAmount;
+        await this.resolutionRepo.save(existingResolution);
+        await this.notifyAboutAirbnbClosedResolutionSum(reservation, true); // notify about update
+      }
+      return;
+    } else {
+      await this.createResolution(reservation); // actual resolution logic
+      logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`);
+      await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
+    }
   }
 
   private async createResolution(reservation: any) {
@@ -479,7 +497,7 @@ export class ReservationInfoService {
   }
 
 
-  async notifyAboutAirbnbClosedResolutionSum(reservation: any) {
+  async notifyAboutAirbnbClosedResolutionSum(reservation: any, isUpdated: boolean = false) {
 
     const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
 
@@ -490,7 +508,10 @@ export class ReservationInfoService {
       searchKey = searchKeys[searchKeys.length - 1];
     }
     
-    const subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    let subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    if(isUpdated){
+      subject = `Updated: Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
+    }
     const html = `
                 <html>
                   <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
@@ -743,6 +764,7 @@ export class ReservationInfoService {
       const changedAt = log.changedAt;
 
       listingIds.includes(listingId) && processedReservations.push({
+        reservationId: log.reservationInfoId,
         listingName: oldData.listingName,
         guestName: oldData.guestName,
         oldArrivalDate: format(oldData.arrivalDate, 'MMM dd'),
@@ -751,14 +773,16 @@ export class ReservationInfoService {
         newDepartureDate: format(newData.departureDate, 'MMM dd'),
         oldTotalPrice: oldData.totalPrice,
         newTotalPrice: newData.totalPrice,
-        changedAt: changedAt
+        changedAt: changedAt,
+        status: oldData.status
       });
     }
 
     logger.info(`[processExtendedReservations] Processed ${processedReservations.length} extended reservations.`);
     if (processedReservations.length > 0) {
       const subject = `Extended Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
-      await this.sendEmailForExtendedReservations(processedReservations, subject);
+      const filteredReservations = processedReservations.filter(reservation => reservation.status !== "ownerStay");
+      await this.sendEmailForExtendedReservations(filteredReservations, subject);
     } else {
       logger.info(`[processExtendedReservations] No processed reservations to send email.`);
     }
@@ -774,13 +798,14 @@ export class ReservationInfoService {
     oldTotalPrice: number;
     newTotalPrice: number;
     changedAt: Date;
+    reservationId: number;
   }[], subject: string) {
 
     // Generate table rows dynamically
     const rowsHtml = processedReservations.map(reservation => {
       return `
       <tr style="background-color: #fff; border-bottom: 1px solid #ddd;">
-        <td style="padding: 12px 16px; vertical-align: middle;">${reservation.guestName}</td>
+        <td style="padding: 12px 16px; vertical-align: middle;"><a href="https://dashboard.hostaway.com/reservations/${reservation.reservationId}"  target="_blank" style="color: #007bff; text-decoration: none;">${reservation.guestName}</a></td>
         <td style="padding: 12px 16px; vertical-align: middle;">${reservation.listingName}</td>
 
         <td style="padding: 12px 16px; vertical-align: middle; font-size: 14px; color: #444;">

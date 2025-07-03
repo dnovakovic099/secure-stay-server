@@ -160,6 +160,7 @@ export class HostAwayClient {
     concept: string;
     amount: number;
     categories: string;
+    reservationId?: number;
   }, credentials: {
     clientId: string;
     clientSecret: string;

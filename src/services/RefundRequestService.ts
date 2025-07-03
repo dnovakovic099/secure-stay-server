@@ -538,4 +538,19 @@ export class RefundRequestService {
         await sendEmail(subject, html, process.env.EMAIL_FROM, email);
     }
 
+    public async deleteRefundRequest(id: number, userId: string){
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        if (!refundRequest) {
+            throw CustomErrorHandler.notFound('Refund request not found');
+        }
+        const expenseService = new ExpenseService();
+        if (refundRequest.expenseId) {
+            const expense = await expenseService.getExpense(refundRequest.expenseId);
+            await expenseService.deleteExpense(expense.expenseId, userId);
+        }
+        refundRequest.deletedBy = userId;
+        refundRequest.deletedAt = new Date();
+        return await this.refundRequestRepo.save(refundRequest);
+    }
+
 }

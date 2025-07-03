@@ -29,17 +29,37 @@ export class ReviewService {
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
     private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
 
-    public async getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, reviewerNameHeaderSort, listingHeaderSort, arrivalDateHeaderSort, departureDateHeaderSort, guestNameHeaderSort, channelHeaderSort, ratingHeaderSort }) {
+    public async getReviews({
+        fromDate,
+        toDate,
+        listingId,
+        page,
+        limit,
+        rating,
+        owner,
+        claimResolutionStatus,
+        status,
+        isClaimOnly
+    }) {
         try {
-            let listingIds = [];
-            if (!listingId && owner) {
-                listingIds = await this.getListingIdsByOwnerName(owner);
+            let listingIds: number[] = [];
+
+            // Determine listing IDs from owner name(s) if provided
+            if ((!listingId || listingId.length === 0) && owner) {
+                const ownerNames = Array.isArray(owner) ? owner : [owner];
+                const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
+                listingIds = results.flat();
+            }
+
+            // Add listingId(s) if provided
+            if (listingId && listingId.length > 0) {
+                const ids = Array.isArray(listingId) ? listingId : [listingId];
+                listingIds = listingIds.concat(ids);
             }
 
             const condition: Record<string, any> = {
-                ...(listingId ? { listingMapId: listingId } : {}),
+                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
                 ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
-                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {})
             };
 
             if (fromDate !== undefined && toDate !== undefined) {
@@ -51,39 +71,18 @@ export class ReviewService {
                 reviewDetailCondition.claimResolutionStatus = claimResolutionStatus;
             }
 
-            condition.isHidden = status == "active" ? 0 : 1;
+            if (status === "active") {
+                condition.isHidden = 0;
+            } else if (status === "hidden") {
+                condition.isHidden = 1;
+            }
 
-            // Apply isClaimOnly condition
-            if (isClaimOnly && claimResolutionStatus == undefined) {
+            if (isClaimOnly && claimResolutionStatus === undefined) {
                 reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
-            // Build dynamic order object based on sort parameters
             const order: Record<string, 'ASC' | 'DESC'> = {};
-            
-            if (reviewerNameHeaderSort) {
-                order.reviewerName = reviewerNameHeaderSort;
-            }
-            if (listingHeaderSort) {
-                order.listingName = listingHeaderSort;
-            }
-            if (arrivalDateHeaderSort) {
-                order.arrivalDate = arrivalDateHeaderSort;
-            }
-            if (departureDateHeaderSort) {
-                order.departureDate = departureDateHeaderSort;
-            }
-            if (guestNameHeaderSort) {
-                order.guestName = guestNameHeaderSort;
-            }
-            if (channelHeaderSort) {
-                order.channelName = channelHeaderSort;
-            }
-            if (ratingHeaderSort) {
-                order.rating = ratingHeaderSort;
-            }
 
-            // Apply default sorting if no sort parameters provided
             if (Object.keys(order).length === 0) {
                 order.rating = 'ASC';
                 order.submittedAt = 'DESC';
@@ -100,12 +99,32 @@ export class ReviewService {
                 order
             });
 
-            return { reviews, totalCount };
+            const reviewList = [];
+
+            for (const review of reviews) {
+                const reservationInfoService = new ReservationInfoService();
+                const reservationInfo = await reservationInfoService.getReservationById(review.reservationId);
+
+                if (!reservationInfo) {
+                    logger.warn(`Reservation not found for review with ID: ${review.id}`);
+                }
+
+                const reviewPlain = {
+                    ...review,
+                    guestPhone: reservationInfo?.phone || null,
+                    bookingAmount: reservationInfo?.totalPrice || null,
+                    guestEmail: reservationInfo?.guestEmail || null,
+                };
+                reviewList.push(reviewPlain);
+            }
+
+            return { reviewList, totalCount };
         } catch (error) {
             logger.error(`Failed to get reviews`, error);
             throw error;
         }
     }
+
 
     private async getListingIdsByOwnerName(ownerName: string) {
         const listingIds = await this.ownerInfoRepository

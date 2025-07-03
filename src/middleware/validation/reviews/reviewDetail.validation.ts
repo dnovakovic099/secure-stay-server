@@ -10,7 +10,8 @@ export const validateReviewDetailsRequest = (request: Request, response: Respons
             .required()
             .messages({ 'string.pattern.base': 'dateAttempted must be in the format "yyyy-mm-dd"' }),
         details: Joi.string().required(),
-        result: Joi.string().required().valid('Removed', 'Denied', 'Pending')
+        result: Joi.string().required().valid('Removed', 'Denied', 'Pending'),
+        resolutionAmount: Joi.number().precision(2).allow(null),
     });
 
     const schema = Joi.object({
@@ -21,12 +22,7 @@ export const validateReviewDetailsRequest = (request: Request, response: Respons
         claimResolutionStatus: Joi.string().valid('N/A', 'Pending', 'Completed', 'Denied').allow(null, ''),
         whoUpdated: Joi.string().allow(null, ''),
         removalAttempts: Joi.array().items(removalAttemptSchema).max(3),
-        resolutionAmount: Joi.number().precision(2).allow(null),
         expenseId: Joi.number().allow(null),
-        resolutionDateRequested: Joi.string()
-            .pattern(/^\d{4}-\d{2}-\d{2}$/)
-            .allow(null, '')
-            .messages({ 'string.pattern.base': 'resolutionDateRequested must be in the format "yyyy-mm-dd"' })
     });
 
     const { error } = schema.validate(request.body);

@@ -152,3 +152,43 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
     }
     next();
 };
+
+export const validateBulkUpdateExpense = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        expenseId: Joi.array().items(Joi.number().required()).min(1).required(),
+        expenseDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).required().allow(null),
+        dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).required().allow(null),
+        status: Joi.string().required()
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE).allow(null),
+        paymentMethod: Joi.string().required().allow(null)
+            .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
+        categories: Joi.alternatives().try(
+            Joi.array().items(Joi.number().required()).min(1),
+            Joi.string().custom((value, helpers) => {
+                try {
+                    const parsed = JSON.parse(value);
+                    if (Array.isArray(parsed) && parsed.every(item => typeof item === 'number')) {
+                        return parsed;
+                    } else {
+                        throw new Error();
+                    }
+                } catch (err) {
+                    return helpers.error("any.invalid");
+                }
+            })
+        ).required().allow(null),
+        concept: Joi.string().required().allow(null),
+        listingMapId: Joi.number().required().allow(null),
+        amount: Joi.number().required().allow(null),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};

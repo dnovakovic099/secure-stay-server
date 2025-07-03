@@ -69,8 +69,8 @@ export class ChargeAutomationWebhookService {
                     type: item.title,
                     description: '',
                     booking_id: item.pms_booking_id,
-                    arrival_date: new Date(reservationInfo.arrivalDate),
-                    departure_date: new Date(reservationInfo.departureDate),
+                    arrival_date: reservationInfo.arrivalDate,
+                    departure_date: reservationInfo.departureDate,
                     phone: reservationInfo.phone || 'N/A'
                 };
 

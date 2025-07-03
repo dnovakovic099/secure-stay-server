@@ -14,6 +14,8 @@ import { ResolutionService } from "./ResolutionService";
 import { format } from "date-fns";
 import { ExpenseEntity } from "../entity/Expense";
 import { Resolution } from "../entity/Resolution";
+import { Issue } from "../entity/Issue";
+import { RefundRequestService } from "./RefundRequestService";
 
 export class ReviewDetailService {
     private reviewDetailRepository = appDatabase.getRepository(ReviewDetailEntity);
@@ -22,6 +24,7 @@ export class ReviewDetailService {
     private removalAttemptRepository = appDatabase.getRepository(RemovalAttemptEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private resolutionRepository = appDatabase.getRepository(Resolution);
+    private issueRepo = appDatabase.getRepository(Issue);
     private expenseService = new ExpenseService();
     private resolutionService = new ResolutionService();
 
@@ -119,6 +122,73 @@ export class ReviewDetailService {
         return await this.resolutionService.updateResolution(resolutionData, userId);
     }
 
+    private async createRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, review: ReviewEntity, userId: string) {
+        //find the issueId and requestedBy
+        const issueIds = await this.issueRepo.find({
+            where: {
+                reservation_id: String(review.reservationId),
+            }
+        }).then(issues => issues.map(issue => issue.id));
+
+        const requestedBy = await this.getUserName(userId);
+
+        const refundRequest = {
+            reservationId: review.reservationId,
+            listingId: review.listingMapId,
+            guestName: review.guestName,
+            listingName: review.listingName,
+            checkIn: review.arrivalDate,
+            checkOut: review.departureDate,
+            issueId: JSON.stringify(issueIds),
+            explaination: attempt.details,
+            refundAmount: attempt.resolutionAmount || 0,
+            requestedBy: requestedBy,
+            status: 'Pending',
+            notes: '',
+            attachments: null,
+            createdBy: userId
+        };
+
+        const refundRequestService = new RefundRequestService();
+        const refundRequst= await refundRequestService.saveRefundRequest(refundRequest, userId, []);
+        if (!refundRequst) {
+            logger.info('Error creating refund request');
+            return null;
+        }
+        return refundRequst.id;
+    }
+
+    private async updateRefundRequestForRemovalAttempt(attempt: RemovalAttemptEntity, refundRequestId: number, review: ReviewEntity, userId: string) {
+        //find the issueId and requestedBy
+        const issueIds = await this.issueRepo.find({
+            where: {
+                reservation_id: String(review.reservationId),
+            }
+        }).then(issues => issues.map(issue => issue.id));
+
+
+        const refundRequest = {
+            reservationId: review.reservationId,
+            listingId: review.listingMapId,
+            guestName: review.guestName,
+            listingName: review.listingName,
+            checkIn: review.arrivalDate,
+            checkOut: review.departureDate,
+            issueId: JSON.stringify(issueIds),
+            explaination: attempt.details,
+            refundAmount: attempt.resolutionAmount || 0,
+        };
+
+        const refundRequestService = new RefundRequestService();
+        const existingRefundRequest = await refundRequestService.getRefundRequestById(refundRequestId);
+        const refundRequst = await refundRequestService.saveRefundRequest(refundRequest, userId, [], existingRefundRequest);
+        if (!refundRequst) {
+            logger.info('Error updating refund request');
+            return null;
+        }
+        return refundRequst.id;
+    }
+
     public async saveReviewDetail(reviewId: string, details: Partial<ReviewDetailEntity>, userId: string) {
         try {
             const review = await this.reviewRepository.findOne({ where: { id: reviewId } });
@@ -150,29 +220,88 @@ export class ReviewDetailService {
 
             // Save removal attempts if any
             if (details.removalAttempts && details.removalAttempts.length > 0) {
-                const removalAttempts = details.removalAttempts.map(attempt => 
-                    this.removalAttemptRepository.create({
+                const removalAttempts = details.removalAttempts.map(async (attempt) => {
+                    const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, review, userId);
+                    return this.removalAttemptRepository.create({
                         ...attempt,
                         reviewDetailId: savedReviewDetail.id,
+                        refundRequestId: refundRequestId,
                         createdBy: userId
-                    })
-                );
-                await this.removalAttemptRepository.save(removalAttempts);
+                    });
+                });
+
+                // Resolve all promises to get the removal attempts
+                const resolvedRemovalAttempts = await Promise.all(removalAttempts);
+
+                await this.removalAttemptRepository.save(resolvedRemovalAttempts);
             }
 
             // Create expense and resolution if resolution amount is provided
-            if (details.resolutionAmount) {
-                const expense = await this.createExpenseForResolution(savedReviewDetail, userId);
-                const resolution = await this.createResolutionForReview(savedReviewDetail, userId);
-                savedReviewDetail.expenseId = expense.id;  
-                savedReviewDetail.resolutionId = resolution.id;
-                await this.reviewDetailRepository.save(savedReviewDetail);
-            }
+            // if (details.resolutionAmount) {
+            //     const expense = await this.createExpenseForResolution(savedReviewDetail, userId);
+            //     const resolution = await this.createResolutionForReview(savedReviewDetail, userId);
+            //     savedReviewDetail.expenseId = expense.id;  
+            //     savedReviewDetail.resolutionId = resolution.id;
+            //     await this.reviewDetailRepository.save(savedReviewDetail);
+            // }
 
             return this.getReviewDetailWithAttempts(savedReviewDetail.id);
         } catch (error) {
             logger.error(`Error saving review detail: ${error.message}`);
             throw error;
+        }
+    }
+
+    private async handleUpdateCaseForExistingAtempt(attempt: RemovalAttemptEntity, reviewDetailId: number, review: ReviewEntity, userId: string) {
+        const existingAttempt = await this.removalAttemptRepository.findOne({ where: { id: attempt.id } });
+        if (existingAttempt.resolutionAmount) {
+            //CASE 1: if resolution amount was present previously and now updated with some other value
+            if (attempt.resolutionAmount !== existingAttempt.resolutionAmount) {
+                const refundRequestId = await this.updateRefundRequestForRemovalAttempt(attempt, existingAttempt.refundRequestId, review, userId);
+                Object.assign(existingAttempt, {
+                    ...attempt,
+                    reviewDetailId: reviewDetailId,
+                    refundRequestId: refundRequestId,
+                    updatedBy: userId,
+                    updatedAt: new Date()
+                });
+            } else if (!attempt.resolutionAmount) {
+                //CASE 2: if resolution amount was present previously and now removed
+                //delete the existing refund request and update the refundRequestId to null in attempt
+                const refundRequestId = existingAttempt.refundRequestId;
+                if (refundRequestId) {
+                    const refundRequestService = new RefundRequestService();
+                    await refundRequestService.deleteRefundRequest(refundRequestId, userId);
+                }
+                Object.assign(existingAttempt, {
+                    ...attempt,
+                    reviewDetailId: reviewDetailId,
+                    refundRequestId: null,
+                    updatedBy: userId,
+                    updatedAt: new Date()
+                });
+            } else {
+                //CASE 4: if resolution amount was present previously and now updated with the same value
+                Object.assign(existingAttempt, {
+                    ...attempt,
+                    reviewDetailId: reviewDetailId,
+                    updatedBy: userId,
+                    updatedAt: new Date()
+                });
+            }
+
+            return this.removalAttemptRepository.save(existingAttempt);
+        } else {
+            //CASE 3: if resolution amount was not present previously and now added
+            const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, review, userId);
+            Object.assign(existingAttempt, {
+                ...attempt,
+                reviewDetailId: reviewDetailId,
+                refundRequestId: refundRequestId,
+                createdBy: userId,
+                createdAt: new Date()
+            });
+            return this.removalAttemptRepository.save(existingAttempt);
         }
     }
 
@@ -205,45 +334,6 @@ export class ReviewDetailService {
 
             const userName = await this.getUserName(userId);
 
-            // Handle resolution amount changes
-            const currentResolutionAmount = reviewDetail.resolutionAmount;
-            const newResolutionAmount = updatedDetails.resolutionAmount;
-            console.log({currentResolutionAmount, newResolutionAmount}, 'currentResolutionAmount, newResolutionAmount');
-
-            // Case 1: Resolution amount was not present and now being provided
-            if (!currentResolutionAmount && newResolutionAmount) {
-                const expense = await this.createExpenseForResolution({...reviewDetail, resolutionAmount: newResolutionAmount}, userId);
-                const resolution = await this.createResolutionForReview({ ...reviewDetail, resolutionAmount: newResolutionAmount }, userId);
-                reviewDetail.expenseId = expense.id;
-                reviewDetail.resolutionId = resolution.id;
-            }
-            // Case 2: Resolution amount was present and remains unchanged - do nothing
-            else if (currentResolutionAmount === newResolutionAmount) {
-                // No action needed
-            }
-            // Case 3: Resolution amount was present and now removed
-            else if (currentResolutionAmount && !newResolutionAmount) {
-                if (reviewDetail.expenseId) {
-                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    await this.expenseService.deleteExpense(expense.expenseId, userId);
-                    await this.resolutionService.deleteResolution(reviewDetail.resolutionId, userId);
-                    reviewDetail.expenseId = null;
-                    reviewDetail.resolutionId = null;
-                }
-            }
-            // Case 4: Resolution amount was present and changed
-            else if (currentResolutionAmount && newResolutionAmount && currentResolutionAmount !== newResolutionAmount) {
-                if (reviewDetail.expenseId) {
-                    const expense = await this.expenseService.getExpense(reviewDetail.expenseId);
-                    // Update expense with updated amount
-                    await this.updateExpenseForResolution(expense, updatedDetails.resolutionAmount, userId);   
-                }
-                if (reviewDetail.resolutionId) {
-                    const resolution = await this.resolutionRepository.findOne({ where: { id: reviewDetail.resolutionId } });
-                    //Update resolution with updated amount
-                    await this.updateResolutionForReview(resolution, updatedDetails.resolutionAmount, userId);
-                }
-            }
 
             // Update the review detail itself
             Object.assign(reviewDetail, {
@@ -259,18 +349,23 @@ export class ReviewDetailService {
 
             // Update removal attempts
             if (updatedDetails.removalAttempts) {
-                // Delete existing attempts
-                await this.removalAttemptRepository.delete({ reviewDetailId: reviewDetail.id });
-                
-                // Create new attempts
-                const removalAttempts = updatedDetails.removalAttempts.map(attempt => 
-                    this.removalAttemptRepository.create({
-                        ...attempt,
-                        reviewDetailId: reviewDetail.id,
-                        createdBy: userId
-                    })
-                );
-                await this.removalAttemptRepository.save(removalAttempts);
+                const removalAttempts = updatedDetails.removalAttempts.map(async (attempt) => {
+                    if (attempt.id) {
+                        return await this.handleUpdateCaseForExistingAtempt(attempt, reviewDetail.id, reviewDetail.review, userId);
+                    } else {
+                        const refundRequestId = attempt.resolutionAmount && await this.createRefundRequestForRemovalAttempt(attempt, reviewDetail.review, userId);
+                        const newAttempt = this.removalAttemptRepository.create({
+                            ...attempt,
+                            reviewDetailId: reviewDetail.id,
+                            refundRequestId: refundRequestId,
+                            createdBy: userId
+                        });
+                        return await this.removalAttemptRepository.save(newAttempt);
+                    }
+                });
+
+                // Resolve all promises to get the removal attempts
+                await Promise.all(removalAttempts);
             }
 
             return this.getReviewDetailWithAttempts(reviewDetail.id);

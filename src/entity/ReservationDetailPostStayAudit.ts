@@ -186,4 +186,7 @@ export class ReservationDetailPostStayAudit {
 
     @Column({ nullable: true })
     updatedBy: string;
+
+    @Column({ nullable: true, type: 'text' })
+    approvedUpsells: string;
 } 
