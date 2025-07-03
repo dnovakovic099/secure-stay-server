@@ -3,6 +3,7 @@ import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { UsersEntity } from "../entity/Users";
 
 interface LatestUpdates {
     id?: number;
@@ -24,6 +25,7 @@ interface ClientTicketFilter {
 export class ClientTicketService {
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
+    private usersRepo = appDatabase.getRepository(UsersEntity)
 
 
     private async createClientTicket(ticketData: Partial<ClientTicket>, userId: string) {
@@ -63,6 +65,9 @@ export class ClientTicketService {
     public async getClientTicket(body: ClientTicketFilter) {
         const { status, listingId, category, fromDate, toDate, page, limit } = body;
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
         const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
             where: {
                 ...(status && status.length > 0 && { status: In(status) }),
@@ -75,8 +80,19 @@ export class ClientTicketService {
             take: limit,
         });
 
+        const transformedTickets = clientTickets.map(ticket => {
+            return {
+                ...ticket,
+                createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
+                clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                })),
+            };
+        });
+
         return {
-            clientTickets,
+            clientTickets: transformedTickets,
             total
         };
     }
