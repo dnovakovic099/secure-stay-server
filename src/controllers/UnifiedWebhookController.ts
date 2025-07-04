@@ -9,6 +9,7 @@ import { RefundRequestService } from "../services/RefundRequestService";
 import { IssuesService } from "../services/IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
+import { ActionItemsService } from "../services/ActionItemsService";
 
 export class UnifiedWebhookController {
 
@@ -165,6 +166,15 @@ export class UnifiedWebhookController {
                         await this.handleCreateIssue(item);
                         break;
                     }
+                    case "RESERVATION CHANGES":
+                    case "GUEST REQUESTS":
+                    case "KNOWLEDGE BASE SUGGESTIONS":
+                    case "OTHER": {
+                        logger.info(`[handleHostBuddyWebhook]Creating action item: ${JSON.stringify(item)}`);
+                        const actionItemsService = new ActionItemsService();
+                        await actionItemsService.createAtionItemFromHostbuddy(item);
+                        break;
+                    } 
                     default:
                         break;
                 }

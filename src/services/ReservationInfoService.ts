@@ -189,7 +189,7 @@ export class ReservationInfoService {
     listingMapId: string[] | undefined,
     guestName: string | undefined,
     page: number,
-    limit: number 
+    limit: number
   ) {
 
 
@@ -206,7 +206,7 @@ export class ReservationInfoService {
     // 2) Future records (arrivalDate > today), ascending
     const qbFuture = this.buildBaseQuery(guestName);
     if (listingMapId && listingMapId.length > 0) {
-      qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+      qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today: todayDateStr });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
@@ -218,7 +218,7 @@ export class ReservationInfoService {
     // 3) Past records (arrivalDate < today), descending
     const qbPast = this.buildBaseQuery(guestName);
     if (listingMapId && listingMapId.length > 0) {
-      qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+      qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today: todayDateStr });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
@@ -519,7 +519,7 @@ export class ReservationInfoService {
     if (searchKeys && searchKeys.length > 0) {
       searchKey = searchKeys[searchKeys.length - 1];
     }
-    
+
     let subject = `Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
     if(isUpdated){
       subject = `Updated: Airbnb Closed Resolution Sum - ${reservation?.guestName} - ${searchKey}`;
@@ -570,7 +570,7 @@ export class ReservationInfoService {
         logger.error(`Failed to send email to recipient #${index}`, result?.reason);
       }
     });
-    
+
   }
 
   async notifyMobileUser(reservation: any) {
