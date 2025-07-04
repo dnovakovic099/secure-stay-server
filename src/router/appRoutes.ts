@@ -25,6 +25,7 @@ import refundRequestRoutes from "./refundRequestRoutes";
 import reportsRoutes from "./reportsRoutes";
 import ownerPortalRoutes from "./ownerPortalRoutes";
 import taskRoutes from "./tasksRoutes";
+import clientTicketRoutes from "./clientTicketRoutes";
 
 import actionItemsRoutes from "./actionItemsRoutes";
 const router = Router();
@@ -55,6 +56,7 @@ router.use("/reservation-info", reservationInfoRoutes);
 router.use("/owner", ownerInfoRoutes)
 router.use('/refund-request', refundRequestRoutes)
 router.use('/owner-portal', ownerPortalRoutes)
+router.use('/client-ticket', clientTicketRoutes);
 
 router.use('/action-items', actionItemsRoutes);
 
