@@ -11,7 +11,7 @@ export class ActionItemsController {
             const actionItemsService = new ActionItemsService();
             const { category, page = 1, limit = 10 } = request.query;
             const filter = {
-                category: category ? String(category) : undefined,
+                category: category || undefined,
                 page: Number(page),
                 limit: Number(limit),
                 listingId: request.query.listingId || undefined,

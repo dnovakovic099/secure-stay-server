@@ -72,7 +72,7 @@ export class ActionItemsService {
         } = filter;
 
         const whereConditions = {
-            ...(category && { category }),
+            ...(category && { category: In(category) }),
             ...(listingId?.length > 0 && { listingId: In(listingId) }),
             ...(guestName && { guestName }),
             ...(status && { status: In(status) }),
