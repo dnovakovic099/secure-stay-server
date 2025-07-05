@@ -48,6 +48,23 @@ export class ClientTicketService {
         return await this.clientTicketUpdateRepo.save(updatesToSave);
     }
 
+    public async saveClientTicketUpdates(body: any, userId: string) {
+        const { ticketId, updates } = body;
+
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id: ticketId } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`Client ticket with id ${ticketId} not found`);
+        }
+
+        const newUpdate = this.clientTicketUpdateRepo.create({
+            updates,
+            clientTicket,
+            createdBy: userId
+        });
+
+        return await this.clientTicketUpdateRepo.save(newUpdate);
+    }
+
     public async saveClientTicketWithUpdates(body: any, userId: string) {
         const { latestUpdates } = body;
         const ticketData: Partial<ClientTicket> = {
@@ -200,6 +217,33 @@ export class ClientTicketService {
 
         await this.clientTicketRepo.save(clientTicket);
         return clientTicket;
+    }
+
+
+    public async updateTicketUpdates(body: any, userId: string) {
+        const { id, updates } = body;
+        const ticketUpdates = await this.clientTicketUpdateRepo.findOne({ where: { id } });
+        if (!ticketUpdates) {
+            throw CustomErrorHandler.notFound(`Ticket update with ${id} not found.`);
+        }
+
+        ticketUpdates.updates = updates;
+        ticketUpdates.updatedBy = userId;
+
+        return await this.clientTicketUpdateRepo.save(ticketUpdates);
+    }
+
+    public async deleteClientTicketUpdate(id: number, userId: string) {
+        const clientTicketUpdate = await this.clientTicketUpdateRepo.findOne({ where: { id } });
+        if (!clientTicketUpdate) {
+            throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
+        }
+
+        clientTicketUpdate.deletedBy = userId;
+        clientTicketUpdate.deletedAt = new Date();
+        await this.clientTicketUpdateRepo.save(clientTicketUpdate);
+
+        return { message: `Client ticket update with ID ${id} deleted successfully.` };
     }
 
 }
