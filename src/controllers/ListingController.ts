@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { ListingService } from "../services/ListingService";
 import { dataSaved, successDataFetch } from "../helpers/response";
+import { tagIds } from "../constant";
 
 interface CustomRequest extends Request {
   user?: any;
@@ -151,6 +152,19 @@ export class ListingController {
       const listingDetail = await listingService.getListingDetail(listingId);
 
       return response.status(200).json(successDataFetch(listingDetail));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getPmListings(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user.id;
+
+      const pmListings = await listingService.getListingsByTagIds([tagIds.PM],userId);
+
+      return response.status(200).json(successDataFetch(pmListings));
     } catch (error) {
       return next(error);
     }

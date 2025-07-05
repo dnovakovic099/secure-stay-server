@@ -65,5 +65,11 @@ router.route('/getupdates/:listingId')
     listingController.getListingUpdates
   )
 
+router.route('/getpmlistings')
+.get(
+  verifySession,
+  listingController.getPmListings
+)
+
 
 export default router;

@@ -5,6 +5,7 @@ import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
+import { tagIds } from "../constant";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -129,7 +130,7 @@ export class UpsellOrderService {
         const categories = JSON.stringify([19780]);
 
         const listingService = new ListingService();
-        const pmListings = await listingService.getListingsByTagIds([62778]);
+        const pmListings = await listingService.getListingsByTagIds([tagIds.PM]);
         const isPmListing = pmListings.some(listing => listing.id == Number(upsell.listing_id));
 
         let netAmount = 0;
