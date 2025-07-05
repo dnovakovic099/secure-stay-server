@@ -8,7 +8,7 @@ export const validateCreateActionItems = (request: Request, response: Response, 
         item: Joi.string().required(),
         category: Joi.string().required()
             .valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER"),
-        status: Joi.string().valid('incomplete', 'completed', 'expired').required(),
+        status: Joi.string().valid('incomplete', 'completed', 'expired','in progress').required(),
         listingName: Joi.string().required(),
         reservationId: Joi.string().required(),
     });
@@ -28,7 +28,7 @@ export const validateUpdateActionItems = (request: Request, response: Response, 
         item: Joi.string().required(),
         category: Joi.string().required()
             .valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER"),
-        status: Joi.string().valid('incomplete', 'completed', 'expired').required(),
+        status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
         listingName: Joi.string().required(),
         reservationId: Joi.string().required(),
     });
@@ -47,7 +47,7 @@ export const getActionItemsValidation = (request: Request, response: Response, n
         limit: Joi.number().integer().min(1).default(10),
         listingId: Joi.array().items(Joi.string()).min(1).optional(),
         guestName: Joi.string().optional(),
-        status: Joi.array().items(Joi.string().valid('incomplete', 'completed', 'expired')).min(1).optional(),
+        status: Joi.array().items(Joi.string().valid('incomplete', 'completed', 'expired', 'in progress')).min(1).optional(),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
