@@ -8,6 +8,10 @@ import { Between, In } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
+import { ReservationInfoService } from "./ReservationInfoService";
+import { ReservationService } from "./ReservationService";
+import { Issue } from "../entity/Issue";
+import { IssuesService } from "./IssuesService";
 
 interface ActionItemFilter {
     category?: string;
@@ -198,6 +202,53 @@ export class ActionItemsService {
         existingActionItemUpdate.deletedAt = new Date();
 
         return await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
+    }
+
+    async migrateActionItemsToIssues(actionItemId: number, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id: actionItemId } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`Action item with ID ${actionItemId} not found`);
+        }
+
+        const reservationInfoService = new ReservationInfoService();
+        const reservationInfo = await reservationInfoService.getReservationById(actionItem.reservationId);
+        if (!reservationInfo) {
+            logger.warn(`[migrateActionItemsToIssues] No reservation info found for guest: ${actionItem.guestName}`);
+            throw CustomErrorHandler.notFound(`Reservation info for guest ${actionItem.guestName} not found`);
+        }
+
+        const reservationService = new ReservationService();
+        const channels = await reservationService.getChannelList();
+        const channel = channels.find(c => c.channelId === reservationInfo.channelId).channelName;
+        const creator = "Hostbuddy";
+
+        const data: Partial<Issue> = {
+            channel,
+            listing_id: String(reservationInfo.listingMapId),
+            check_in_date: reservationInfo.arrivalDate,
+            reservation_amount: Number(reservationInfo.totalPrice),
+            guest_name: reservationInfo.guestName,
+            guest_contact_number: reservationInfo.phone,
+            issue_description: actionItem.item,
+            creator,
+            status: "New",
+            reservation_id: String(reservationInfo.id),
+            claim_resolution_status: "N/A",
+            estimated_reasonable_price: 0,
+            final_price: 0,
+            claim_resolution_amount: 0
+        };
+
+        try {
+            const issueService = new IssuesService();
+            const issue = await issueService.createIssue(data, creator, []);
+            logger.info(`[migrateActionItemsToIssues] Issue created successfully`);
+            await this.deleteActionItem(actionItemId, userId);
+            logger.info(`[migrateActionItemsToIssues] Action item with ID ${actionItemId} deleted successfully after migrating to issue ${issue?.id}`);
+            return issue;
+        } catch (error) {
+            logger.error(`[migrateActionItemsToIssues] Error creating issue: ${error.message}`);
+        }
     }
 
 }

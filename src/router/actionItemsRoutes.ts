@@ -31,4 +31,8 @@ router
     .route('/lastestupdates/delete/:id')
     .delete(verifySession, categoryController.deleteActionItemsUpdates);
 
+router
+    .route('/migrate-action-items-to-issues/:actionItemId')
+    .get(verifySession, categoryController.migrateActionItemsToIssues);
+
 export default router;
