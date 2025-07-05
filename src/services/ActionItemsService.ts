@@ -7,6 +7,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { Between, In } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
+import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 
 interface ActionItemFilter {
     category?: string;
@@ -32,6 +33,7 @@ export class ActionItemsService {
     private listingRepo = appDatabase.getRepository(Listing);
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private actionItemsUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
 
     async createAtionItemFromHostbuddy(actionItems: HostBuddyActionItem) {
         const { property_name, guest_name, category, status, item } = actionItems;
@@ -91,6 +93,7 @@ export class ActionItemsService {
         const [actionItems, total] = await this.actionItemsRepo.findAndCount({
             where: whereConditions,
             skip: (page - 1) * limit,
+            relations: ["actionItemUpdates"],
             take: limit,
             order: { createdAt: 'DESC' },
         });
@@ -154,5 +157,47 @@ export class ActionItemsService {
         return await this.actionItemsRepo.save(existingActionItem);
     }
 
+
+    async createActionItemsUpdates(body: any, userId: string) {
+        const { actionItemId, updates } = body;
+
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id: actionItemId } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`Action item with ID ${actionItemId} not found`);
+        }
+
+        const newUpdate = this.actionItemsUpdatesRepo.create({
+            actionItems: actionItem,
+            updates: updates,
+            createdBy: userId,
+        });
+
+        return await this.actionItemsUpdatesRepo.save(newUpdate);
+    }
+
+    async updateActionItemsUpdates(body: any, userId: string) {
+        const { id, updates } = body;
+
+        const existingActionItemUpdate = await this.actionItemsUpdatesRepo.findOne({ where: { id } });
+        if (!existingActionItemUpdate) {
+            throw CustomErrorHandler.notFound(`Action item update with ID ${id} not found`);
+        }
+        existingActionItemUpdate.updates = updates;
+        existingActionItemUpdate.updatedBy = userId;
+
+        return await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
+    }
+
+    async deleteActionItemsUpdates(id: number, userId: string) {
+        const existingActionItemUpdate = await this.actionItemsUpdatesRepo.findOne({ where: { id } });
+        if (!existingActionItemUpdate) {
+            throw CustomErrorHandler.notFound(`Action item update with ID ${id} not found`);
+        }
+
+        existingActionItemUpdate.deletedBy = userId;
+        existingActionItemUpdate.deletedAt = new Date();
+
+        return await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
+    }
 
 }

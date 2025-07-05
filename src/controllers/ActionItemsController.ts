@@ -76,4 +76,46 @@ export class ActionItemsController {
         }
     }
 
+    async createActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            const updates = await actionItemsService.createActionItemsUpdates(body, userId);
+
+            return response.status(201).json(updates);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            const updatedUpdates = await actionItemsService.updateActionItemsUpdates(body, userId);
+
+            return response.status(200).json(updatedUpdates);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { id } = request.params;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            await actionItemsService.deleteActionItemsUpdates(Number(id), userId);
+
+            return response.status(200).json({ message: "Action item updates deleted successfully" });
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }

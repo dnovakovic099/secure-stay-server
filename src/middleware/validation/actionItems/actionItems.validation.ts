@@ -71,3 +71,29 @@ export const getActionItemsValidation = (request: Request, response: Response, n
     next();
 }
 
+export const validateCreateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        actionItemId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
