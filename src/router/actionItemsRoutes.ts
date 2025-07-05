@@ -2,7 +2,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ActionItemsController } from "../controllers/ActionItemsController";
-import { getActionItemsValidation, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate } from "../middleware/validation/actionItems/actionItems.validation";
+import { getActionItemsValidation, validateActionItemMigrationToIssue, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate } from "../middleware/validation/actionItems/actionItems.validation";
 
 const router = Router();
 const categoryController = new ActionItemsController();
@@ -33,6 +33,6 @@ router
 
 router
     .route('/migrate-action-items-to-issues/:actionItemId')
-    .get(verifySession, categoryController.migrateActionItemsToIssues);
+    .post(verifySession, validateActionItemMigrationToIssue, categoryController.migrateActionItemsToIssues);
 
 export default router;

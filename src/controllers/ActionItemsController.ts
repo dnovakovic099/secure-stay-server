@@ -120,11 +120,10 @@ export class ActionItemsController {
 
     async migrateActionItemsToIssues(request: CustomRequest, response: Response, next: NextFunction) {
         try {
-            const { actionItemId } = request.params;
             const userId = request.user?.id;
 
             const actionItemsService = new ActionItemsService();
-            const migratedIssue = await actionItemsService.migrateActionItemsToIssues(Number(actionItemId), userId);
+            const migratedIssue = await actionItemsService.migrateActionItemsToIssues(request.body, userId);
 
             if (!migratedIssue) {
                 return response.status(404).json({ message: "Migration Failed" });

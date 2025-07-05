@@ -204,10 +204,12 @@ export class ActionItemsService {
         return await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
     }
 
-    async migrateActionItemsToIssues(actionItemId: number, userId: string) {
-        const actionItem = await this.actionItemsRepo.findOne({ where: { id: actionItemId } });
+    async migrateActionItemsToIssues(body: any, userId: string) {
+        const { id, status } = body;
+
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
         if (!actionItem) {
-            throw CustomErrorHandler.notFound(`Action item with ID ${actionItemId} not found`);
+            throw CustomErrorHandler.notFound(`Action item with ID ${id} not found`);
         }
 
         const reservationInfoService = new ReservationInfoService();
@@ -231,7 +233,7 @@ export class ActionItemsService {
             guest_contact_number: reservationInfo.phone,
             issue_description: `[MOVED FROM ACTION ITEM]  ${actionItem.item}`,
             creator,
-            status: "New",
+            status: status,
             reservation_id: String(reservationInfo.id),
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
@@ -243,8 +245,8 @@ export class ActionItemsService {
             const issueService = new IssuesService();
             const issue = await issueService.createIssue(data, creator, []);
             logger.info(`[migrateActionItemsToIssues] Issue created successfully`);
-            await this.deleteActionItem(actionItemId, userId);
-            logger.info(`[migrateActionItemsToIssues] Action item with ID ${actionItemId} deleted successfully after migrating to issue ${issue?.id}`);
+            await this.deleteActionItem(id, userId);
+            logger.info(`[migrateActionItemsToIssues] Action item with ID ${id} deleted successfully after migrating to issue ${issue?.id}`);
             return issue;
         } catch (error) {
             logger.error(`[migrateActionItemsToIssues] Error creating issue: ${error.message}`);
