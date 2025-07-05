@@ -93,7 +93,7 @@ export class ActionItemsService {
         const [actionItems, total] = await this.actionItemsRepo.findAndCount({
             where: whereConditions,
             skip: (page - 1) * limit,
-            relations: ["actionItemUpdates"],
+            relations: ["actionItemsUpdates"],
             take: limit,
             order: { createdAt: 'DESC' },
         });
