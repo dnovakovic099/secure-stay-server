@@ -229,7 +229,7 @@ export class ActionItemsService {
             reservation_amount: Number(reservationInfo.totalPrice),
             guest_name: reservationInfo.guestName,
             guest_contact_number: reservationInfo.phone,
-            issue_description: actionItem.item,
+            issue_description: `[MOVED FROM ACTION ITEM]  ${actionItem.item}`,
             creator,
             status: "New",
             reservation_id: String(reservationInfo.id),
