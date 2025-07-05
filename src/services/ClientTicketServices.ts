@@ -53,7 +53,7 @@ export class ClientTicketService {
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
-            category: body.category,
+            category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
         };
@@ -147,7 +147,7 @@ export class ClientTicketService {
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
-            category: body.category,
+            category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
         };
