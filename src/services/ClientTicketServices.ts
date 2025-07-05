@@ -4,6 +4,11 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
+import { buildClientTicketSlackMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
+import { SlackMessageService } from "./SlackMessageService";
+import logger from "../utils/logger.utils";
+import { Listing } from "../entity/Listing";
 
 interface LatestUpdates {
     id?: number;
@@ -25,7 +30,8 @@ interface ClientTicketFilter {
 export class ClientTicketService {
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
-    private usersRepo = appDatabase.getRepository(UsersEntity)
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+    private listingRepo = appDatabase.getRepository(Listing);
 
 
     private async createClientTicket(ticketData: Partial<ClientTicket>, userId: string) {
@@ -76,7 +82,37 @@ export class ClientTicketService {
         };
         const clientTicket = await this.createClientTicket(ticketData, userId);
         latestUpdates && await this.createClientTicketUpdates(clientTicket, latestUpdates, userId);
+        await this.sendSlackMessage(clientTicket, userId);
         return clientTicket;
+    }
+
+    private async sendSlackMessage(ticket: ClientTicket, userId: string) {
+        try {
+            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+
+            const listingInfo = await this.listingRepo.findOne({
+                where: {
+                    id: Number(ticket.listingId),
+                    userId: userId
+                }
+            });
+
+            const slackMessageService = new SlackMessageService();
+            const slackMessage = buildClientTicketSlackMessage(ticket, user, listingInfo?.internalListingName);
+            const slackResponse = await sendSlackMessage(slackMessage);
+
+            await slackMessageService.saveSlackMessageInfo({
+                channel: slackResponse.channel,
+                messageTs: slackResponse.ts,
+                threadTs: slackResponse.ts,
+                entityType: "client_ticket",
+                entityId: ticket.id,
+                originalMessage: JSON.stringify(slackMessage)
+            });
+        } catch (error) {
+            logger.error("Slack creation failed", error);
+        }
     }
 
     public async getClientTicket(body: ClientTicketFilter) {
