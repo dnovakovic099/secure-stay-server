@@ -106,9 +106,11 @@ export class ActionItemsService {
             return {
                 ...actionItem,
                 createdBy: userMap.get(actionItem.createdBy) || actionItem.createdBy,
+                updatedBy: userMap.get(actionItem.updatedBy) || actionItem.updatedBy,
                 actionItemsUpdates: actionItem.actionItemsUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy
                 })),
             };
         });
@@ -178,7 +180,11 @@ export class ActionItemsService {
             createdBy: userId,
         });
 
-        return await this.actionItemsUpdatesRepo.save(newUpdate);
+        const result = await this.actionItemsUpdatesRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        return result;
     }
 
     async updateActionItemsUpdates(body: any, userId: string) {
@@ -191,7 +197,11 @@ export class ActionItemsService {
         existingActionItemUpdate.updates = updates;
         existingActionItemUpdate.updatedBy = userId;
 
-        return await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
+        const result = await this.actionItemsUpdatesRepo.save(existingActionItemUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        return result;
     }
 
     async deleteActionItemsUpdates(id: number, userId: string) {
@@ -253,6 +263,17 @@ export class ActionItemsService {
         } catch (error) {
             logger.error(`[migrateActionItemsToIssues] Error creating issue: ${error.message}`);
         }
+    }
+
+    async updateActionItemStatus(id: number, status: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            logger.error(`[updateActionItemStatus] Action item with id ${id} not found.`);
+            return null;
+        }
+        actionItem.status = status;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
     }
 
 }

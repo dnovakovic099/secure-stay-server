@@ -70,4 +70,5 @@ export const ownerDetails = {
 export const slackInteractivityEventNames={
     APPROVE_REFUND_REQUEST: "approve_refund_request",
     DENY_REFUND_REQUEST: "deny_refund_request",
+    UPDATE_ACTION_ITEM_STATUS: "update_action_item_status"
 }

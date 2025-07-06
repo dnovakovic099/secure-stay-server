@@ -49,7 +49,8 @@ export class ReservationInfoService {
       }, 5 * 60 * 1000);  //delay the notification by 5 min 
     }
 
-    const newReservation = this.reservationInfoRepository.create(reservation);
+    const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
+    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
