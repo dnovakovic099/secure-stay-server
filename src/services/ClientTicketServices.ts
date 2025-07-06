@@ -119,7 +119,7 @@ export class ClientTicketService {
         const transformedTickets = clientTickets.map(ticket => {
             return {
                 ...ticket,
-                listingName: listings.find((listing) => listing.id == Number(ticket.listingId)).internalListingName,
+                listingName: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
                 updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
