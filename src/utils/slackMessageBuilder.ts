@@ -1,4 +1,6 @@
 import { slackInteractivityEventNames } from "../constant";
+import { ActionItems } from "../entity/ActionItems";
+import { ClientTicket } from "../entity/ClientTicket";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
@@ -6,6 +8,8 @@ import { formatCurrency } from "../helpers/helpers";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
+const CLIENT_RELATIONS = "#client-relations";
+const GUEST_RELATIONS = "#guest-relations";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -233,35 +237,6 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
     };
 }
 
-export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string, listingName: string) => {
-    return {
-        channel: CLIENT_RELATIONS,
-        text: `New Client Ticket has been created for 🏠 ${listingName}`,
-        blocks: [
-            {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*New Client Ticket: 🏠 ${listingName}*`
-                }
-            },
-            {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Description:*\n${ticket.description}` },
-                ]
-            },
-            {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Categories:* ${JSON.parse(ticket.category).join(', ')}` },
-                    { type: "mrkdwn", text: `*Created By:* ${user}` }
-                ]
-            },
-        ]
-    };
-}
-
 export const buildActionItemsSlackMessage = (
     actionItems: ActionItems,
     user: string,
@@ -394,4 +369,5 @@ export const buildActionItemStatusUpdateMessage = (actionItem: ActionItems, user
 
     return slackMessage;
 };
+
 
