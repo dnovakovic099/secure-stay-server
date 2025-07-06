@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { IssuesController } from "../controllers/IssuesController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateIssue, validateUpdateIssue } from "../middleware/validation/issues/issues.validation";
+import { validateCreateIssue, validateIssueMigrationToActionItem, validateUpdateIssue } from "../middleware/validation/issues/issues.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -46,5 +46,7 @@ router.route('/reservation/:reservationId').get(verifySession, issuesController.
 router.route('/attachment/:fileName').get(issuesController.getAttachment);
 
 router.route('/unresolved').get(verifySession, issuesController.getUnresolvedIssues);
+
+router.route('/migrate-issues-to-action-items').post(verifySession, validateIssueMigrationToActionItem, issuesController.migrateIssuesToActionItems)
 
 export default router;

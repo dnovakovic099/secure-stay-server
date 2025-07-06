@@ -4,9 +4,12 @@ import { Between, Not, LessThan, In, MoreThan } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { ActionItems } from "../entity/ActionItems";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
+    private actionItemRepo = appDatabase.getRepository(ActionItems);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -244,5 +247,31 @@ export class IssuesService {
                 status: Not('Completed')
             } 
         });
+    }
+
+    async migrateIssueToActionItems(body: any, userId: string) {
+        const { id, category, status } = body;
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+
+        // Create a new action item based on the issue
+        const actionItem: Partial<ActionItems> = {
+            item: `[MOVED FROM ISSUES PAGE]  ${issue.issue_description}`,
+            category: category,
+            status: status,
+            createdBy: userId,
+            listingId: Number(issue.listing_id),
+            reservationId: Number(issue.reservation_id),
+            listingName: issue.listing_name,
+            guestName: issue.guest_name,
+        };
+
+        // Save the action item to the database
+        const newActionItem = this.actionItemRepo.create(actionItem);
+        const savedActionItem = await this.actionItemRepo.save(newActionItem);
+        await this.issueRepo.remove(issue);
+        return savedActionItem;
     }
 } 
