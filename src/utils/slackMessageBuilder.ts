@@ -207,7 +207,7 @@ export const buildIssueSlackMessage = (issue: Issue) => {
 
 export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string, listingName: string) => {
     return {
-        channel: "#social",
+        channel: CLIENT_RELATIONS,
         text: `New Client Ticket has been created for 🏠 ${listingName}`,
         blocks: [
             {
