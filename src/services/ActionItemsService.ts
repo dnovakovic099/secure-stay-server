@@ -102,12 +102,14 @@ export class ActionItemsService {
             order: { createdAt: 'DESC' },
         });
 
-        const transformedActionItems = actionItems.map(items => {
+        const transformedActionItems = actionItems.map(actionItem => {
             return {
-                ...items,
-                createdBy: userMap.get((items.createdBy)) || items.createdBy,
-                updatedBy: userMap.get(items.updatedBy) || items.updatedBy,
-                deletedBy: userMap.get(items.deletedBy) || items.deletedBy,
+                ...actionItem,
+                createdBy: userMap.get(actionItem.createdBy) || actionItem.createdBy,
+                actionItemsUpdates: actionItem.actionItemsUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                })),
             };
         });
 
