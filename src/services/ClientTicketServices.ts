@@ -61,7 +61,13 @@ export class ClientTicketService {
             createdBy: userId
         });
 
-        return await this.clientTicketUpdateRepo.save(newUpdate);
+        await this.clientTicketUpdateRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        newUpdate.createdBy = userMap.get(newUpdate.createdBy) || newUpdate.createdBy;
+        newUpdate.updatedBy = userMap.get(newUpdate.updatedBy) || newUpdate.updatedBy;
+        return newUpdate;
     }
 
     public async saveClientTicketWithUpdates(body: any, userId: string) {
@@ -75,6 +81,12 @@ export class ClientTicketService {
         };
         const clientTicket = await this.createClientTicket(ticketData, userId);
         latestUpdates && await this.createClientTicketUpdates(clientTicket, latestUpdates, userId);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
     }
 
@@ -100,9 +112,11 @@ export class ClientTicketService {
             return {
                 ...ticket,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
+                updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
             };
         });
@@ -122,6 +136,17 @@ export class ClientTicketService {
         if (!clientTicket) {
             throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
         }
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
+        clientTicket.clientTicketUpdates= clientTicket.clientTicketUpdates.map(update => ({
+            ...update,
+            createdBy: userMap.get(update.createdBy) || update.createdBy,
+            updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+        }))
 
         return clientTicket;
     }
@@ -215,6 +240,12 @@ export class ClientTicketService {
         }
 
         await this.clientTicketRepo.save(clientTicket);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
     }
 
@@ -229,7 +260,15 @@ export class ClientTicketService {
         ticketUpdates.updates = updates;
         ticketUpdates.updatedBy = userId;
 
-        return await this.clientTicketUpdateRepo.save(ticketUpdates);
+        await this.clientTicketUpdateRepo.save(ticketUpdates);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        ticketUpdates.createdBy = userMap.get(ticketUpdates.createdBy) || ticketUpdates.createdBy;
+        ticketUpdates.updatedBy = userMap.get(ticketUpdates.updatedBy) || ticketUpdates.updatedBy;
+
+        return ticketUpdates;
     }
 
     public async deleteClientTicketUpdate(id: number, userId: string) {
