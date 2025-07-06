@@ -25,8 +25,7 @@ interface ClientTicketFilter {
 export class ClientTicketService {
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
-    private usersRepo = appDatabase.getRepository(UsersEntity)
-
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     private async createClientTicket(ticketData: Partial<ClientTicket>, userId: string) {
         const newTicket = this.clientTicketRepo.create({
