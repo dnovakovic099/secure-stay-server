@@ -1,4 +1,4 @@
-import { Between, In } from "typeorm";
+import { Between, In, Raw } from "typeorm";
 import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
@@ -89,7 +89,9 @@ export class ClientTicketService {
             where: {
                 ...(status && status.length > 0 && { status: In(status) }),
                 ...(listingId && listingId.length > 0 && { listingId: In(listingId) }),
-                ...(category && category.length > 0 && { category: In(category) }),
+                ...(category && category.length > 0 && { 
+                    category: Raw(alias => category.map(cat => `${alias} LIKE '%${cat}%'`).join(' OR '))
+                }),
                 ...(fromDate && toDate && { createdAt: Between(new Date(fromDate), new Date(toDate)) }),
             },
             relations: ["clientTicketUpdates"],
@@ -101,6 +103,7 @@ export class ClientTicketService {
             return {
                 ...ticket,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
+                updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
@@ -124,7 +127,18 @@ export class ClientTicketService {
             throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
         }
 
-        return clientTicket;
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        return {
+            ...clientTicket,
+            createdBy: userMap.get(clientTicket.createdBy) || clientTicket.createdBy,
+            updatedBy: userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy,
+            clientTicketUpdates: clientTicket.clientTicketUpdates.map(update => ({
+                ...update,
+                createdBy: userMap.get(update.createdBy) || update.createdBy,
+            })),
+        };
     }
 
     public async updateClientTicketUpdates(
