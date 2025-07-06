@@ -1,10 +1,14 @@
 import { slackInteractivityEventNames } from "../constant";
+import { ActionItems } from "../entity/ActionItems";
+import { ClientTicket } from "../entity/ClientTicket";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { formatCurrency } from "../helpers/helpers";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
+const GUEST_RELATIONS = "#guest-relations";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -170,7 +174,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
     };
 
     return slackMessage;
-}
+};
 
 
 export const buildIssueSlackMessage = (issue: Issue) => {
@@ -203,4 +207,136 @@ export const buildIssueSlackMessage = (issue: Issue) => {
     };
 };
 
+export const buildActionItemsSlackMessage = (
+    actionItems: ActionItems,
+    user: string,
+    listingName: string,
+    reservationInfo: ReservationInfoEntity
+) => {
+    return {
+        channel: GUEST_RELATIONS,
+        text: `New Action Item: 🏠 ${listingName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New Action Item: 🏠 ${listingName} | 👤 ${actionItems.guestName}*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Category:* ${actionItems.category}` },
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Description:*\n${actionItems.item.length > 1000 ? actionItems.item.slice(0, 1000) + '...' : actionItems.item}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Reservation Status:* ${reservationInfo?.status || "-"}` },
+                    { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Check In:* ${reservationInfo?.arrivalDate || "-"}` },
+                    { type: "mrkdwn", text: `*Check Out:* ${reservationInfo?.departureDate || "-"}` },
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Created By:* ${user}` }
+                ]
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        options: [
+                            {
+                                text: {
+                                    type: "plain_text",
+                                    text: "In Progress",
+                                    emoji: true
+                                },
+                                value: JSON.stringify({
+                                    id: actionItems.id,
+                                    status: "in progress"
+                                })
+                            },
+                            {
+                                text: {
+                                    type: "plain_text",
+                                    text: "Incomplete",
+                                    emoji: true
+                                },
+                                value: JSON.stringify({
+                                    id: actionItems.id,
+                                    status: "incomplete"
+                                })
+                            },
+                            {
+                                text: {
+                                    type: "plain_text",
+                                    text: "Completed",
+                                    emoji: true
+                                },
+                                value: JSON.stringify({
+                                    id: actionItems.id,
+                                    status: "completed"
+                                })
+                            },
+                            {
+                                text: {
+                                    type: "plain_text",
+                                    text: "Expired",
+                                    emoji: true
+                                },
+                                value: JSON.stringify({
+                                    id: actionItems.id,
+                                    status: "expired"
+                                })
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    };
+};
+
+
+export const buildActionItemStatusUpdateMessage = (actionItem: ActionItems, user: string) => {
+    const slackMessage = {
+        channel: GUEST_RELATIONS,
+        text: `${user} updated the status to ${actionItem.status.toUpperCase()}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${user} updated the status to ${actionItem.status.toUpperCase()}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
 

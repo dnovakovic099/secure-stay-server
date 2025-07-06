@@ -96,3 +96,18 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
     }
     next();
 };
+
+
+export const validateIssueMigrationToActionItem = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
+        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};
