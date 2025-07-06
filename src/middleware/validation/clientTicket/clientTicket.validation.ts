@@ -9,12 +9,8 @@ export const validateCreateClientTicket = (request: Request, response: Response,
                 'any.only': 'Status must be one of New, In Progress, or Completed'
             }),
         listingId: Joi.string().required(),
-        category: Joi.string().required()
-            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")
-            .messages({
-                'any.required': 'Category is required',
-                'any.only': 'Category must be one of Pricing, Statement, Reservation, Listing, Maintenance, or Other'
-            }),
+        category: Joi.array().items(Joi.string()
+            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")).min(1).required(),
         description: Joi.string().required(),
         resolution: Joi.string().required().allow(null),
         latestUpdates: Joi.array().items(
@@ -40,12 +36,8 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
                 'any.only': 'Status must be one of New, In Progress, or Completed'
             }),
         listingId: Joi.string().required(),
-        category: Joi.string().required()
-            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")
-            .messages({
-                'any.required': 'Category is required',
-                'any.only': 'Category must be one of Pricing, Statement, Reservation, Listing, Maintenance, or Other'
-            }),
+        category: Joi.array().items(Joi.string()
+            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")).min(1).required(),
         description: Joi.string().required(),
         resolution: Joi.string().required().allow(null),
         latestUpdates: Joi.array().items(
@@ -112,3 +104,29 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
     }
     next();
 }
+
+export const validateCreateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ticketId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

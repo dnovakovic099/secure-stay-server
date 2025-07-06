@@ -4,6 +4,8 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant";
 
 interface LatestUpdates {
     id?: number;
@@ -25,8 +27,7 @@ interface ClientTicketFilter {
 export class ClientTicketService {
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
-    private usersRepo = appDatabase.getRepository(UsersEntity)
-
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     private async createClientTicket(ticketData: Partial<ClientTicket>, userId: string) {
         const newTicket = this.clientTicketRepo.create({
@@ -48,17 +49,46 @@ export class ClientTicketService {
         return await this.clientTicketUpdateRepo.save(updatesToSave);
     }
 
+    public async saveClientTicketUpdates(body: any, userId: string) {
+        const { ticketId, updates } = body;
+
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id: ticketId } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`Client ticket with id ${ticketId} not found`);
+        }
+
+        const newUpdate = this.clientTicketUpdateRepo.create({
+            updates,
+            clientTicket,
+            createdBy: userId
+        });
+
+        await this.clientTicketUpdateRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        newUpdate.createdBy = userMap.get(newUpdate.createdBy) || newUpdate.createdBy;
+        newUpdate.updatedBy = userMap.get(newUpdate.updatedBy) || newUpdate.updatedBy;
+        return newUpdate;
+    }
+
     public async saveClientTicketWithUpdates(body: any, userId: string) {
         const { latestUpdates } = body;
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
-            category: body.category,
+            category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
         };
         const clientTicket = await this.createClientTicket(ticketData, userId);
         latestUpdates && await this.createClientTicketUpdates(clientTicket, latestUpdates, userId);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
     }
 
@@ -78,15 +108,24 @@ export class ClientTicketService {
             relations: ["clientTicketUpdates"],
             skip: (page - 1) * limit,
             take: limit,
+            order: {
+                id: "DESC"
+            }
         });
+
+        const listingService = new ListingService();
+        const listings = await listingService.getListingsByTagIds([tagIds.PM]);
 
         const transformedTickets = clientTickets.map(ticket => {
             return {
                 ...ticket,
+                listingName: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
+                updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
             };
         });
@@ -106,6 +145,17 @@ export class ClientTicketService {
         if (!clientTicket) {
             throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
         }
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
+        clientTicket.clientTicketUpdates= clientTicket.clientTicketUpdates.map(update => ({
+            ...update,
+            createdBy: userMap.get(update.createdBy) || update.createdBy,
+            updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+        }))
 
         return clientTicket;
     }
@@ -147,7 +197,7 @@ export class ClientTicketService {
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
-            category: body.category,
+            category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
         };
@@ -199,7 +249,48 @@ export class ClientTicketService {
         }
 
         await this.clientTicketRepo.save(clientTicket);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
+    }
+
+
+    public async updateTicketUpdates(body: any, userId: string) {
+        const { id, updates } = body;
+        const ticketUpdates = await this.clientTicketUpdateRepo.findOne({ where: { id } });
+        if (!ticketUpdates) {
+            throw CustomErrorHandler.notFound(`Ticket update with ${id} not found.`);
+        }
+
+        ticketUpdates.updates = updates;
+        ticketUpdates.updatedBy = userId;
+
+        await this.clientTicketUpdateRepo.save(ticketUpdates);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        ticketUpdates.createdBy = userMap.get(ticketUpdates.createdBy) || ticketUpdates.createdBy;
+        ticketUpdates.updatedBy = userMap.get(ticketUpdates.updatedBy) || ticketUpdates.updatedBy;
+
+        return ticketUpdates;
+    }
+
+    public async deleteClientTicketUpdate(id: number, userId: string) {
+        const clientTicketUpdate = await this.clientTicketUpdateRepo.findOne({ where: { id } });
+        if (!clientTicketUpdate) {
+            throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
+        }
+
+        clientTicketUpdate.deletedBy = userId;
+        clientTicketUpdate.deletedAt = new Date();
+        await this.clientTicketUpdateRepo.save(clientTicketUpdate);
+
+        return { message: `Client ticket update with ID ${id} deleted successfully.` };
     }
 
 }
