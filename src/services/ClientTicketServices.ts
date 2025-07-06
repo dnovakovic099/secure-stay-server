@@ -4,6 +4,8 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant";
 
 interface LatestUpdates {
     id?: number;
@@ -106,11 +108,18 @@ export class ClientTicketService {
             relations: ["clientTicketUpdates"],
             skip: (page - 1) * limit,
             take: limit,
+            order: {
+                id: "DESC"
+            }
         });
+
+        const listingService = new ListingService();
+        const listings = await listingService.getListingsByTagIds([tagIds.PM]);
 
         const transformedTickets = clientTickets.map(ticket => {
             return {
                 ...ticket,
+                listingName: listings.find((listing) => listing.id == Number(ticket.listingId)).internalListingName,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
                 updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
