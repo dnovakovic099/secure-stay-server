@@ -13,9 +13,10 @@ export class FileController {
         }
 
         const filePath = path.join(__dirname, `../../public/${module}`, fileName);
-
+         console.log(filePath)
         fs.access(filePath, fs.constants.F_OK, (err) => {
             if (err) {
+                console.log(err)
                 return response.status(404).json({ error: 'File not found' });
             }
 
