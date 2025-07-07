@@ -11,7 +11,7 @@ import verifyMobileSession from "../middleware/verifyMobileSession";
 import { ContractorInfoController } from "../controllers/ContractorController";
 import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 import { ResolutionController } from "../controllers/ResolutionController";
-import { validateCreateResolution } from '../middleware/validation/accounting/resolution.validation';
+import { validateCreateResolution, validateGetResolutions, validateUpdateResolution } from '../middleware/validation/accounting/resolution.validation';
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -106,9 +106,17 @@ router.route('/createresolution')
         resolutionController.createResolution
     );
 
+router.route('/updateresolution')
+    .put(
+        verifySession,
+        validateUpdateResolution,
+        resolutionController.updateResolution
+    )
+
 router.route('/getresolutions')
     .get(
         verifySession,
+        validateGetResolutions,
         resolutionController.getResolutions
     );
 
