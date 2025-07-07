@@ -471,15 +471,15 @@ export class ReservationInfoService {
       if (existingResolution.amount !== airbnbClosedResolutionSumAmount) {
         logger.info(`[ReservationInfoService] Updating resolution for reservation ${reservation?.id} from $${existingResolution.amount} to $${airbnbClosedResolutionSumAmount}`);
         existingResolution.amount = airbnbClosedResolutionSumAmount;
-        await this.resolutionRepo.save(existingResolution);
+        await resolutionService.updateResolution(existingResolution, null)
         await this.notifyAboutAirbnbClosedResolutionSum(reservation, true); // notify about update
       }
-      return;
     } else {
       await this.createResolution(reservation); // actual resolution logic
       logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`);
       await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
     }
+    return;
   }
 
   private async createResolution(reservation: any) {

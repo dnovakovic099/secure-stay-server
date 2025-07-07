@@ -3,7 +3,7 @@ import { Resolution } from "../entity/Resolution";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
-import { haResolutionQueue } from "../queue/haQueue";
+import { haResolutionDeleteQueue, haResolutionQueue, haResolutionUpdateQueue } from "../queue/haQueue";
 import logger from "../utils/logger.utils";
 
 interface ResolutionData {
@@ -82,9 +82,21 @@ export class ResolutionService {
         resolution.updatedBy = userId ? userId : "system";
         resolution.arrivalDate = updatedData.arrivalDate;
         resolution.departureDate = updatedData.departureDate;
-        resolution.amountToPayout = resolution.amountToPayout;
+        resolution.amountToPayout = updatedData.amountToPayout;
+        await this.resolutionRepo.save(resolution);
 
-        return await this.resolutionRepo.save(resolution);
+        //add to queue to update resolution in HA
+        if (resolution.ha_id) {
+            try {
+                await haResolutionUpdateQueue.add('update-HA-resolution', {
+                    resolution,
+                });
+            } catch (error) {
+                logger.error(`Queueing Hostaway job failed for update resolution ${resolution.id}: ${error.message}`);
+            }
+        }
+
+        return resolution;
     }
 
     async getResolutions(filters: any) {
@@ -138,7 +150,20 @@ export class ResolutionService {
         const resolution = await this.getResolutionById(resolutionId, userId);
         resolution.deletedAt = new Date();
         resolution.deletedBy = userId;
-        return await this.resolutionRepo.save(resolution);
+        await this.resolutionRepo.save(resolution);
+
+        //add to queue to update resolution in HA
+        if (resolution.ha_id) {
+            try {
+                await haResolutionDeleteQueue.add('delete-HA-resolution', {
+                    resolution,
+                });
+            } catch (error) {
+                logger.error(`Queueing Hostaway job failed for delete resolution ${resolution.id}: ${error.message}`);
+            }
+        }
+
+        return resolution
     }
 
     async getResolution(fromDate: string, toDate: string, listingId: number) {

@@ -38,7 +38,6 @@ import { Resolution } from "../entity/Resolution";
     // 🔧 Worker 2: ha-resolution-queue
     const resolutionWorker = new Worker('ha-resolution-queue', async job => {
         try {
-            logger.info(job.data)
             const { resolution } = job.data;
             const categories = JSON.stringify([categoryIds.Resolutions]);
 
@@ -62,6 +61,7 @@ import { Resolution } from "../entity/Resolution";
                 await appDatabase.getRepository(Resolution).save(resolution);
             } else {
                 logger.error(`[resolution] Failed to create expense/extras in hostaway for the resolution id ${resolution.id}`);
+                throw new Error(`Failed to create expense/extras in hostaway for the resolution id ${resolution.id}`);
             }
 
         } catch (error) {
@@ -71,6 +71,67 @@ import { Resolution } from "../entity/Resolution";
     }, {
         connection
     });
+
+    // 🔧 Worker 3: ha-resolution-update-queue
+    const updateResolutionWorker = new Worker('ha-resolution-update-queue', async job => {
+        try {
+            const { resolution } = job.data;
+
+            const amount = resolution.amountToPayout ? resolution.amountToPayout : resolution.amount;
+
+            const hostAwayClient = new HostAwayClient();
+            const clientId = process.env.HOST_AWAY_CLIENT_ID;
+            const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
+
+            const expense = await hostAwayClient.getExpense(resolution.ha_id, clientId, clientSecret);
+
+            const categories = JSON.stringify([categoryIds.Resolutions]);
+            const obj = {
+                listingMapId: String(resolution.listingMapId),
+                expenseDate: expense?.expenseDate,
+                concept: `Airbnb Resolution: ${resolution.guestName}`,
+                amount: amount,
+                categories: JSON.parse(categories),
+                reservationId: resolution.reservationId
+            };
+
+            const hostawayExpense = await hostAwayClient.updateExpense(obj, { clientId, clientSecret }, resolution.ha_id);
+            if (!hostawayExpense) {
+                logger.error(`[resolution] Failed to update expense/extras in hostaway for the resolution id ${resolution.id}`);
+                throw new Error(`Failed to update expense/extras in hostaway for the resolution id ${resolution.id}`);
+            }
+
+        } catch (error) {
+            logger.error(`Error processing resolution job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
+    // 🔧 Worker 3: ha-resolution-update-queue
+    const deleteResolutionWorker = new Worker('ha-resolution-delete-queue', async job => {
+        try {
+            const { resolution } = job.data;
+
+            const hostAwayClient = new HostAwayClient();
+            const clientId = process.env.HOST_AWAY_CLIENT_ID;
+            const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
+
+            const hostawayExpense = await hostAwayClient.deleteExpense(resolution.ha_id, clientId, clientSecret);
+            if (!hostawayExpense) {
+                logger.error(`[resolution] Failed to delete expense/extras in hostaway for the resolution id ${resolution.id}`);
+                throw new Error(`Failed to delete expense/extras in hostaway for the resolution id ${resolution.id}`);
+            }
+
+        } catch (error) {
+            logger.error(`Error processing resolution job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
 
     // Listeners for both workers
     expenseWorker.on('completed', job => {
@@ -86,6 +147,23 @@ import { Resolution } from "../entity/Resolution";
     });
 
     resolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Resolution Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+
+    updateResolutionWorker.on('completed', job => {
+        logger.info(`✅ Resolution Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    updateResolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Resolution Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    deleteResolutionWorker.on('completed', job => {
+        logger.info(`✅ Resolution Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    deleteResolutionWorker.on('failed', (job, err) => {
         logger.error(`❌ Resolution Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
     });
 

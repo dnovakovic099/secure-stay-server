@@ -58,7 +58,8 @@ export class ResolutionController {
     async updateResolution(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;
-            const resolution = await this.resolutionService.updateResolution(request.body, userId);
+            const resolutionService=new ResolutionService();
+            const resolution = await resolutionService.updateResolution(request.body, userId);
             return response.status(200).json(resolution);
         } catch (error) {
             next(error);
