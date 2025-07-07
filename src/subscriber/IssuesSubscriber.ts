@@ -23,18 +23,18 @@ export class IssuesSubscriber
 
     async afterInsert(event: InsertEvent<Issue>) {
         const { entity, manager } = event;
-        const log = manager.create(IssueLogs, {
-            issueId: entity.id,
-            oldData: null,
-            newData: entity,
-            diff: Object.keys(entity).reduce((acc, key) => {
-                acc[key] = { old: null, new: (entity as any)[key] };
-                return acc;
-            }, {} as any),
-            changedBy: entity.created_by || entity.creator || "system",
-            action: 'INSERT',
-        });
-        await manager.save(log);
+        // const log = manager.create(IssueLogs, {
+        //     issueId: entity.id,
+        //     oldData: null,
+        //     newData: entity,
+        //     diff: Object.keys(entity).reduce((acc, key) => {
+        //         acc[key] = { old: null, new: (entity as any)[key] };
+        //         return acc;
+        //     }, {} as any),
+        //     changedBy: entity.created_by || entity.creator || "system",
+        //     action: 'INSERT',
+        // });
+        // await manager.save(log);
 
         // handle slack message
         try {
@@ -65,15 +65,15 @@ export class IssuesSubscriber
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
 
-        const log = manager.create(IssueLogs, {
-            issueId: entity.id,
-            oldData,
-            newData,
-            diff,
-            changedBy: entity?.updated_by || 'system',
-            action: 'UPDATE',
-        });
-        await manager.save(log);
+        // const log = manager.create(IssueLogs, {
+        //     issueId: entity.id,
+        //     oldData,
+        //     newData,
+        //     diff,
+        //     changedBy: entity?.updated_by || 'system',
+        //     action: 'UPDATE',
+        // });
+        // await manager.save(log);
     }
 
     async afterRemove(event: RemoveEvent<Issue>) {
@@ -81,17 +81,17 @@ export class IssuesSubscriber
         if (!databaseEntity) return;
 
         const oldData = { ...databaseEntity };
-        const log = manager.create(IssueLogs, {
-            issueId: oldData.id,
-            oldData,
-            newData: null,
-            diff: Object.keys(oldData).reduce((acc, key) => {
-                acc[key] = { old: (oldData as any)[key], new: null };
-                return acc;
-            }, {} as any),
-            changedBy: databaseEntity.updated_by || 'system',
-            action: 'DELETE',
-        });
-        await manager.save(log);
+        // const log = manager.create(IssueLogs, {
+        //     issueId: oldData.id,
+        //     oldData,
+        //     newData: null,
+        //     diff: Object.keys(oldData).reduce((acc, key) => {
+        //         acc[key] = { old: (oldData as any)[key], new: null };
+        //         return acc;
+        //     }, {} as any),
+        //     changedBy: databaseEntity.updated_by || 'system',
+        //     action: 'DELETE',
+        // });
+        // await manager.save(log);
     }
 }
