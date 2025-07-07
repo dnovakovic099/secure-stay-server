@@ -106,7 +106,7 @@ export class ResolutionService {
                 ...(listingId && { listingMapId: In(listingId) }),
                 ...(reservationId && { reservationId: reservationId }),
                 ...(category && category.length > 1 && { category: In(category) }),
-                [`${dateType}`]: Between(String(fromDate), String(toDate)),
+                ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
             },
             skip: (page - 1) * limit,
             take: limit,
