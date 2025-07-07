@@ -21,7 +21,7 @@ export class Resolution {
     reservationId: number;
 
     @Column({ type: "date" })
-    claimDate: Date;
+    claimDate: string;
 
     @Column({ type: "decimal", precision: 10, scale: 2 })
     amount: number;
@@ -34,6 +34,9 @@ export class Resolution {
 
     @Column({ nullable: true })
     departureDate: string;
+
+    @Column({ nullable: true })
+    ha_id: string;
 
     @CreateDateColumn()
     createdAt: Date;

@@ -1,22 +1,10 @@
 import { Between, In } from "typeorm";
-import { format } from "date-fns";
-import { Request } from "express";
 import { Resolution } from "../entity/Resolution";
-import { Listing } from "../entity/Listing";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
-
-interface ResolutionQuery {
-    listingId?: number[];
-    fromDate?: string;
-    toDate?: string;
-    category?: string[];
-    reservationId?: number;
-    page: number;
-    limit: number;
-    dateType: string;
-}
+import { haResolutionQueue } from "../queue/haQueue";
+import logger from "../utils/logger.utils";
 
 interface ResolutionData {
     category: string;
@@ -61,13 +49,24 @@ export class ResolutionService {
         resolution.listingMapId = data.listingMapId;
         resolution.reservationId = data.reservationId;
         resolution.guestName = data.guestName;
-        resolution.claimDate = new Date(data.claimDate);
+        resolution.claimDate = data.claimDate;
         resolution.amount = data.amount;
         resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
 
-        return await this.resolutionRepo.save(resolution);
+        await this.resolutionRepo.save(resolution);
+
+        //add to queue to create resolution in HA
+        try {
+            await haResolutionQueue.add('create-HA-resolution', {
+                resolution,
+            });
+        } catch (error) {
+            logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
+        }
+
+        return resolution;
     }
 
     async updateResolution(updatedData: Partial<Resolution>, userId: string | null) {
@@ -78,7 +77,7 @@ export class ResolutionService {
         resolution.listingMapId = updatedData.listingMapId;
         resolution.reservationId = updatedData.reservationId;
         resolution.guestName = updatedData.guestName;
-        resolution.claimDate = new Date(updatedData.claimDate);
+        resolution.claimDate = updatedData.claimDate;
         resolution.amount = updatedData.amount;
         resolution.updatedBy = userId ? userId : "system";
         resolution.arrivalDate = updatedData.arrivalDate;
@@ -145,10 +144,7 @@ export class ResolutionService {
     async getResolution(fromDate: string, toDate: string, listingId: number) {
         return await this.resolutionRepo.find({
             where: {
-                claimDate: Between(
-                    new Date(fromDate),
-                    new Date(toDate)
-                ),
+                claimDate: Between(fromDate, toDate),
                 listingMapId: listingId
             }
         });
