@@ -54,7 +54,7 @@ export class ActionItemsService {
 
         const actionItem = new ActionItems();
         actionItem.listingName = property_name;
-        actionItem.listingId = listing ? listing.id : null;
+        actionItem.listingId = listing ? listing.id : reservation ? reservation.listingMapId : null;
         actionItem.guestName = guest_name;
         actionItem.reservationId = reservation ? reservation.id : null;
         actionItem.item = item;
