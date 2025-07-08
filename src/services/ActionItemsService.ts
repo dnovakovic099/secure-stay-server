@@ -75,9 +75,11 @@ export class ActionItemsService {
             status,
             fromDate,
             toDate,
+            ids
         } = filter;
 
         const whereConditions = {
+            ...(ids?.length > 0 && { id: In(ids) }),
             ...(category && { category: In(category) }),
             ...(listingId?.length > 0 && { listingId: In(listingId) }),
             ...(guestName && { guestName }),

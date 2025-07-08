@@ -110,6 +110,9 @@ export class ResolutionService {
             },
             skip: (page - 1) * limit,
             take: limit,
+            order: {
+                id: "DESC"
+            }
         })
 
 
