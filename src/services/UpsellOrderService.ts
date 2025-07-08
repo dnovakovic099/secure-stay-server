@@ -5,7 +5,7 @@ import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
-import { tagIds } from "../constant";
+import { categoryIds, tagIds } from "../constant";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -127,7 +127,7 @@ export class UpsellOrderService {
     }
 
     private async prepareExtrasObject(upsell: UpsellOrder) {
-        const categories = JSON.stringify([19780]);
+        const categories = JSON.stringify([categoryIds.Upsell]);
 
         const listingService = new ListingService();
         const pmListings = await listingService.getListingsByTagIds([tagIds.PM]);

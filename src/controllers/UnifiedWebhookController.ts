@@ -12,8 +12,10 @@ import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
 import { appDatabase } from "../utils/database.util";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
-import { buildActionItemStatusUpdateMessage } from "../utils/slackMessageBuilder";
+import { buildActionItemsSlackMessage, buildActionItemStatusUpdateMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import updateSlackMessage from "../utils/updateSlackMsg";
 
 export class UnifiedWebhookController {
 
@@ -137,8 +139,6 @@ export class UnifiedWebhookController {
                         const actionItemsService = new ActionItemsService();
                         const actionItem = await actionItemsService.updateActionItemStatus(Number(requestObj.id), requestObj.status, user);
                         if (actionItem) {
-                        
-                            //reply to the same message thread
                             const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
                             const slackMessageInfo = await slackMessageRepo.findOne({
                                 where: {
@@ -147,6 +147,14 @@ export class UnifiedWebhookController {
                                 }
                             });
                             if (slackMessageInfo) {
+                                //update the main message
+                                const reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
+                                const reservationInfo = await reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
+                                const mainMessage = buildActionItemsSlackMessage(actionItem, user, reservationInfo);
+                                const { channel, ...messageWithoutChannel } = mainMessage;
+                                await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+
+                                //reply to the same message thread
                                 const slackMessage = buildActionItemStatusUpdateMessage(actionItem, user);
                                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
                             } else {

@@ -36,18 +36,12 @@ export class ActionItemsSubscriber
     private async sendSlackMessage(actionItems: ActionItems, userId: string) {
         try {
             const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : userId;
 
-            const listingInfo = await this.listingRepo.findOne({
-                where: {
-                    id: Number(actionItems.listingId),
-                    userId: userId
-                }
-            });
             const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItems.reservationId } });
 
             const slackMessageService = new SlackMessageService();
-            const slackMessage = buildActionItemsSlackMessage(actionItems, user, listingInfo?.internalListingName, reservationInfo);
+            const slackMessage = buildActionItemsSlackMessage(actionItems, user, reservationInfo);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({

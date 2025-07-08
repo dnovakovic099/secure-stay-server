@@ -4,7 +4,7 @@ import { ClientTicket } from "../entity/ClientTicket";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { formatCurrency } from "../helpers/helpers";
+import { capitalizeFirstLetter, formatCurrency } from "../helpers/helpers";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -217,7 +217,7 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New Client Ticket: 🏠 ${listingName}*`
+                    text: `*New Client Ticket: 🏠 ${listingName}* *<https://securestay.ai/client-tickets?id=${ticket.id}|View>*`
                 }
             },
             {
@@ -240,18 +240,17 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
 export const buildActionItemsSlackMessage = (
     actionItems: ActionItems,
     user: string,
-    listingName: string,
     reservationInfo: ReservationInfoEntity
 ) => {
     return {
         channel: GUEST_RELATIONS,
-        text: `New Action Item: 🏠 ${listingName}`,
+        text: `New Action Item: 🏠 ${actionItems.listingName}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New Action Item: 🏠 ${listingName} | 👤 ${actionItems.guestName}*`
+                    text: `*New Action Item: 🏠 ${actionItems.listingName} | 👤 ${actionItems.guestName}* *<https://securestay.ai/messages/action-items?id=${actionItems.id}|View>*`
                 }
             },
             {
@@ -271,21 +270,18 @@ export const buildActionItemsSlackMessage = (
                 type: "section",
                 fields: [
                     { type: "mrkdwn", text: `*Reservation Status:* ${reservationInfo?.status || "-"}` },
-                    { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
-                ]
-            },
-            {
-                type: "section",
-                fields: [
                     { type: "mrkdwn", text: `*Check In:* ${reservationInfo?.arrivalDate || "-"}` },
+                    { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
                     { type: "mrkdwn", text: `*Check Out:* ${reservationInfo?.departureDate || "-"}` },
-                ]
-            },
-            {
-                type: "section",
-                fields: [
                     { type: "mrkdwn", text: `*Created By:* ${user}` }
                 ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Status:* ${capitalizeFirstLetter(actionItems.status) || '-'}`
+                }
             },
             {
                 type: "actions",

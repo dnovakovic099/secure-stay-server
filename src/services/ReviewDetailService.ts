@@ -112,7 +112,7 @@ export class ReviewDetailService {
             listingMapId: resolution.listingMapId,
             reservationId: resolution.reservationId,
             guestName: resolution.guestName,
-            claimDate: new Date(resolution.claimDate),
+            claimDate: resolution.claimDate,
             amount: amount,
             updatedBy: userId,
             arrivalDate: resolution.arrivalDate,

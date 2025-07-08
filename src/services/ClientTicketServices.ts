@@ -21,6 +21,7 @@ interface ClientTicketFilter {
     toDate?: string;
     page: number;
     limit: number;
+    ids?: number[];
 }
 
 
@@ -93,13 +94,14 @@ export class ClientTicketService {
     }
 
     public async getClientTicket(body: ClientTicketFilter) {
-        const { status, listingId, category, fromDate, toDate, page, limit } = body;
+        const { status, listingId, category, fromDate, toDate, page, limit, ids } = body;
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
         const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
             where: {
+                ...(ids?.length > 0 && { id: In(ids) }),
                 ...(status && status.length > 0 && { status: In(status) }),
                 ...(listingId && listingId.length > 0 && { listingId: In(listingId) }),
                 ...(category && category.length > 0 && { category: In(category) }),

@@ -18,7 +18,8 @@ export class ActionItemsController {
                 guestName: request.query.guestName || undefined,
                 status: request.query.status || undefined,
                 fromDate: request.query.fromDate || undefined,
-                toDate: request.query.toDate || undefined
+                toDate: request.query.toDate || undefined,
+                ids: request.query.ids || undefined
             };
             const actionItems = await actionItemsService.getActionItems(filter);
             return response.status(200).json(actionItems);

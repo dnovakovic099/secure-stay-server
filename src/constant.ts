@@ -77,3 +77,8 @@ export const slackInteractivityEventNames={
 export const tagIds = {
     PM: 62778
 };
+
+export const categoryIds={
+    Resolutions: 21981,
+    Upsell: 19780
+}
