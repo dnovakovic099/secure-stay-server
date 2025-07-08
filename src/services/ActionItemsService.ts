@@ -42,7 +42,11 @@ export class ActionItemsService {
     async createAtionItemFromHostbuddy(actionItems: HostBuddyActionItem) {
         const { property_name, guest_name, category, status, item } = actionItems;
 
-        const listing = await this.listingRepo.findOne({ where: { internalListingName: property_name } });
+        const listing = await this.listingRepo.findOne({
+            where: { internalListingName: property_name },
+            order: { listingId: "DESC" }
+        });
+        
         if (!listing) {
             logger.error(`Listing with name ${property_name} not found`);
         }
