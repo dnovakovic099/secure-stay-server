@@ -1,6 +1,8 @@
+import { format } from "date-fns";
 import { slackInteractivityEventNames } from "../constant";
 import { ActionItems } from "../entity/ActionItems";
 import { ClientTicket } from "../entity/ClientTicket";
+import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
@@ -237,6 +239,66 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
     };
 }
 
+export const buildClientTicketSlackMessageUpdate = (ticket: ClientTicket, user: string, listingName: string) => {
+    const blocks: any[] = [
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*Client Ticket details has been updated* - 🏠 ${listingName}`
+            }
+        },
+        {
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*Description:*\n${ticket.description}` }
+            ]
+        }
+    ];
+
+    if (ticket.resolution) {
+        blocks.push({
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*Resolution:*\n${ticket.resolution}` }
+            ]
+        });
+    }
+
+    blocks.push({
+        type: "section",
+        fields: [
+            { type: "mrkdwn", text: `*Categories:* ${JSON.parse(ticket.category).join(', ')}` },
+            { type: "mrkdwn", text: `*Updated By:* ${user}` }
+        ]
+    });
+
+    return {
+        channel: CLIENT_RELATIONS,
+        text: `Client Ticket details has been updated for 🏠 ${listingName}`,
+        blocks
+    };
+};
+
+export const buildClientTicketSlackMessageDelete = (ticket: ClientTicket, user: string, listingName: string) => {
+    const slackMessage = {
+        channel: CLIENT_RELATIONS,
+        text: ` ${user} deleted the client ticket of 🏠 ${listingName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `❌ ${user} deleted the client ticket of 🏠 ${listingName}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
+
 export const buildActionItemsSlackMessage = (
     actionItems: ActionItems,
     user: string,
@@ -366,4 +428,26 @@ export const buildActionItemStatusUpdateMessage = (actionItem: ActionItems, user
     return slackMessage;
 };
 
+
+export const buildClientTicketUpdateMessage = (updates: ClientTicketUpdates, listingName: string, user: string) => {
+    return {
+        channel: CLIENT_RELATIONS,
+        text: `New update for 🏠 ${listingName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `📢 *Update:* ${updates.updates}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Added by:* 👨‍💼 ${user}` },
+                ]
+            },
+        ]
+    };
+};
 

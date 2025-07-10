@@ -6,16 +6,15 @@ import {
     RemoveEvent,
 } from 'typeorm';
 import { getDiff } from '../helpers/helpers';
-import { Issue } from '../entity/Issue';
-import { IssueLogs } from '../entity/IssueLogs';
 import logger from '../utils/logger.utils';
-import { buildClientTicketSlackMessage, buildIssueSlackMessage } from '../utils/slackMessageBuilder';
+import { buildClientTicketSlackMessage, buildClientTicketSlackMessageDelete, buildClientTicketSlackMessageUpdate, buildIssueSlackMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
 import { ClientTicket } from '../entity/ClientTicket';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
+import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -27,6 +26,7 @@ export class ClientTicketSubscriber
 
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingRepo = appDatabase.getRepository(Listing);
+    private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
 
     async afterInsert(event: InsertEvent<ClientTicket>) {
         const { entity, manager } = event;
@@ -62,6 +62,35 @@ export class ClientTicketSubscriber
         }
     }
 
+    private async updateSlackMessage(ticket: any, userId: string) {
+        try {
+            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+
+            const listingInfo = await this.listingRepo.findOne({
+                where: {
+                    id: Number(ticket.listingId),
+                    userId: userId
+                }
+            });
+
+            let slackMessage = buildClientTicketSlackMessageUpdate(ticket, user, listingInfo?.internalListingName);
+            if (ticket.deletedAt) {
+                slackMessage = buildClientTicketSlackMessageDelete(ticket, user, listingInfo?.internalListingName);
+            }
+
+            const slackMessageInfo = await this.slackMessageInfo.findOne({
+                where: {
+                    entityType: "client_ticket",
+                    entityId: ticket.id
+                }
+            });
+            await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+        } catch (error) {
+            logger.error("Slack creation failed", error);
+        }
+    }
+
     async afterUpdate(event: UpdateEvent<ClientTicket>) {
         const { databaseEntity, entity, manager } = event;
         if (!databaseEntity || !entity) return;
@@ -72,6 +101,7 @@ export class ClientTicketSubscriber
 
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
+        await this.updateSlackMessage(entity, entity.updatedBy)
 
     }
 
