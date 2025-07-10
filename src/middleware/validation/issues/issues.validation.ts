@@ -40,7 +40,8 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
             .default('N/A'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
-        payment_information: Joi.string().allow(null, '')
+        payment_information: Joi.string().allow(null, ''),
+        category: Joi.string().required().valid("MAINTENANCE", "CLEANLINESS").allow(null)
     });
 
     const { error } = schema.validate(request.body);
@@ -108,6 +109,32 @@ export const validateIssueMigrationToActionItem = (request: Request, response: R
     const { error } = schema.validate(request.body);
     if (error) {
         next(error);
+    }
+    next();
+};
+
+export const validateCreateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        issueId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
     }
     next();
 };

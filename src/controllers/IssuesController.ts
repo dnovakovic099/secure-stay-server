@@ -131,20 +131,20 @@ export class IssuesController {
         }
     }
 
-    async deleteIssue(request: Request, response: Response) {
-        const issuesService = new IssuesService();
+    async deleteIssue(request: any, response: Response, next: NextFunction) {
         try {
             const { id } = request.params;
-            await issuesService.deleteIssue(Number(id));
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            await issuesService.deleteIssue(Number(id), userId);
+
             return response.send({
                 status: true,
-                message: "Order deleted successfully"
+                message: "Issue deleted successfully"
             });
         } catch (error) {
-            return response.send({
-                status: false,
-                message: error.message
-            });
+            next(error);
         }
     }
 
@@ -203,6 +203,56 @@ export class IssuesController {
                 status: true,
                 data: result
             });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async createIssueUpdates(request: any, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const issuesService = new IssuesService();
+            const result = await issuesService.createIssueUpdates(request.body, userId);
+            return response.status(201).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateIssueUpdates(request: any, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateIssueUpdates(request.body, userId);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteIssueUpdates(request: any, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const issuesService = new IssuesService();
+            const result = await issuesService.deleteIssueUpdates(request.params.id, userId);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getGuestIssues(request: any, response: Response, next: NextFunction) {
+        try {
+            
         } catch (error) {
             next(error);
         }
