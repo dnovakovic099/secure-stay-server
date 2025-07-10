@@ -7,6 +7,7 @@ import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { capitalizeFirstLetter, formatCurrency } from "../helpers/helpers";
+import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -409,6 +410,74 @@ export const buildActionItemsSlackMessage = (
     };
 };
 
+export const buildActionItemsSlackMessageUpdate = (
+    actionItems: ActionItems,
+    user: string,
+    reservationInfo: ReservationInfoEntity
+) => {
+    return {
+        channel: GUEST_RELATIONS,
+        text: `New Action Item: 🏠 ${actionItems.listingName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Action Item detail has been updated:* 🏠 ${actionItems.listingName} | 👤 ${actionItems.guestName}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Category:* ${actionItems.category}` },
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Description:*\n${actionItems.item.length > 1000 ? actionItems.item.slice(0, 1000) + '...' : actionItems.item}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Reservation Status:* ${reservationInfo?.status || "-"}` },
+                    { type: "mrkdwn", text: `*Check In:* ${reservationInfo?.arrivalDate || "-"}` },
+                    { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
+                    { type: "mrkdwn", text: `*Check Out:* ${reservationInfo?.departureDate || "-"}` },
+                    { type: "mrkdwn", text: `*Updated By:* ${user}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Status:* ${capitalizeFirstLetter(actionItems.status) || '-'}`
+                }
+            },
+        ]
+    };
+};
+
+export const buildActionItemsSlackMessageDelete = (actionItem: ActionItems, user: string,) => {
+    const slackMessage = {
+        channel: GUEST_RELATIONS,
+        text: ` ${user} deleted the client ticket of 🏠 ${actionItem.listingName} | 👤 ${actionItem.guestName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `❌ ${user} deleted the action item of 🏠 ${actionItem.listingName} for 👤 ${actionItem.guestName}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
 
 export const buildActionItemStatusUpdateMessage = (actionItem: ActionItems, user: string) => {
     const slackMessage = {
@@ -451,3 +520,24 @@ export const buildClientTicketUpdateMessage = (updates: ClientTicketUpdates, lis
     };
 };
 
+export const buildActionItemsUpdateMessage = (updates: ActionItemsUpdates, listingName: string, user: string) => {
+    return {
+        channel: GUEST_RELATIONS,
+        text: `New update for 🏠 ${updates.actionItems.listingName} - 👤 ${updates.actionItems.guestName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `📢 *Update:* ${updates.updates}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Added by:* 👨‍💼 ${user}` },
+                ]
+            },
+        ]
+    };
+};
