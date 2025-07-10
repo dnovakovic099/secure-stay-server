@@ -498,12 +498,24 @@ export class UsersService {
             take: limit,
         });
 
+        const transformedUsers = users.map(user => {
+            const username = user.lastName
+                ? `${user.firstName}.${user.lastName}`
+                : user.firstName;
+
+            return {
+                ...user,
+                username,
+            };
+        });
+
         return {
-            status: false,
-            message: "Data not found!!!",
-            data: users
+            status: transformedUsers.length > 0,
+            message: transformedUsers.length > 0 ? "Users retrieved successfully" : "Data not found!!!",
+            data: transformedUsers
         };
     }
+
 
     async updateMobileUser(userInfo: {
         id: number;
