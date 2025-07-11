@@ -144,7 +144,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
     const schema = Joi.object({
         category: Joi.array().items(Joi.string()).min(1).optional(),
         listingId: Joi.array().items(Joi.number()).min(1).optional(),
-        propertyType: Joi.array().items(Joi.string().valid("PM", "ARB", "OWN")).min(1).optional(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),

@@ -10,6 +10,7 @@ import { IssueUpdates } from "../entity/IsssueUpdates";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
+import { ReservationInfoService } from "./ReservationInfoService";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -348,8 +349,7 @@ export class IssuesService {
         let listingIds = [];
         if (propertyType && propertyType.length > 0) {
             const listingService = new ListingService();
-            const tags = propertyType.map((type) => tagIds[type]);
-            listingIds = (await listingService.getListingsByTagIds(tags, userId)).map(l => l.id);
+            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
         } else {
             listingIds = listingId;
         }
@@ -372,30 +372,19 @@ export class IssuesService {
             }
         });
 
-        const grouped = issues.reduce((acc, issue) => {
-            const key = issue.reservation_id || issue.listing_id || 'NA';
-            if (!acc[key]) acc[key] = [];
-            acc[key].push(issue);
-            return acc;
-        }, {} as Record<string, Issue[]>);
-
-        // Sort each group by id DESC
-        for (const group of Object.values(grouped)) {
-            group.sort((a, b) => b.id - a.id);
+        for (const issue of issues) {
+            const issueWithInfo = issue as Issue & { reservationInfo?: any; };
+            if (issue.reservation_id) {
+                const reservationService = new ReservationInfoService();
+                issueWithInfo.reservationInfo = await reservationService.getReservationById(Number(issue.reservation_id));
+            } else {
+                issueWithInfo.reservationInfo = null;
+            }
         }
-
-        // Sort groups by max id in each group
-        const sortedGroups = Object.entries(grouped)
-            .sort(([, A], [, B]) => Math.max(...B.map(i => i.id)) - Math.max(...A.map(i => i.id)))
-            .map(([k, v]) => ([`id_${k}`, v] as [string, Issue[]]));
-
-        // now this object won’t re‑numeric‑sort its keys:
-        const sortedObj = Object.fromEntries(sortedGroups);
 
         return {
-            issues: sortedObj,
+            issues,
             total
         }
-
     }
 } 
