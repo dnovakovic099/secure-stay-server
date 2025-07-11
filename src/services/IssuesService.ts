@@ -394,6 +394,7 @@ export class IssuesService {
 
         return {
             issues: sortedObj,
+            total
         }
 
     }

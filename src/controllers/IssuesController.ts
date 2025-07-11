@@ -254,10 +254,11 @@ export class IssuesController {
         try {
             const userId = request.user.id;
             const issuesService = new IssuesService();
-            const { issues } = await issuesService.getGuestIssues(request.query, userId);
+            const { issues, total } = await issuesService.getGuestIssues(request.query, userId);
             return response.status(200).json({
                 status: true,
-                data: issues
+                data: issues,
+                total
             })
         } catch (error) {
             next(error);
