@@ -374,7 +374,7 @@ export class IssuesService {
 
         for (const issue of issues) {
             const issueWithInfo = issue as Issue & { reservationInfo?: any; };
-            if (issue.reservation_id) {
+            if (issue.reservation_id && issue.reservation_id !== "NA") {
                 const reservationService = new ReservationInfoService();
                 issueWithInfo.reservationInfo = await reservationService.getReservationById(Number(issue.reservation_id));
             } else {
