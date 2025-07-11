@@ -138,3 +138,30 @@ export const validateUpdateLatestUpdates = (request: Request, response: Response
     }
     next();
 };
+
+
+export const validateGetIssues = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        category: Joi.array().items(Joi.string()).min(1).optional(),
+        listingId: Joi.array().items(Joi.number()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().valid("PM", "ARB", "OWN")).min(1).optional(),
+        fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).optional(),
+        toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).optional(),
+        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Overdue", "Completed", "Need Help")).min(1).optional(),
+        guestName: Joi.string().optional(),
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        issueId: Joi.array().items(Joi.number()).min(1).optional(),
+        reservationId: Joi.array().items(Joi.number()).min(1).optional()
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

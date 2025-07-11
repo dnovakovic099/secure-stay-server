@@ -252,7 +252,13 @@ export class IssuesController {
 
     async getGuestIssues(request: any, response: Response, next: NextFunction) {
         try {
-            
+            const userId = request.user.id;
+            const issuesService = new IssuesService();
+            const { issues } = await issuesService.getGuestIssues(request.query, userId);
+            return response.status(200).json({
+                status: true,
+                data: issues
+            })
         } catch (error) {
             next(error);
         }

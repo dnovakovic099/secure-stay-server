@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { IssuesController } from "../controllers/IssuesController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateIssue, validateCreateLatestUpdates, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates } from "../middleware/validation/issues/issues.validation";
+import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates } from "../middleware/validation/issues/issues.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -10,7 +10,8 @@ const issuesController = new IssuesController();
 router.route('/')
     .get(
         verifySession,
-        issuesController.getIssues
+        validateGetIssues,
+        issuesController.getGuestIssues
     )
     .post(
         verifySession,

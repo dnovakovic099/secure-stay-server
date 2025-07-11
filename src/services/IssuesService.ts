@@ -341,8 +341,8 @@ export class IssuesService {
     async getGuestIssues(body: any, userId: string) {
         const {
             category, listingId, propertyType,
-            dateType, fromDate, toDate, status, guestName,
-            page, limit, issueIds, reservationId
+            fromDate, toDate, status, guestName,
+            page, limit, issueId, reservationId
         } = body;
 
         let listingIds = [];
@@ -357,21 +357,44 @@ export class IssuesService {
         const [issues, total] = await this.issueRepo.findAndCount({
             where: {
                 ...(category && category.length > 0 && { category: In(category) }),
-                ...(listingId && listingId.length > 0 && { listingId: In(listingId) }),
+                ...(listingIds && listingIds.length > 0 && { listing_id: In(listingIds) }),
                 ...(status && status.length > 0 && { status: In(status) }),
-                ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
-                ...(guestName && { guestName: guestName }),
-                ...(issueIds && issueIds.length > 0 && { id: In(issueIds) }),
+                ...(fromDate && toDate && { created_at: Between(fromDate, toDate) }),
+                ...(guestName && { guest_name: guestName }),
+                ...(issueId && issueId.length > 0 && { id: In(issueId) }),
                 ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
             },
             relations: ["issueUpdates"],
             take: limit,
-            skip: (page - 1) * limit,
+            skip: (Number(page) - 1) * Number(limit),
             order: {
                 id: "DESC"
             }
         });
 
+        const grouped = issues.reduce((acc, issue) => {
+            const key = issue.reservation_id || issue.listing_id || 'NA';
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(issue);
+            return acc;
+        }, {} as Record<string, Issue[]>);
+
+        // Sort each group by id DESC
+        for (const group of Object.values(grouped)) {
+            group.sort((a, b) => b.id - a.id);
+        }
+
+        // Sort groups by max id in each group
+        const sortedGroups = Object.entries(grouped)
+            .sort(([, A], [, B]) => Math.max(...B.map(i => i.id)) - Math.max(...A.map(i => i.id)))
+            .map(([k, v]) => ([`id_${k}`, v] as [string, Issue[]]));
+
+        // now this object won’t re‑numeric‑sort its keys:
+        const sortedObj = Object.fromEntries(sortedGroups);
+
+        return {
+            issues: sortedObj,
+        }
 
     }
 } 
