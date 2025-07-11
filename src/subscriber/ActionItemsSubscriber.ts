@@ -7,7 +7,7 @@ import {
 } from 'typeorm';
 import { getDiff } from '../helpers/helpers';
 import logger from '../utils/logger.utils';
-import { buildActionItemsSlackMessage } from '../utils/slackMessageBuilder';
+import { buildActionItemsSlackMessage, buildActionItemsSlackMessageUpdate, buildActionItemsSlackMessageDelete, buildActionItemStatusUpdateMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
 import { appDatabase } from '../utils/database.util';
@@ -15,6 +15,8 @@ import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
 import { ActionItems } from '../entity/ActionItems';
 import { ReservationInfoEntity } from '../entity/ReservationInfo';
+import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import updateSlackMessage from '../utils/updateSlackMsg';
 
 @EventSubscriber()
 export class ActionItemsSubscriber
@@ -27,6 +29,7 @@ export class ActionItemsSubscriber
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingRepo = appDatabase.getRepository(Listing);
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
+    private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
 
     async afterInsert(event: InsertEvent<ActionItems>) {
         const { entity, manager } = event;
@@ -57,6 +60,37 @@ export class ActionItemsSubscriber
         }
     }
 
+    private async updateSlackMessage(actionItem: any, userId: string, eventType: string) {
+        try {
+            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+
+            const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
+
+            let slackMessage = buildActionItemsSlackMessageUpdate(actionItem, user, reservationInfo);
+            if (eventType == "delete") {
+                slackMessage = buildActionItemsSlackMessageDelete(actionItem, user);
+            } else if (eventType == "statusUpdate") {
+                slackMessage = buildActionItemStatusUpdateMessage(actionItem, user);
+            }
+
+            const slackMessageInfo = await this.slackMessageInfo.findOne({
+                where: {
+                    entityType: "action_items",
+                    entityId: actionItem.id
+                }
+            });
+            await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            if(eventType=="statusUpdate"){
+                const mainMessage = buildActionItemsSlackMessage(actionItem, user, reservationInfo);
+                const { channel, ...messageWithoutChannel } = mainMessage;
+                await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+            }
+        } catch (error) {
+            logger.error("Slack creation failed", error);
+        }
+    }
+
     async afterUpdate(event: UpdateEvent<ActionItems>) {
         const { databaseEntity, entity, manager } = event;
         if (!databaseEntity || !entity) return;
@@ -67,6 +101,15 @@ export class ActionItemsSubscriber
 
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
+
+        let eventType = "update";
+        if ((entity.status != databaseEntity.status)) {
+            eventType = "statusUpdate";
+        } else if (entity.deletedAt) {
+            eventType = "delete";
+        }
+
+        await this.updateSlackMessage(entity, entity.updatedBy, eventType)
 
     }
 
