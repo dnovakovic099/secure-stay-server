@@ -75,6 +75,8 @@ export class ReservationInfoService {
     if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
+    
+    const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
 
     reservation.listingMapId = updateData.listingMapId;
     reservation.listingName = updateData.listingName;
@@ -89,7 +91,7 @@ export class ReservationInfoService {
     reservation.reservationDate = updateData.reservationDate;
     reservation.guestName = updateData.guestName;
     reservation.guestFirstName = updateData.guestFirstName;
-    reservation.guestLastName = updateData.guestLastName;
+    reservation.guestLastName = lastName;
     reservation.guestExternalAccountId = updateData.guestExternalAccountId;
     reservation.guestZipCode = updateData.guestZipCode;
     reservation.guestAddress = updateData.guestAddress;
