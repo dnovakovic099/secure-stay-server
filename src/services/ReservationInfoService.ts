@@ -715,7 +715,7 @@ export class ReservationInfoService {
       })
       .andWhere("log.action = :action", { action: 'UPDATE' })
       .andWhere(`
-    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights')
+    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights', '$.totalPrice')
   `)
       .orderBy("log.changedAt", "DESC")
       .getMany();
@@ -795,7 +795,7 @@ export class ReservationInfoService {
 
     logger.info(`[processExtendedReservations] Processed ${processedReservations.length} extended reservations.`);
     if (processedReservations.length > 0) {
-      const subject = `Extended Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
+      const subject = `Updated Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
       const filteredReservations = processedReservations.filter(reservation => reservation.status !== "ownerStay");
       await this.sendEmailForExtendedReservations(filteredReservations, subject);
     } else {
