@@ -22,7 +22,9 @@ export const validateGetReservationList = (request: Request, response: Response,
         listingMapId: Joi.array().items(Joi.number()).min(1).allow("", null),
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
-        limit: Joi.number().required()
+        limit: Joi.number().required(),
+        currentHour: Joi.string(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional()
     });
 
     const { error } = schema.validate(request.query);

@@ -16,8 +16,10 @@ import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
-import { getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
+import { Issue } from "../entity/Issue";
+import { ActionItems } from "../entity/ActionItems";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -153,7 +155,8 @@ export class ReservationInfoService {
         listingMapId,
         guestName,
         page,
-        limit
+        limit,
+        currentHour
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -164,6 +167,7 @@ export class ReservationInfoService {
         guestName?: string;
         page?: string;
         limit?: string;
+          currentHour: string;
       };
 
       // Convert page/limit to numbers with defaults
@@ -173,6 +177,11 @@ export class ReservationInfoService {
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
         return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingMapId, guestName, pageNumber, pageSize);
       }
+
+      if (currentHour) {
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingMapId, guestName, pageNumber, pageSize, currentHour);
+      }
+
       return await this.getCase1Default(todayDateStr, listingMapId, guestName, pageNumber, pageSize);
 
     } catch (error) {
@@ -248,11 +257,16 @@ export class ReservationInfoService {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
+      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
+      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
         postStayAuditStatus: postStayStatus,
-        upsells: upsells
+        upsells: upsells,
+        issues,
+        actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
@@ -308,11 +322,103 @@ export class ReservationInfoService {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
+      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
+      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
         postStayAuditStatus: postStayStatus,
-        upsells: upsells
+        upsells: upsells,
+        issues,
+        actionItems
+      };
+      Object.assign(reservation, reservationWithAuditStatus);
+    }
+
+    return {
+      status: "success",
+      result: results,
+      count: total,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+ * CASE 2: currentlyStaying
+ */
+  private async getCurrentlyStayingReservations(
+    todayDateStr: string,
+    listingMapId: string[] | undefined,
+    guestName: string | undefined,
+    page: number,
+    limit: number,
+    currentTime: string
+  ) {
+    // 1) Query for currently staying reservation's records
+    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName);
+    if (listingMapId && listingMapId.length > 0) {
+      qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
+    }
+    qbCurrentlyStaying.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
+
+    // Main condition
+    qbCurrentlyStaying.andWhere(" (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)", { today: todayDateStr });
+
+    // Use skip/take for pagination
+    const [results, total] = await qbCurrentlyStaying
+      .skip((page - 1) * limit)
+      .take(limit)
+      .addOrderBy("arrivalDate", "DESC")
+      .getManyAndCount();
+
+    const listings = await appDatabase.getRepository(Listing).find();
+    const listingTimeZoneMap = new Map(
+      listings.map(listing => [listing.id, listing.timeZoneName])
+    );
+
+    //filter the checkIn and CheckOut reservations based on time
+    const filteredReservations = results.filter((reservation) => {
+      const timeZone = listingTimeZoneMap.get(reservation.listingMapId);
+      if (!timeZone) return false;
+
+      const arrivalDateStr = format(reservation.arrivalDate, "yyyy-MM-dd");
+      const departureDateStr = format(reservation.departureDate, "yyyy-MM-dd");
+
+      const checkInTimeUTC = convertLocalHourToUTC(reservation.checkInTime, timeZone);
+      const checkOutTimeUTC = convertLocalHourToUTC(reservation.checkOutTime, timeZone);
+
+      if (todayDateStr === arrivalDateStr) {
+        return Number(currentTime) >= checkInTimeUTC;
+      }
+
+      if (todayDateStr === departureDateStr) {
+        return Number(currentTime) < checkOutTimeUTC;
+      }
+
+      // Middle of stay
+      return todayDateStr > arrivalDateStr && todayDateStr < departureDateStr;
+    });
+
+
+    for (const reservation of filteredReservations) {
+      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
+      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
+
+      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
+      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+
+      const reservationWithAuditStatus = {
+        ...reservation,
+        preStayAuditStatus: preStayStatus,
+        postStayAuditStatus: postStayStatus,
+        upsells: upsells,
+        issues,
+        actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
