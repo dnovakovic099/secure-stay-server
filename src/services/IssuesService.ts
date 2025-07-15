@@ -415,7 +415,8 @@ export class IssuesService {
         const transformedIssues = issues.map(issue => {
             return {
                 ...issue,
-                createdBy: userMap.get(issue.updated_by) || issue.updated_by,
+                created_by: userMap.get(issue.created_by) || issue.created_by,
+                updated_by: userMap.get(issue.updated_by) || issue.updated_by,
                 issueUpdates: issue.issueUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
