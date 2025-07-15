@@ -11,10 +11,12 @@ import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
+import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
     private actionItemRepo = appDatabase.getRepository(ActionItems);
+    private actionItemUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
     private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
@@ -264,7 +266,11 @@ export class IssuesService {
 
     async migrateIssueToActionItems(body: any, userId: string) {
         const { id, category, status } = body;
-        const issue = await this.issueRepo.findOne({ where: { id } });
+        const issue = await this.issueRepo.findOne({
+            where: { id },
+            relations: ["issueUpdates"]
+        });
+
         if (!issue) {
             throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
         }
@@ -284,6 +290,25 @@ export class IssuesService {
         // Save the action item to the database
         const newActionItem = this.actionItemRepo.create(actionItem);
         const savedActionItem = await this.actionItemRepo.save(newActionItem);
+
+        //save the action item updates to the database if exists any
+        if (issue.issueUpdates?.length > 0) {
+            const latestUpdate = issue.issueUpdates.sort(
+                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )[0];
+
+            const actionItemUpdate = this.actionItemUpdatesRepo.create({
+                updates: latestUpdate.updates,
+                createdBy: latestUpdate.createdBy,
+                actionItems: savedActionItem,
+                updatedBy: latestUpdate.updatedBy,
+                createdAt: latestUpdate.createdAt,
+                updatedAt: latestUpdate.updatedAt
+            });
+
+            await this.actionItemUpdatesRepo.save(actionItemUpdate);
+        }
+
         await this.issueRepo.remove(issue);
         return savedActionItem;
     }

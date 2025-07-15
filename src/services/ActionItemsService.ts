@@ -12,6 +12,7 @@ import { ReservationInfoService } from "./ReservationInfoService";
 import { ReservationService } from "./ReservationService";
 import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
+import { IssueUpdates } from "../entity/IsssueUpdates";
 
 interface ActionItemFilter {
     category?: string;
@@ -38,6 +39,7 @@ export class ActionItemsService {
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private actionItemsUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
+    private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
 
     async createAtionItemFromHostbuddy(actionItems: HostBuddyActionItem) {
         const { property_name, guest_name, category, status, item } = actionItems;
@@ -262,7 +264,25 @@ export class ActionItemsService {
         try {
             const issueService = new IssuesService();
             const issue = await issueService.createIssue(data, creator, []);
-            logger.info(`[migrateActionItemsToIssues] Issue created successfully`);
+
+            //save the issue updates to the database if exists any
+            if (issue.issueUpdates?.length > 0) {
+                const latestUpdate = actionItem.actionItemsUpdates.sort(
+                    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                )[0];
+
+                const issueUpdate = this.issueUpdatesRepo.create({
+                    updates: latestUpdate.updates,
+                    createdBy: latestUpdate.createdBy,
+                    issue: issue,
+                    updatedBy: latestUpdate.updatedBy,
+                    createdAt: latestUpdate.createdAt,
+                    updatedAt: latestUpdate.updatedAt
+                });
+
+                await this.issueUpdatesRepo.save(issueUpdate);
+            }
+
             await this.deleteActionItem(id, userId);
             logger.info(`[migrateActionItemsToIssues] Action item with ID ${id} deleted successfully after migrating to issue ${issue?.id}`);
             return issue;
