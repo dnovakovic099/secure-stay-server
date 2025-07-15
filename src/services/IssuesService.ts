@@ -306,6 +306,7 @@ export class IssuesService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
         result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
         return result;
     }
 
@@ -323,6 +324,7 @@ export class IssuesService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
         result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
         return result;
     }
 
@@ -382,8 +384,23 @@ export class IssuesService {
             }
         }
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        const transformedIssues = issues.map(issue => {
+            return {
+                ...issue,
+                createdBy: userMap.get(issue.updated_by) || issue.updated_by,
+                issueUpdates: issue.issueUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                })),
+            };
+        });
+
         return {
-            issues,
+            issues: transformedIssues,
             total
         }
     }
