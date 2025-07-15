@@ -39,5 +39,10 @@ export const errorHandler = (
     };
   }
 
+  if (err instanceof Error) {
+    logger.error(err?.message);
+    logger.error(err?.stack);
+  }
+
   res.status(statusCode).json(data);
 };
