@@ -291,22 +291,20 @@ export class IssuesService {
         const newActionItem = this.actionItemRepo.create(actionItem);
         const savedActionItem = await this.actionItemRepo.save(newActionItem);
 
-        //save the action item updates to the database if exists any
+        // Save ALL issue updates as action item updates
         if (issue.issueUpdates?.length > 0) {
-            const latestUpdate = issue.issueUpdates.sort(
-                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            )[0];
+            const actionItemUpdates = issue.issueUpdates.map((update) =>
+                this.actionItemUpdatesRepo.create({
+                    updates: update.updates,
+                    createdBy: update.createdBy,
+                    updatedBy: update.updatedBy,
+                    createdAt: update.createdAt,
+                    updatedAt: update.updatedAt,
+                    actionItems: savedActionItem,
+                })
+            );
 
-            const actionItemUpdate = this.actionItemUpdatesRepo.create({
-                updates: latestUpdate.updates,
-                createdBy: latestUpdate.createdBy,
-                actionItems: savedActionItem,
-                updatedBy: latestUpdate.updatedBy,
-                createdAt: latestUpdate.createdAt,
-                updatedAt: latestUpdate.updatedAt
-            });
-
-            await this.actionItemUpdatesRepo.save(actionItemUpdate);
+            await this.actionItemUpdatesRepo.save(actionItemUpdates); // save all at once
         }
 
         await this.issueRepo.remove(issue);
