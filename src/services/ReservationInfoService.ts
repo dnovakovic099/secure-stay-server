@@ -425,7 +425,7 @@ export class ReservationInfoService {
 
     return {
       status: "success",
-      result: results,
+      result: filteredReservations,
       count: total,
       currentPage: page,
       totalPages: Math.ceil(total / limit),
