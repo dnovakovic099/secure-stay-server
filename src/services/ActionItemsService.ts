@@ -225,9 +225,9 @@ export class ActionItemsService {
     }
 
     async migrateActionItemsToIssues(body: any, userId: string) {
-        const { id, status } = body;
+        const { id, status, category } = body;
 
-        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id }, relations: ["actionItemsUpdates"] });
         if (!actionItem) {
             throw CustomErrorHandler.notFound(`Action item with ID ${id} not found`);
         }
@@ -239,10 +239,13 @@ export class ActionItemsService {
             throw CustomErrorHandler.notFound(`Reservation info for guest ${actionItem.guestName} not found`);
         }
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
         const reservationService = new ReservationService();
         const channels = await reservationService.getChannelList();
         const channel = channels.find(c => c.channelId === reservationInfo.channelId).channelName;
-        const creator = "Hostbuddy";
+        const creator = userMap.get(actionItem.createdBy) || actionItem.createdBy;
 
         const data: Partial<Issue> = {
             channel,
@@ -258,7 +261,12 @@ export class ActionItemsService {
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
             final_price: 0,
-            claim_resolution_amount: 0
+            claim_resolution_amount: 0,
+            category,
+            created_by: actionItem.createdBy,
+            updated_by: actionItem.updatedBy,
+            created_at: actionItem.createdAt,
+            updated_at: actionItem.updatedAt
         };
 
         try {
@@ -266,20 +274,17 @@ export class ActionItemsService {
             const issue = await issueService.createIssue(data, creator, []);
 
             //save the issue updates to the database if exists any
-            if (issue.issueUpdates?.length > 0) {
-                const latestUpdate = actionItem.actionItemsUpdates.sort(
-                    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-                )[0];
-
-                const issueUpdate = this.issueUpdatesRepo.create({
-                    updates: latestUpdate.updates,
-                    createdBy: latestUpdate.createdBy,
-                    issue: issue,
-                    updatedBy: latestUpdate.updatedBy,
-                    createdAt: latestUpdate.createdAt,
-                    updatedAt: latestUpdate.updatedAt
-                });
-
+            if (actionItem.actionItemsUpdates?.length > 0) {
+                const issueUpdate = actionItem.actionItemsUpdates.map((update) =>
+                    this.issueUpdatesRepo.create({
+                        updates: update.updates,
+                        createdBy: update.createdBy,
+                        issue: issue,
+                        updatedBy: update.updatedBy,
+                        createdAt: update.createdAt,
+                        updatedAt: update.updatedAt
+                    })
+                );
                 await this.issueUpdatesRepo.save(issueUpdate);
             }
 
