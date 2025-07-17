@@ -181,16 +181,22 @@ export class ListingService {
     return result;
   }
 
-  async getListingsByTagIds(tagIds: number[]) {
-    const listings = await this.listingRepository
+  async getListingsByTagIds(tagIds: number[], userId?: string) {
+    const query = this.listingRepository
       .createQueryBuilder("listing")
-      .leftJoinAndSelect("listing.listingTags", "listingTags")
-      .where("listingTags.tagId IN (:...tagIds)", { tagIds })
-      .getMany();
+      .select(["listing.id", "listing.name","listing.internalListingName",
+        "listing.address"
+      ])
+      .leftJoin("listing.listingTags", "listingTags")
+      .where("listingTags.tagId IN (:...tagIds)", { tagIds });
 
+    if (userId) {
+      query.andWhere("listing.userId = :userId", { userId });
+    }
+
+    const listings = await query.getMany();
     return listings;
   }
-
 
   async getDeviceIdByListingId(listing_id: number) {
     const listing = await this.listingRepository.findOne({

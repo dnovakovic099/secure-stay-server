@@ -97,4 +97,53 @@ export class ClientTicketController {
             next(error);
         }
     }
+
+    async saveClientTicketUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user?.id;
+            const ticketService = new ClientTicketService();
+            const result = await ticketService.saveClientTicketUpdates(request.body, userId);
+
+            return response.status(201).json({
+                success: true,
+                message: "Ticket updates created successfully",
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateClientTicketUpdates(request: CustomRequest, response: Response, next: NextFunction){
+        try {
+            const userId = request.user?.id;
+            const ticketService = new ClientTicketService();
+            const result = await ticketService.updateTicketUpdates(request.body, userId);
+
+            return response.status(201).json({
+                success: true,
+                message: "Ticket updates updated successfully",
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteClientTicketUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { id } = request.params;
+            const userId = request.user?.id;
+
+            const ticketService = new ClientTicketService();
+            const result = await ticketService.deleteClientTicketUpdate(Number(id), userId);
+
+            return response.status(200).json({
+                success: true,
+                message: "Client ticket deleted successfully",
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 }

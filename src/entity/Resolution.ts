@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity("resolutions")
 export class Resolution {
@@ -21,10 +21,13 @@ export class Resolution {
     reservationId: number;
 
     @Column({ type: "date" })
-    claimDate: Date;
+    claimDate: string;
 
     @Column({ type: "decimal", precision: 10, scale: 2 })
     amount: number;
+
+    @Column({ type: "decimal", precision: 10, scale: 2, nullable: true })
+    amountToPayout: number;
 
     @Column({ nullable: true })
     arrivalDate: string;
@@ -32,15 +35,24 @@ export class Resolution {
     @Column({ nullable: true })
     departureDate: string;
 
+    @Column({ nullable: true })
+    ha_id: string;
+
     @CreateDateColumn()
     createdAt: Date;
 
     @UpdateDateColumn()
     updatedAt: Date;
 
+    @DeleteDateColumn({ nullable: true })
+    deletedAt: Date;
+
     @Column({ nullable: true })
     createdBy: string;
 
     @Column({ nullable: true })
     updatedBy: string;
+
+    @Column({ nullable: true })
+    deletedBy: string;
 } 

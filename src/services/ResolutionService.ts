@@ -1,19 +1,10 @@
 import { Between, In } from "typeorm";
-import { format } from "date-fns";
-import { Request } from "express";
 import { Resolution } from "../entity/Resolution";
-import { Listing } from "../entity/Listing";
 import { appDatabase } from "../utils/database.util";
-
-interface ResolutionQuery {
-    listingId?: string;
-    fromDate?: string;
-    toDate?: string;
-    categories?: string;
-    guestName?: string;
-    page?: string;
-    limit?: string;
-}
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { UsersEntity } from "../entity/Users";
+import { haResolutionDeleteQueue, haResolutionQueue, haResolutionUpdateQueue } from "../queue/haQueue";
+import logger from "../utils/logger.utils";
 
 interface ResolutionData {
     category: string;
@@ -49,7 +40,7 @@ const categoriesList: Record<CategoryKey, string> = {
 
 export class ResolutionService {
     private resolutionRepo = appDatabase.getRepository(Resolution);
-    private listingRepository = appDatabase.getRepository(Listing);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     async createResolution(data: ResolutionData, userId: string | null) {
         const resolution = new Resolution();
@@ -58,15 +49,24 @@ export class ResolutionService {
         resolution.listingMapId = data.listingMapId;
         resolution.reservationId = data.reservationId;
         resolution.guestName = data.guestName;
-        resolution.claimDate = new Date(data.claimDate);
+        resolution.claimDate = data.claimDate;
         resolution.amount = data.amount;
-        resolution.createdAt = new Date();
-        resolution.updatedAt = new Date();
-        resolution.createdBy = userId;
+        resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
 
-        return await this.resolutionRepo.save(resolution);
+        await this.resolutionRepo.save(resolution);
+
+        //add to queue to create resolution in HA
+        try {
+            await haResolutionQueue.add('create-HA-resolution', {
+                resolution,
+            });
+        } catch (error) {
+            logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
+        }
+
+        return resolution;
     }
 
     async updateResolution(updatedData: Partial<Resolution>, userId: string | null) {
@@ -77,102 +77,73 @@ export class ResolutionService {
         resolution.listingMapId = updatedData.listingMapId;
         resolution.reservationId = updatedData.reservationId;
         resolution.guestName = updatedData.guestName;
-        resolution.claimDate = new Date(updatedData.claimDate);
+        resolution.claimDate = updatedData.claimDate;
         resolution.amount = updatedData.amount;
-        resolution.updatedBy = userId;
+        resolution.updatedBy = userId ? userId : "system";
         resolution.arrivalDate = updatedData.arrivalDate;
         resolution.departureDate = updatedData.departureDate;
+        resolution.amountToPayout = updatedData.amountToPayout;
+        await this.resolutionRepo.save(resolution);
 
-        return await this.resolutionRepo.save(resolution);
+        //add to queue to update resolution in HA
+        if (resolution.ha_id) {
+            try {
+                await haResolutionUpdateQueue.add('update-HA-resolution', {
+                    resolution,
+                });
+            } catch (error) {
+                logger.error(`Queueing Hostaway job failed for update resolution ${resolution.id}: ${error.message}`);
+            }
+        }
+
+        return resolution;
     }
 
-    async getResolutions(request: Request & { query: ResolutionQuery }, userId: string) {
-        const {
-            listingId,
-            fromDate,
-            toDate,
-            categories,
-        } = request.query;
-        
-        const page = Number(request.query.page) || 1;
-        const limit = Number(request.query.limit) || 10;
-        const skip = (page - 1) * limit;
-
-        const categoryArray = categories 
-        ? categories.split(',').filter(cat => Object.values(CategoryKey).includes(cat as CategoryKey))
-        : null;
-
-        const resolutions = await this.resolutionRepo.find({
+    async getResolutions(filters: any) {
+        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit } = filters;
+        const [resolutions, total] = await this.resolutionRepo.findAndCount({
             where: {
-                ...(listingId && { listingMapId: Number(listingId) }),
-                ...(categoryArray?.length && { 
-                    category: In(categoryArray)
-                }),
-                ...(fromDate && toDate && {
-                    claimDate: Between(
-                        new Date(String(fromDate)),
-                        new Date(String(toDate))
-                    )
-                }),
+                ...(listingId && { listingMapId: In(listingId) }),
+                ...(reservationId && { reservationId: reservationId }),
+                ...(category && category.length > 1 && { category: In(category) }),
+                ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
             },
-            order: { createdAt: "DESC" },
-            skip,
+            skip: (page - 1) * limit,
             take: limit,
+            order: {
+                id: "DESC"
+            }
+        })
+
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        const listings = await appDatabase.query(`
+              SELECT id, MIN(name) AS name, MIN(internalListingName) AS internalListingName
+              FROM listing_info
+              GROUP BY id
+              `);
+
+        const transformedResolutions = resolutions.map(resolution => {
+            return {
+                ...resolution,
+                listingName: listings.find((listing) => listing.id == Number(resolution.listingMapId))?.internalListingName,
+                createdBy: userMap.get(resolution.createdBy) || resolution.createdBy,
+                updatedBy: userMap.get(resolution.updatedBy) || resolution.updatedBy,
+            };
         });
-
-        const listingMapIds = resolutions
-            .map(resolution => resolution.listingMapId)
-            .filter((id, index, self) => id != null && self.indexOf(id) === index);
-
-        const listings = await this.listingRepository.find({
-            select: ["id", "address", "internalListingName"],
-            where: { id: In(listingMapIds) }
-        });
-
-        const listingNameMap = listings.reduce((acc, listing) => {
-            acc[listing.id] = listing.internalListingName;
-            return acc;
-        }, {});
-
-        const columns = [
-            "ID",
-            "Category",
-            "Description",
-            "Listing",
-            "Guest Name",
-            "Claim Date",
-            "Amount",
-            "Check In",
-            "Check Out",
-            "Created At"
-        ];
-
-        const rows = resolutions.map((resolution) => [
-            resolution.id,
-            categoriesList[resolution.category as CategoryKey] ?? 'Unknown Category',
-            resolution.description ?? 'N/A',
-            listingNameMap[resolution.listingMapId] || 'N/A',
-            resolution.guestName,
-            format(resolution.claimDate, "yyyy-MM-dd"),
-            Number(resolution.amount),
-            resolution.arrivalDate,
-            resolution.departureDate,
-            format(resolution.createdAt, "yyyy-MM-dd"),
-        ]);
 
         return {
-            columns,
-            rows
-        };
+            resolutions: transformedResolutions,
+            total
+        }
+
     }
 
     async getResolutionById(resolutionId: number, userId: string) {
-        const resolution = await this.resolutionRepo.findOne({
-            where: { id: resolutionId, createdBy: userId }
-        });
-
+        const resolution = await this.resolutionRepo.findOne({ where: { id: resolutionId } });
         if (!resolution) {
-            throw new Error('Resolution not found');
+            throw CustomErrorHandler.notFound(`Resolution with id ${resolutionId} not found`);
         }
 
         return resolution;
@@ -180,16 +151,28 @@ export class ResolutionService {
 
     async deleteResolution(resolutionId: number, userId: string) {
         const resolution = await this.getResolutionById(resolutionId, userId);
-        await this.resolutionRepo.remove(resolution);
+        resolution.deletedAt = new Date();
+        resolution.deletedBy = userId;
+        await this.resolutionRepo.save(resolution);
+
+        //add to queue to update resolution in HA
+        if (resolution.ha_id) {
+            try {
+                await haResolutionDeleteQueue.add('delete-HA-resolution', {
+                    resolution,
+                });
+            } catch (error) {
+                logger.error(`Queueing Hostaway job failed for delete resolution ${resolution.id}: ${error.message}`);
+            }
+        }
+
+        return resolution
     }
 
     async getResolution(fromDate: string, toDate: string, listingId: number) {
         return await this.resolutionRepo.find({
             where: {
-                claimDate: Between(
-                    new Date(fromDate),
-                    new Date(toDate)
-                ),
+                claimDate: Between(fromDate, toDate),
                 listingMapId: listingId
             }
         });

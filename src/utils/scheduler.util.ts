@@ -17,7 +17,7 @@ export function scheduleGetReservation() {
     console.log("Application is working: " + new Date());
   });
 
-  schedule.scheduleJob("0 0 * * *", sendCodes);
+  // schedule.scheduleJob("0 0 * * *", sendCodes);
 
   schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
 

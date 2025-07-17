@@ -26,8 +26,7 @@ export class ResolutionController {
 
     getResolutions = async (request: CustomRequest, response: Response, next: NextFunction) => {
         try {
-            const userId = request.user.id;
-            const resolutions = await this.resolutionService.getResolutions(request, userId);
+            const resolutions = await this.resolutionService.getResolutions(request.query);
             return response.send(resolutions);
         } catch (error) {
             return next(error);
@@ -53,6 +52,17 @@ export class ResolutionController {
             return response.send({ message: 'Resolution deleted successfully' });
         } catch (error) {
             return next(error);
+        }
+    }
+
+    async updateResolution(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const resolutionService=new ResolutionService();
+            const resolution = await resolutionService.updateResolution(request.body, userId);
+            return response.status(200).json(resolution);
+        } catch (error) {
+            next(error);
         }
     }
 } 

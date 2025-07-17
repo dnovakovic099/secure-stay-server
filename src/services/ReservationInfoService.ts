@@ -49,7 +49,8 @@ export class ReservationInfoService {
       }, 5 * 60 * 1000);  //delay the notification by 5 min 
     }
 
-    const newReservation = this.reservationInfoRepository.create(reservation);
+    const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
+    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
@@ -74,6 +75,8 @@ export class ReservationInfoService {
     if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
+    
+    const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
 
     reservation.listingMapId = updateData.listingMapId;
     reservation.listingName = updateData.listingName;
@@ -88,7 +91,7 @@ export class ReservationInfoService {
     reservation.reservationDate = updateData.reservationDate;
     reservation.guestName = updateData.guestName;
     reservation.guestFirstName = updateData.guestFirstName;
-    reservation.guestLastName = updateData.guestLastName;
+    reservation.guestLastName = lastName;
     reservation.guestExternalAccountId = updateData.guestExternalAccountId;
     reservation.guestZipCode = updateData.guestZipCode;
     reservation.guestAddress = updateData.guestAddress;
@@ -194,7 +197,7 @@ export class ReservationInfoService {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(guestName);
+    const qbToday = this.buildBaseQuery(listingMapId, guestName);
     if (listingMapId && listingMapId.length > 0) {
       qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -204,7 +207,7 @@ export class ReservationInfoService {
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(guestName);
+    const qbFuture = this.buildBaseQuery(listingMapId, guestName);
     if (listingMapId && listingMapId.length > 0) {
       qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -216,7 +219,7 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(guestName);
+    const qbPast = this.buildBaseQuery(listingMapId, guestName);
     if (listingMapId && listingMapId.length > 0) {
       qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -267,7 +270,7 @@ export class ReservationInfoService {
    * CASE 2: startDate & endDate provided
    */
   private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number) {
-    const qb = this.buildBaseQuery(guestName);
+    const qb = this.buildBaseQuery(listingMapId, guestName);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -328,14 +331,14 @@ export class ReservationInfoService {
    * This method is used for each scenario (today, future, past, etc.).
    */
   private buildBaseQuery(
-    listingMapId?: string,
+    listingMapId?: string[],
     guestName?: string
   ) {
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
 
     // If listingMapId provided, exact match
     if (listingMapId) {
-      qb.andWhere("reservation.listingMapId = :listingMapId", { listingMapId: +listingMapId });
+      qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapId: listingMapId });
     }
 
     // If guestName provided, match against guestName/firstName/lastName
@@ -470,15 +473,15 @@ export class ReservationInfoService {
       if (existingResolution.amount !== airbnbClosedResolutionSumAmount) {
         logger.info(`[ReservationInfoService] Updating resolution for reservation ${reservation?.id} from $${existingResolution.amount} to $${airbnbClosedResolutionSumAmount}`);
         existingResolution.amount = airbnbClosedResolutionSumAmount;
-        await this.resolutionRepo.save(existingResolution);
+        await resolutionService.updateResolution(existingResolution, null)
         await this.notifyAboutAirbnbClosedResolutionSum(reservation, true); // notify about update
       }
-      return;
     } else {
       await this.createResolution(reservation); // actual resolution logic
       logger.info(`[ReservationInfoService] Resolution created for reservation ${reservation?.id}`);
       await this.notifyAboutAirbnbClosedResolutionSum(reservation); // notify
     }
+    return;
   }
 
   private async createResolution(reservation: any) {
@@ -712,7 +715,7 @@ export class ReservationInfoService {
       })
       .andWhere("log.action = :action", { action: 'UPDATE' })
       .andWhere(`
-    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights')
+    JSON_CONTAINS_PATH(log.diff, 'one', '$.nights', '$.totalPrice')
   `)
       .orderBy("log.changedAt", "DESC")
       .getMany();
@@ -792,7 +795,7 @@ export class ReservationInfoService {
 
     logger.info(`[processExtendedReservations] Processed ${processedReservations.length} extended reservations.`);
     if (processedReservations.length > 0) {
-      const subject = `Extended Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
+      const subject = `Updated Reservation Report - ${format(fromDate, 'MMM dd, yyyy')} to ${format(toDate, 'MMM dd, yyyy')}`;
       const filteredReservations = processedReservations.filter(reservation => reservation.status !== "ownerStay");
       await this.sendEmailForExtendedReservations(filteredReservations, subject);
     } else {

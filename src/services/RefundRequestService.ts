@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { EntityManager } from "typeorm";
+import { EntityManager, In } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -233,19 +233,21 @@ export class RefundRequestService {
         return await this.refundRequestRepo.findOne({ where: { id } });
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status?: string, reservationId?: number, listingId?: number; }) {
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; }) {
         const { page, limit, status, reservationId, listingId } = query;
         const offset = (page - 1) * limit;
         const whereConditions: any = {};
-        if (status) {
-            whereConditions.status = status;
+
+        if (status && Array.isArray(status)) {
+            whereConditions.status = In(status);
+        }  
+        if(reservationId && Array.isArray(reservationId)) {
+            whereConditions.reservationId = In(reservationId);
         }
-        if (reservationId) {
-            whereConditions.reservationId = reservationId;
+        if (listingId && Array.isArray(listingId)) {
+            whereConditions.listingId = In(listingId);
         }
-        if (listingId) {
-            whereConditions.listingId = listingId;
-        }
+
         const [data, total] = await this.refundRequestRepo.findAndCount({
             where: whereConditions,
             order: { createdAt: "DESC" },

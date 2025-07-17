@@ -59,9 +59,9 @@ export class RefundRequestController {
             return response.send(await refundRequestService.getRefundRequestList({
                 page: Number(page) || 1,
                 limit: Number(limit) || 10,
-                status: status ? String(status) : undefined,
-                reservationId: reservationId ? Number(reservationId) : undefined,
-                listingId: listingId ? Number(listingId) : undefined
+                status: status as string,
+                reservationId: reservationId as string,
+                listingId: listingId as string
             }));
         } catch (error) {
             return next(error);

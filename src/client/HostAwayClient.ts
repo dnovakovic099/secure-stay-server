@@ -375,6 +375,27 @@ export class HostAwayClient {
       return null;
     }
   }
+
+  public async getExpense(expenseId: number, clientId: string, clientSecret: string) {
+    let url = `https://api.hostaway.com/v1/expenses/${expenseId}`;
+
+    try {
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
   public async financeStandardField(reservationId: number, clientId: string, clientSecret: string) {
     let url = `https://api.hostaway.com/v1/financeStandardField/reservation/${reservationId}`;
 
