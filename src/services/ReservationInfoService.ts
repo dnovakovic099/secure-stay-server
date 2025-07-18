@@ -20,6 +20,7 @@ import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange } from "
 import { Resolution } from "../entity/Resolution";
 import { Issue } from "../entity/Issue";
 import { ActionItems } from "../entity/ActionItems";
+import { ListingService } from "./ListingService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -156,7 +157,8 @@ export class ReservationInfoService {
         guestName,
         page,
         limit,
-        currentHour
+        currentHour,
+        propertyType
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -168,21 +170,31 @@ export class ReservationInfoService {
         page?: string;
         limit?: string;
           currentHour: string;
+          propertyType: any;
       };
 
       // Convert page/limit to numbers with defaults
       const pageNumber = page ? parseInt(page, 10) : 1;
       const pageSize = limit ? parseInt(limit, 10) : 10;
+
+      let listingIds = [];
+      if (propertyType && propertyType.length > 0) {
+        const listingService = new ListingService();
+        listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+      } else {
+        listingIds = listingMapId;
+      }
+
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingMapId, guestName, pageNumber, pageSize);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingMapId, guestName, pageNumber, pageSize, currentHour);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour);
       }
 
-      return await this.getCase1Default(todayDateStr, listingMapId, guestName, pageNumber, pageSize);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -380,28 +392,38 @@ export class ReservationInfoService {
       listings.map(listing => [listing.id, listing.timeZoneName])
     );
 
-    //filter the checkIn and CheckOut reservations based on time
-    const filteredReservations = results.filter((reservation) => {
+    //transform the checkIn and CheckOut reservations based on time
+    const transformedReservation = results.map((reservation) => {
       const timeZone = listingTimeZoneMap.get(reservation.listingMapId);
-      if (!timeZone) return false;
+      if (timeZone) {
+        const checkInTimeUTC = convertLocalHourToUTC(reservation.checkInTime, timeZone);
+        const checkOutTimeUTC = convertLocalHourToUTC(reservation.checkOutTime, timeZone);
+        reservation.checkInTime = checkInTimeUTC;
+        reservation.checkOutTime = checkOutTimeUTC;
+      }
 
+      return reservation;
+    });
+
+    const filteredReservations = transformedReservation.filter(reservation => {
       const arrivalDateStr = format(reservation.arrivalDate, "yyyy-MM-dd");
       const departureDateStr = format(reservation.departureDate, "yyyy-MM-dd");
 
-      const checkInTimeUTC = convertLocalHourToUTC(reservation.checkInTime, timeZone);
-      const checkOutTimeUTC = convertLocalHourToUTC(reservation.checkOutTime, timeZone);
+      const currentTimeNum = Number(currentTime);
 
-      if (todayDateStr === arrivalDateStr) {
-        return Number(currentTime) >= checkInTimeUTC;
+      if (arrivalDateStr === todayDateStr) {
+        return reservation.checkInTime <= currentTimeNum;
       }
 
-      if (todayDateStr === departureDateStr) {
-        return Number(currentTime) < checkOutTimeUTC;
+      if (departureDateStr === todayDateStr) {
+        return reservation.checkOutTime > currentTimeNum;
       }
 
       // Middle of stay
       return todayDateStr > arrivalDateStr && todayDateStr < departureDateStr;
     });
+
+
 
 
     for (const reservation of filteredReservations) {
@@ -422,6 +444,7 @@ export class ReservationInfoService {
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
+
 
     return {
       status: "success",
