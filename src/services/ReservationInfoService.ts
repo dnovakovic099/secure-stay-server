@@ -21,6 +21,8 @@ import { Resolution } from "../entity/Resolution";
 import { Issue } from "../entity/Issue";
 import { ActionItems } from "../entity/ActionItems";
 import { ListingService } from "./ListingService";
+import { IssuesService } from "./IssuesService";
+import { ActionItemsService } from "./ActionItemsService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -144,7 +146,7 @@ export class ReservationInfoService {
    * Implements the 5 main scenarios + filtering (listingMapId, guestName).
    * Also applies the filters to the "today" query in the default scenario.
    */
-  public async getReservationInfo(request: Request) {
+  public async getReservationInfo(request: any) {
     try {
       // 1. Parse Query Params
       const {
@@ -177,6 +179,8 @@ export class ReservationInfoService {
       const pageNumber = page ? parseInt(page, 10) : 1;
       const pageSize = limit ? parseInt(limit, 10) : 10;
 
+      const userId = request.user.id;
+
       let listingIds = [];
       if (propertyType && propertyType.length > 0) {
         const listingService = new ListingService();
@@ -187,14 +191,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -213,7 +217,8 @@ export class ReservationInfoService {
     listingMapId: string[] | undefined,
     guestName: string | undefined,
     page: number,
-    limit: number
+    limit: number,
+    userId: string
   ) {
 
 
@@ -269,8 +274,10 @@ export class ReservationInfoService {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
-      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
-      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+      const issueServices = new IssuesService();
+      const actionItemServices = new ActionItemsService();
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
@@ -295,7 +302,7 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number) {
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId:string) {
     const qb = this.buildBaseQuery(listingMapId, guestName);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
@@ -334,8 +341,10 @@ export class ReservationInfoService {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
-      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
-      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+      const issueServices = new IssuesService();
+      const actionItemServices = new ActionItemsService();
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
@@ -366,7 +375,8 @@ export class ReservationInfoService {
     guestName: string | undefined,
     page: number,
     limit: number,
-    currentTime: string
+    currentTime: string,
+    userId: string
   ) {
     // 1) Query for currently staying reservation's records
     const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName);
@@ -431,8 +441,10 @@ export class ReservationInfoService {
       const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
 
-      const issues = await appDatabase.getRepository(Issue).find({ where: { reservation_id: String(reservation.id) } });
-      const actionItems = await appDatabase.getRepository(ActionItems).find({ where: { reservationId: reservation.id } });
+      const issueServices = new IssuesService();
+      const actionItemServices = new ActionItemsService();
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
