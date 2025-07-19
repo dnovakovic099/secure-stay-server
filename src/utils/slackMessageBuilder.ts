@@ -312,8 +312,9 @@ export const buildClientTicketSlackMessageDelete = (ticket: ClientTicket, user: 
 
 export const buildActionItemsSlackMessage = (
     actionItems: ActionItems,
-    user: string,
-    reservationInfo: ReservationInfoEntity
+    createdBy: string,
+    reservationInfo: ReservationInfoEntity,
+    updatedBy?: string
 ) => {
     return {
         channel: GUEST_RELATIONS,
@@ -346,7 +347,8 @@ export const buildActionItemsSlackMessage = (
                     { type: "mrkdwn", text: `*Check In:* ${reservationInfo?.arrivalDate || "-"}` },
                     { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
                     { type: "mrkdwn", text: `*Check Out:* ${reservationInfo?.departureDate || "-"}` },
-                    { type: "mrkdwn", text: `*Created By:* ${user}` }
+                    { type: "mrkdwn", text: `*Created By:* ${createdBy}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
                 ]
             },
             {
