@@ -6,10 +6,19 @@ import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ActionItems } from "../entity/ActionItems";
+import { IssueUpdates } from "../entity/IsssueUpdates";
+import { UsersEntity } from "../entity/Users";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant";
+import { ReservationInfoService } from "./ReservationInfoService";
+import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
     private actionItemRepo = appDatabase.getRepository(ActionItems);
+    private actionItemUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
+    private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -157,11 +166,17 @@ export class IssuesService {
         return await this.issueRepo.save(issue);
     }
 
-    async deleteIssue(id: number) {
+    async deleteIssue(id: number, userId: string) {
         const issue = await this.issueRepo.findOneBy({ id });
-        if (issue) {
-            return await this.issueRepo.remove(issue);
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with the id ${id} not found`)
         }
+
+        issue.deleted_at = new Date();
+        issue.deleted_by = userId;
+
+        await this.issueRepo.save(issue);
+        return issue;
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {
@@ -251,7 +266,11 @@ export class IssuesService {
 
     async migrateIssueToActionItems(body: any, userId: string) {
         const { id, category, status } = body;
-        const issue = await this.issueRepo.findOne({ where: { id } });
+        const issue = await this.issueRepo.findOne({
+            where: { id },
+            relations: ["issueUpdates"]
+        });
+
         if (!issue) {
             throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
         }
@@ -271,7 +290,142 @@ export class IssuesService {
         // Save the action item to the database
         const newActionItem = this.actionItemRepo.create(actionItem);
         const savedActionItem = await this.actionItemRepo.save(newActionItem);
+
+        // Save ALL issue updates as action item updates
+        if (issue.issueUpdates?.length > 0) {
+            const actionItemUpdates = issue.issueUpdates.map((update) =>
+                this.actionItemUpdatesRepo.create({
+                    updates: update.updates,
+                    createdBy: update.createdBy,
+                    updatedBy: update.updatedBy,
+                    createdAt: update.createdAt,
+                    updatedAt: update.updatedAt,
+                    actionItems: savedActionItem,
+                })
+            );
+
+            await this.actionItemUpdatesRepo.save(actionItemUpdates); // save all at once
+        }
+
         await this.issueRepo.remove(issue);
         return savedActionItem;
+    }
+
+    async createIssueUpdates(body: any, userId: string) {
+        const { issueId, updates } = body;
+
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+        }
+
+        const newUpdate = this.issueUpdatesRepo.create({
+            issue: issue,
+            updates: updates,
+            createdBy: userId,
+        });
+
+        const result = await this.issueUpdatesRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
+        return result;
+    }
+
+    async updateIssueUpdates(body: any, userId: string) {
+        const { id, updates } = body;
+
+        const existingIssueUpdate = await this.issueUpdatesRepo.findOne({ where: { id } });
+        if (!existingIssueUpdate) {
+            throw CustomErrorHandler.notFound(`Issue update with ID ${id} not found`);
+        }
+        existingIssueUpdate.updates = updates;
+        existingIssueUpdate.updatedBy = userId;
+
+        const result = await this.issueUpdatesRepo.save(existingIssueUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
+        return result;
+    }
+
+    async deleteIssueUpdates(id: number, userId: string) {
+        const issueUpdate = await this.issueUpdatesRepo.findOneBy({ id });
+        if (!issueUpdate) {
+            throw CustomErrorHandler.notFound(`Issue update with the id ${id} not found`);
+        }
+
+        issueUpdate.deletedAt = new Date();
+        issueUpdate.deletedBy = userId;
+
+        await this.issueUpdatesRepo.save(issueUpdate);
+        return issueUpdate;
+    }
+
+    async getGuestIssues(body: any, userId: string) {
+        const {
+            category, listingId, propertyType,
+            fromDate, toDate, status, guestName,
+            page, limit, issueId, reservationId
+        } = body;
+
+        let listingIds = [];
+        if (propertyType && propertyType.length > 0) {
+            const listingService = new ListingService();
+            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
+        } else {
+            listingIds = listingId;
+        }
+
+        const [issues, total] = await this.issueRepo.findAndCount({
+            where: {
+                ...(category && category.length > 0 && { category: In(category) }),
+                ...(listingIds && listingIds.length > 0 && { listing_id: In(listingIds) }),
+                ...(status && status.length > 0 && { status: In(status) }),
+                ...(fromDate && toDate && { created_at: Between(fromDate, toDate) }),
+                ...(guestName && { guest_name: guestName }),
+                ...(issueId && issueId.length > 0 && { id: In(issueId) }),
+                ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
+            },
+            relations: ["issueUpdates"],
+            take: limit,
+            skip: (Number(page) - 1) * Number(limit),
+            order: {
+                id: "DESC"
+            }
+        });
+
+        for (const issue of issues) {
+            const issueWithInfo = issue as Issue & { reservationInfo?: any; };
+            if (issue.reservation_id && issue.reservation_id !== "NA") {
+                const reservationService = new ReservationInfoService();
+                issueWithInfo.reservationInfo = await reservationService.getReservationById(Number(issue.reservation_id));
+            } else {
+                issueWithInfo.reservationInfo = null;
+            }
+        }
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        const transformedIssues = issues.map(issue => {
+            return {
+                ...issue,
+                created_by: userMap.get(issue.created_by) || issue.created_by,
+                updated_by: userMap.get(issue.updated_by) || issue.updated_by,
+                issueUpdates: issue.issueUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                })),
+            };
+        });
+
+        return {
+            issues: transformedIssues,
+            total
+        }
     }
 } 

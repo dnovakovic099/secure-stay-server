@@ -102,6 +102,7 @@ export const validateActionItemMigrationToIssue = (request: Request, response: R
     const schema = Joi.object({
         id: Joi.number().required(),
         status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New").required(),
+        category: Joi.string().required().valid("MAINTENANCE", "CLEANLINESS")
     });
 
     const { error } = schema.validate(request.body);

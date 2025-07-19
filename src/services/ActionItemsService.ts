@@ -12,6 +12,7 @@ import { ReservationInfoService } from "./ReservationInfoService";
 import { ReservationService } from "./ReservationService";
 import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
+import { IssueUpdates } from "../entity/IsssueUpdates";
 
 interface ActionItemFilter {
     category?: string;
@@ -38,6 +39,7 @@ export class ActionItemsService {
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private actionItemsUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
+    private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
 
     async createAtionItemFromHostbuddy(actionItems: HostBuddyActionItem) {
         const { property_name, guest_name, category, status, item } = actionItems;
@@ -223,9 +225,9 @@ export class ActionItemsService {
     }
 
     async migrateActionItemsToIssues(body: any, userId: string) {
-        const { id, status } = body;
+        const { id, status, category } = body;
 
-        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id }, relations: ["actionItemsUpdates"] });
         if (!actionItem) {
             throw CustomErrorHandler.notFound(`Action item with ID ${id} not found`);
         }
@@ -237,10 +239,13 @@ export class ActionItemsService {
             throw CustomErrorHandler.notFound(`Reservation info for guest ${actionItem.guestName} not found`);
         }
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
         const reservationService = new ReservationService();
         const channels = await reservationService.getChannelList();
         const channel = channels.find(c => c.channelId === reservationInfo.channelId).channelName;
-        const creator = "Hostbuddy";
+        const creator = userMap.get(actionItem.createdBy) || actionItem.createdBy;
 
         const data: Partial<Issue> = {
             channel,
@@ -256,13 +261,33 @@ export class ActionItemsService {
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
             final_price: 0,
-            claim_resolution_amount: 0
+            claim_resolution_amount: 0,
+            category,
+            created_by: actionItem.createdBy,
+            updated_by: actionItem.updatedBy,
+            created_at: actionItem.createdAt,
+            updated_at: actionItem.updatedAt
         };
 
         try {
             const issueService = new IssuesService();
             const issue = await issueService.createIssue(data, creator, []);
-            logger.info(`[migrateActionItemsToIssues] Issue created successfully`);
+
+            //save the issue updates to the database if exists any
+            if (actionItem.actionItemsUpdates?.length > 0) {
+                const issueUpdate = actionItem.actionItemsUpdates.map((update) =>
+                    this.issueUpdatesRepo.create({
+                        updates: update.updates,
+                        createdBy: update.createdBy,
+                        issue: issue,
+                        updatedBy: update.updatedBy,
+                        createdAt: update.createdAt,
+                        updatedAt: update.updatedAt
+                    })
+                );
+                await this.issueUpdatesRepo.save(issueUpdate);
+            }
+
             await this.deleteActionItem(id, userId);
             logger.info(`[migrateActionItemsToIssues] Action item with ID ${id} deleted successfully after migrating to issue ${issue?.id}`);
             return issue;
