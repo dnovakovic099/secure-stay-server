@@ -6,7 +6,7 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { capitalizeFirstLetter, formatCurrency } from "../helpers/helpers";
+import { capitalizeFirstLetter, formatCurrency, issueCategoryEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 
@@ -182,7 +182,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
 };
 
 
-export const buildIssueSlackMessage = (issue: Issue) => {
+export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
     return {
         channel: ISSUE_NOTIFICATION_CHANNEL,
         text: `New Issue reported for ${issue.listing_name} by ${issue?.guest_name}`,
@@ -203,7 +203,7 @@ export const buildIssueSlackMessage = (issue: Issue) => {
             },
             {
                 type: "section",
-                text: { type: "mrkdwn", text: `*Issue Category:* 🧹 ${issue.category}` }
+                text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }
             },
             {
                 type: "section",
@@ -211,10 +211,11 @@ export const buildIssueSlackMessage = (issue: Issue) => {
             },
             {
                 type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Created By:* ${issue.creator || 'Uncategorized'}`
-                },
+                fields: [
+                    { type: "mrkdwn", text: `*Created By:* ${issue.creator || 'Uncategorized'}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
+                ],
+
             }
         ]
     };
@@ -616,7 +617,7 @@ export const buildIssuesSlackMessageUpdate = (
             },
             {
                 type: "section",
-                text: { type: "mrkdwn", text: `*Issue Category:* 🧹 ${issue.category}` }
+                text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }
             },
             {
                 type: "section",

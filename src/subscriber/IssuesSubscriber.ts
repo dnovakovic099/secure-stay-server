@@ -87,24 +87,24 @@ export class IssuesSubscriber
             const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
 
             let slackMessage = buildIssuesSlackMessageUpdate(issue, user);
-            if (eventType == "delete") {
-                slackMessage = buildIssueMessageDelete(issue, user);
-            } else if (eventType == "statusUpdate") {
-                slackMessage = buildIssueStatusUpdateMessage(issue, user);
-            }
-
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "issues",
                     entityId: issue.id
                 }
             });
-            await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
-            if (eventType == "statusUpdate") {
-                const mainMessage = buildIssueSlackMessage(issue);
-                const { channel, ...messageWithoutChannel } = mainMessage;
-                await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+            if (eventType == "delete") {
+                slackMessage = buildIssueMessageDelete(issue, user);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            } else if (eventType == "statusUpdate") {
+                slackMessage = buildIssueStatusUpdateMessage(issue, user);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
+
+            const mainMessage = buildIssueSlackMessage(issue, user);
+            const { channel, ...messageWithoutChannel } = mainMessage;
+            await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+
         } catch (error) {
             logger.error("Slack creation failed", error);
         }
