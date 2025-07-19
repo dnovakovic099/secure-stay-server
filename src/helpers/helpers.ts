@@ -109,3 +109,21 @@ export const capitalizeFirstLetter = (str: string) => {
     return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
+export const issueCategoryEmoji = (category: string) => {
+    let emoji = "";
+    switch (category) {
+        case "MAINTENANCE": {
+            emoji = "🛠️";
+            break;
+        }
+        case "CLEANLINESS": {
+            emoji = "🧹";
+            break;
+        }
+        default: {
+            emoji = "";
+        }
+    }
+    return emoji;
+}
+

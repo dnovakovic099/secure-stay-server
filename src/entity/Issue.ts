@@ -135,4 +135,7 @@ export class Issue {
 
     @OneToMany(() => IssueUpdates, issue => issue.issue)
     issueUpdates: IssueUpdates[];
+
+    @Column({ type: "text", nullable: true })
+    resolution: string;
 }

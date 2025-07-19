@@ -6,8 +6,9 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { capitalizeFirstLetter, formatCurrency } from "../helpers/helpers";
+import { capitalizeFirstLetter, formatCurrency, issueCategoryEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
+import { IssueUpdates } from "../entity/IsssueUpdates";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -181,7 +182,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
 };
 
 
-export const buildIssueSlackMessage = (issue: Issue) => {
+export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
     return {
         channel: ISSUE_NOTIFICATION_CHANNEL,
         text: `New Issue reported for ${issue.listing_name} by ${issue?.guest_name}`,
@@ -197,15 +198,24 @@ export const buildIssueSlackMessage = (issue: Issue) => {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Issue Description:*\n${issue.issue_description || 'No details provided'}`
-                }
+                    text: `*Status:* ${capitalizeFirstLetter(issue.status)}`
+                },
             },
             {
                 type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Created By:* ${issue.creator || 'Uncategorized'}`
-                },
+                text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }
+            },
+            {
+                type: "section",
+                text: { type: "mrkdwn", text: `*Issue Description:*\n${issue.issue_description || 'No details provided'}` },    
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Created By:* ${issue.creator || 'Uncategorized'}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
+                ],
+
             }
         ]
     };
@@ -302,8 +312,9 @@ export const buildClientTicketSlackMessageDelete = (ticket: ClientTicket, user: 
 
 export const buildActionItemsSlackMessage = (
     actionItems: ActionItems,
-    user: string,
-    reservationInfo: ReservationInfoEntity
+    createdBy: string,
+    reservationInfo: ReservationInfoEntity,
+    updatedBy?: string
 ) => {
     return {
         channel: GUEST_RELATIONS,
@@ -336,7 +347,8 @@ export const buildActionItemsSlackMessage = (
                     { type: "mrkdwn", text: `*Check In:* ${reservationInfo?.arrivalDate || "-"}` },
                     { type: "mrkdwn", text: `*Channel:* ${reservationInfo?.channelName || "-"}` },
                     { type: "mrkdwn", text: `*Check Out:* ${reservationInfo?.departureDate || "-"}` },
-                    { type: "mrkdwn", text: `*Created By:* ${user}` }
+                    { type: "mrkdwn", text: `*Created By:* ${createdBy}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
                 ]
             },
             {
@@ -540,4 +552,105 @@ export const buildActionItemsUpdateMessage = (updates: ActionItemsUpdates, listi
             },
         ]
     };
+};
+
+
+export const buildIssueUpdateMessage = (updates: IssueUpdates, listingName: string, user: string) => {
+    return {
+        channel: ISSUE_NOTIFICATION_CHANNEL,
+        text: `New update for 🏠 ${listingName}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `📢 *Update:* ${updates.updates}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Added by:* 👨‍💼 ${user}` },
+                ]
+            },
+        ]
+    };
+};
+
+export const buildIssueMessageDelete = (issue: Issue, user: string,) => {
+    const slackMessage = {
+        channel: ISSUE_NOTIFICATION_CHANNEL,
+        text: ` ${user} deleted the issue of 🏠 ${issue.listing_name} | 👤 ${issue.guest_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `❌ ${user} deleted the issue of 🏠 ${issue.listing_name} for 👤 ${issue.guest_name}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildIssuesSlackMessageUpdate = (
+    issue: Issue,
+    user: string,
+) => {
+    return {
+        channel: ISSUE_NOTIFICATION_CHANNEL,
+        text: `New Issue reported for ${issue.listing_name} by ${issue?.guest_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Issue detail has been updated:* 🏠 ${issue.listing_name} | 👤 ${issue.guest_name}`
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Status:* ${capitalizeFirstLetter(issue.status)}`
+                },
+            },
+            {
+                type: "section",
+                text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }
+            },
+            {
+                type: "section",
+                text: { type: "mrkdwn", text: `*Issue Description:*\n${issue.issue_description || 'No details provided'}` },
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Updated By:* ${user || 'Unknown user'}`
+                },
+            }
+        ]
+    };
+};
+
+
+export const buildIssueStatusUpdateMessage = (issue: Issue, user: string) => {
+    const slackMessage = {
+        channel: ISSUE_NOTIFICATION_CHANNEL,
+        text: `${user} updated the status to ${issue.status.toUpperCase()}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${user} updated the status to ${issue.status.toUpperCase()}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
 };

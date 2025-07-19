@@ -7,11 +7,14 @@ import {
 } from 'typeorm';
 import { getDiff } from '../helpers/helpers';
 import { Issue } from '../entity/Issue';
-import { IssueLogs } from '../entity/IssueLogs';
 import logger from '../utils/logger.utils';
-import { buildIssueSlackMessage } from '../utils/slackMessageBuilder';
+import { buildIssueMessageDelete, buildIssueSlackMessage, buildIssuesSlackMessageUpdate, buildIssueStatusUpdateMessage, buildIssueUpdateMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
+import { appDatabase } from '../utils/database.util';
+import { UsersEntity } from '../entity/Users';
+import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import updateSlackMessage from '../utils/updateSlackMsg';
 
 @EventSubscriber()
 export class IssuesSubscriber
@@ -20,6 +23,9 @@ export class IssuesSubscriber
     listenTo() {
         return Issue;
     }
+
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+    private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
 
     async afterInsert(event: InsertEvent<Issue>) {
         const { entity, manager } = event;
@@ -65,15 +71,43 @@ export class IssuesSubscriber
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
 
-        // const log = manager.create(IssueLogs, {
-        //     issueId: entity.id,
-        //     oldData,
-        //     newData,
-        //     diff,
-        //     changedBy: entity?.updated_by || 'system',
-        //     action: 'UPDATE',
-        // });
-        // await manager.save(log);
+        let eventType = "update";
+        if ((entity.status != databaseEntity.status)) {
+            eventType = "statusUpdate";
+        } else if (entity.deleted_at) {
+            eventType = "delete";
+        }
+
+        await this.updateSlackMessage(entity, entity.updated_by, eventType)
+    }
+
+    private async updateSlackMessage(issue: any, userId: string, eventType: string) {
+        try {
+            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+
+            let slackMessage = buildIssuesSlackMessageUpdate(issue, user);
+            const slackMessageInfo = await this.slackMessageInfo.findOne({
+                where: {
+                    entityType: "issues",
+                    entityId: issue.id
+                }
+            });
+            if (eventType == "delete") {
+                slackMessage = buildIssueMessageDelete(issue, user);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            } else if (eventType == "statusUpdate") {
+                slackMessage = buildIssueStatusUpdateMessage(issue, user);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            }
+
+            const mainMessage = buildIssueSlackMessage(issue, user);
+            const { channel, ...messageWithoutChannel } = mainMessage;
+            await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+
+        } catch (error) {
+            logger.error("Slack creation failed", error);
+        }
     }
 
     async afterRemove(event: RemoveEvent<Issue>) {

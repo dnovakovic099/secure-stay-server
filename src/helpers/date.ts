@@ -195,6 +195,20 @@ export function getPreviousMonthRange(currentDateStr: string): { firstDate: stri
   };
 }
 
+export function convertLocalHourToUTC(localHour: number, timeZoneName: string) {
+  const now = new Date();
+  now.setHours(localHour, 0, 0, 0);
+
+  const zonedTime = new Date(
+    now.toLocaleString('en-US', { timeZone: timeZoneName })
+  );
+
+  const utcHour = zonedTime.getUTCHours();
+
+  return utcHour;
+}
+
+
 
 
 
