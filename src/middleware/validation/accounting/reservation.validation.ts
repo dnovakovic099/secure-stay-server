@@ -24,7 +24,18 @@ export const validateGetReservationList = (request: Request, response: Response,
         page: Joi.number().required(),
         limit: Joi.number().required(),
         currentHour: Joi.string(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional()
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        actionItems: Joi.array().items(
+            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
+        ).optional(),
+        issues: Joi.array().items(
+            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+        ).optional(),
+        channel: Joi.array().items(Joi.string()).optional(),
+        payment: Joi.array().items(
+            Joi.string()
+                .valid("Unknown","Paid","Partially paid")
+        ).optional(),
     });
 
     const { error } = schema.validate(request.query);

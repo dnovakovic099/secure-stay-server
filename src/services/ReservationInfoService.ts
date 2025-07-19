@@ -160,7 +160,11 @@ export class ReservationInfoService {
         page,
         limit,
         currentHour,
-        propertyType
+        propertyType,
+        actionItems,
+        issues,
+        channel,
+        payment,
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -173,6 +177,10 @@ export class ReservationInfoService {
         limit?: string;
           currentHour: string;
           propertyType: any;
+          actionItems?: string[];
+          issues?: string[],
+          channel?: string[],
+          payment?: string[]
       };
 
       // Convert page/limit to numbers with defaults
@@ -191,14 +199,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -218,12 +226,16 @@ export class ReservationInfoService {
     guestName: string | undefined,
     page: number,
     limit: number,
-    userId: string
+    userId: string,
+    actionItemsStatus: string[] | null | undefined,
+    issuesStatus: string[] | null | undefined,
+    channel: string[] | null | undefined,
+    payment: string[] | null | undefined
   ) {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName);
+    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment);
     if (listingMapId && listingMapId.length > 0) {
       qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -233,7 +245,7 @@ export class ReservationInfoService {
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName);
+    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment);
     if (listingMapId && listingMapId.length > 0) {
       qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -245,7 +257,7 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(listingMapId, guestName);
+    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment);
     if (listingMapId && listingMapId.length > 0) {
       qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -268,7 +280,7 @@ export class ReservationInfoService {
     const paginated = merged.slice(startIndex, endIndex);
 
     // Final results => today first, then paginated future/past
-    const finalResults = [...todaysReservations, ...paginated];
+    let finalResults = [...todaysReservations, ...paginated];
 
     for (const reservation of finalResults) {
       const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
@@ -276,8 +288,8 @@ export class ReservationInfoService {
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
@@ -289,6 +301,16 @@ export class ReservationInfoService {
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
+
+    if (actionItemsStatus && actionItemsStatus.length > 0) {
+      finalResults = finalResults.filter((r: any) => r.actionItems && r.actionItems.length > 0);
+    }
+
+    if (issuesStatus && issuesStatus.length > 0) {
+      finalResults = finalResults.filter((r: any) => r.issues && r.issues.length > 0);
+    }
+
+
 
     return {
       status: "success",
@@ -302,8 +324,8 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId:string) {
-    const qb = this.buildBaseQuery(listingMapId, guestName);
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined) {
+    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -332,7 +354,7 @@ export class ReservationInfoService {
       qb.orderBy("reservation.departureDate", "ASC");
     }
     // Use skip/take for pagination
-    const [results, total] = await qb
+    let [results, total] = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -343,8 +365,8 @@ export class ReservationInfoService {
       const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
@@ -356,6 +378,15 @@ export class ReservationInfoService {
       };
       Object.assign(reservation, reservationWithAuditStatus);
     }
+
+    if (actionItemsStatus && actionItemsStatus.length > 0) {
+      results = results.filter((r: any) => r.actionItems && r.actionItems.length > 0);
+    }
+
+    if (issuesStatus && issuesStatus.length > 0) {
+      results = results.filter((r: any) => r.issues && r.issues.length > 0);
+    }
+
 
     return {
       status: "success",
@@ -376,10 +407,14 @@ export class ReservationInfoService {
     page: number,
     limit: number,
     currentTime: string,
-    userId: string
+    userId: string,
+    actionItemsStatus: string[] | null | undefined,
+    issuesStatus: string[] | null | undefined,
+    channel: string[] | null | undefined,
+    payment: string[] | null | undefined
   ) {
     // 1) Query for currently staying reservation's records
-    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName);
+    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment);
     if (listingMapId && listingMapId.length > 0) {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -415,7 +450,7 @@ export class ReservationInfoService {
       return reservation;
     });
 
-    const filteredReservations = transformedReservation.filter(reservation => {
+    let filteredReservations = transformedReservation.filter(reservation => {
       const arrivalDateStr = format(reservation.arrivalDate, "yyyy-MM-dd");
       const departureDateStr = format(reservation.departureDate, "yyyy-MM-dd");
 
@@ -443,9 +478,8 @@ export class ReservationInfoService {
 
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id] }, userId)).issues;
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id] })).actionItems;
-
+      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
@@ -455,6 +489,14 @@ export class ReservationInfoService {
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
+    }
+
+    if (actionItemsStatus && actionItemsStatus.length > 0) {
+      filteredReservations = filteredReservations.filter((r: any) => r.actionItems && r.actionItems.length > 0);
+    }
+
+    if (issuesStatus && issuesStatus.length > 0) {
+      filteredReservations = filteredReservations.filter((r: any) => r.issues && r.issues.length > 0);
     }
 
 
@@ -473,13 +515,15 @@ export class ReservationInfoService {
    */
   private buildBaseQuery(
     listingMapId?: string[],
-    guestName?: string
+    guestName?: string,
+    channel?: string[],
+    payment?: string[]
   ) {
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
 
     // If listingMapId provided, exact match
     if (listingMapId) {
-      qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapId: listingMapId });
+      qb.andWhere("reservation.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId });
     }
 
     // If guestName provided, match against guestName/firstName/lastName
@@ -488,6 +532,14 @@ export class ReservationInfoService {
         "(LOWER(reservation.guestName) LIKE :gn OR LOWER(reservation.guestFirstName) LIKE :gn OR LOWER(reservation.guestLastName) LIKE :gn)",
         { gn: `%${guestName.trim().toLowerCase()}%` }
       );
+    }
+
+    if (channel) {
+      qb.andWhere("reservation.channelId IN (:...channel)", { channel });
+    }
+
+    if(payment){
+      qb.andWhere("reservation.paymentStatus IN (:...payment)", { payment });
     }
 
     return qb;
