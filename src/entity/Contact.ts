@@ -1,0 +1,76 @@
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+
+@Entity('contact')
+export class Contact {
+    @PrimaryGeneratedColumn({ type: 'int' })
+    id: number;
+
+    @Column()
+    status: string;
+
+    @Column()
+    listingId: string;
+
+    @Column({ nullable: true })
+    role: string;
+
+    @Column()
+    name: string;
+
+    @Column({ nullable: true })
+    contact: string;
+
+    @Column({ type: "text", nullable: true })
+    notes: string;
+
+    @Column({ nullable: true })
+    website_name: string;
+
+    @Column({ type: 'varchar', length: 2048, nullable: true })
+    website_link: string;
+
+    @Column({ nullable: true })
+    rate: string;
+
+    @Column({ nullable: true })
+    paymentScheduleType: string;
+
+    @Column({ nullable: true })
+    paymentIntervalMonth: number;
+
+    @Column({ nullable: true })
+    paymentDayOfWeek: number;
+
+    @Column({ nullable: true })
+    paymentWeekOfMonth: number;
+
+    @Column({ nullable: true })
+    paymentDayOfWeekForMonth: number;
+
+    @Column({ nullable: true })
+    paymentDayOfMonth: number;
+
+    @Column({ nullable: true })
+    paymentMethod: string;
+
+    @Column({ default: false })
+    isAutoPay: boolean;
+
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamp' })
+    updatedAt: Date;
+
+    @DeleteDateColumn({ type: 'timestamp', nullable: true })
+    deletedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
+
+    @Column({ nullable: true })
+    deletedBy: string;
+}
