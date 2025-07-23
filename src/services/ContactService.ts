@@ -5,6 +5,8 @@ import { ILike, In } from "typeorm";
 import { ListingService } from "./ListingService";
 import { UsersEntity } from "../entity/Users";
 import { Listing } from "../entity/Listing";
+import { ListingTags } from "../entity/ListingTags";
+import { tagIds } from "../constant";
 
 interface FilterQuery {
     page: number;
@@ -25,6 +27,7 @@ export class ContactService {
     private contactRepo = appDatabase.getRepository(Contact);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingRepository = appDatabase.getRepository(Listing);
+    private listingTagRepo = appDatabase.getRepository(ListingTags);
 
     async createContact(body: Partial<Contact>, userId: string) {
         const contact = this.contactRepo.create({
@@ -104,8 +107,19 @@ export class ContactService {
         });
 
         const users = await this.usersRepo.find();
-        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     
 
+        const tags = [tagIds.OWN, tagIds.ARB, tagIds.PM];
+        const listingTags = await this.listingTagRepo
+            .createQueryBuilder("t")
+            .select([
+                "DISTINCT t.tagId AS tagId",
+                "t.name AS name",
+                "l.id AS listingInfoId"
+            ])
+            .leftJoin("listing_info", "l", "t.listing_id = l.listing_id")
+            .where("t.tagId IN (:...tags)", { tags })
+            .getRawMany();
 
         const transformedData = data.map(d => {
             return {
@@ -113,8 +127,9 @@ export class ContactService {
                 listingName: listings.find((listing) => listing.id == Number(d.listingId))?.internalListingName,
                 createdBy: userMap.get(d.createdBy) || d.createdBy,
                 updatedBy: userMap.get(d.updatedBy) || d.updatedBy,
+                propertyType: listingTags.find((tag) => tag.listingInfoId == d.listingId)?.name || "N/A",
             };
-        });
+        })
 
         return {
             contacts: transformedData,
