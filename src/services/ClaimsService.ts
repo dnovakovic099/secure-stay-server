@@ -20,7 +20,8 @@ export class ClaimsService {
         const newClaim = this.claimRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : ""
+            fileNames: fileNames ? JSON.stringify(fileNames) : "",
+            created_by: userId
         });
 
         const savedClaim = await this.claimRepo.save(newClaim);
