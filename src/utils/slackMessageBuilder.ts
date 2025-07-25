@@ -11,9 +11,9 @@ import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
-const ISSUE_NOTIFICATION_CHANNEL = "#social";
-const CLIENT_RELATIONS = "#social";
-const GUEST_RELATIONS = "#social";
+const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
+const CLIENT_RELATIONS = "#client-relations";
+const GUEST_RELATIONS = "#guest-relations";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
