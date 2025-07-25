@@ -19,7 +19,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
         paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(1).max(7).required()).allow(null),
         paymentWeekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
-        paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
+        // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
         isAutoPay: Joi.string().required().valid("true", "false")
@@ -27,7 +27,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         switch (value.paymentScheduleType) {
             case "weekly":
             case "bi-weekly": {
-                if ((value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0)) {
+                if ((value.paymentDayOfWeek && value.paymentDayOfWeek.length == 0)) {
                     return helpers.message({ custom: '"paymentWeekOfBiWeekly" must be provided when "paymentDayOfWeek" is present' });
                 }
                 break;
@@ -58,16 +58,16 @@ export const validateCreateContact = (request: Request, response: Response, next
             }
             case "annually": {
                 if (!value.paymentIntervalMonth) {
-                    return helpers.message({ custom: '"paymentIntervalMonth" is required for quarterly payments' });
+                    return helpers.message({ custom: '"paymentIntervalMonth" is required for annually payments' });
                 }
-                if (value.paymentIntervalMonth > 3) {
-                    return helpers.message({ custom: '"paymentIntervalMonth" must be 3 or less for quarterly payments' });
+                if (value.paymentIntervalMonth > 12) {
+                    return helpers.message({ custom: '"paymentIntervalMonth" must be 12 or less for annually payments' });
                 }
                 if (value.paymentIntervalMonth && (value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0) && !value.paymentWeekOfMonth) {
-                    return helpers.message({ custom: '"paymentWeekOfMonth" must be provided when "paymentDayOfWeek" is present for quarterly payments' });
+                    return helpers.message({ custom: '"paymentWeekOfMonth" must be provided when "paymentDayOfWeek" is present for annually payments' });
                 }
                 if (value.paymentIntervalMonth && !(value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0) && !value.paymentDayOfMonth && !value.paymentWeekOfMonth) {
-                    return helpers.message({ custom: '"paymentDayOfMonth" or "paymentWeekOfMonth" must be provided for quarterly payments' });
+                    return helpers.message({ custom: '"paymentDayOfMonth" or "paymentWeekOfMonth" must be provided for annually payments' });
                 }
                 break;
             }
@@ -100,9 +100,9 @@ export const validateUpdateContact = (request: Request, response: Response, next
             "weekly", "bi-weekly", "monthly", "quarterly", "annually"
         ).allow(null),
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
-        paymentDayOfWeek: Joi.number().integer().min(1).max(7).required().allow(null),
+        paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(1).max(7).required()).allow(null),
         paymentWeekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
-        paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
+        // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
         isAutoPay: Joi.string().valid("true", "false").required()
@@ -110,7 +110,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         switch (value.paymentScheduleType) {
             case "weekly":
             case "bi-weekly": {
-                if ((value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0)) {
+                if ((value.paymentDayOfWeek && value.paymentDayOfWeek.length == 0)) {
                     return helpers.message({ custom: '"paymentWeekOfBiWeekly" must be provided when "paymentDayOfWeek" is present' });
                 }
                 break;
@@ -141,16 +141,16 @@ export const validateUpdateContact = (request: Request, response: Response, next
             }
             case "annually": {
                 if (!value.paymentIntervalMonth) {
-                    return helpers.message({ custom: '"paymentIntervalMonth" is required for quarterly payments' });
+                    return helpers.message({ custom: '"paymentIntervalMonth" is required for annually payments' });
                 }
-                if (value.paymentIntervalMonth > 3) {
-                    return helpers.message({ custom: '"paymentIntervalMonth" must be 3 or less for quarterly payments' });
+                if (value.paymentIntervalMonth > 13) {
+                    return helpers.message({ custom: '"paymentIntervalMonth" must be 12 or less for annually payments' });
                 }
                 if (value.paymentIntervalMonth && (value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0) && !value.paymentWeekOfMonth) {
-                    return helpers.message({ custom: '"paymentWeekOfMonth" must be provided when "paymentDayOfWeek" is present for quarterly payments' });
+                    return helpers.message({ custom: '"paymentWeekOfMonth" must be provided when "paymentDayOfWeek" is present for annually payments' });
                 }
                 if (value.paymentIntervalMonth && !(value.paymentDayOfWeek && value.paymentDayOfWeek.length > 0) && !value.paymentDayOfMonth && !value.paymentWeekOfMonth) {
-                    return helpers.message({ custom: '"paymentDayOfMonth" or "paymentWeekOfMonth" must be provided for quarterly payments' });
+                    return helpers.message({ custom: '"paymentDayOfMonth" or "paymentWeekOfMonth" must be provided for annually payments' });
                 }
                 break;
             }
