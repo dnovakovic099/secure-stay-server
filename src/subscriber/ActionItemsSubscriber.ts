@@ -78,7 +78,7 @@ export class ActionItemsSubscriber
                 slackMessage = buildActionItemsSlackMessageDelete(actionItem, userMap.get(userId));
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildActionItemStatusUpdateMessage(actionItem, userMap.get(userId));
+                slackMessage = buildActionItemStatusUpdateMessage(actionItem, userMap.get(userId) || userId);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
