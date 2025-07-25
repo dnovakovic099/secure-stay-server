@@ -137,33 +137,9 @@ export class UnifiedWebhookController {
                         //update the status of the action item
                         const requestObj = JSON.parse(action.selected_option.value);
                         const actionItemsService = new ActionItemsService();
-                        const actionItem = await actionItemsService.updateActionItemStatus(Number(requestObj.id), requestObj.status, user);
-                        if (actionItem) {
-                            const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
-                            const slackMessageInfo = await slackMessageRepo.findOne({
-                                where: {
-                                    entityType: "action_items",
-                                    entityId: actionItem.id
-                                }
-                            });
-                            if (slackMessageInfo) {
-                                //update the main message
-                                const reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
-                                const reservationInfo = await reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
-                                const mainMessage = buildActionItemsSlackMessage(actionItem, user, reservationInfo);
-                                const { channel, ...messageWithoutChannel } = mainMessage;
-                                await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
-
-                                //reply to the same message thread
-                                const slackMessage = buildActionItemStatusUpdateMessage(actionItem, user);
-                                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
-                            } else {
-                                logger.info(`Could not find the slack messageInfo for action item id ${requestObj?.id}`);
-                            }
-                        }
-
+                         await actionItemsService.updateActionItemStatus(Number(requestObj.id), requestObj.status, user);
                     } catch (error) {
-
+                        logger.error(`Error updating action item status: ${error}`);
                     }
                     break;
                 }

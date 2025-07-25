@@ -62,30 +62,30 @@ export class ActionItemsSubscriber
 
     private async updateSlackMessage(actionItem: any, userId: string, eventType: string) {
         try {
-            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+            const users = await this.usersRepo.find();
+            const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
             const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
 
-            let slackMessage = buildActionItemsSlackMessageUpdate(actionItem, user, reservationInfo);
-            if (eventType == "delete") {
-                slackMessage = buildActionItemsSlackMessageDelete(actionItem, user);
-            } else if (eventType == "statusUpdate") {
-                slackMessage = buildActionItemStatusUpdateMessage(actionItem, user);
-            }
-
+            let slackMessage = buildActionItemsSlackMessageUpdate(actionItem, userMap.get(userId), reservationInfo);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "action_items",
                     entityId: actionItem.id
                 }
             });
-            await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
-            if(eventType=="statusUpdate"){
-                const mainMessage = buildActionItemsSlackMessage(actionItem, user, reservationInfo);
-                const { channel, ...messageWithoutChannel } = mainMessage;
-                await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+            if (eventType == "delete") {
+                slackMessage = buildActionItemsSlackMessageDelete(actionItem, userMap.get(userId));
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            } else if (eventType == "statusUpdate") {
+                slackMessage = buildActionItemStatusUpdateMessage(actionItem, userMap.get(userId) || userId);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
+
+            const mainMessage = buildActionItemsSlackMessage(actionItem, userMap.get(actionItem.createdBy), reservationInfo, userMap.get(userId));
+            const { channel, ...messageWithoutChannel } = mainMessage;
+            await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
+
         } catch (error) {
             logger.error("Slack creation failed", error);
         }

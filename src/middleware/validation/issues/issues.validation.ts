@@ -41,7 +41,8 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,"")
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null, ""),
+        resolution: Joi.string().optional().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -89,7 +90,8 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         deletedFiles: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,"")
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,""),
+        resolution: Joi.string().optional().allow(null),
     });
 
     const { error } = schema.validate(request.body);

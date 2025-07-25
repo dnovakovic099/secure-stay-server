@@ -109,3 +109,113 @@ export const capitalizeFirstLetter = (str: string) => {
     return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
+export const issueCategoryEmoji = (category: string) => {
+    let emoji = "";
+    switch (category) {
+        case "MAINTENANCE": {
+            emoji = "🛠️";
+            break;
+        }
+        case "CLEANLINESS": {
+            emoji = "🧹";
+            break;
+        }
+        default: {
+            emoji = "";
+        }
+    }
+    return emoji;
+}
+
+export const actionItemsStatusEmoji = (status: string) => {
+    let emoji = "";
+    switch (status) {
+        case "expired": {
+            emoji = "🔴";
+            break;
+        }
+        case "incomplete": {
+            emoji = "🟠";
+            break;
+        }
+        case "completed": {
+            emoji = "🟢";
+            break;
+        }
+        case "in progress": {
+            emoji = "🟡";
+            break;
+        }
+        default: {
+            emoji = "";
+        }
+    }
+    return emoji;
+};
+
+export const issueStatusEmoji = (status: string) => {
+    let emoji = "";
+    switch (status) {
+        case "Overdue": {
+            emoji = "🟤";
+            break;
+        }
+        case "Need Help": {
+            emoji = "🟣";
+            break;
+        }
+        case "Completed": {
+            emoji = "🟢";
+            break;
+        }
+        case "In Progress": {
+            emoji = "🟡";
+            break;
+        }
+        case "New": {
+            emoji = "🔵";
+            break;
+        }
+        case "Scheduled": {
+            emoji = "⚪";
+            break;
+        }
+        default: {
+            emoji = "";
+        }
+    }
+    return emoji;
+};
+
+export const clientTicketStatusEmoji = (status: string) => {
+    let emoji = "";
+    switch (status) {
+        case "Completed": {
+            emoji = "🟢";
+            break;
+        }
+        case "In Progress": {
+            emoji = "🟡";
+            break;
+        }
+        case "New": {
+            emoji = "🔵";
+            break;
+        }
+        default: {
+            emoji = "";
+        }
+    }
+    return emoji;
+};
+
+// | Status | Emoji |
+// | ----------- | ----- |
+// | New | 🔵    |
+// | In Progress | 🟡    |
+// | Incomplete | 🟠    |
+// | Need Help | 🟣    |
+// | Overdue | 🟤    |
+// | Expired | 🔴    |
+// | Completed | 🟢    |
+
