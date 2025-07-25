@@ -6,7 +6,7 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { capitalizeFirstLetter, formatCurrency, issueCategoryEmoji } from "../helpers/helpers";
+import { actionItemsStatusEmoji, capitalizeFirstLetter, formatCurrency, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 
@@ -198,7 +198,7 @@ export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Status:* ${capitalizeFirstLetter(issue.status)}`
+                    text: `*Status:* ${issueStatusEmoji(issue.status)}${capitalizeFirstLetter(issue.status)}`
                 },
             },
             {
@@ -355,7 +355,7 @@ export const buildActionItemsSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Status:* ${capitalizeFirstLetter(actionItems.status) || '-'}`
+                    text: `*Status:* ${actionItemsStatusEmoji(actionItems.status)}${capitalizeFirstLetter(actionItems.status) || '-'}`
                 }
             },
             {
@@ -500,7 +500,7 @@ export const buildActionItemStatusUpdateMessage = (actionItem: ActionItems, user
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${user} updated the status to ${actionItem.status.toUpperCase()}`
+                    text: `${actionItemsStatusEmoji(actionItem.status)}${actionItem.status.toUpperCase()} by ${user}`
                 }
             },
         ]
@@ -640,13 +640,13 @@ export const buildIssuesSlackMessageUpdate = (
 export const buildIssueStatusUpdateMessage = (issue: Issue, user: string) => {
     const slackMessage = {
         channel: ISSUE_NOTIFICATION_CHANNEL,
-        text: `${user} updated the status to ${issue.status.toUpperCase()}`,
+        text: `${user} updated the status to ${issueStatusEmoji(issue.status)}${issue.status.toUpperCase()}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${user} updated the status to ${issue.status.toUpperCase()}`
+                    text: `${issueStatusEmoji(issue.status)}${issue.status.toUpperCase()} by ${user} `
                 }
             },
         ]
