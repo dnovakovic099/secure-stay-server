@@ -34,6 +34,7 @@ export class ContactService {
             ...body,
             createdBy: userId,
             updatedBy: userId,
+            paymentDayOfWeek: body.paymentDayOfWeek ? JSON.stringify(body.paymentDayOfWeek) : null
         });
         return await this.contactRepo.save(contact);
     }
@@ -47,6 +48,7 @@ export class ContactService {
         const updated = this.contactRepo.merge(existing, {
             ...body,
             updatedBy: userId,
+            paymentDayOfWeek: body.paymentDayOfWeek ? JSON.stringify(body.paymentDayOfWeek) : null
         });
 
         return await this.contactRepo.save(updated);
