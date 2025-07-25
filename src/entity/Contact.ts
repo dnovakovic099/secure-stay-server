@@ -39,7 +39,7 @@ export class Contact {
     paymentIntervalMonth: number;
 
     @Column({ nullable: true })
-    paymentDayOfWeek: number;
+    paymentDayOfWeek: string;
 
     @Column({ nullable: true })
     paymentWeekOfMonth: number;
