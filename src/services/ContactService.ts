@@ -94,7 +94,7 @@ export class ContactService {
         const [data, total] = await this.contactRepo.findAndCount({
             where: {
                 ...(status && status.length > 0 && { status: In(status) }),
-                ...(listingId && listingId.length > 0 && { listingId: In(listingIds) }),
+                ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
                 ...(role && role.length > 0 && { role: In(role) }),
                 ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
                 ...(isAutoPay !== undefined && { isAutoPay }),

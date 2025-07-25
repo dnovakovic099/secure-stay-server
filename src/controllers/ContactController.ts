@@ -51,6 +51,7 @@ export class ContactController {
                 rate: request.query.rate as string,
                 paymentMethod: request.query.paymentMethod as string[],
                 isAutoPay: request.query.isAutoPay ? request.query.isAutoPay === 'true' : undefined,
+                propertyType: request.query.propertyType as any[]
             }, request.user.id);
             return response.status(200).json(contacts);
         } catch (error) {

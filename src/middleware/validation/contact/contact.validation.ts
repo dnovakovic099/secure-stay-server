@@ -14,7 +14,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         website_link: Joi.string().required().allow(null),
         rate: Joi.string().required().allow(null),
         paymentScheduleType: Joi.string().required().valid(
-            "weekly", "bi-weekly", "monthly", "quarterly", "annually"
+            "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis","as required"
         ).allow(null),
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
         paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(1).max(7).required()).allow(null),
@@ -97,7 +97,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         website_link: Joi.string().required().allow(null),
         rate: Joi.string().required().allow(null),
         paymentScheduleType: Joi.string().required().valid(
-            "weekly", "bi-weekly", "monthly", "quarterly", "annually"
+            "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
         ).allow(null),
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
         paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(1).max(7).required()).allow(null),
