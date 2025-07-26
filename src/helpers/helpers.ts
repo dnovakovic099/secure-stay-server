@@ -209,6 +209,70 @@ export const clientTicketStatusEmoji = (status: string) => {
     return emoji;
 };
 
+const slackUsers = {
+    // PRASANNA_KUMAR_BANIYA: "U07K1N81HMW",
+    // PRABIN_KUMAR_BANIYA: "U07JFDC86H2",
+    // TRIBIKRAM_SEN: "U07HYC3TBF1",
+    FERDY: "U07P974D65P",
+    LOUIS: "U06QKAV9VV5",
+    DARKO: "U06TCAW5YLE",
+    GABBY: "U088XAQ4YP2",
+    JADE: "U08EUTR1H9A",
+    KAJ: "U073DCTHNKY",
+    ANGELICA: "U08END0JTBM",
+    JAZZ: "U093172T6MP",
+    JOREL: "U09278TM6A3",
+    JUSTINE: "U09626Z6JUQ",
+    ALDRIN: "U0974TJ85Q9",
+    RAIN: "U096SNZR9CL",
+    CHRIS: "U0948PQC9UZ",
+    JULIUS: "U08QJBLNG6A"
+};
+
+let selectedSlackUsers = [];
+
+export function getSelectedSlackUsers() {
+    return selectedSlackUsers;
+}
+
+export function setSelectedSlackUsers(newValue: string[]) {
+    selectedSlackUsers = newValue;
+}
+
+export const clientTicketMentions = (category: string) => {
+    let mentions = [];
+    switch (category) {
+        case "Pricing": {
+            mentions = [slackUsers.FERDY];
+            break;
+        }
+        case "Statement": {
+            mentions = [slackUsers.FERDY];
+            break;
+        }
+        case "Reservation": {
+            mentions = [slackUsers.GABBY, slackUsers.JADE, slackUsers.KAJ, slackUsers.ANGELICA];
+            break;
+        }
+        case "Listing": {
+            mentions = [slackUsers.JULIUS, slackUsers.JAZZ, slackUsers.JOREL, slackUsers.JUSTINE, slackUsers.ALDRIN];
+            break;
+        }
+        case "Maintenance": {
+            mentions = [slackUsers.RAIN, slackUsers.CHRIS, slackUsers.ANGELICA];
+            break;
+        }
+        case "Other": {
+            mentions = selectedSlackUsers;
+            break;
+        }
+        default: {
+            mentions = [];
+        }
+    }
+    return mentions;
+}
+
 // | Status | Emoji |
 // | ----------- | ----- |
 // | New | 🔵    |
