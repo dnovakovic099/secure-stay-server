@@ -5,7 +5,7 @@ import {
     InsertEvent,
     RemoveEvent,
 } from 'typeorm';
-import { getDiff } from '../helpers/helpers';
+import { clientTicketMentions, getDiff, setSelectedSlackUsers } from '../helpers/helpers';
 import logger from '../utils/logger.utils';
 import { buildClientTicketSlackMessage, buildClientTicketSlackMessageDelete, buildClientTicketSlackMessageUpdate, buildIssueSlackMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
@@ -45,8 +45,14 @@ export class ClientTicketSubscriber
                 }
             });
 
+            const categories = JSON.parse(ticket.category);
+            let mentions = [];
+            categories.map((category: any) => {
+                mentions = [...mentions, ...clientTicketMentions(category),];
+            });
+
             const slackMessageService = new SlackMessageService();
-            const slackMessage = buildClientTicketSlackMessage(ticket, user, listingInfo?.internalListingName);
+            const slackMessage = buildClientTicketSlackMessage(ticket, user, listingInfo?.internalListingName, mentions);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({
@@ -57,6 +63,9 @@ export class ClientTicketSubscriber
                 entityId: ticket.id,
                 originalMessage: JSON.stringify(slackMessage)
             });
+
+            //reset selected mentions
+            setSelectedSlackUsers([]);
         } catch (error) {
             logger.error("Slack creation failed", error);
         }

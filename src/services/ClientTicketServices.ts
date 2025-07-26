@@ -6,6 +6,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
+import { setSelectedSlackUsers } from "../helpers/helpers";
 
 interface LatestUpdates {
     id?: number;
@@ -74,7 +75,7 @@ export class ClientTicketService {
     }
 
     public async saveClientTicketWithUpdates(body: any, userId: string) {
-        const { latestUpdates } = body;
+        const { latestUpdates, mentions } = body;
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
@@ -82,6 +83,9 @@ export class ClientTicketService {
             description: body.description,
             resolution: body.resolution,
         };
+        if (body.category.includes("Other") && mentions && mentions.length > 0) {
+            setSelectedSlackUsers(mentions);
+        }
         const clientTicket = await this.createClientTicket(ticketData, userId);
         latestUpdates && await this.createClientTicketUpdates(clientTicket, latestUpdates, userId);
 

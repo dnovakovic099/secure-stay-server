@@ -221,8 +221,9 @@ export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
     };
 };
 
-export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string, listingName: string) => {
-    return {
+export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string, listingName: string, slackUserIds?: string[]) => {
+    const mentions =slackUserIds && slackUserIds.map(id => `<@${id}>`).join(', ');
+    const block = {
         channel: CLIENT_RELATIONS,
         text: `New Client Ticket has been created for 🏠 ${listingName}`,
         blocks: [
@@ -248,6 +249,16 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
             },
         ]
     };
+    if (slackUserIds && slackUserIds.length > 0) {
+        block.blocks.unshift({
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `${mentions}`
+            }
+        });
+    }
+    return block;
 }
 
 export const buildClientTicketSlackMessageUpdate = (ticket: ClientTicket, user: string, listingName: string) => {
