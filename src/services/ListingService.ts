@@ -332,7 +332,7 @@ export class ListingService {
     listingDetail.hidePetFee=body.hidePetFee;
     listingDetail.scheduleType = body.scheduleType;
     listingDetail.intervalMonth = body.intervalMonth;
-    listingDetail.dayOfWeek = body.dayOfWeek;
+    listingDetail.dayOfWeek = body.dayOfWeek ? JSON.stringify(body.dayOfWeek) : null;
     listingDetail.weekOfMonth = body.weekOfMonth;
     listingDetail.dayOfMonth = body.dayOfMonth;
     listingDetail.scheduling = body.scheduling;
