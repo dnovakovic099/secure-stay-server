@@ -4,7 +4,7 @@ import Joi from "joi";
 export const validateCreateClaim = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("Not Submitted", "In Progress", "Submitted", "Resolved")
+            .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied")
             .default("Not Submitted")
             .required(),
         listing_id: Joi.string().required(),
@@ -49,7 +49,7 @@ export const validateCreateClaim = (request: Request, response: Response, next: 
 export const validateUpdateClaim = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("Not Submitted", "In Progress", "Submitted", "Resolved"),
+            .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied"),
         listing_id: Joi.string(),
         listing_name: Joi.string().allow(null, ''),
         description: Joi.string().allow(null, ''),

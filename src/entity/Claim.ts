@@ -7,7 +7,7 @@ export class Claim {
 
     @Column({
         type: "enum",
-        enum: ["Not Submitted", "In Progress", "Submitted", "Resolved"],
+        enum: ["Not Submitted", "In Progress", "Submitted", "Resolved", "Denied"],
         default: "Not Submitted"
     })
     status: string;
