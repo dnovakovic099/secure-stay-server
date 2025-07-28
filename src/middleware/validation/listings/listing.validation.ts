@@ -84,7 +84,7 @@ export const validateSaveListingDetail = (request: Request, response: Response, 
       "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
     ).allow(null),
     intervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
-    dayOfWeek: Joi.array().items(Joi.number().integer().min(1).max(7).required()).allow(null),
+    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
     weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
     dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
     scheduling: Joi.string().valid("LL", "LL-auto", "Client", "NA").required().allow(null),
