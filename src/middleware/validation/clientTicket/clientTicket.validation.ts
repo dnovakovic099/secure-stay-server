@@ -18,6 +18,7 @@ export const validateCreateClientTicket = (request: Request, response: Response,
                 updates: Joi.string().required()
             }).required()
         ).min(1).required().allow(null),
+        mentions: Joi.array().items(Joi.string().optional()).optional()
     });
 
     const { error } = schema.validate(request.body);
