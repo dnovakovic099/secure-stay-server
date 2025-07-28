@@ -78,6 +78,15 @@ export class Claim {
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     client_paid_amount: number;
 
+    @Column({ nullable: true })
+    due_date: string;
+
+    @Column({ nullable: true })
+    claim_type: string;
+
+    @Column({ type: 'text', nullable: true })
+    reservation_code: string;
+
     @CreateDateColumn()
     created_at: Date;
 

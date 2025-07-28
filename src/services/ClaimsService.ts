@@ -4,9 +4,11 @@ import { Between, Not, LessThan, In} from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
+import { UsersEntity } from "../entity/Users";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
+    private usersRepo = appDatabase.getRepository(UsersEntity); 
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -114,11 +116,13 @@ export class ClaimsService {
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
         }
-
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        
         Object.assign(claim, {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
-            updated_by: userId,
+            updated_by: userMap.get(claim.created_by) || claim.created_by,
             fileNames: JSON.stringify(updatedFileNames)
         });
 
