@@ -10,6 +10,7 @@ import { ReservationInfoService } from "../services/ReservationInfoService";
 import { ListingService } from "../services/ListingService";
 import { UpsellOrderService } from "../services/UpsellOrderService";
 import { format } from "date-fns";
+import { MaintenanceService } from "../services/MaintenanceService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -100,4 +101,16 @@ export function scheduleGetReservation() {
       }
     })
 
+  schedule.scheduleJob(
+    { hour: 11, minute: 59, tz: "America/New_York" }, // Daily at 1 AM EST
+    async () => {
+      try {
+        logger.info('Processing maintenance log creation...');
+        const maintenanceService = new MaintenanceService();
+        await maintenanceService.automateMaintenanceLogs();
+        logger.info('Processed maintenance log creation successfully.');
+      } catch (error) {
+        logger.error("Error processing maintenance log creation:", error);
+      }
+    });
 }
