@@ -83,10 +83,20 @@ export class ClaimsService {
             queryOptions.where.guest_name = guestName;
         }
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     
+
         const [claims, total] = await this.claimRepo.findAndCount(queryOptions);
 
+        const transformedData = claims.map(claim => {
+            return {
+                ...claim,
+                updated_by: userMap.get(claim.updated_by) || claim.updated_by,
+            };
+        })
+
         return {
-            data: claims,
+            data: transformedData,
             meta: {
                 total,
                 page,
