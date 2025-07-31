@@ -1,11 +1,14 @@
 import { appDatabase } from "../utils/database.util";
 import { Claim } from "../entity/Claim";
-import { Between, Not, LessThan, In} from "typeorm";
+import { Between, Not, LessThan, In, Equal } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
 import { UsersEntity } from "../entity/Users";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { addDays, format } from "date-fns";
+import { buildClaimReminderMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
@@ -200,4 +203,61 @@ export class ClaimsService {
             await sendUnresolvedClaimEmail(claim);
         }
     }
+
+    async getClaimsBasedOnDueDates() {
+        const currentDate = format(new Date(), 'yyyy-MM-dd');
+        const after1Day = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+        const after7Days = format(addDays(new Date(), 7), 'yyyy-MM-dd');
+
+        const [dueToday, dueTomorrow, dueIn7Days] = await Promise.all([
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(currentDate),
+                },
+            }),
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(after1Day),
+                },
+            }),
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(after7Days),
+                },
+            }),
+        ]);
+
+        return {
+            dueToday,
+            dueTomorrow,
+            dueIn7Days,
+        };
+    }
+
+    async sendReminderMessageForClaims() {
+        const claimsByDue = await this.getClaimsBasedOnDueDates();
+
+        const dueTypes: Array<keyof typeof claimsByDue> = ['dueToday', 'dueTomorrow', 'dueIn7Days'];
+        const dueTypeLabelMap: Record<keyof typeof claimsByDue, 'today' | 'tomorrow' | 'in7days'> = {
+            dueToday: 'today',
+            dueTomorrow: 'tomorrow',
+            dueIn7Days: 'in7days',
+        };
+
+        for (const type of dueTypes) {
+            const claims = claimsByDue[type];
+            if (claims.length > 0) {
+                await Promise.all(
+                    claims.map((claim) => {
+                        const message = buildClaimReminderMessage(claim, dueTypeLabelMap[type]);
+                        return sendSlackMessage(message);
+                    })
+                );
+            }
+        }
+    }
+
 } 

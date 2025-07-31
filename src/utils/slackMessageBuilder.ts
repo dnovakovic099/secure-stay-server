@@ -755,25 +755,25 @@ export const buildClaimUpdateSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Description:*\n${claim.description.length > 1000 ? claim.description.slice(0, 1000) + '...' : claim.description}`
+                    text: `*ℹ️ Description:*\n${claim.description.length > 1000 ? claim.description.slice(0, 1000) + '...' : claim.description}`
                 }
             },
             {
                 type: "section",
                 fields: [
-                    { type: "mrkdwn", text: `*Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
-                    { type: "mrkdwn", text: `*Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
                     { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
-                    { type: "mrkdwn", text: `*Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
-                    { type: "mrkdwn", text: `* Due Date:* ${claim.due_date || "-"}` },
+                    { type: "mrkdwn", text: `*🏆Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
                 ]
             },
             {
                 type: "section",
                 fields: [
-                    { type: "mrkdwn", text: `*Client Payout Amount:* ${claim?.client_paid_amount ? formatCurrency(claim.client_paid_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Client Payout Amount:* ${claim?.client_paid_amount ? formatCurrency(claim.client_paid_amount) : "-"}` },
                     { type: "mrkdwn", text: `*Payment Status:* ${claim?.payment_status ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
-                    ...(claim.payment_information ? [{ type: "mrkdwn", text: `*Payment info:* ${claim?.payment_information || "-"}` }] : [])
+                    ...(claim.payment_information ? [{ type: "mrkdwn", text: `*ℹ️Payment info:* ${claim?.payment_information || "-"}` }] : [])
                 ]
             },
             {
@@ -823,3 +823,55 @@ export const buildClaimStatusUpdateMessage = (claim: Claim, user: string) => {
     return slackMessage;
 };
 
+export const buildClaimReminderMessage = (
+    claim: Claim,
+    dueType: "today" | "tomorrow" | "in7days"
+) => {
+    const dueLabelMap = {
+        today: "📌 *Due Today*",
+        tomorrow: "⏳ *Due Tomorrow*",
+        in7days: "🗓️ *Due in 7 Days*"
+    };
+
+    const slackMessage = {
+        channel: CLAIMS,
+        text: `Reminder: Claim for ${claim.listing_name} is ${dueType}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${dueLabelMap[dueType]}\n *Claim for guest 👤${claim.guest_name} is currently marked as ${claimStatusEmoji(claim.status)}${claim.status.toUpperCase()}* and is due *${dueType === 'today' ? 'today' : dueType === 'tomorrow' ? 'tomorrow' : 'in 7 days'}*. Please review and take necessary action. *<https://securestay.ai/claims?id=${claim.id}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `🏘️ *Listing:* ${claim.listing_name}`
+                    }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `🧾 *Description:* ${claim.description || "—"}`
+                },
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
+                    { type: "mrkdwn", text: `*🏆Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
+                ]
+            },
+        ]
+    };
+
+    return slackMessage;
+};
