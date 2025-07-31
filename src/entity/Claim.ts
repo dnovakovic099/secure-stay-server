@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity('claims')
 export class Claim {
@@ -93,11 +93,17 @@ export class Claim {
     @UpdateDateColumn()
     updated_at: Date;
 
+    @DeleteDateColumn()
+    deleted_at: Date;
+
     @Column({ nullable: true })
     created_by: string;
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({nullable: true})
+    deleted_by: string
 
     @Column({ type: 'text', nullable: true })
     fileNames: string;

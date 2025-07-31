@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
 import { UsersEntity } from "../entity/Users";
+import CustomErrorHandler from "../middleware/customError.middleware";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
@@ -139,8 +140,16 @@ export class ClaimsService {
         return await this.claimRepo.save(claim);
     }
 
-    async deleteClaim(id: number) {
-        return await this.claimRepo.delete(id);
+    async deleteClaim(id: number, userId: string) {
+        const claim = await this.claimRepo.findOne({ where: { id } });
+        if (!claim) {
+            throw CustomErrorHandler.notFound(`Claim with ID ${id} not found.`);
+        }
+
+        claim.deleted_by = userId;
+        claim.deleted_at = new Date();
+        await this.claimRepo.save(claim);
+        return { message: 'Claim deleted successfully' };
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {

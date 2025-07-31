@@ -84,11 +84,12 @@ export class ClaimsController {
         }
     }
 
-    async deleteClaim(request: Request, response: Response) {
+    async deleteClaim(request: any, response: Response) {
         const claimsService = new ClaimsService();
         try {
             const { id } = request.params;
-            await claimsService.deleteClaim(Number(id));
+            const userId = request.user.id;
+            await claimsService.deleteClaim(Number(id), userId);
             return response.send({
                 status: true,
                 message: "Order deleted successfully"

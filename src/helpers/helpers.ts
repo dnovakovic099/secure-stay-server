@@ -209,6 +209,37 @@ export const clientTicketStatusEmoji = (status: string) => {
     return emoji;
 };
 
+export const claimStatusEmoji = (status: string) => {
+    let emoji = "";
+    switch (status) {
+        case "Not Submitted": {
+            emoji = "⚪️"; // white circle for not started
+            break;
+        }
+        case "In Progress": {
+            emoji = "🟡"; // yellow circle for in progress
+            break;
+        }
+        case "Submitted": {
+            emoji = "🔵"; // blue circle for submitted
+            break;
+        }
+        case "Resolved": {
+            emoji = "🟢"; // green circle for resolved
+            break;
+        }
+        case "Denied": {
+            emoji = "🔴"; // red circle for denied
+            break;
+        }
+        default: {
+            emoji = "❔"; // question mark for unknown status
+        }
+    }
+    return emoji;
+};
+
+
 const slackUsers = {
     // PRASANNA_KUMAR_BANIYA: "U07K1N81HMW",
     // PRABIN_KUMAR_BANIYA: "U07JFDC86H2",

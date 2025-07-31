@@ -6,14 +6,16 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { actionItemsStatusEmoji, capitalizeFirstLetter, formatCurrency, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
+import { actionItemsStatusEmoji, capitalizeFirstLetter, claimStatusEmoji, formatCurrency, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
+import { Claim } from "../entity/Claim";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
+const CLAIMS = "#social";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -665,3 +667,63 @@ export const buildIssueStatusUpdateMessage = (issue: Issue, user: string) => {
 
     return slackMessage;
 };
+
+
+export const buildClaimSlackMessage = (
+    claim: Claim,
+    createdBy: string,
+    updatedBy?: string
+) => {
+    return {
+        channel: CLAIMS,
+        text: `New 💰Claim: 🏠 ${claim.listing_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New 💰Claim: 🏠 ${claim.listing_name} | 👤 ${claim.guest_name}* *<https://securestay.ai/claims?id=${claim.id}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Claim Type:* ${claim.claim_type}` },
+                    { type: "mrkdwn", text: `*Status:* ${claimStatusEmoji(claim.status)}${capitalizeFirstLetter(claim.status) || '-'}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Description:*\n${claim.description.length > 1000 ? claim.description.slice(0, 1000) + '...' : claim.description}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `* Due Date:* ${claim.due_date || "-"}` },
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Client Payout Amount:* ${claim?.client_paid_amount ? formatCurrency(claim.client_paid_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Payment Status:* ${claim?.payment_status ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    ...(claim.payment_information ? [{ type: "mrkdwn", text: `*Payment info:* ${claim?.payment_information || "-"}` }] : [])
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `* Created By:* ${createdBy} on ${format(claim.created_at, "MMM dd hh:mm a")}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `* Updated By:* ${updatedBy} on ${format(claim.updated_at, "MMM dd hh:mm a")}` }] : [])
+                ]
+            },
+        ]
+    };
+};;
