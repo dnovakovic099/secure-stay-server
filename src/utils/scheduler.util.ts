@@ -102,7 +102,7 @@ export function scheduleGetReservation() {
     })
 
   schedule.scheduleJob(
-    { hour: 11, minute: 59, tz: "America/New_York" }, // Daily at 1 AM EST
+    "*/1 * * * *", // Daily at 1 AM EST
     async () => {
       try {
         logger.info('Processing maintenance log creation...');
