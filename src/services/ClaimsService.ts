@@ -133,7 +133,7 @@ export class ClaimsService {
         Object.assign(claim, {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
-            updated_by: userMap.get(claim.created_by) || claim.created_by,
+            updated_by: userId,
             fileNames: JSON.stringify(updatedFileNames)
         });
 
