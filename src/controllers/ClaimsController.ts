@@ -13,6 +13,7 @@ export class ClaimsController {
             const listingId = request.query.listingId as string || '';
             const claimAmount = request.query.claimAmount as string;
             const guestName = request.query.guestName as string;
+            const claimIds = request.query.claimIds as string;
 
             const result = await claimsService.getClaims(
                 page, 
@@ -22,7 +23,8 @@ export class ClaimsController {
                 status, 
                 listingId,
                 claimAmount,
-                guestName
+                guestName,
+                claimIds
             );
             
             return response.send({

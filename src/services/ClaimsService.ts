@@ -42,10 +42,13 @@ export class ClaimsService {
         status: string = '', 
         listingId: string = '',
         claimAmount?: string,
-        guestName?: string
+        guestName?: string,
+        claimIds?: string
     ) {
         const queryOptions: any = {
-            where: {},
+            where: {
+                ...(claimIds && claimIds.length > 0 && { id: In(claimIds as any) }),
+            },
             order: { 
                 created_at: 'DESC',
                 status: "ASC"
