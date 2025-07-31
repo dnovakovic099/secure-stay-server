@@ -122,13 +122,6 @@ export class ClaimsService {
             throw new Error('Claim not found');
         }
 
-        let updatedFileNames = [];
-        if (claim.fileNames) {
-            updatedFileNames = JSON.parse(claim.fileNames);
-        }
-        if (fileNames && fileNames.length > 0) {
-            updatedFileNames = [...updatedFileNames, ...fileNames];
-        }
         let listing_name = '';
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
@@ -140,7 +133,6 @@ export class ClaimsService {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
             updated_by: userId,
-            fileNames: JSON.stringify(updatedFileNames)
         });
 
         return await this.claimRepo.save(claim);
@@ -261,6 +253,14 @@ export class ClaimsService {
                 );
             }
         }
+    }
+
+    async getClaimById(id: number) {
+        const claim = await this.claimRepo.findOne({ where: { id } });
+        if (!claim) {
+            throw new Error('Claim not found');
+        }
+        return claim;
     }
 
 } 

@@ -89,6 +89,7 @@ export const validateUpdateClaim = (request: Request, response: Response, next: 
             .valid("Damages", "House Rule Violation", "Extra Cleaning", "Missing Items", "Others")
             .allow(null, ''),
         reservation_code: Joi.string().allow(null, ''),
+        deletedFiles: Joi.string().allow(null, ''),
     });
 
     const { error } = schema.validate(request.body);

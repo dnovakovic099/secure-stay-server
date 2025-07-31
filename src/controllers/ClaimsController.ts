@@ -1,5 +1,9 @@
 import { Request, Response } from "express";
 import { ClaimsService } from "../services/ClaimsService";
+import path from "path";
+import fs from "fs";
+
+const UPLOADS_PATH = path.join(process.cwd(), 'public/claims'); 
 
 export class ClaimsController {
     async getClaims(request: Request, response: Response) {
@@ -68,12 +72,38 @@ export class ClaimsController {
             const id = parseInt(request.params.id);
             const userId = request.user.id;
 
-            let fileNames: string[] = [];
-            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            const currentClaim = await claimsService.getClaimById(id);
+            console.log(currentClaim);
+            const currentFiles = JSON.parse(currentClaim.fileNames || '[]');
+
+            const deletedFiles = JSON.parse(request.body.deletedFiles || '[]');
+            
+            // Delete files physically
+            for (const fileName of deletedFiles) {
+                const filePath = path.join(UPLOADS_PATH, fileName);
+                try {
+                    await fs.promises.unlink(filePath);
+                } catch (err) {
+                    console.error(`Failed to delete file ${fileName}:`, err);
+                }
             }
 
-            const result = await claimsService.updateClaim(id, request.body, userId, fileNames);
+            const updatedFiles = currentFiles.filter(file => !deletedFiles.includes(file));
+            console.log({updatedFiles});
+
+            let newFiles: string[] = [];
+            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
+                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+            }
+            console.log({newFiles});
+            const finalFileNames = [...updatedFiles, ...newFiles];
+            console.log({finalFileNames});
+
+            const result = await claimsService.updateClaim(id, {
+                ...request.body,
+                fileNames: JSON.stringify(finalFileNames)
+            }, userId, newFiles);
+
             return response.status(200).json({
                 status: true,
                 data: result
@@ -108,5 +138,30 @@ export class ClaimsController {
         const claimsService = new ClaimsService();
         const result = await claimsService.exportClaimsToExcel();
         return response.send(result);
+    }
+
+    async getAttachment(request: any, response: Response) {
+        try {
+            const fileName = request.params.fileName;
+            const filePath = path.join(process.cwd(), 'public/claims', fileName);
+            
+            // Check if file exists
+            try {
+                await fs.promises.access(filePath);
+            } catch {
+                return response.status(404).json({
+                    status: false,
+                    message: 'File not found'
+                });
+            }
+
+            // Send file
+            return response.sendFile(filePath);
+        } catch (error) {
+            return response.status(400).json({
+                status: false,
+                message: error.message
+            });
+        }
     }
 } 
