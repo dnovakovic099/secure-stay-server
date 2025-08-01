@@ -17,6 +17,7 @@ import { Listing } from '../entity/Listing';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Claim } from '../entity/Claim';
 import updateSlackMessage from '../utils/updateSlackMsg';
+import { uploadFileToSlack } from '../utils/uploadFileToSlack';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -32,7 +33,24 @@ export class ClientTicketSubscriber
 
     async afterInsert(event: InsertEvent<Claim>) {
         const { entity, manager } = event;
-        await this.sendSlackMessage(entity, entity.created_by);
+        await this.sendSlackMessage(entity, entity.created_by).then((slackResponse) => {
+            const fileNames = JSON.parse(entity.fileNames);
+            if (fileNames && fileNames.length > 0) {
+                const moduleFolder = "claims";
+                const channelId = slackResponse.channel || "";
+                if (!channelId) {
+                    logger.error("SLACK_CHANNEL_ID is not found in the response.");
+                    return;
+                }
+                uploadFileToSlack(channelId, fileNames, moduleFolder)
+                    .then(() => {
+                        logger.info("File uploaded to Slack successfully.");
+                    })
+                    .catch((error) => {
+                        logger.error("Error uploading images to Slack:", error);
+                    });
+            }
+        });
     }
 
     private async sendSlackMessage(claim: Claim, userId: string) {
@@ -52,6 +70,8 @@ export class ClientTicketSubscriber
                 entityId: claim.id,
                 originalMessage: JSON.stringify(slackMessage)
             });
+
+            return slackResponse;
         } catch (error) {
             logger.error("Slack creation failed", error);
         }

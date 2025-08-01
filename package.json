@@ -3,17 +3,18 @@
   "version": "1.0.0",
   "description": "Boarding pass app for reservation",
   "main": "index.js",
-"scripts": {
-  "dev": "npx ts-node-dev src/app.ts",
-  "dev:haworker": "npx ts-node-dev src/worker/haWorker.ts",
-  "build": "tsc",
-  "start": "NODE_ENV=production node dist/out-tsc/app.js",
-  "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js"
-},
+  "scripts": {
+    "dev": "npx ts-node-dev src/app.ts",
+    "dev:haworker": "npx ts-node-dev src/worker/haWorker.ts",
+    "build": "tsc",
+    "start": "NODE_ENV=production node dist/out-tsc/app.js",
+    "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js"
+  },
   "author": "Viktor",
   "license": "ISC",
   "dependencies": {
     "@sendgrid/mail": "^8.1.4",
+    "@slack/web-api": "^7.9.3",
     "@stripe/stripe-js": "^2.4.0",
     "@supabase/supabase-js": "^2.39.7",
     "@types/dotenv": "^8.2.0",
