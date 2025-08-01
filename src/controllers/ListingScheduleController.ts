@@ -11,7 +11,8 @@ export class ListingScheduleController {
     public async createListingSchedule(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const userId = req.user?.id;
-            const newSchedule = await new ListingScheduleService().createListingSchedule(req.body, userId);
+            const listingScheduleService= new ListingScheduleService();
+            const newSchedule = await listingScheduleService.createListingSchedule(req.body, userId);
             return res.status(201).json(newSchedule);
         } catch (error) {
             next(error);
@@ -21,7 +22,8 @@ export class ListingScheduleController {
     public async getListingSchedulesByListingId(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const listingId = parseInt(req.params.listingId);
-            const schedules = await new ListingScheduleService().getListingSchedulesByListingId(listingId);
+            const listingScheduleService = new ListingScheduleService();
+            const schedules = await listingScheduleService.getListingSchedulesByListingId(listingId);
             return res.status(200).json(schedules);
         } catch (error) {
             next(error);
@@ -31,7 +33,8 @@ export class ListingScheduleController {
     public async getListingScheduleById(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const id = parseInt(req.params.id);
-            const schedule = await new ListingScheduleService().getListingScheduleById(id);
+            const listingScheduleService = new ListingScheduleService();
+            const schedule = await listingScheduleService.getListingScheduleById(id);
             if (!schedule) {
                 return res.status(404).json({ message: "Listing schedule not found" });
             }
@@ -44,7 +47,8 @@ export class ListingScheduleController {
     public async updateListingSchedule(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const userId = req.user?.id;
-            const updatedSchedule = await new ListingScheduleService().updateListingSchedule(req.body, userId);
+            const listingScheduleService = new ListingScheduleService();
+            const updatedSchedule = await listingScheduleService.updateListingSchedule(req.body, userId);
             return res.status(200).json(updatedSchedule);
         } catch (error) {
             next(error);

@@ -16,8 +16,11 @@ export class ListingScheduleService {
         if (schedule) {
             return CustomErrorHandler.alreadyExists("Listing schedule already exists for this work category and listing");
         }
-        
-        const newSchedule = this.listingScheduleRepo.create(body);
+
+        const newSchedule = this.listingScheduleRepo.create({
+            ...body,
+            dayOfWeek: body.dayOfWeek ? JSON.stringify(body.dayOfWeek) : null,
+        });
         newSchedule.createdBy = userId;
         return await this.listingScheduleRepo.save(newSchedule);
     }
@@ -37,6 +40,7 @@ export class ListingScheduleService {
         }
         Object.assign(existingSchedule, body);
         existingSchedule.updatedBy = userId;
+        existingSchedule.dayOfWeek = body.dayOfWeek ? JSON.stringify(body.dayOfWeek) : null;
         return await this.listingScheduleRepo.save(existingSchedule);
     }
 
