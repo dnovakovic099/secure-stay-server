@@ -10,6 +10,6 @@ router.route('/create').post(verifySession, validateCreateListingSchedule, listi
 router.route('/update').put(verifySession, validateUpdateListingSchedule, listingScheduleController.updateListingSchedule);
 router.route('/delete/:id').delete(verifySession, listingScheduleController.deleteListingSchedule);
 router.route('/listing/:listingId').get(verifySession, listingScheduleController.getListingSchedulesByListingId);
-router.route('/:id').get(verifySession, listingScheduleController.getListingScheduleById);
+router.route('/getschedule/:id').get(verifySession, listingScheduleController.getListingScheduleById);
 
 export default router;
