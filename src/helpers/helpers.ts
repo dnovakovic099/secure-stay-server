@@ -257,7 +257,10 @@ const slackUsers = {
     ALDRIN: "U0974TJ85Q9",
     RAIN: "U096SNZR9CL",
     CHRIS: "U0948PQC9UZ",
-    JULIUS: "U08QJBLNG6A"
+    JULIUS: "U08QJBLNG6A",
+    IAN: "U0962L2EG4S",
+    CARYL: "U0977E4NNLX",
+    YSA: "U097P8RNXS6",
 };
 
 let selectedSlackUsers = [];
@@ -295,6 +298,10 @@ export const clientTicketMentions = (category: string) => {
         }
         case "Other": {
             mentions = selectedSlackUsers;
+            break;
+        }
+        case "Onboarding": {
+            mentions = [slackUsers.IAN, slackUsers.JULIUS, slackUsers.ALDRIN, slackUsers.JAZZ, slackUsers.JOREL, slackUsers.JUSTINE, slackUsers.CARYL, slackUsers.YSA];
             break;
         }
         default: {
