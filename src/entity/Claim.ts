@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity('claims')
 export class Claim {
@@ -7,7 +7,7 @@ export class Claim {
 
     @Column({
         type: "enum",
-        enum: ["Not Submitted", "In Progress", "Submitted", "Resolved"],
+        enum: ["Not Submitted", "In Progress", "Submitted", "Resolved", "Denied"],
         default: "Not Submitted"
     })
     status: string;
@@ -78,17 +78,32 @@ export class Claim {
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     client_paid_amount: number;
 
+    @Column({ nullable: true })
+    due_date: string;
+
+    @Column({ nullable: true })
+    claim_type: string;
+
+    @Column({ type: 'text', nullable: true })
+    reservation_code: string;
+
     @CreateDateColumn()
     created_at: Date;
 
     @UpdateDateColumn()
     updated_at: Date;
 
+    @DeleteDateColumn()
+    deleted_at: Date;
+
     @Column({ nullable: true })
     created_by: string;
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({nullable: true})
+    deleted_by: string
 
     @Column({ type: 'text', nullable: true })
     fileNames: string;

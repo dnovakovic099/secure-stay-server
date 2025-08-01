@@ -6,14 +6,17 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { actionItemsStatusEmoji, capitalizeFirstLetter, formatCurrency, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
+import { actionItemsStatusEmoji, capitalizeFirstLetter, claimStatusEmoji, formatCurrency, getStarRating, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
+import { Claim } from "../entity/Claim";
+import { ReviewEntity } from "../entity/Review";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
+const CLAIMS = "#claims";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -660,6 +663,268 @@ export const buildIssueStatusUpdateMessage = (issue: Issue, user: string) => {
                     text: `${issueStatusEmoji(issue.status)}${issue.status.toUpperCase()} by ${user} `
                 }
             },
+        ]
+    };
+
+    return slackMessage;
+};
+
+
+export const buildClaimSlackMessage = (
+    claim: Claim,
+    createdBy: string,
+    updatedBy?: string
+) => {
+    return {
+        channel: CLAIMS,
+        text: `New 💰Claim: 🏠 ${claim.listing_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New 💰Claim: 🏠 ${claim.listing_name} | 👤 ${claim.guest_name}* *<https://securestay.ai/claims?id=${claim.id}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Claim Type:* ${claim.claim_type}` },
+                    { type: "mrkdwn", text: `*Status:* ${claimStatusEmoji(claim.status)}${capitalizeFirstLetter(claim.status) || '-'}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*📝Description:*\n${claim.description.length > 1000 ? claim.description.slice(0, 1000) + '...' : claim.description}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
+                    { type: "mrkdwn", text: `*🏆Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Payout Amount:* ${claim?.client_paid_amount ? formatCurrency(claim.client_paid_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Payment Status:* ${claim?.payment_status ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    ...(claim.payment_information ? [{ type: "mrkdwn", text: `*ℹ️Payment info:* ${claim?.payment_information || "-"}` }] : [])
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `* Created By:*\n ${createdBy} on ${format(claim.created_at, "MMM dd hh:mm a")}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `* Updated By:*\n ${updatedBy} on ${format(claim.updated_at, "MMM dd hh:mm a")}` }] : [])
+                ]
+            },
+        ]
+    };
+};
+
+export const buildClaimUpdateSlackMessage = (
+    claim: Claim,
+    createdBy: string,
+    updatedBy?: string
+) => {
+    return {
+        channel: CLAIMS,
+        text: `New 💰Claim: 🏠 ${claim.listing_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New 💰Claim: 🏠 ${claim.listing_name} | 👤 ${claim.guest_name}* *<https://securestay.ai/claims?id=${claim.id}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Claim Type:* ${claim.claim_type}` },
+                    { type: "mrkdwn", text: `*Status:* ${claimStatusEmoji(claim.status)}${capitalizeFirstLetter(claim.status) || '-'}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*ℹ️ Description:*\n${claim.description.length > 1000 ? claim.description.slice(0, 1000) + '...' : claim.description}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
+                    { type: "mrkdwn", text: `*🏆Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Payout Amount:* ${claim?.client_paid_amount ? formatCurrency(claim.client_paid_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Payment Status:* ${claim?.payment_status ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    ...(claim.payment_information ? [{ type: "mrkdwn", text: `*ℹ️Payment info:* ${claim?.payment_information || "-"}` }] : [])
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `* Created By:* ${createdBy} on ${format(claim.created_at, "MMM dd hh:mm a")}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `* Updated By:* ${updatedBy} on ${format(claim.updated_at, "MMM dd hh:mm a")}` }] : [])
+                ]
+            },
+        ]
+    };
+};
+
+export const buildClaimSlackMessageDelete = (claim: Claim, user: string,) => {
+    const slackMessage = {
+        channel: CLAIMS,
+        text: ` ${user} deleted the claim of 🏠 ${claim.listing_name} | 👤 ${claim.guest_name}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `❌ ${user} deleted the claim of 🏠 ${claim.listing_name} for 👤 ${claim.guest_name}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildClaimStatusUpdateMessage = (claim: Claim, user: string) => {
+    const slackMessage = {
+        channel: CLAIMS,
+        text: `${user} updated the status to ${claim.status.toUpperCase()}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${claimStatusEmoji(claim.status)}${claim.status.toUpperCase()} by ${user}`
+                }
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildClaimReminderMessage = (
+    claim: Claim,
+    dueType: "today" | "tomorrow" | "in7days"
+) => {
+    const dueLabelMap = {
+        today: "📌 *Due Today*",
+        tomorrow: "⏳ *Due Tomorrow*",
+        in7days: "🗓️ *Due in 7 Days*"
+    };
+
+    const slackMessage = {
+        channel: CLAIMS,
+        text: `Reminder: Claim for ${claim.listing_name} is ${dueType}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${dueLabelMap[dueType]}\n *Claim for guest 👤${claim.guest_name} is currently marked as ${claimStatusEmoji(claim.status)}${claim.status.toUpperCase()}* and is due *${dueType === 'today' ? 'today' : dueType === 'tomorrow' ? 'tomorrow' : 'in 7 days'}*. Please review and take necessary action. *<https://securestay.ai/claims?id=${claim.id}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `🏘️ *Listing:* ${claim.listing_name}`
+                    }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `🧾 *Description:* ${claim.description || "—"}`
+                },
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*💲Client Requested Amount:* ${claim?.client_requested_amount ? formatCurrency(claim.client_requested_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*💲Airbnb Filing Amount:* ${claim?.airbnb_filing_amount ? formatCurrency(claim.airbnb_filing_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*Airbnb Resolution:* ${claim?.airbnb_resolution || "-"}` },
+                    { type: "mrkdwn", text: `*🏆Airbnb Resolution Won Amount:* ${claim?.airbnb_resolution_won_amount ? formatCurrency(claim.airbnb_resolution_won_amount) : "-"}` },
+                    { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
+                ]
+            },
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildClaimReviewReceivedMessage = (claim: Claim, review: ReviewEntity) => {
+    const slackMessage = {
+        channel: CLAIMS,
+        text: `Review received for active claim from guest 👤${review.reviewerName}`,
+        blocks: [
+            {
+                type: "header",
+                text: {
+                    type: "plain_text",
+                    text: `📬 Review received from guest 👤${review.reviewerName}`,
+                    emoji: true
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Claim Status:*\n${claimStatusEmoji(claim.status)} ${claim.status}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Listing:*\n${claim.listing_name || "N/A"}`
+                    }
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Review:* ${review.publicReview}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Rating:* ${review.rating ? getStarRating(review.rating) : "Not Specified"}`
+                    }
+                ]
+            },
+            {
+                type: "context",
+                elements: [
+                    {
+                        type: "mrkdwn",
+                        text: `🕒 Review received on ${review.submittedAt && format(review.submittedAt, "MMM dd hh:mm a")}`
+                    }
+                ]
+            }
         ]
     };
 
