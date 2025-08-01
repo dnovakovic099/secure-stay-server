@@ -10,6 +10,9 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { v4 as uuidv4 } from 'uuid';
 import axios from "axios";
+import { Claim } from "../entity/Claim";
+import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -28,6 +31,7 @@ export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
     private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
+    private claimRepo = appDatabase.getRepository(Claim);
 
     public async getReviews({
         fromDate,
@@ -228,6 +232,9 @@ export class ReviewService {
                     });
                     await this.reviewRepository.save(newReview);
 
+                    //check if there is active claim of the reviewer
+                    await this.checkForActiveClaim(newReview);
+
                     if (reviewData.rating == 10) {
                         await this.process5StarRatings(reviewData);
                     }
@@ -237,6 +244,18 @@ export class ReviewService {
             logger.error("Error syncing reviews:", error);
             throw error;
         }
+    }
+
+    async checkForActiveClaim(review: ReviewEntity) {
+        const claim = await this.claimRepo.findOne({
+            where: {
+                reservation_id: String(review.reservationId),
+                status: "In Progress"
+            }
+        });
+        if (!claim) return;
+        const slackMessage = buildClaimReviewReceivedMessage(claim, review);
+        await sendSlackMessage(slackMessage);
     }
 
     async checkForUnresolvedReviews() {

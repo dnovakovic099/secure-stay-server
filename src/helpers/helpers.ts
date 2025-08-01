@@ -304,6 +304,16 @@ export const clientTicketMentions = (category: string) => {
     return mentions;
 }
 
+export const getStarRating = (ratingOutOf10: number): string => {
+    const ratingOutOf5 = Math.round((ratingOutOf10 / 2) * 2) / 2; // Round to 0.5
+    const fullStars = Math.floor(ratingOutOf5);
+    const halfStar = ratingOutOf5 % 1 !== 0;
+    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
+
+    return '⭐'.repeat(fullStars) + (halfStar ? '🌟' : '') + '☆'.repeat(emptyStars);
+};
+
+
 // | Status | Emoji |
 // | ----------- | ----- |
 // | New | 🔵    |

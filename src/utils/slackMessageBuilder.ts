@@ -6,10 +6,11 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { Issue } from "../entity/Issue";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { actionItemsStatusEmoji, capitalizeFirstLetter, claimStatusEmoji, formatCurrency, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
+import { actionItemsStatusEmoji, capitalizeFirstLetter, claimStatusEmoji, formatCurrency, getStarRating, issueCategoryEmoji, issueStatusEmoji } from "../helpers/helpers";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { Claim } from "../entity/Claim";
+import { ReviewEntity } from "../entity/Review";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -870,6 +871,60 @@ export const buildClaimReminderMessage = (
                     { type: "mrkdwn", text: `*📅Due Date:* ${claim.due_date || "-"}` },
                 ]
             },
+        ]
+    };
+
+    return slackMessage;
+};
+
+export const buildClaimReviewReceivedMessage = (claim: Claim, review: ReviewEntity) => {
+    const slackMessage = {
+        channel: CLAIMS,
+        text: `Review received for active claim from guest 👤${review.reviewerName}`,
+        blocks: [
+            {
+                type: "header",
+                text: {
+                    type: "plain_text",
+                    text: `📬 Review received from guest 👤${review.reviewerName}`,
+                    emoji: true
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Claim Status:*\n${claimStatusEmoji(claim.status)} ${claim.status}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Listing:*\n${claim.listing_name || "N/A"}`
+                    }
+                ]
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Review:* ${review.publicReview}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Rating:* ${review.rating ? getStarRating(review.rating) : "Not Specified"}`
+                    }
+                ]
+            },
+            {
+                type: "context",
+                elements: [
+                    {
+                        type: "mrkdwn",
+                        text: `🕒 Review received on ${review.submittedAt && format(review.submittedAt, "MMM dd hh:mm a")}`
+                    }
+                ]
+            }
         ]
     };
 
