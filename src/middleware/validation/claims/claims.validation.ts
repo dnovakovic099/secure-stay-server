@@ -4,7 +4,7 @@ import Joi from "joi";
 export const validateCreateClaim = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("Not Submitted", "In Progress", "Submitted", "Resolved")
+            .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied")
             .default("Not Submitted")
             .required(),
         listing_id: Joi.string().required(),
@@ -37,6 +37,11 @@ export const validateCreateClaim = (request: Request, response: Response, next: 
             .valid("Not Paid", "Paid", "Partially Paid")
             .default("Not Paid")
             .required(),
+        due_date: Joi.string().allow(null, ''),
+        claim_type: Joi.string()
+            .valid("Damages", "House Rule Violation", "Extra Cleaning", "Missing Items", "Others")
+            .allow(null, ''),
+        reservation_code: Joi.string().allow(null, ''),
     });
 
     const { error } = schema.validate(request.body);
@@ -49,7 +54,7 @@ export const validateCreateClaim = (request: Request, response: Response, next: 
 export const validateUpdateClaim = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("Not Submitted", "In Progress", "Submitted", "Resolved"),
+            .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied"),
         listing_id: Joi.string(),
         listing_name: Joi.string().allow(null, ''),
         description: Joi.string().allow(null, ''),
@@ -79,6 +84,12 @@ export const validateUpdateClaim = (request: Request, response: Response, next: 
         payment_status: Joi.string()
             .valid("Not Paid", "Paid", "Partially Paid")
             .default("Not Paid"),
+        due_date: Joi.string().allow(null, ''),
+        claim_type: Joi.string()
+            .valid("Damages", "House Rule Violation", "Extra Cleaning", "Missing Items", "Others")
+            .allow(null, ''),
+        reservation_code: Joi.string().allow(null, ''),
+        deletedFiles: Joi.string().allow(null, ''),
     });
 
     const { error } = schema.validate(request.body);

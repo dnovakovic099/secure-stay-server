@@ -41,4 +41,6 @@ router.route('/export')
         claimsController.exportClaimsToExcel
     );
 
+router.route('/attachment/:fileName').get(claimsController.getAttachment);
+
 export default router;
