@@ -125,8 +125,25 @@ export class MaintenanceService {
 
                 break;
             }
-            case 'annually':
+            case 'annually': {
+                // Calculate next maintenance date for annual schedule
+                const intervalMonth = listingDetail.intervalMonth;
+                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
+                const weekOfMonth = listingDetail.weekOfMonth;
+
+                const dayOfMonth = listingDetail.dayOfMonth;
+                let nextSchedule = [];
+                if (dayOfMonth && intervalMonth) {
+                    nextSchedule = this.getAnuallyDatesBasedOnDayOfMonth(dayOfMonth, intervalMonth);
+                    logger.info('upcoming dates for annual maintenance based on dayOfMonth: ' + nextSchedule.map(date => date));
+                    return nextSchedule;
+                } else if (dayOfWeek && weekOfMonth && intervalMonth) {
+                    nextSchedule = this.getAnuallyDatesFromToday(dayOfWeek, weekOfMonth, intervalMonth);
+                    logger.info('upcoming dates for annual maintenance based on dayOfWeek and weekOfMonth: ' + nextSchedule.map(date => date));
+                    return nextSchedule;
+                }
                 break;
+            }
             case 'check-out basis':
                 break;
             case 'as required':
@@ -333,6 +350,68 @@ export class MaintenanceService {
         return result.sort();
     }
 
+    getAnuallyDatesBasedOnDayOfMonth(dateOfMonth: number, intervalMonth: number): string[] {
+        const today = new Date();
+        const currentYear = getYear(today);
+        const result: string[] = [];
 
+        for (let yearOffset = 0; yearOffset <= 1; yearOffset++) {
+            const year = currentYear + yearOffset;
+
+            const baseDate = new Date(year, intervalMonth - 1, 1); // month is 0-indexed
+            const targetDate = setDate(baseDate, dateOfMonth);
+
+            // Skip invalid dates (e.g., Feb 30 → Mar 1)
+            if (targetDate.getMonth() !== intervalMonth - 1) continue;
+
+            if (isEqual(targetDate, today) || isAfter(targetDate, today)) {
+                result.push(format(targetDate, 'yyyy-MM-dd'));
+            }
+        }
+
+        return result;
+    }
+
+    getAnuallyDatesFromToday(
+        dayOfWeek: number[],
+        weekOfMonth: number,
+        intervalMonth: number
+    ): string[] {
+        const today = new Date();
+        const currentYear = getYear(today);
+        const result: string[] = [];
+
+        const weekRanges: Record<number, [number, number]> = {
+            1: [1, 7],
+            2: [8, 14],
+            3: [15, 21],
+            4: [22, 28],
+            5: [29, 31]
+        };
+
+        for (let yearOffset = 0; yearOffset <= 1; yearOffset++) {
+            const year = currentYear + yearOffset;
+            const month = intervalMonth - 1; // zero-based
+            const monthStart = new Date(year, month, 1);
+            const monthEnd = endOfMonth(monthStart);
+
+            const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+
+            for (const weekday of dayOfWeek) {
+                const [minDate, maxDate] = weekRanges[weekOfMonth];
+                const match = allDays.find(date => {
+                    const day = getDay(date);
+                    const dateNum = getDate(date);
+                    return day === weekday && dateNum >= minDate && dateNum <= maxDate;
+                });
+
+                if (match && (isEqual(match, today) || isAfter(match, today))) {
+                    result.push(format(match, 'yyyy-MM-dd'));
+                }
+            }
+        }
+
+        return result.sort();
+    }
 
 }
