@@ -315,12 +315,6 @@ export class ListingService {
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
     listingDetail.statementDurationType = statementDurationType;
-    listingDetail.scheduleType= body.scheduleType;
-    listingDetail.intervalMonth = body.intervalMonth;
-    listingDetail.dayOfWeek = body.dayOfWeek;
-    listingDetail.weekOfMonth = body.weekOfMonth;
-    listingDetail.dayOfMonth = body.dayOfMonth;
-    listingDetail.scheduling = body.scheduling;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
@@ -330,12 +324,6 @@ export class ListingService {
     listingDetail.statementDurationType = body.statementDurationType;
     listingDetail.claimProtection= body.claimProtection;
     listingDetail.hidePetFee=body.hidePetFee;
-    listingDetail.scheduleType = body.scheduleType;
-    listingDetail.intervalMonth = body.intervalMonth;
-    listingDetail.dayOfWeek = body.dayOfWeek ? JSON.stringify(body.dayOfWeek) : null;
-    listingDetail.weekOfMonth = body.weekOfMonth;
-    listingDetail.dayOfMonth = body.dayOfMonth;
-    listingDetail.scheduling = body.scheduling;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }
