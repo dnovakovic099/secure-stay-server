@@ -10,7 +10,7 @@ export const validateCreateClientTicket = (request: Request, response: Response,
             }),
         listingId: Joi.string().required(),
         category: Joi.array().items(Joi.string()
-            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")).min(1).required(),
+            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")).min(1).required(),
         description: Joi.string().required(),
         resolution: Joi.string().required().allow(null),
         latestUpdates: Joi.array().items(
@@ -38,7 +38,7 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
             }),
         listingId: Joi.string().required(),
         category: Joi.array().items(Joi.string()
-            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")).min(1).required(),
+            .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")).min(1).required(),
         description: Joi.string().required(),
         resolution: Joi.string().required().allow(null),
         latestUpdates: Joi.array().items(
@@ -61,7 +61,7 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
     const schema = Joi.object({
         status: Joi.array().items(Joi.string().valid("New", "In Progress", "Completed")).optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
-        category: Joi.array().items(Joi.string().valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other")).optional(),
+        category: Joi.array().items(Joi.string().valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")).optional(),
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional()
             .messages({ 'string.pattern.base': 'fromDate must be in the format "yyyy-mm-dd"' }),
         toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional()
