@@ -58,4 +58,76 @@ export class ContactController {
             next(error);
         }
     }
+
+    async createContactRole(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const createdRole = await contactService.createContactRole(request.body, request.user.id);
+            return response.status(201).json(createdRole);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateContactRole(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const updatedRole = await contactService.updateContactRole(request.body, request.user.id);
+            return response.status(200).json(updatedRole);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteContactRole(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            await contactService.deleteContactRole(Number(request.params.id), request.user.id);
+            return response.status(200).json({ message: "Contact role deleted successfully." });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getContactRoles(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const roles = await contactService.getContactRoles();
+            return response.status(200).json(roles);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+
+    async createContactUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const createdUpdate = await contactService.createContactUpdates(request.body, request.user.id);
+            return response.status(201).json(createdUpdate);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateContactUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const updatedUpdate = await contactService.updateContactUpdates(request.body, request.user.id);
+            return response.status(200).json(updatedUpdate);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteContactUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            await contactService.deleteContactUpdates(Number(request.params.id), request.user.id);
+            return response.status(200).json({ message: "Contact update deleted successfully." });
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }

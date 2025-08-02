@@ -5,8 +5,7 @@ export const validateCreateContact = (request: Request, response: Response, next
     const schema = Joi.object({
         status: Joi.string().valid('active', 'active-backup', 'inactive').required(),
         listingId: Joi.string().required(),
-        role: Joi.string().required()
-            .valid("Cleaner", "Handyman", "Landscaper", "Pool Cleaner", "Pool Repair", "Electrician", "Plumber", "HVAC Technician", "Pest Control", "Snow Remover"),
+        role: Joi.string().required(),
         name: Joi.string().required(),
         contact: Joi.string().required().allow(null),
         notes: Joi.string().required().allow(null),
@@ -22,7 +21,9 @@ export const validateCreateContact = (request: Request, response: Response, next
         // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
-        isAutoPay: Joi.string().required().valid("true", "false")
+        isAutoPay: Joi.string().required().valid("true", "false"),
+        email: Joi.string().email().required().allow(null),
+        source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -88,8 +89,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         id: Joi.number().integer().required(),
         status: Joi.string().valid('active', 'active-backup', 'inactive').required(),
         listingId: Joi.string().required(),
-        role: Joi.string().required()
-            .valid("Cleaner", "Handyman", "Landscaper", "Pool Cleaner", "Pool Repair", "Electrician", "Plumber", "HVAC Technician", "Pest Control", "Snow Remover"),
+        role: Joi.string().required(),
         name: Joi.string().required(),
         contact: Joi.string().required().allow(null),
         notes: Joi.string().required().allow(null),
@@ -105,7 +105,9 @@ export const validateUpdateContact = (request: Request, response: Response, next
         // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
-        isAutoPay: Joi.string().valid("true", "false").required()
+        isAutoPay: Joi.string().valid("true", "false").required(),
+        email: Joi.string().email().required().allow(null),
+        source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -184,12 +186,7 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         limit: Joi.number().integer().min(1).default(10),
         status: Joi.array().items(Joi.string().valid('active', 'active-backup', 'inactive')).optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
-        role: Joi.array().items(
-            Joi.string().valid(
-                "Cleaner", "Handyman", "Landscaper", "Pool Cleaner", "Pool Repair", "Electrician", "Plumber",
-                "HVAC Technician", "Pest Control", "Snow Remover"
-            )
-        ).optional(),
+        role: Joi.array().items(Joi.string()).optional(),
         name: Joi.string().optional(),
         contact: Joi.string().optional(),
         website_name: Joi.string().optional(),
@@ -197,6 +194,8 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         paymentMethod: Joi.array().items(Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),).optional(),
         isAutoPay: Joi.string().valid("true", "false").optional(),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        email: Joi.string().email().optional().allow(null),
+        source: Joi.string().optional().allow(null).valid("Owner", "Turno", "LL"),
     });
 
     const { error } = schema.validate(request.query);
@@ -205,3 +204,58 @@ export const validateGetContacts = (request: Request, response: Response, next: 
     }
     next();
 };
+
+export const validateCreateContactRole = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        workCategory: Joi.string().required(),
+        role: Joi.string().required()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateContactRole = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().integer().required(),
+        workCategory: Joi.string().required(),
+        role: Joi.string().required()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
+export const validateCreateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        contactId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+

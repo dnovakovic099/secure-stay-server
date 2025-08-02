@@ -11,18 +11,7 @@ export const validateCreateListingSchedule = (request: Request, response: Respon
         weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
         dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         scheduling: Joi.string().valid("LL", "LL-auto", "Client", "NA").required().allow(null),
-        workCategory: Joi.string().valid(
-            "Cleaning",
-            "Repair",
-            "Pool Cleaning",
-            "Pool Issues",
-            "Landscaping",
-            "Pest Control",
-            "HVAC Maintenance",
-            "Electrical",
-            "Plumbing",
-            "Snow Removal",
-        ).required(),
+        workCategory: Joi.string().valid().required(),
         listingId: Joi.number().required(),
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
@@ -96,18 +85,7 @@ export const validateUpdateListingSchedule = (request: Request, response: Respon
         weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
         dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         scheduling: Joi.string().valid("LL", "LL-auto", "Client", "NA").required().allow(null),
-        workCategory: Joi.string().valid(
-            "Cleaning",
-            "Repair",
-            "Pool Cleaning",
-            "Pool Issues",
-            "Landscaping",
-            "Pest Control",
-            "HVAC Maintenance",
-            "Electrical",
-            "Plumbing",
-            "Snow Removal",
-        ).required(),
+        workCategory: Joi.string().valid().required(),
         listingId: Joi.number().required()
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
