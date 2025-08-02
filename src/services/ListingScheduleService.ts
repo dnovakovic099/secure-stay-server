@@ -1,3 +1,4 @@
+import { In } from "typeorm";
 import { ListingSchedule } from "../entity/ListingSchedule";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
@@ -25,8 +26,8 @@ export class ListingScheduleService {
         return await this.listingScheduleRepo.save(newSchedule);
     }
 
-    async getListingSchedulesByListingId(listingId: number) {
-        return await this.listingScheduleRepo.find({ where: { listingId } });
+    async getListingSchedulesByListingId(listingId: number[]) {
+        return await this.listingScheduleRepo.find({ where: { listingId: In(listingId) } });
     }
 
     async getListingScheduleById(id: number) {

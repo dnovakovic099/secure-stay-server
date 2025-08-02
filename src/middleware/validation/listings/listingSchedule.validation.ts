@@ -169,3 +169,16 @@ export const validateUpdateListingSchedule = (request: Request, response: Respon
 
     next();
 };
+
+export const validateGetListingScheduleByListingId = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        listingId: Joi.array().items(Joi.number().required()).min(1).required()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};

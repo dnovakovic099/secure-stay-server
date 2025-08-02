@@ -21,7 +21,7 @@ export class ListingScheduleController {
 
     public async getListingSchedulesByListingId(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const listingId = parseInt(req.params.listingId);
+            const listingId = req.body.listingId;
             const listingScheduleService = new ListingScheduleService();
             const schedules = await listingScheduleService.getListingSchedulesByListingId(listingId);
             return res.status(200).json(schedules);
