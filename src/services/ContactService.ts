@@ -10,6 +10,7 @@ import { tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ContactRole } from "../entity/ContactRole";
 import { ContactUpdates } from "../entity/ContactUpdates";
+import { ListingSchedule } from "../entity/ListingSchedule";
 
 interface FilterQuery {
     page: number;
@@ -36,6 +37,7 @@ export class ContactService {
     private listingDetailRepo = appDatabase.getRepository(ListingDetail);
     private contactRoleRepo = appDatabase.getRepository(ContactRole);
     private contactUpdatesRepo = appDatabase.getRepository(ContactUpdates);
+    private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
 
     async createContact(body: Partial<Contact>, userId: string) {
         const contact = this.contactRepo.create({
@@ -137,11 +139,13 @@ export class ContactService {
             .getRawMany();
 
         const listingDetails = await this.listingDetailRepo.find();
+        const listingSchedules = await this.listingScheduleRepo.find();
 
         const transformedData = data.map(d => {
             return {
                 ...d,
                 listingDetail: listingDetails.find(ld => ld.listingId == Number(d.listingId)) || null,
+                listingSchedule: listingSchedules.filter(ls => ls.listingId == Number(d.listingId)) || null,
                 listingName: listings.find((listing) => listing.id == Number(d.listingId))?.internalListingName,
                 createdBy: userMap.get(d.createdBy) || d.createdBy,
                 updatedBy: userMap.get(d.updatedBy) || d.updatedBy,
