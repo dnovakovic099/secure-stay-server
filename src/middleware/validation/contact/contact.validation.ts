@@ -21,7 +21,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
-        isAutoPay: Joi.string().required().valid("true", "false"),
+        isAutoPay: Joi.boolean().required(),
         email: Joi.string().email().required().allow(null),
         source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
     }).custom((value, helpers) => {
@@ -105,7 +105,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         // paymentDayOfWeekForMonth: Joi.number().integer().min(1).max(7).required().allow(null),
         paymentDayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
         paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").required().allow(null),
-        isAutoPay: Joi.string().valid("true", "false").required(),
+        isAutoPay: Joi.boolean().required(),
         email: Joi.string().email().required().allow(null),
         source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
     }).custom((value, helpers) => {
@@ -192,7 +192,7 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         website_name: Joi.string().optional(),
         rate: Joi.string().optional(),
         paymentMethod: Joi.array().items(Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),).optional(),
-        isAutoPay: Joi.string().valid("true", "false").optional(),
+        isAutoPay: Joi.boolean().optional(),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         email: Joi.string().email().optional().allow(null),
         source: Joi.array().items(Joi.string()).optional().allow(null).valid("Owner", "Turno", "LL"),
