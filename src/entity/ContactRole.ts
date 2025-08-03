@@ -9,7 +9,7 @@ export class ContactRole {
     workCategory: string;
 
     @Column()
-    role: number;
+    role: string;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;

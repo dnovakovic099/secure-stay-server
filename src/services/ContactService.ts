@@ -150,6 +150,11 @@ export class ContactService {
                 createdBy: userMap.get(d.createdBy) || d.createdBy,
                 updatedBy: userMap.get(d.updatedBy) || d.updatedBy,
                 propertyType: listingTags.find((tag) => tag.listingInfoId == d.listingId)?.name || "N/A",
+                contactUpdates: d.contactUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy
+                })),
             };
         })
 
