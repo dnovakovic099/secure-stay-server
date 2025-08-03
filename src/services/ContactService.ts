@@ -92,7 +92,6 @@ export class ContactService {
             source,
             email
         } = query;
-        console.log(query)
 
         let listingIds = [];
         const listingService = new ListingService();
