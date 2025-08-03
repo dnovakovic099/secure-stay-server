@@ -92,6 +92,7 @@ export class ContactService {
             source,
             email
         } = query;
+        console.log(query)
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -115,7 +116,7 @@ export class ContactService {
                 ...(website_name && { website_name: ILike(`%${website_name}%`) }),
                 ...(rate && { rate }),
                 ...(source && source.length > 0 && { source: In(source) }),
-                ...(email && { email: ILike(`%${email}%`) }),
+                ...(email && { email }),
             },
             skip: (page - 1) * limit,
             relations: ["contactUpdates"],

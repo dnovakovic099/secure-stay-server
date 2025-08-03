@@ -195,7 +195,7 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         isAutoPay: Joi.boolean().optional(),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         email: Joi.string().email().optional().allow(null),
-        source: Joi.array().items(Joi.string()).optional().allow(null).valid("Owner", "Turno", "LL"),
+        source: Joi.array().items(Joi.string().valid("Owner", "Turno", "LL")).optional().allow(null),
     });
 
     const { error } = schema.validate(request.query);
