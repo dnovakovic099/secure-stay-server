@@ -157,7 +157,8 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         page: Joi.number().required(),
         limit: Joi.number().required(),
         issueId: Joi.array().items(Joi.number()).min(1).optional(),
-        reservationId: Joi.array().items(Joi.number()).min(1).optional()
+        reservationId: Joi.array().items(Joi.number()).min(1).optional(),
+        keyword: Joi.string().optional()
     });
 
     const { error } = schema.validate(request.query);

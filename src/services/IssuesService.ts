@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan, In, MoreThan } from "typeorm";
+import { Between, Not, LessThan, In, MoreThan, Like } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -368,7 +368,7 @@ export class IssuesService {
         const {
             category, listingId, propertyType,
             fromDate, toDate, status, guestName,
-            page, limit, issueId, reservationId
+            page, limit, issueId, reservationId, keyword
         } = body;
 
         let listingIds = [];
@@ -388,6 +388,7 @@ export class IssuesService {
                 ...(guestName && { guest_name: guestName }),
                 ...(issueId && issueId.length > 0 && { id: In(issueId) }),
                 ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
+                ...(keyword && { issue_description: Like(`%${keyword}%`) }),
             },
             relations: ["issueUpdates"],
             take: limit,
