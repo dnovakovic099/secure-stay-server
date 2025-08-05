@@ -9,3 +9,10 @@ export async function syncReservation() {
     await reservationInfoService.syncReservations(date);
     logger.info("Reservation synchronization completed successfully.");
 }
+
+export async function syncCurrentlyStayingReservations() {
+    logger.info("Syncing currently staying reservations...");
+    const reservationInfoService = new ReservationInfoService();
+    await reservationInfoService.syncCurrentlyStayingReservations();
+    logger.info("Currently staying reservations synchronization completed successfully.");
+}

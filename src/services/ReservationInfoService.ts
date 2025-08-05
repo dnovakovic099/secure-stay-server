@@ -16,7 +16,7 @@ import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
-import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange, getStartOfThreeMonthsAgo } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
 import { Issue } from "../entity/Issue";
 import { ActionItems } from "../entity/ActionItems";
@@ -55,7 +55,9 @@ export class ReservationInfoService {
     }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName });
+    const listing = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
+    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
@@ -82,9 +84,11 @@ export class ReservationInfoService {
     }
     
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
+    const listing = await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
 
     reservation.listingMapId = updateData.listingMapId;
-    reservation.listingName = updateData.listingName;
+    reservation.listingName = listingName;
     reservation.channelId = updateData.channelId;
     reservation.source = updateData.source;
     reservation.channelName = updateData.channelName;
@@ -617,6 +621,37 @@ export class ReservationInfoService {
       success: true,
       message: `Reservations synced successfully. No. of reservation: ${reservations.length}`
     };
+  }
+
+  async syncCurrentlyStayingReservations() {
+    const currentDate = format(new Date(), "yyyy-MM-dd");
+    const currentUTCHour = format(new Date(), "HH");
+    logger.info(`[syncCurrentlyStayingReservations] Syncing currently staying reservations for date: ${currentDate} and current hour: ${currentUTCHour}`);
+
+    const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
+    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
+    qb.andWhere(" (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)", { today: currentDate });
+    const [result, total] = await qb.addOrderBy("arrivalDate", "DESC").getManyAndCount();
+
+    const reservationIds = result.map((reservation: ReservationInfoEntity) => reservation.id);
+    logger.info(`[syncCurrentlyStayingReservations] Currently staying reservations count: ${result.length}`);
+    if (result.length === 0) {
+      logger.info(`[syncCurrentlyStayingReservations] No currently staying reservations found.`);
+      return;
+    }
+
+    const date = getStartOfThreeMonthsAgo();
+    const reservations = await this.hostAwayClient.syncReservations(date);
+    logger.info(`[syncCurrentlyStayingReservations] Syncing reservations from HostAway...`);
+    for (const reservation of reservations) {
+      if (reservationIds.includes(reservation.id)) {
+        await this.saveReservationInfo(reservation);
+      }
+    }
+    logger.info(`[syncCurrentlyStayingReservations] Successfully synced currently staying reservations.`);
+    return;
   }
 
   async getReservationById(reservationId: number): Promise<ReservationInfoEntity> {
