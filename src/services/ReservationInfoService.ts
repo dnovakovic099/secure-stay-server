@@ -169,6 +169,7 @@ export class ReservationInfoService {
         issues,
         channel,
         payment,
+        keyword,
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -184,7 +185,8 @@ export class ReservationInfoService {
           actionItems?: string[];
           issues?: string[],
           channel?: string[],
-          payment?: string[]
+          payment?: string[],
+          keyword?: string,
       };
 
       // Convert page/limit to numbers with defaults
@@ -203,14 +205,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment, keyword);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -234,12 +236,13 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -249,7 +252,7 @@ export class ReservationInfoService {
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -261,7 +264,7 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -328,8 +331,8 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined) {
-    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -415,10 +418,11 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
     // 1) Query for currently staying reservation's records
-    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -521,7 +525,8 @@ export class ReservationInfoService {
     listingMapId?: string[],
     guestName?: string,
     channel?: string[],
-    payment?: string[]
+    payment?: string[],
+    keyword?: string
   ) {
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
 
@@ -544,6 +549,10 @@ export class ReservationInfoService {
 
     if(payment){
       qb.andWhere("reservation.paymentStatus IN (:...payment)", { payment });
+    }
+    console.log("keyword", keyword);
+    if(keyword){
+      qb.andWhere("reservation.guestName LIKE :keyword", { keyword: `%${keyword}%` });
     }
 
     return qb;
