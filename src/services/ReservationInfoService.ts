@@ -1092,6 +1092,11 @@ export class ReservationInfoService {
     return reservationInfo;
   }
 
-
-
+  async syncReservationById(reservationId: number) {
+    const reservation = await this.hostAwayClient.getReservation(reservationId);
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${reservationId}`);
+    }
+    return await this.saveReservationInfo(reservation);
+  }
 }
