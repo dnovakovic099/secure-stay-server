@@ -136,7 +136,7 @@ export class UpsellOrderService {
         let netAmount = 0;
         if (isPmListing) {
             const processingFee = upsell.cost * 0.03;
-            netAmount = Math.round(upsell.cost - processingFee);
+            netAmount = Math.ceil(upsell.cost - processingFee);
             const listingPmFee = await listingService.getListingPmFee();
             let pmFeePercent = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0.1; // default to 10% if not found
             const pmFee = netAmount * pmFeePercent;

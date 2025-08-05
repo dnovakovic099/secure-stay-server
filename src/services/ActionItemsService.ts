@@ -81,13 +81,15 @@ export class ActionItemsService {
             status,
             fromDate,
             toDate,
-            ids
+            ids,
+            reservationId
         } = filter;
 
         const whereConditions = {
             ...(ids?.length > 0 && { id: In(ids) }),
             ...(category && { category: In(category) }),
             ...(listingId?.length > 0 && { listingId: In(listingId) }),
+            ...(reservationId?.length > 0 && { reservationId: In(reservationId) }),
             ...(guestName && { guestName }),
             ...(status && { status: In(status) }),
             ...(fromDate && toDate && {

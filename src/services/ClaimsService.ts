@@ -1,12 +1,18 @@
 import { appDatabase } from "../utils/database.util";
 import { Claim } from "../entity/Claim";
-import { Between, Not, LessThan, In} from "typeorm";
+import { Between, Not, LessThan, In, Equal } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
+import { UsersEntity } from "../entity/Users";
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { addDays, format } from "date-fns";
+import { buildClaimReminderMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
+    private usersRepo = appDatabase.getRepository(UsersEntity); 
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -20,7 +26,8 @@ export class ClaimsService {
         const newClaim = this.claimRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : ""
+            fileNames: fileNames ? JSON.stringify(fileNames) : "",
+            created_by: userId
         });
 
         const savedClaim = await this.claimRepo.save(newClaim);
@@ -35,10 +42,13 @@ export class ClaimsService {
         status: string = '', 
         listingId: string = '',
         claimAmount?: string,
-        guestName?: string
+        guestName?: string,
+        claimIds?: string
     ) {
         const queryOptions: any = {
-            where: {},
+            where: {
+                ...(claimIds && claimIds.length > 0 && { id: In(claimIds as any) }),
+            },
             order: { 
                 created_at: 'DESC',
                 status: "ASC"
@@ -80,10 +90,20 @@ export class ClaimsService {
             queryOptions.where.guest_name = guestName;
         }
 
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     
+
         const [claims, total] = await this.claimRepo.findAndCount(queryOptions);
 
+        const transformedData = claims.map(claim => {
+            return {
+                ...claim,
+                updated_by: userMap.get(claim.updated_by) || claim.updated_by,
+            };
+        })
+
         return {
-            data: claims,
+            data: transformedData,
             meta: {
                 total,
                 page,
@@ -102,30 +122,32 @@ export class ClaimsService {
             throw new Error('Claim not found');
         }
 
-        let updatedFileNames = [];
-        if (claim.fileNames) {
-            updatedFileNames = JSON.parse(claim.fileNames);
-        }
-        if (fileNames && fileNames.length > 0) {
-            updatedFileNames = [...updatedFileNames, ...fileNames];
-        }
         let listing_name = '';
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
         }
-
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        
         Object.assign(claim, {
             ...data,
             ...(data.listing_id && { listing_name: listing_name }),
             updated_by: userId,
-            fileNames: JSON.stringify(updatedFileNames)
         });
 
         return await this.claimRepo.save(claim);
     }
 
-    async deleteClaim(id: number) {
-        return await this.claimRepo.delete(id);
+    async deleteClaim(id: number, userId: string) {
+        const claim = await this.claimRepo.findOne({ where: { id } });
+        if (!claim) {
+            throw CustomErrorHandler.notFound(`Claim with ID ${id} not found.`);
+        }
+
+        claim.deleted_by = userId;
+        claim.deleted_at = new Date();
+        await this.claimRepo.save(claim);
+        return { message: 'Claim deleted successfully' };
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {
@@ -176,4 +198,69 @@ export class ClaimsService {
             await sendUnresolvedClaimEmail(claim);
         }
     }
+
+    async getClaimsBasedOnDueDates() {
+        const currentDate = format(new Date(), 'yyyy-MM-dd');
+        const after1Day = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+        const after7Days = format(addDays(new Date(), 7), 'yyyy-MM-dd');
+
+        const [dueToday, dueTomorrow, dueIn7Days] = await Promise.all([
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(currentDate),
+                },
+            }),
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(after1Day),
+                },
+            }),
+            this.claimRepo.find({
+                where: {
+                    status: Equal('In Progress'),
+                    due_date: Equal(after7Days),
+                },
+            }),
+        ]);
+
+        return {
+            dueToday,
+            dueTomorrow,
+            dueIn7Days,
+        };
+    }
+
+    async sendReminderMessageForClaims() {
+        const claimsByDue = await this.getClaimsBasedOnDueDates();
+
+        const dueTypes: Array<keyof typeof claimsByDue> = ['dueToday', 'dueTomorrow', 'dueIn7Days'];
+        const dueTypeLabelMap: Record<keyof typeof claimsByDue, 'today' | 'tomorrow' | 'in7days'> = {
+            dueToday: 'today',
+            dueTomorrow: 'tomorrow',
+            dueIn7Days: 'in7days',
+        };
+
+        for (const type of dueTypes) {
+            const claims = claimsByDue[type];
+            if (claims.length > 0) {
+                await Promise.all(
+                    claims.map((claim) => {
+                        const message = buildClaimReminderMessage(claim, dueTypeLabelMap[type]);
+                        return sendSlackMessage(message);
+                    })
+                );
+            }
+        }
+    }
+
+    async getClaimById(id: number) {
+        const claim = await this.claimRepo.findOne({ where: { id } });
+        if (!claim) {
+            throw new Error('Claim not found');
+        }
+        return claim;
+    }
+
 } 

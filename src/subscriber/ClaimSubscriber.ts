@@ -7,82 +7,97 @@ import {
 } from 'typeorm';
 import { getDiff } from '../helpers/helpers';
 import logger from '../utils/logger.utils';
-import { buildActionItemsSlackMessage, buildActionItemsSlackMessageUpdate, buildActionItemsSlackMessageDelete, buildActionItemStatusUpdateMessage } from '../utils/slackMessageBuilder';
+import { buildClaimSlackMessage, buildClaimSlackMessageDelete, buildClaimStatusUpdateMessage, buildClientTicketSlackMessageDelete, buildClientTicketSlackMessageUpdate, buildIssueSlackMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
+import { ClientTicket } from '../entity/ClientTicket';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
-import { ActionItems } from '../entity/ActionItems';
-import { ReservationInfoEntity } from '../entity/ReservationInfo';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import { Claim } from '../entity/Claim';
 import updateSlackMessage from '../utils/updateSlackMsg';
+import { uploadFileToSlack } from '../utils/uploadFileToSlack';
 
 @EventSubscriber()
-export class ActionItemsSubscriber
-    implements EntitySubscriberInterface<ActionItems> {
+export class ClientTicketSubscriber
+    implements EntitySubscriberInterface<Claim> {
 
     listenTo() {
-        return ActionItems;
+        return Claim;
     }
 
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingRepo = appDatabase.getRepository(Listing);
-    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
 
-    async afterInsert(event: InsertEvent<ActionItems>) {
+    async afterInsert(event: InsertEvent<Claim>) {
         const { entity, manager } = event;
-        await this.sendSlackMessage(entity, entity.createdBy);
+        await this.sendSlackMessage(entity, entity.created_by).then((slackResponse) => {
+            const fileNames = JSON.parse(entity.fileNames);
+            if (fileNames && fileNames.length > 0) {
+                const moduleFolder = "claims";
+                const channelId = slackResponse.channel || "";
+                if (!channelId) {
+                    logger.error("SLACK_CHANNEL_ID is not found in the response.");
+                    return;
+                }
+                uploadFileToSlack(channelId, fileNames, moduleFolder)
+                    .then(() => {
+                        logger.info("File uploaded to Slack successfully.");
+                    })
+                    .catch((error) => {
+                        logger.error("Error uploading images to Slack:", error);
+                    });
+            }
+        });
     }
 
-    private async sendSlackMessage(actionItems: ActionItems, userId: string) {
+    private async sendSlackMessage(claim: Claim, userId: string) {
         try {
             const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : userId;
-
-            const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItems.reservationId } });
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
 
             const slackMessageService = new SlackMessageService();
-            const slackMessage = buildActionItemsSlackMessage(actionItems, user, reservationInfo);
+            const slackMessage = buildClaimSlackMessage(claim, user);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({
                 channel: slackResponse.channel,
                 messageTs: slackResponse.ts,
                 threadTs: slackResponse.ts,
-                entityType: "action_items",
-                entityId: actionItems.id,
+                entityType: "claim",
+                entityId: claim.id,
                 originalMessage: JSON.stringify(slackMessage)
             });
+
+            return slackResponse;
         } catch (error) {
             logger.error("Slack creation failed", error);
         }
     }
 
-    private async updateSlackMessage(actionItem: any, userId: string, eventType: string) {
+    private async updateSlackMessage(claim: any, userId: string, eventType: string) {
         try {
             const users = await this.usersRepo.find();
             const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
-            const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
-
-            let slackMessage = buildActionItemsSlackMessageUpdate(actionItem, userMap.get(userId), reservationInfo);
+            let slackMessage = buildClaimSlackMessage(claim, userMap.get(userId));
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
-                    entityType: "action_items",
-                    entityId: actionItem.id
+                    entityType: "claim",
+                    entityId: claim.id
                 }
             });
             if (eventType == "delete") {
-                slackMessage = buildActionItemsSlackMessageDelete(actionItem, userMap.get(userId));
+                slackMessage = buildClaimSlackMessageDelete(claim, userMap.get(userId));
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildActionItemStatusUpdateMessage(actionItem, userMap.get(userId) || userId);
+                slackMessage = buildClaimStatusUpdateMessage(claim, userMap.get(userId) || userId);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
-            const mainMessage = buildActionItemsSlackMessage(actionItem, userMap.get(actionItem.createdBy), reservationInfo, userMap.get(userId));
+            const mainMessage = buildClaimSlackMessage(claim, userMap.get(claim.created_by), userMap.get(userId));
             const { channel, ...messageWithoutChannel } = mainMessage;
             await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
 
@@ -91,7 +106,7 @@ export class ActionItemsSubscriber
         }
     }
 
-    async afterUpdate(event: UpdateEvent<ActionItems>) {
+    async afterUpdate(event: UpdateEvent<Claim>) {
         const { databaseEntity, entity, manager } = event;
         if (!databaseEntity || !entity) return;
 
@@ -101,19 +116,18 @@ export class ActionItemsSubscriber
 
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
-
         let eventType = "update";
         if ((entity.status != databaseEntity.status)) {
             eventType = "statusUpdate";
-        } else if (entity.deletedAt) {
+        } else if (entity.deleted_at) {
             eventType = "delete";
         }
 
-        await this.updateSlackMessage(entity, entity.updatedBy, eventType)
+        await this.updateSlackMessage(entity, entity.updated_by, eventType)
 
     }
 
-    async afterRemove(event: RemoveEvent<ActionItems>) {
+    async afterRemove(event: RemoveEvent<Claim>) {
         const { databaseEntity, manager } = event;
         if (!databaseEntity) return;
 
