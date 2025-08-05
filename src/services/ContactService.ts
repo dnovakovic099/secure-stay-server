@@ -27,6 +27,7 @@ interface FilterQuery {
     propertyType?: number[];
     source?: string[];
     email?: string;
+    keyword?: string;
 }
 
 export class ContactService {
@@ -90,7 +91,8 @@ export class ContactService {
             isAutoPay,
             propertyType,
             source,
-            email
+            email,
+            keyword
         } = query;
 
         let listingIds = [];
@@ -116,6 +118,7 @@ export class ContactService {
                 ...(rate && { rate }),
                 ...(source && source.length > 0 && { source: In(source) }),
                 ...(email && { email }),
+                ...(keyword && { name: ILike(`%${keyword}%`) }),
             },
             skip: (page - 1) * limit,
             relations: ["contactUpdates"],
