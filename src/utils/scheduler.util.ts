@@ -10,6 +10,7 @@ import { ReservationInfoService } from "../services/ReservationInfoService";
 import { ListingService } from "../services/ListingService";
 import { UpsellOrderService } from "../services/UpsellOrderService";
 import { format } from "date-fns";
+import { ClaimsService } from "../services/ClaimsService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -100,4 +101,16 @@ export function scheduleGetReservation() {
       }
     })
 
+  schedule.scheduleJob(
+    { hour: 8, minute: 0, tz: "America/New_York" }, // Daily at 8 AM EST
+    async () => {
+      try {
+        logger.info('Send reminder message for pending claims...');
+        const claimsService = new ClaimsService();
+        await claimsService.sendReminderMessageForClaims();
+        logger.info('Sent reminder message for pending claims successfully.');
+      } catch (error) {
+        logger.error("Error sending reminder message for pending claims", error);
+      }
+    });
 }

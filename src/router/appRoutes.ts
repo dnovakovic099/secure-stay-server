@@ -28,6 +28,7 @@ import taskRoutes from "./tasksRoutes";
 import clientTicketRoutes from "./clientTicketRoutes";
 import actionItemsRoutes from "./actionItemsRoutes";
 import contactRoutes from "./contactRoutes";
+import listingScheduleRoutes from "./ListingScheduleRoutes";
 
 const router = Router();
 
@@ -60,5 +61,6 @@ router.use('/owner-portal', ownerPortalRoutes)
 router.use('/client-ticket', clientTicketRoutes);
 router.use('/action-items', actionItemsRoutes);
 router.use('/contact', contactRoutes);
+router.use('/schedule', listingScheduleRoutes);
 
 export default router;

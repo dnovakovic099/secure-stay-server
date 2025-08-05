@@ -8,6 +8,9 @@ import { Listing } from "../entity/Listing";
 import { ListingTags } from "../entity/ListingTags";
 import { tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
+import { ContactRole } from "../entity/ContactRole";
+import { ContactUpdates } from "../entity/ContactUpdates";
+import { ListingSchedule } from "../entity/ListingSchedule";
 
 interface FilterQuery {
     page: number;
@@ -22,6 +25,8 @@ interface FilterQuery {
     paymentMethod?: string[];
     isAutoPay?: boolean;
     propertyType?: number[];
+    source?: string[];
+    email?: string;
 }
 
 export class ContactService {
@@ -30,6 +35,9 @@ export class ContactService {
     private listingRepository = appDatabase.getRepository(Listing);
     private listingTagRepo = appDatabase.getRepository(ListingTags);
     private listingDetailRepo = appDatabase.getRepository(ListingDetail);
+    private contactRoleRepo = appDatabase.getRepository(ContactRole);
+    private contactUpdatesRepo = appDatabase.getRepository(ContactUpdates);
+    private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
 
     async createContact(body: Partial<Contact>, userId: string) {
         const contact = this.contactRepo.create({
@@ -80,7 +88,9 @@ export class ContactService {
             rate,
             paymentMethod,
             isAutoPay,
-            propertyType
+            propertyType,
+            source,
+            email
         } = query;
 
         let listingIds = [];
@@ -104,8 +114,11 @@ export class ContactService {
                 ...(contact && { contact: ILike(`%${contact}%`) }),
                 ...(website_name && { website_name: ILike(`%${website_name}%`) }),
                 ...(rate && { rate }),
+                ...(source && source.length > 0 && { source: In(source) }),
+                ...(email && { email }),
             },
             skip: (page - 1) * limit,
+            relations: ["contactUpdates"],
             take: limit,
             order: { name: "DESC" },
         });
@@ -126,15 +139,22 @@ export class ContactService {
             .getRawMany();
 
         const listingDetails = await this.listingDetailRepo.find();
+        const listingSchedules = await this.listingScheduleRepo.find();
 
         const transformedData = data.map(d => {
             return {
                 ...d,
                 listingDetail: listingDetails.find(ld => ld.listingId == Number(d.listingId)) || null,
+                listingSchedule: listingSchedules.filter(ls => ls.listingId == Number(d.listingId)) || null,
                 listingName: listings.find((listing) => listing.id == Number(d.listingId))?.internalListingName,
                 createdBy: userMap.get(d.createdBy) || d.createdBy,
                 updatedBy: userMap.get(d.updatedBy) || d.updatedBy,
                 propertyType: listingTags.find((tag) => tag.listingInfoId == d.listingId)?.name || "N/A",
+                contactUpdates: d.contactUpdates.map(update => ({
+                    ...update,
+                    createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy
+                })),
             };
         })
 
@@ -144,5 +164,93 @@ export class ContactService {
         };
     }
 
+    async createContactRole(body: Partial<ContactRole>, userId: string) {
+        const contactRole = this.contactRoleRepo.create({
+            ...body,
+            createdBy: userId,
+        });
+        return await this.contactRoleRepo.save(contactRole);
+    }
+
+    async updateContactRole(body: Partial<ContactRole>, userId: string) {
+        const existingRole = await this.contactRoleRepo.findOneBy({ id: body.id });
+        if (!existingRole) {
+            throw CustomErrorHandler.notFound(`Contact Role with ID ${body.id} not found.`);
+        }
+
+        const updatedRole = this.contactRoleRepo.merge(existingRole, {
+            ...body,
+            updatedBy: userId,
+        });
+
+        return await this.contactRoleRepo.save(updatedRole);
+    }
+
+    async deleteContactRole(id: number, userId: string) {
+        const contactRole = await this.contactRoleRepo.findOneBy({ id });
+        if (!contactRole) {
+            throw CustomErrorHandler.notFound(`Contact Role with ID ${id} not found.`);
+        }
+
+        contactRole.deletedBy = userId;
+        await this.contactRoleRepo.save(contactRole);
+        return await this.contactRoleRepo.softRemove(contactRole);
+    }
+
+    async getContactRoles() {
+        const contactRoles = await this.contactRoleRepo.find();
+        return contactRoles;
+    }
+
+
+    async createContactUpdates(body: any, userId: string) {
+        const { contactId, updates } = body;
+
+        const contact = await this.contactRepo.findOne({ where: { id: contactId } });
+        if (!contact) {
+            throw CustomErrorHandler.notFound(`Contact with ID ${contactId} not found`);
+        }
+
+        const newUpdate = this.contactUpdatesRepo.create({
+            contact: contact,
+            updates: updates,
+            createdBy: userId,
+        });
+
+        const result = await this.contactUpdatesRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        return result;
+    }
+
+    async updateContactUpdates(body: any, userId: string) {
+        const { id, updates } = body;
+
+        const existingContactUpdate = await this.contactUpdatesRepo.findOne({ where: { id } });
+        if (!existingContactUpdate) {
+            throw CustomErrorHandler.notFound(`Contact update with ID ${id} not found`);
+        }
+        existingContactUpdate.updates = updates;
+        existingContactUpdate.updatedBy = userId;
+
+        const result = await this.contactUpdatesRepo.save(existingContactUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        result.createdBy = userMap.get(result.createdBy) || result.createdBy;
+        return result;
+    }
+
+    async deleteContactUpdates(id: number, userId: string) {
+        const existingContactUpdate = await this.contactUpdatesRepo.findOne({ where: { id } });
+        if (!existingContactUpdate) {
+            throw CustomErrorHandler.notFound(`Contact update with ID ${id} not found`);
+        }
+
+        existingContactUpdate.deletedBy = userId;
+        existingContactUpdate.deletedAt = new Date();
+
+        return await this.contactUpdatesRepo.save(existingContactUpdate);
+    }
 
 }

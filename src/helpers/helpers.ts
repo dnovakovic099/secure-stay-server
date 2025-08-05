@@ -209,6 +209,37 @@ export const clientTicketStatusEmoji = (status: string) => {
     return emoji;
 };
 
+export const claimStatusEmoji = (status: string) => {
+    let emoji = "";
+    switch (status) {
+        case "Not Submitted": {
+            emoji = "⚪️"; // white circle for not started
+            break;
+        }
+        case "In Progress": {
+            emoji = "🟡"; // yellow circle for in progress
+            break;
+        }
+        case "Submitted": {
+            emoji = "🔵"; // blue circle for submitted
+            break;
+        }
+        case "Resolved": {
+            emoji = "🟢"; // green circle for resolved
+            break;
+        }
+        case "Denied": {
+            emoji = "🔴"; // red circle for denied
+            break;
+        }
+        default: {
+            emoji = "❔"; // question mark for unknown status
+        }
+    }
+    return emoji;
+};
+
+
 const slackUsers = {
     // PRASANNA_KUMAR_BANIYA: "U07K1N81HMW",
     // PRABIN_KUMAR_BANIYA: "U07JFDC86H2",
@@ -226,7 +257,10 @@ const slackUsers = {
     ALDRIN: "U0974TJ85Q9",
     RAIN: "U096SNZR9CL",
     CHRIS: "U0948PQC9UZ",
-    JULIUS: "U08QJBLNG6A"
+    JULIUS: "U08QJBLNG6A",
+    IAN: "U0962L2EG4S",
+    CARYL: "U0977E4NNLX",
+    YSA: "U097P8RNXS6",
 };
 
 let selectedSlackUsers = [];
@@ -266,12 +300,26 @@ export const clientTicketMentions = (category: string) => {
             mentions = selectedSlackUsers;
             break;
         }
+        case "Onboarding": {
+            mentions = [slackUsers.IAN, slackUsers.JULIUS, slackUsers.ALDRIN, slackUsers.JAZZ, slackUsers.JOREL, slackUsers.JUSTINE, slackUsers.CARYL, slackUsers.YSA];
+            break;
+        }
         default: {
             mentions = [];
         }
     }
     return mentions;
 }
+
+export const getStarRating = (ratingOutOf10: number): string => {
+    const ratingOutOf5 = Math.round((ratingOutOf10 / 2) * 2) / 2; // Round to 0.5
+    const fullStars = Math.floor(ratingOutOf5);
+    const halfStar = ratingOutOf5 % 1 !== 0;
+    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
+
+    return '⭐'.repeat(fullStars) + (halfStar ? '🌟' : '') + '☆'.repeat(emptyStars);
+};
+
 
 // | Status | Emoji |
 // | ----------- | ----- |
