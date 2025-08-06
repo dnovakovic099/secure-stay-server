@@ -4,7 +4,7 @@ import { Listing } from "../entity/Listing";
 import logger from "../utils/logger.utils";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { Between, ILike, In, Like } from "typeorm";
+import { Between, In } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
@@ -13,7 +13,6 @@ import { ReservationService } from "./ReservationService";
 import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
 import { IssueUpdates } from "../entity/IsssueUpdates";
-import { ListingService } from "./ListingService";
 
 interface ActionItemFilter {
     category?: string;
@@ -72,7 +71,7 @@ export class ActionItemsService {
         return await this.actionItemsRepo.save(actionItem);
     }
 
-    async getActionItems(filter: any, userId: string) {
+    async getActionItems(filter: any) {
         const {
             category,
             page = 1,
@@ -84,22 +83,12 @@ export class ActionItemsService {
             toDate,
             ids,
             reservationId,
-            propertyType,
-            keyword
         } = filter;
-
-        let listingIds = [];
-        if (propertyType && propertyType.length > 0) {
-            const listingService = new ListingService();
-            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
-        } else {
-            listingIds = listingId;
-        }
 
         const whereConditions = {
             ...(ids?.length > 0 && { id: In(ids) }),
             ...(category && { category: In(category) }),
-            ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
+            ...(listingId?.length > 0 && { listingId: In(listingId) }),
             ...(reservationId?.length > 0 && { reservationId: In(reservationId) }),
             ...(guestName && { guestName }),
             ...(status && { status: In(status) }),
@@ -111,19 +100,12 @@ export class ActionItemsService {
             }),
         };
 
-        const where = keyword
-        ? [
-            { ...whereConditions, item: ILike(`%${keyword}%`) },
-            { ...whereConditions, guestName: ILike(`%${keyword}%`) },
-        ]
-        : whereConditions;
-
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
 
         const [actionItems, total] = await this.actionItemsRepo.findAndCount({
-            where,
+            where: whereConditions,
             skip: (page - 1) * limit,
             relations: ["actionItemsUpdates"],
             take: limit,

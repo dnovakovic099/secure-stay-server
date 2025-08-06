@@ -56,7 +56,6 @@ export const getActionItemsValidation = (request: Request, response: Response, n
         }).optional(),
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
         propertyType: Joi.array().items(Joi.number()).min(1).optional(),
-        keyword: Joi.string().optional(),
     }).custom((value, helpers) => {
         if (value.fromDate && !value.toDate) {
             return helpers.error('any.required', { message: 'toDate is required when fromDate is provided' });

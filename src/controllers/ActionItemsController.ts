@@ -19,11 +19,9 @@ export class ActionItemsController {
                 status: request.query.status || undefined,
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
-                ids: request.query.ids || undefined,
-                propertyType: request.query.propertyType || undefined,
-                keyword: request.query.keyword || undefined,
+                ids: request.query.ids || undefined
             };
-            const actionItems = await actionItemsService.getActionItems(filter, request.user?.id);
+            const actionItems = await actionItemsService.getActionItems(filter);
             return response.status(200).json(actionItems);
         } catch (error) {
             next(error);
