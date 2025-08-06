@@ -54,7 +54,7 @@ export const getActionItemsValidation = (request: Request, response: Response, n
         toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        ids: Joi.array().items(Joi.number().required()).min(1).optional(),
+        ids: Joi.array().items(Joi.number().required()).min(1).optional()
     }).custom((value, helpers) => {
         if (value.fromDate && !value.toDate) {
             return helpers.error('any.required', { message: 'toDate is required when fromDate is provided' });
