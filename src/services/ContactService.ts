@@ -124,6 +124,9 @@ export class ContactService {
             ? [
                 { ...baseWhere, name: ILike(`%${keyword}%`) },
                 { ...baseWhere, contact: ILike(`%${keyword}%`) },
+                { ...baseWhere, email: ILike(`%${keyword}%`) },
+                { ...baseWhere, website_name: ILike(`%${keyword}%`) },
+                { ...baseWhere, notes: ILike(`%${keyword}%`) }
             ]
             : baseWhere;
 
