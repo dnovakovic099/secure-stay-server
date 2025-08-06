@@ -550,7 +550,7 @@ export class ReservationInfoService {
     if(payment){
       qb.andWhere("reservation.paymentStatus IN (:...payment)", { payment });
     }
-    console.log("keyword", keyword);
+
     if(keyword){
       qb.andWhere("reservation.guestName LIKE :keyword", { keyword: `%${keyword}%` });
     }

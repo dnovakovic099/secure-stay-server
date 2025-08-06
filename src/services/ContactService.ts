@@ -27,6 +27,7 @@ interface FilterQuery {
     propertyType?: number[];
     source?: string[];
     email?: string;
+    keyword?: string;
 }
 
 export class ContactService {
@@ -90,7 +91,8 @@ export class ContactService {
             isAutoPay,
             propertyType,
             source,
-            email
+            email,
+            keyword
         } = query;
 
         let listingIds = [];
@@ -103,20 +105,31 @@ export class ContactService {
             listingIds = listingId;
         }
 
+        const baseWhere: any = {
+            ...(status && status.length > 0 && { status: In(status) }),
+            ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
+            ...(role && role.length > 0 && { role: In(role) }),
+            ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
+            ...(isAutoPay !== undefined && { isAutoPay }),
+            ...(name && { name: ILike(`%${name}%`) }),
+            ...(contact && { contact: ILike(`%${contact}%`) }),
+            ...(website_name && { website_name: ILike(`%${website_name}%`) }),
+            ...(rate && { rate }),
+            ...(source && source.length > 0 && { source: In(source) }),
+            ...(email && { email }),
+        };
+
+        // Add keyword search for both name and contact (OR condition)
+        const where = keyword
+            ? [
+                { ...baseWhere, name: ILike(`%${keyword}%`) },
+                { ...baseWhere, contact: ILike(`%${keyword}%`) },
+            ]
+            : baseWhere;
+
+
         const [data, total] = await this.contactRepo.findAndCount({
-            where: {
-                ...(status && status.length > 0 && { status: In(status) }),
-                ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
-                ...(role && role.length > 0 && { role: In(role) }),
-                ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
-                ...(isAutoPay !== undefined && { isAutoPay }),
-                ...(name && { name: ILike(`%${name}%`) }),
-                ...(contact && { contact: ILike(`%${contact}%`) }),
-                ...(website_name && { website_name: ILike(`%${website_name}%`) }),
-                ...(rate && { rate }),
-                ...(source && source.length > 0 && { source: In(source) }),
-                ...(email && { email }),
-            },
+            where,
             skip: (page - 1) * limit,
             relations: ["contactUpdates"],
             take: limit,
