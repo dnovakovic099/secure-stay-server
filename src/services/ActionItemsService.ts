@@ -82,7 +82,7 @@ export class ActionItemsService {
             fromDate,
             toDate,
             ids,
-            reservationId,
+            reservationId
         } = filter;
 
         const whereConditions = {
