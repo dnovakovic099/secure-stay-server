@@ -15,6 +15,8 @@ export class UpsellOrderController {
             const status = request.query.status as string || ''; 
             const listingId = request.query.listingId as string || '';
             const frontendDateType = request.query.dateType as string || 'purchase';
+            const keyword = request.query.keyword as string || '';
+            const propertyType = request.query.propertyType as string || '';
 
             const dateTypeMapping: { [key: string]: string } = {
                 'purchase': 'order_date',
@@ -24,7 +26,7 @@ export class UpsellOrderController {
 
             const dateType = dateTypeMapping[frontendDateType] || 'order_date';
 
-            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId, dateType);
+            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId, dateType, keyword, propertyType);
             
             return response.send({
                 status: true,

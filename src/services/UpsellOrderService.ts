@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, In, Not } from "typeorm";
+import { Between, ILike, In, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
@@ -18,7 +18,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date') {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date', keyword: string = '', propertyType: string = '') {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
@@ -48,6 +48,21 @@ export class UpsellOrderService {
         if (listing_id && Array.isArray(listing_id)) {
             queryOptions.where.listing_id = In(listing_id);
         }
+
+        if (propertyType && Array.isArray(propertyType)) {
+            const listingService = new ListingService();
+            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            queryOptions.where.listing_id = In(listingIds);
+        }
+
+        const where = keyword
+        ? [
+            { ...queryOptions.where, client_name: ILike(`%${keyword}%`) },
+            { ...queryOptions.where, type: ILike(`%${keyword}%`) },
+        ]
+        : queryOptions.where;
+
+        queryOptions.where = where;
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
 
