@@ -1,4 +1,4 @@
-import { Between, In, Raw } from "typeorm";
+import { Between, ILike, In, Raw } from "typeorm";
 import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
@@ -23,6 +23,8 @@ interface ClientTicketFilter {
     page: number;
     limit: number;
     ids?: number[];
+    propertyType?: number[];
+    keyword?: string;
 }
 
 
@@ -97,21 +99,31 @@ export class ClientTicketService {
         return clientTicket;
     }
 
-    public async getClientTicket(body: ClientTicketFilter) {
-        const { status, listingId, category, fromDate, toDate, page, limit, ids } = body;
+    public async getClientTicket(body: ClientTicketFilter, userId: string) {
+        const { status, listingId, category, fromDate, toDate, page, limit, ids, propertyType, keyword } = body;
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        let listingIds = [];
+        const listingService = new ListingService();
+        
+        if (propertyType && propertyType.length > 0) {
+            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
+        } else {
+            listingIds = listingId;
+        }
 
         const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
             where: {
                 ...(ids?.length > 0 && { id: In(ids) }),
                 ...(status && status.length > 0 && { status: In(status) }),
-                ...(listingId && listingId.length > 0 && { listingId: In(listingId) }),
+                ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
                 ...(category && category.length > 0 && { 
                     category: Raw(alias => category.map(cat => `${alias} LIKE '%${cat}%'`).join(' OR '))
                 }),
                 ...(fromDate && toDate && { createdAt: Between(new Date(fromDate), new Date(toDate)) }),
+                ...(keyword && { description: ILike(`%${keyword}%`) }),
             },
             relations: ["clientTicketUpdates"],
             skip: (page - 1) * limit,
@@ -121,7 +133,6 @@ export class ClientTicketService {
             }
         });
 
-        const listingService = new ListingService();
         const listings = await listingService.getListingsByTagIds([tagIds.PM]);
 
         const transformedTickets = clientTickets.map(ticket => {
