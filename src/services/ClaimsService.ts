@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Claim } from "../entity/Claim";
-import { Between, Not, LessThan, In, Equal } from "typeorm";
+import { Between, Not, LessThan, In, Equal, ILike } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedClaimEmail } from "./ClaimsEmailService";
 import { Listing } from "../entity/Listing";
@@ -9,6 +9,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { addDays, format } from "date-fns";
 import { buildClaimReminderMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { ListingService } from "./ListingService";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
@@ -43,7 +44,9 @@ export class ClaimsService {
         listingId: string = '',
         claimAmount?: string,
         guestName?: string,
-        claimIds?: string
+        claimIds?: string,
+        propertyType?: string,
+        keyword?: string
     ) {
         const queryOptions: any = {
             where: {
@@ -89,6 +92,23 @@ export class ClaimsService {
         if (guestName) {
             queryOptions.where.guest_name = guestName;
         }
+
+        if (propertyType && Array.isArray(propertyType)) {
+            const listingService = new ListingService();
+            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            queryOptions.where.listing_id = In(listingIds);
+        }
+
+        const where = keyword
+        ? [
+            { ...queryOptions.where, description: ILike(`%${keyword}%`) },
+            { ...queryOptions.where, guest_name: ILike(`%${keyword}%`) },
+            { ...queryOptions.where, airbnb_resolution: ILike(`%${keyword}%`) },
+            { ...queryOptions.where, claim_type: ILike(`%${keyword}%`) },
+        ]
+        : queryOptions.where;
+
+        queryOptions.where = where;
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     

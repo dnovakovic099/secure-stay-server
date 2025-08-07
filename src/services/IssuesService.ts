@@ -368,7 +368,7 @@ export class IssuesService {
         const {
             category, listingId, propertyType,
             fromDate, toDate, status, guestName,
-            page, limit, issueId, reservationId, keyword
+            page, limit, issueId, reservationId, keyword, channel
         } = body;
 
         let listingIds = [];
@@ -389,6 +389,7 @@ export class IssuesService {
                 ...(issueId && issueId.length > 0 && { id: In(issueId) }),
                 ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
                 ...(keyword && { issue_description: Like(`%${keyword}%`) }),
+                ...(channel && channel.length > 0 && { channel: In(channel) }),
             },
             relations: ["issueUpdates"],
             take: limit,
