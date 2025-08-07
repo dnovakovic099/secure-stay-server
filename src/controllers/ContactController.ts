@@ -53,7 +53,8 @@ export class ContactController {
                 isAutoPay: request.query.isAutoPay ? request.query.isAutoPay === 'true' : undefined,
                 propertyType: request.query.propertyType as any[],
                 email: request.query.email as string,
-                source: request.query.source as string[]
+                source: request.query.source as string[],
+                keyword: request.query.keyword as string,
             }, request.user.id);
             return response.status(200).json(contacts);
         } catch (error) {

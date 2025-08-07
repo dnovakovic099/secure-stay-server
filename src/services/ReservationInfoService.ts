@@ -16,7 +16,7 @@ import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
-import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange, getStartOfThreeMonthsAgo } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
 import { Issue } from "../entity/Issue";
 import { ActionItems } from "../entity/ActionItems";
@@ -55,7 +55,9 @@ export class ReservationInfoService {
     }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName });
+    const listing = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
+    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
@@ -82,9 +84,11 @@ export class ReservationInfoService {
     }
     
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
+    const listing = await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
 
     reservation.listingMapId = updateData.listingMapId;
-    reservation.listingName = updateData.listingName;
+    reservation.listingName = listingName;
     reservation.channelId = updateData.channelId;
     reservation.source = updateData.source;
     reservation.channelName = updateData.channelName;
@@ -165,6 +169,7 @@ export class ReservationInfoService {
         issues,
         channel,
         payment,
+        keyword,
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -180,7 +185,8 @@ export class ReservationInfoService {
           actionItems?: string[];
           issues?: string[],
           channel?: string[],
-          payment?: string[]
+          payment?: string[],
+          keyword?: string,
       };
 
       // Convert page/limit to numbers with defaults
@@ -199,14 +205,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment, keyword);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -230,12 +236,13 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -245,7 +252,7 @@ export class ReservationInfoService {
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -257,7 +264,7 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -324,8 +331,8 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined) {
-    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -411,10 +418,11 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
     // 1) Query for currently staying reservation's records
-    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -517,7 +525,8 @@ export class ReservationInfoService {
     listingMapId?: string[],
     guestName?: string,
     channel?: string[],
-    payment?: string[]
+    payment?: string[],
+    keyword?: string
   ) {
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
 
@@ -540,6 +549,10 @@ export class ReservationInfoService {
 
     if(payment){
       qb.andWhere("reservation.paymentStatus IN (:...payment)", { payment });
+    }
+
+    if(keyword){
+      qb.andWhere("reservation.guestName LIKE :keyword", { keyword: `%${keyword}%` });
     }
 
     return qb;
@@ -617,6 +630,37 @@ export class ReservationInfoService {
       success: true,
       message: `Reservations synced successfully. No. of reservation: ${reservations.length}`
     };
+  }
+
+  async syncCurrentlyStayingReservations() {
+    const currentDate = format(new Date(), "yyyy-MM-dd");
+    const currentUTCHour = format(new Date(), "HH");
+    logger.info(`[syncCurrentlyStayingReservations] Syncing currently staying reservations for date: ${currentDate} and current hour: ${currentUTCHour}`);
+
+    const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
+    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
+    qb.andWhere(" (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)", { today: currentDate });
+    const [result, total] = await qb.addOrderBy("arrivalDate", "DESC").getManyAndCount();
+
+    const reservationIds = result.map((reservation: ReservationInfoEntity) => reservation.id);
+    logger.info(`[syncCurrentlyStayingReservations] Currently staying reservations count: ${result.length}`);
+    if (result.length === 0) {
+      logger.info(`[syncCurrentlyStayingReservations] No currently staying reservations found.`);
+      return;
+    }
+
+    const date = getStartOfThreeMonthsAgo();
+    const reservations = await this.hostAwayClient.syncReservations(date);
+    logger.info(`[syncCurrentlyStayingReservations] Syncing reservations from HostAway...`);
+    for (const reservation of reservations) {
+      if (reservationIds.includes(reservation.id)) {
+        await this.saveReservationInfo(reservation);
+      }
+    }
+    logger.info(`[syncCurrentlyStayingReservations] Successfully synced currently staying reservations.`);
+    return;
   }
 
   async getReservationById(reservationId: number): Promise<ReservationInfoEntity> {
