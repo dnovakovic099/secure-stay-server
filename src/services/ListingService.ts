@@ -376,5 +376,60 @@ export class ListingService {
     }
   }
 
+
+  async getListingsByCity(city: string[], userId?: string) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName",
+        "listing.address"
+      ])
+      .where("listing.city IN (:...city)", { city });
+
+    if (userId) {
+      query.andWhere("listing.userId = :userId", { userId });
+    }
+
+    const listings = await query.getMany();
+    return listings;
+  }
+
+  async getListingsByState(state: string[], userId?: string) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName",
+        "listing.address"
+      ])
+      .where("listing.state IN (:...state)", { state });
+
+    if (userId) {
+      query.andWhere("listing.userId = :userId", { userId });
+    }
+
+    const listings = await query.getMany();
+    return listings;
+  }
+
+  public async getStates() {
+    const states = await this.listingRepository
+      .createQueryBuilder("listing_info")
+      .select("DISTINCT listing_info.state", "state")
+      .where("listing_info.state IS NOT NULL AND listing_info.state != ''")
+      .getRawMany();
+
+    return states;
+  }
+
+
+  public async getCities() {
+    const cities = await this.listingRepository
+      .createQueryBuilder("listing_info")
+      .select("DISTINCT listing_info.city", "city")
+      .where("listing_info.city IS NOT NULL AND listing_info.city != ''")
+      .getRawMany();
+
+    return cities;
+  }
+
+
 }
 
