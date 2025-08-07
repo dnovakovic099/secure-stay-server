@@ -99,6 +99,9 @@ export class Listing {
   @Column("int")
   checkOutTime: number;
 
+  @Column({ nullable: true })
+  timeZoneName: string;
+
   @Column()
   wifiUsername: string;
 

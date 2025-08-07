@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany } from 'typeorm';
+import { ActionItemsUpdates } from './ActionItemsUpdates';
 
 @Entity('action_items')
 export class ActionItems {
@@ -43,4 +44,7 @@ export class ActionItems {
 
     @Column({ nullable: true })
     deletedBy: string;
+
+    @OneToMany(() => ActionItemsUpdates, actionItems => actionItems.actionItems)
+    actionItemsUpdates: ActionItemsUpdates[];
 }

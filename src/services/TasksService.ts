@@ -1,11 +1,12 @@
 import { appDatabase } from "../utils/database.util";
 import { Task } from "../entity/Task";
-import { Between, In} from "typeorm";
+import { Between, In, ILike} from "typeorm";
 import { Listing } from "../entity/Listing";
 import { AssigneeEntity } from "../entity/AssigneeInfo";
 import { UsersEntity } from "../entity/Users";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { format } from "date-fns";
+import { ListingService } from "./ListingService";
 
 export class TasksService {
     private taskRepo = appDatabase.getRepository(Task);
@@ -31,6 +32,8 @@ export class TasksService {
         toDate: string = '', 
         status: any, 
         listingId: any,
+        propertyType: any,
+        keyword: any
     ) {
         const queryOptions: any = {
             where: {},
@@ -66,6 +69,20 @@ export class TasksService {
         if (listingId && Array.isArray(listingId)) {
             queryOptions.where.listing_id = In(listingId);
         }
+
+        if (propertyType && Array.isArray(propertyType)) {
+            const listingService = new ListingService();
+            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            queryOptions.where.listing_id = In(listingIds);
+        }
+
+        const where = keyword
+        ? [
+            { ...queryOptions.where, task: ILike(`%${keyword}%`) },
+        ]
+        : queryOptions.where;
+
+        queryOptions.where = where;
 
         const [tasks, total] = await this.taskRepo.findAndCount(queryOptions);
 

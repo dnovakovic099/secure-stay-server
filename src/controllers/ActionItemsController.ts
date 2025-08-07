@@ -18,7 +18,8 @@ export class ActionItemsController {
                 guestName: request.query.guestName || undefined,
                 status: request.query.status || undefined,
                 fromDate: request.query.fromDate || undefined,
-                toDate: request.query.toDate || undefined
+                toDate: request.query.toDate || undefined,
+                ids: request.query.ids || undefined
             };
             const actionItems = await actionItemsService.getActionItems(filter);
             return response.status(200).json(actionItems);
@@ -71,6 +72,65 @@ export class ActionItemsController {
             await actionItemsService.deleteActionItem(Number(id), userId);
 
             return response.status(200).json({ message: "Action item deleted successfully" });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async createActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            const updates = await actionItemsService.createActionItemsUpdates(body, userId);
+
+            return response.status(201).json(updates);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            const updatedUpdates = await actionItemsService.updateActionItemsUpdates(body, userId);
+
+            return response.status(200).json(updatedUpdates);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteActionItemsUpdates(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { id } = request.params;
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            await actionItemsService.deleteActionItemsUpdates(Number(id), userId);
+
+            return response.status(200).json({ message: "Action item updates deleted successfully" });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async migrateActionItemsToIssues(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user?.id;
+
+            const actionItemsService = new ActionItemsService();
+            const migratedIssue = await actionItemsService.migrateActionItemsToIssues(request.body, userId);
+
+            if (!migratedIssue) {
+                return response.status(404).json({ message: "Migration Failed" });
+            }
+
+            return response.status(200).json(migratedIssue);
         } catch (error) {
             next(error);
         }

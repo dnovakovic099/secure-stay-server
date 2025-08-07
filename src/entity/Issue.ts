@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany } from "typeorm";
+import { IssueUpdates } from "./IsssueUpdates";
 
 @Entity('issues')
 export class Issue {
@@ -114,12 +115,27 @@ export class Issue {
     @UpdateDateColumn()
     updated_at: Date;
 
+    @DeleteDateColumn()
+    deleted_at: Date;
+
     @Column({ nullable: true })
     created_by: string;
 
     @Column({ nullable: true })
     updated_by: string;
 
+    @Column({ nullable: true })
+    deleted_by: string;
+
     @Column({ type: 'text', nullable: true })
     fileNames: string;
+
+    @Column({ nullable: true })
+    category: string;
+
+    @OneToMany(() => IssueUpdates, issue => issue.issue)
+    issueUpdates: IssueUpdates[];
+
+    @Column({ type: "text", nullable: true })
+    resolution: string;
 }

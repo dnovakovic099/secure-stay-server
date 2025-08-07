@@ -17,4 +17,6 @@ router.put('/updatereservationstatusforstatement', verifySession, reservationInf
 
 router.get('/:reservationId', verifySession, reservationInfoController.getReservation);
 
+router.post('/sync', verifySession, reservationInfoController.syncReservationById);
+
 export default router;

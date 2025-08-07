@@ -4,6 +4,9 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant";
+import { setSelectedSlackUsers } from "../helpers/helpers";
 
 interface LatestUpdates {
     id?: number;
@@ -19,6 +22,7 @@ interface ClientTicketFilter {
     toDate?: string;
     page: number;
     limit: number;
+    ids?: number[];
 }
 
 
@@ -61,11 +65,17 @@ export class ClientTicketService {
             createdBy: userId
         });
 
-        return await this.clientTicketUpdateRepo.save(newUpdate);
+        await this.clientTicketUpdateRepo.save(newUpdate);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        newUpdate.createdBy = userMap.get(newUpdate.createdBy) || newUpdate.createdBy;
+        newUpdate.updatedBy = userMap.get(newUpdate.updatedBy) || newUpdate.updatedBy;
+        return newUpdate;
     }
 
     public async saveClientTicketWithUpdates(body: any, userId: string) {
-        const { latestUpdates } = body;
+        const { latestUpdates, mentions } = body;
         const ticketData: Partial<ClientTicket> = {
             status: body.status,
             listingId: body.listingId,
@@ -73,19 +83,29 @@ export class ClientTicketService {
             description: body.description,
             resolution: body.resolution,
         };
+        if (body.category.includes("Other") && mentions && mentions.length > 0) {
+            setSelectedSlackUsers(mentions);
+        }
         const clientTicket = await this.createClientTicket(ticketData, userId);
         latestUpdates && await this.createClientTicketUpdates(clientTicket, latestUpdates, userId);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
     }
 
     public async getClientTicket(body: ClientTicketFilter) {
-        const { status, listingId, category, fromDate, toDate, page, limit } = body;
+        const { status, listingId, category, fromDate, toDate, page, limit, ids } = body;
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
         const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
             where: {
+                ...(ids?.length > 0 && { id: In(ids) }),
                 ...(status && status.length > 0 && { status: In(status) }),
                 ...(listingId && listingId.length > 0 && { listingId: In(listingId) }),
                 ...(category && category.length > 0 && { 
@@ -96,16 +116,24 @@ export class ClientTicketService {
             relations: ["clientTicketUpdates"],
             skip: (page - 1) * limit,
             take: limit,
+            order: {
+                id: "DESC"
+            }
         });
+
+        const listingService = new ListingService();
+        const listings = await listingService.getListingsByTagIds([tagIds.PM]);
 
         const transformedTickets = clientTickets.map(ticket => {
             return {
                 ...ticket,
+                listingName: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName,
                 createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
                 updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
                 clientTicketUpdates: ticket.clientTicketUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
+                    updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
             };
         });
@@ -129,15 +157,15 @@ export class ClientTicketService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
-        return {
-            ...clientTicket,
-            createdBy: userMap.get(clientTicket.createdBy) || clientTicket.createdBy,
-            updatedBy: userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy,
-            clientTicketUpdates: clientTicket.clientTicketUpdates.map(update => ({
-                ...update,
-                createdBy: userMap.get(update.createdBy) || update.createdBy,
-            })),
-        };
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
+        clientTicket.clientTicketUpdates= clientTicket.clientTicketUpdates.map(update => ({
+            ...update,
+            createdBy: userMap.get(update.createdBy) || update.createdBy,
+            updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+        }))
+
+        return clientTicket;
     }
 
     public async updateClientTicketUpdates(
@@ -229,6 +257,12 @@ export class ClientTicketService {
         }
 
         await this.clientTicketRepo.save(clientTicket);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+        clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
         return clientTicket;
     }
 
@@ -243,7 +277,15 @@ export class ClientTicketService {
         ticketUpdates.updates = updates;
         ticketUpdates.updatedBy = userId;
 
-        return await this.clientTicketUpdateRepo.save(ticketUpdates);
+        await this.clientTicketUpdateRepo.save(ticketUpdates);
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+
+        ticketUpdates.createdBy = userMap.get(ticketUpdates.createdBy) || ticketUpdates.createdBy;
+        ticketUpdates.updatedBy = userMap.get(ticketUpdates.updatedBy) || ticketUpdates.updatedBy;
+
+        return ticketUpdates;
     }
 
     public async deleteClientTicketUpdate(id: number, userId: string) {

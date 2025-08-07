@@ -1,11 +1,11 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, In, Not } from "typeorm";
+import { Between, ILike, In, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
-import { tagIds } from "../constant";
+import { categoryIds, tagIds } from "../constant";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -18,7 +18,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date') {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date', keyword: string = '', propertyType: string = '') {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
@@ -48,6 +48,21 @@ export class UpsellOrderService {
         if (listing_id && Array.isArray(listing_id)) {
             queryOptions.where.listing_id = In(listing_id);
         }
+
+        if (propertyType && Array.isArray(propertyType)) {
+            const listingService = new ListingService();
+            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            queryOptions.where.listing_id = In(listingIds);
+        }
+
+        const where = keyword
+        ? [
+            { ...queryOptions.where, client_name: ILike(`%${keyword}%`) },
+            { ...queryOptions.where, type: ILike(`%${keyword}%`) },
+        ]
+        : queryOptions.where;
+
+        queryOptions.where = where;
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
 
@@ -127,7 +142,7 @@ export class UpsellOrderService {
     }
 
     private async prepareExtrasObject(upsell: UpsellOrder) {
-        const categories = JSON.stringify([19780]);
+        const categories = JSON.stringify([categoryIds.Upsell]);
 
         const listingService = new ListingService();
         const pmListings = await listingService.getListingsByTagIds([tagIds.PM]);
@@ -136,7 +151,7 @@ export class UpsellOrderService {
         let netAmount = 0;
         if (isPmListing) {
             const processingFee = upsell.cost * 0.03;
-            netAmount = Math.round(upsell.cost - processingFee);
+            netAmount = Math.ceil(upsell.cost - processingFee);
             const listingPmFee = await listingService.getListingPmFee();
             let pmFeePercent = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0.1; // default to 10% if not found
             const pmFee = netAmount * pmFeePercent;
@@ -158,12 +173,15 @@ export class UpsellOrderService {
     public async processCheckoutDateUpsells(date: string) {
         const upsells = await this.getUpsellsByCheckoutDate(date);
         if (upsells.length === 0) {
-            logger.info(`No upsells found for checkout date: ${date}`);
+            logger.info(`[processCheckoutDateUpsells]No upsells found for checkout date: ${date}`);
             return [];
         }
+        logger.info(`[processCheckoutDateUpsells]Processing ${upsells.length} upsells for checkout date: ${date}`);
 
         for (const upsell of upsells) {
+            logger.info(`[processCheckoutDateUpsells]Processing upsell ID: ${upsell.id}, Type: ${upsell.type}, Listing ID: ${upsell.listing_id}`);
             if (upsell.ha_id) {
+                logger.info(`[processCheckoutDateUpsells]Upsell ID ${upsell.id} already has a HostAway ID: ${upsell.ha_id}. Skipping.`);
                 continue;
             }
             try {
@@ -177,8 +195,9 @@ export class UpsellOrderService {
                     const expenseId = hostawayExpense.id;
                     upsell.ha_id = expenseId;
                     await this.upsellOrderRepo.save(upsell);
+                    logger.info(`[processCheckoutDateUpsells]Created expense in HostAway with ID: ${expenseId} for upsell ID: ${upsell.id}`);
                 } else {
-                    throw new Error("Failed to create expense in HostAway");
+                    logger.error(`[processCheckoutDateUpsells]Failed to create expense in HostAway for upsell ID: ${upsell.id}`);
                 }
 
             } catch (error) {

@@ -10,6 +10,12 @@ import { IssuesService } from "../services/IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
+import { appDatabase } from "../utils/database.util";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { buildActionItemsSlackMessage, buildActionItemStatusUpdateMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import updateSlackMessage from "../utils/updateSlackMsg";
 
 export class UnifiedWebhookController {
 
@@ -51,21 +57,27 @@ export class UnifiedWebhookController {
 
     async handleSlackInteractivity(request: Request, response: Response, next: NextFunction) {
         try {
-            const payload = JSON.parse(request.body.payload);
+            const payload = request.body.payload && JSON.parse(request.body.payload);
             const action = payload.actions[0];
-            const user = payload.user.username;
-            const actionData = JSON.parse(action.value);
+            const user = payload?.user.username;
+            const actionData = action.value && JSON.parse(action.value);
             const responseUrl = payload.response_url;
             let messageText = "";
-            console.log(JSON.stringify(payload));
+            logger.info(JSON.stringify(payload));
 
             switch (action.action_id) {
                 case slackInteractivityEventNames.APPROVE_REFUND_REQUEST: {
                     messageText = `Your request to approve refund request is being processed. You will receive a confirmation message shortly.`;
+                    await this.sendResponseInSlack(responseUrl, messageText);
                     break;
                 }
                 case slackInteractivityEventNames.DENY_REFUND_REQUEST: {
                     messageText = `Your request to deny refund request is being processed. You will receive a confirmation message shortly.`;
+                    await this.sendResponseInSlack(responseUrl, messageText);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS: {
+                    logger.info(`Action Item status update request`);
                     break;
                 }
                 default: {
@@ -74,7 +86,7 @@ export class UnifiedWebhookController {
                 }
             }
 
-            await this.sendResponseInSlack(responseUrl, messageText);
+
             response.send(); 
 
             switch (action.action_id) {
@@ -118,6 +130,17 @@ export class UnifiedWebhookController {
                         await this.sendResponseInSlack(responseUrl, messageText);
                     }
                     
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS}`: {
+                    try {
+                        //update the status of the action item
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const actionItemsService = new ActionItemsService();
+                         await actionItemsService.updateActionItemStatus(Number(requestObj.id), requestObj.status, user);
+                    } catch (error) {
+                        logger.error(`Error updating action item status: ${error}`);
+                    }
                     break;
                 }
                 default: {

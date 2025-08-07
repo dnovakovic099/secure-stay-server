@@ -40,7 +40,9 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
             .default('N/A'),
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
-        payment_information: Joi.string().allow(null, '')
+        payment_information: Joi.string().allow(null, ''),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null, ""),
+        resolution: Joi.string().optional().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -87,12 +89,84 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        deletedFiles: Joi.string().allow(null, '')
+        deletedFiles: Joi.string().allow(null, ''),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,""),
+        resolution: Joi.string().optional().allow(null),
     });
 
     const { error } = schema.validate(request.body);
     if (error) {
         next(error);
+    }
+    next();
+};
+
+
+export const validateIssueMigrationToActionItem = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
+        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};
+
+export const validateCreateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        issueId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
+export const validateGetIssues = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        category: Joi.array().items(Joi.string()).min(1).optional(),
+        listingId: Joi.array().items(Joi.number()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).optional(),
+        toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+        }).optional(),
+        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Overdue", "Completed", "Need Help")).min(1).optional(),
+        guestName: Joi.string().optional(),
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        issueId: Joi.array().items(Joi.number()).min(1).optional(),
+        reservationId: Joi.array().items(Joi.number()).min(1).optional(),
+        keyword: Joi.string().optional(),
+        channel: Joi.array().items(Joi.string()).min(1).optional(),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
     }
     next();
 };
