@@ -55,13 +55,15 @@ export class RefundRequestController {
     async getRefundRequestList(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const refundRequestService = new RefundRequestService();
-            const { page, limit, status, reservationId, listingId } = request.query;
+            const { page, limit, status, reservationId, listingId, keyword, propertyType } = request.query;
             return response.send(await refundRequestService.getRefundRequestList({
                 page: Number(page) || 1,
                 limit: Number(limit) || 10,
                 status: status as string,
                 reservationId: reservationId as string,
-                listingId: listingId as string
+                listingId: listingId as string,
+                keyword: keyword as string,
+                propertyType: propertyType as string
             }));
         } catch (error) {
             return next(error);
