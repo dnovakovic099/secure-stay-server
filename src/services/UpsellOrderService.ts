@@ -158,12 +158,15 @@ export class UpsellOrderService {
     public async processCheckoutDateUpsells(date: string) {
         const upsells = await this.getUpsellsByCheckoutDate(date);
         if (upsells.length === 0) {
-            logger.info(`No upsells found for checkout date: ${date}`);
+            logger.info(`[processCheckoutDateUpsells]No upsells found for checkout date: ${date}`);
             return [];
         }
+        logger.info(`[processCheckoutDateUpsells]Processing ${upsells.length} upsells for checkout date: ${date}`);
 
         for (const upsell of upsells) {
+            logger.info(`[processCheckoutDateUpsells]Processing upsell ID: ${upsell.id}, Type: ${upsell.type}, Listing ID: ${upsell.listing_id}`);
             if (upsell.ha_id) {
+                logger.info(`[processCheckoutDateUpsells]Upsell ID ${upsell.id} already has a HostAway ID: ${upsell.ha_id}. Skipping.`);
                 continue;
             }
             try {
@@ -177,8 +180,9 @@ export class UpsellOrderService {
                     const expenseId = hostawayExpense.id;
                     upsell.ha_id = expenseId;
                     await this.upsellOrderRepo.save(upsell);
+                    logger.info(`[processCheckoutDateUpsells]Created expense in HostAway with ID: ${expenseId} for upsell ID: ${upsell.id}`);
                 } else {
-                    throw new Error("Failed to create expense in HostAway");
+                    logger.error(`[processCheckoutDateUpsells]Failed to create expense in HostAway for upsell ID: ${upsell.id}`);
                 }
 
             } catch (error) {

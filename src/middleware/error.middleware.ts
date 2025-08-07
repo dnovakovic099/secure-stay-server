@@ -13,9 +13,7 @@ export const errorHandler = (
   let statusCode = 500;
   let data: { message: string; originalMessage?: string } = {
     message: "Internal Server Error",
-    ...(process.env.NODE_ENV == "development" && {
-      originalMessage: err.message,
-    }),
+    originalMessage: err.message,
   };
 
   if (err.type === "entity.too.large" || err.status === 413) {
