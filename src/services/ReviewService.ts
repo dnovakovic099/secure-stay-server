@@ -1,4 +1,4 @@
-import { Between, In, IsNull, LessThan, LessThanOrEqual, Not } from "typeorm";
+import { Between, In, IsNull, ILike, LessThan, LessThanOrEqual, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -13,6 +13,7 @@ import axios from "axios";
 import { Claim } from "../entity/Claim";
 import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { ListingService } from "./ListingService";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -43,7 +44,9 @@ export class ReviewService {
         owner,
         claimResolutionStatus,
         status,
-        isClaimOnly
+        isClaimOnly,
+        keyword,
+        propertyType
     }) {
         try {
             let listingIds: number[] = [];
@@ -55,6 +58,11 @@ export class ReviewService {
                 listingIds = results.flat();
             }
 
+            if (propertyType && propertyType.length > 0) {
+                const listingService = new ListingService();
+                listingIds = listingIds.concat((await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id));
+            }
+            
             // Add listingId(s) if provided
             if (listingId && listingId.length > 0) {
                 const ids = Array.isArray(listingId) ? listingId : [listingId];
@@ -64,6 +72,7 @@ export class ReviewService {
             const condition: Record<string, any> = {
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
                 ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
+                ...(keyword && { publicReview: ILike(`%${keyword}%`) }),
             };
 
             if (fromDate !== undefined && toDate !== undefined) {
