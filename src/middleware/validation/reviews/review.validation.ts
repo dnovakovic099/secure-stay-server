@@ -19,6 +19,8 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
         status: Joi.string().required().valid("active", "hidden").allow(null, ""),
+        keyword: Joi.string().optional(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
