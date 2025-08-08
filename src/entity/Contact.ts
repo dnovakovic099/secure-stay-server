@@ -63,6 +63,15 @@ export class Contact {
     @Column({ default: false })
     isAutoPay: boolean;
 
+    @Column({ nullable: true })
+    costRating: number;
+
+    @Column({ nullable: true })
+    trustLevel: number;
+
+    @Column({ nullable: true })
+    speed: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

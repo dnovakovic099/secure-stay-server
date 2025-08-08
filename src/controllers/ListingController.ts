@@ -170,4 +170,24 @@ export class ListingController {
     }
   }
 
+  async getStates(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const states = await listingService.getStates();
+      return response.status(200).json(successDataFetch(states));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getCities(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const states = await listingService.getCities();
+      return response.status(200).json(successDataFetch(states));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

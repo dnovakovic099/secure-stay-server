@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { EntityManager, In } from "typeorm";
+import { EntityManager, ILike, In } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -14,6 +14,7 @@ import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { SlackMessageService } from "./SlackMessageService";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { ExpenseStatus } from "../entity/Expense";
+import { ListingService } from "./ListingService";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -233,9 +234,18 @@ export class RefundRequestService {
         return await this.refundRequestRepo.findOne({ where: { id } });
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; }) {
-        const { page, limit, status, reservationId, listingId } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, propertyType } = query;
         const offset = (page - 1) * limit;
+
+
+        let listingIds = [];
+        const listingService = new ListingService();
+        
+        if (propertyType && propertyType.length > 0) {
+            listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
+        }
+        
         const whereConditions: any = {};
 
         if (status && Array.isArray(status)) {
@@ -248,8 +258,19 @@ export class RefundRequestService {
             whereConditions.listingId = In(listingId);
         }
 
+        if (listingIds && listingIds.length > 0) {
+            whereConditions.listingId = In(listingIds);
+        }
+        
+        const where = keyword
+        ? [
+            { ...whereConditions, explaination: ILike(`%${keyword}%`) },
+            { ...whereConditions, guestName: ILike(`%${keyword}%`) },
+        ]
+        : whereConditions;
+
         const [data, total] = await this.refundRequestRepo.findAndCount({
-            where: whereConditions,
+            where,
             order: { createdAt: "DESC" },
             take: limit,
             skip: offset,
