@@ -18,6 +18,8 @@ export class ClaimsController {
             const claimAmount = request.query.claimAmount as string;
             const guestName = request.query.guestName as string;
             const claimIds = request.query.claimIds as string;
+            const propertyType = request.query.propertyType as string;
+            const keyword = request.query.keyword as string;
 
             const result = await claimsService.getClaims(
                 page, 
@@ -28,7 +30,9 @@ export class ClaimsController {
                 listingId,
                 claimAmount,
                 guestName,
-                claimIds
+                claimIds,
+                propertyType,
+                keyword
             );
             
             return response.send({

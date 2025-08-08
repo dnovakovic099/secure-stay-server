@@ -123,16 +123,31 @@ export class ListingService {
     images: any[],
     listingId: number
   ) {
-    const imageObjs = images.map((image) => ({
-      caption: image.caption,
-      vrboCaption: image.vrboCaption,
-      airbnbCaption: image.airbnbCaption,
-      url: image.url,
-      sortOrder: image.sortOrder,
-      listing: listingId,
-    }));
+    // const imageObjs = images.map((image) => ({
+    //   caption: image.caption,
+    //   vrboCaption: image.vrboCaption,
+    //   airbnbCaption: image.airbnbCaption,
+    //   url: image.url,
+    //   sortOrder: image.sortOrder,
+    //   listing: listingId,
+    // }));
 
-    await entityManager.save(ListingImage, imageObjs);
+    // await entityManager.save(ListingImage, imageObjs);
+
+    if (!images || images.length === 0) return;
+
+    const firstImage = images[0];
+
+    const imageObj = {
+      caption: firstImage.caption,
+      vrboCaption: firstImage.vrboCaption,
+      airbnbCaption: firstImage.airbnbCaption,
+      url: firstImage.url,
+      sortOrder: firstImage.sortOrder,
+      listing: listingId,
+    };
+
+    await entityManager.save(ListingImage, imageObj);
   }
 
   // Save listing tags
