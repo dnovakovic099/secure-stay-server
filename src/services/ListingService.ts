@@ -37,6 +37,7 @@ export class ListingService {
 
     if (!hostawayCredentials) {
       logger.info(`Hostaway credentials not found for userId: ${userId}`);
+      return;
     }
 
     const { clientId, clientSecret } = hostawayCredentials;
