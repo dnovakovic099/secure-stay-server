@@ -203,6 +203,8 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         email: Joi.string().email().optional().allow(null),
         source: Joi.array().items(Joi.string().valid("Owner", "Turno", "LL")).optional().allow(null),
         keyword: Joi.string().optional(),
+        state: Joi.array().items(Joi.string()).optional(),
+        city: Joi.array().items(Joi.string()).optional(),
     });
 
     const { error } = schema.validate(request.query);

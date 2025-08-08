@@ -28,6 +28,8 @@ interface FilterQuery {
     source?: string[];
     email?: string;
     keyword?: string;
+    state?: string[];
+    city?: string[];
 }
 
 export class ContactService {
@@ -92,7 +94,9 @@ export class ContactService {
             propertyType,
             source,
             email,
-            keyword
+            keyword,
+            state,
+            city
         } = query;
 
         let listingIds = [];
@@ -101,6 +105,10 @@ export class ContactService {
         
         if (propertyType && propertyType.length > 0) {
             listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
+        } else if (state && state.length > 0) {
+            listingIds = (await listingService.getListingsByState(state, userId)).map(l => l.id);
+        } else if (city && city.length > 0) {
+            listingIds = (await listingService.getListingsByCity(city, userId)).map(l => l.id);
         } else {
             listingIds = listingId;
         }

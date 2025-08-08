@@ -71,5 +71,16 @@ router.route('/getpmlistings')
   listingController.getPmListings
 )
 
+router.route('/states')
+  .get(
+    verifySession,
+    listingController.getStates
+  );
+
+router.route('/cities')
+  .get(
+    verifySession,
+    listingController.getCities
+  );
 
 export default router;
