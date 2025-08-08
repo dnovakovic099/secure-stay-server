@@ -36,7 +36,7 @@ export class ListingService {
     });
 
     if (!hostawayCredentials) {
-      throw CustomErrorHandler.notFound('Hostaway credentials not found');
+      logger.info(`Hostaway credentials not found for userId: ${userId}`);
     }
 
     const { clientId, clientSecret } = hostawayCredentials;
