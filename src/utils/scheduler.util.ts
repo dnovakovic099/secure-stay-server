@@ -77,7 +77,7 @@ export function scheduleGetReservation() {
   );
 
   schedule.scheduleJob(
-    { hour: 4, minute: 25, tz: "America/New_York" }, // Daily at 3 AM EST
+    { hour: 4, minute: 35, tz: "America/New_York" }, // Daily at 3 AM EST
     async () => {
       try {
         logger.info('Sync listings for all users ran...');
