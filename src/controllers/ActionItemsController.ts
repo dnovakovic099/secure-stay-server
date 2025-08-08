@@ -10,7 +10,7 @@ export class ActionItemsController {
         try {
             const actionItemsService = new ActionItemsService();
             const { category, page = 1, limit = 10 } = request.query;
-            const filter = {
+            const filter: any = {
                 category: category || undefined,
                 page: Number(page),
                 limit: Number(limit),
@@ -19,7 +19,9 @@ export class ActionItemsController {
                 status: request.query.status || undefined,
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
-                ids: request.query.ids || undefined
+                ids: request.query.ids || undefined,
+                propertyType: request.query.propertyType || undefined,
+                keyword: request.query.keyword || undefined,
             };
             const actionItems = await actionItemsService.getActionItems(filter);
             return response.status(200).json(actionItems);
