@@ -200,7 +200,7 @@ export class ListingService {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name","listing.internalListingName",
-        "listing.address"
+        "listing.address", "listing.state", "listing.city"
       ])
       .leftJoin("listing.listingTags", "listingTags")
       .where("listingTags.tagId IN (:...tagIds)", { tagIds });
@@ -381,7 +381,7 @@ export class ListingService {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName",
-        "listing.address"
+        "listing.address", "listing.state", "listing.city"
       ])
       .where("listing.city IN (:...city)", { city });
 
@@ -397,7 +397,7 @@ export class ListingService {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName",
-        "listing.address"
+        "listing.address", "listing.city", "listing.state"
       ])
       .where("listing.state IN (:...state)", { state });
 

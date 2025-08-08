@@ -103,19 +103,42 @@ export class ContactService {
         const listingService = new ListingService();
         const listings = await listingService.getListingNames(userId);
         
-        if (propertyType && propertyType.length > 0) {
-            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
-        } else if (state && state.length > 0) {
-            listingIds = (await listingService.getListingsByState(state, userId)).map(l => l.id);
-        } else if (city && city.length > 0) {
-            listingIds = (await listingService.getListingsByCity(city, userId)).map(l => l.id);
+        const hasPropertyType = propertyType && propertyType.length > 0;
+        const hasState = state && state.length > 0;
+        const hasCity = city && city.length > 0;
+
+        if (hasPropertyType) {
+            let listings = await listingService.getListingsByTagIds(propertyType, userId);
+
+            if (hasState) {
+                listings = listings.filter(l => l.state && state.includes(l.state));
+            }
+
+            if (hasCity) {
+                listings = listings.filter(l => l.city && city.includes(l.city));
+            }
+
+            listingIds = listings.map(l => l.id);
         } else {
-            listingIds = listingId;
+            let listings: any[] = [];
+
+            if (hasState) {
+                listings = await listingService.getListingsByState(state, userId);
+            } else if (hasCity) {
+                listings = await listingService.getListingsByCity(city, userId);
+            }
+
+            if (hasState && hasCity) {
+                listings = listings.filter(l => l.city && city.includes(l.city));
+            }
+
+            listingIds = listings.length > 0 ? listings.map(l => l.id) : listingId;
         }
+
 
         const baseWhere: any = {
             ...(status && status.length > 0 && { status: In(status) }),
-            ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
+            ...(listingIds && { listingId: In(listingIds) }),
             ...(role && role.length > 0 && { role: In(role) }),
             ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
             ...(isAutoPay !== undefined && { isAutoPay }),
