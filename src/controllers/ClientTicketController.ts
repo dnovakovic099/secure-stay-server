@@ -26,7 +26,7 @@ export class ClientTicketController {
         try {
             const filter = request.query as any; // Assuming filter is passed as query parameters
             const ticketService = new ClientTicketService();
-            const result = await ticketService.getClientTicket(filter);
+            const result = await ticketService.getClientTicket(filter, request.user?.id);
 
             return response.status(200).json(result);
         } catch (error) {
