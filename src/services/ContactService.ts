@@ -27,6 +27,9 @@ interface FilterQuery {
     propertyType?: number[];
     source?: string[];
     email?: string;
+    keyword?: string;
+    state?: string[];
+    city?: string[];
 }
 
 export class ContactService {
@@ -90,33 +93,77 @@ export class ContactService {
             isAutoPay,
             propertyType,
             source,
-            email
+            email,
+            keyword,
+            state,
+            city
         } = query;
 
         let listingIds = [];
         const listingService = new ListingService();
         const listings = await listingService.getListingNames(userId);
         
-        if (propertyType && propertyType.length > 0) {
-            listingIds = (await listingService.getListingsByTagIds(propertyType, userId)).map(l => l.id);
+        const hasPropertyType = propertyType && propertyType.length > 0;
+        const hasState = state && state.length > 0;
+        const hasCity = city && city.length > 0;
+
+        if (hasPropertyType) {
+            let listings = await listingService.getListingsByTagIds(propertyType, userId);
+
+            if (hasState) {
+                listings = listings.filter(l => l.state && state.includes(l.state));
+            }
+
+            if (hasCity) {
+                listings = listings.filter(l => l.city && city.includes(l.city));
+            }
+
+            listingIds = listings.map(l => l.id);
         } else {
-            listingIds = listingId;
+            let listings: any[] = [];
+
+            if (hasState) {
+                listings = await listingService.getListingsByState(state, userId);
+            } else if (hasCity) {
+                listings = await listingService.getListingsByCity(city, userId);
+            }
+
+            if (hasState && hasCity) {
+                listings = listings.filter(l => l.city && city.includes(l.city));
+            }
+
+            listingIds = listings.length > 0 ? listings.map(l => l.id) : listingId;
         }
 
+
+        const baseWhere: any = {
+            ...(status && status.length > 0 && { status: In(status) }),
+            ...(listingIds && { listingId: In(listingIds) }),
+            ...(role && role.length > 0 && { role: In(role) }),
+            ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
+            ...(isAutoPay !== undefined && { isAutoPay }),
+            ...(name && { name: ILike(`%${name}%`) }),
+            ...(contact && { contact: ILike(`%${contact}%`) }),
+            ...(website_name && { website_name: ILike(`%${website_name}%`) }),
+            ...(rate && { rate }),
+            ...(source && source.length > 0 && { source: In(source) }),
+            ...(email && { email }),
+        };
+
+        // Add keyword search for both name and contact (OR condition)
+        const where = keyword
+            ? [
+                { ...baseWhere, name: ILike(`%${keyword}%`) },
+                { ...baseWhere, contact: ILike(`%${keyword}%`) },
+                { ...baseWhere, email: ILike(`%${keyword}%`) },
+                { ...baseWhere, website_name: ILike(`%${keyword}%`) },
+                { ...baseWhere, notes: ILike(`%${keyword}%`) }
+            ]
+            : baseWhere;
+
+
         const [data, total] = await this.contactRepo.findAndCount({
-            where: {
-                ...(status && status.length > 0 && { status: In(status) }),
-                ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
-                ...(role && role.length > 0 && { role: In(role) }),
-                ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
-                ...(isAutoPay !== undefined && { isAutoPay }),
-                ...(name && { name: ILike(`%${name}%`) }),
-                ...(contact && { contact: ILike(`%${contact}%`) }),
-                ...(website_name && { website_name: ILike(`%${website_name}%`) }),
-                ...(rate && { rate }),
-                ...(source && source.length > 0 && { source: In(source) }),
-                ...(email && { email }),
-            },
+            where,
             skip: (page - 1) * limit,
             relations: ["contactUpdates"],
             take: limit,

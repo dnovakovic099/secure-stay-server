@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, In, IsNull, MoreThan, Not, Raw } from "typeorm";
+import { Between, ILike, In, IsNull, MoreThan, Not, Raw } from "typeorm";
 import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -127,7 +127,9 @@ export class ExpenseService {
             expenseState,
             dateType,
             paymentMethod,
-            tags
+            tags,
+            propertyType,
+            keyword
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -137,17 +139,36 @@ export class ExpenseService {
         //fetch all the listingIds assciated with the tags
         const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
 
+        let listingIds = [];
+        const listingService = new ListingService();
+        
+        if (propertyType && Array.isArray(propertyType)) {
+            listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
+        } else {
+            listingIds = Array.isArray(listingId) ? listingId.map(Number) : [];
+        }
+
         // Decide which listing IDs to use
         const effectiveListingIds =
             Array.isArray(listingId) && listingId.length > 0
                 ? listingId.map(Number)
                 : listingIdsFromTags;
+
         const [expenses, total] = await this.expenseRepo.findAndCount({
-            where: {
+            where: keyword
+            ? [
+                { contractorNumber: ILike(`%${keyword}%`) },
+                { contractorName: ILike(`%${keyword}%`) },
+                { paymentMethod: ILike(`%${keyword}%`) },
+                { concept: ILike(`%${keyword}%`) },
+            ]
+            : 
+            {
                 // userId,
                 ...(effectiveListingIds.length > 0 && {
                     listingMapId: In(effectiveListingIds),
                 }),
+                ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
                 [`${dateType}`]: Between(String(fromDate), String(toDate)),
                ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1}),
                 ...(Array.isArray(status) && status.length > 0 && {

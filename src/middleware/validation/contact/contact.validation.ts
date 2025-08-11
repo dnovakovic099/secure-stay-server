@@ -24,6 +24,9 @@ export const validateCreateContact = (request: Request, response: Response, next
         isAutoPay: Joi.boolean().required(),
         email: Joi.string().email().required().allow(null),
         source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
+        costRating: Joi.number().integer().min(1).max(5).required().allow(null),
+        trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
+        speed: Joi.number().integer().min(1).max(5).required().allow(null),
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -108,6 +111,9 @@ export const validateUpdateContact = (request: Request, response: Response, next
         isAutoPay: Joi.boolean().required(),
         email: Joi.string().email().required().allow(null),
         source: Joi.string().required().allow(null).valid("Owner", "Turno", "LL"),
+        costRating: Joi.number().integer().min(1).max(5).required().allow(null),
+        trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
+        speed: Joi.number().integer().min(1).max(5).required().allow(null),
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -196,6 +202,9 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         email: Joi.string().email().optional().allow(null),
         source: Joi.array().items(Joi.string().valid("Owner", "Turno", "LL")).optional().allow(null),
+        keyword: Joi.string().optional(),
+        state: Joi.array().items(Joi.string()).optional(),
+        city: Joi.array().items(Joi.string()).optional(),
     });
 
     const { error } = schema.validate(request.query);
