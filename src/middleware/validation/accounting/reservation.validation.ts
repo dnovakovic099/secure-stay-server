@@ -49,8 +49,8 @@ export const validateGetReservationList = (request: Request, response: Response,
 
 export const validateGetReservationReport = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        year: Joi.string().required(),
-        month: Joi.string().optional().allow(null)
+        year: Joi.number().required(),
+        month: Joi.number().optional().allow(null)
     });
 
     const { error } = schema.validate(request.body);
