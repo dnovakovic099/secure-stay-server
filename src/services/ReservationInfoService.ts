@@ -1188,8 +1188,6 @@ export class ReservationInfoService {
       .addSelect("SUM(gr.value)", "count") // value holds the count for each record
       .where("gr.reportType = :reportType", { reportType })
       .andWhere("gr.year = :year", { year })
-      .groupBy("gr.dimension2")
-      .orderBy("count", "DESC");
 
     // Only apply month filter if provided
     if (month) {
@@ -1197,7 +1195,15 @@ export class ReservationInfoService {
     }
 
     qb.groupBy("gr.dimension2")
-      .orderBy("count", "DESC");
+      .orderBy(`
+      CASE
+        WHEN gr.dimension2 = 'new' THEN 1
+        WHEN gr.dimension2 = 'modified' THEN 2
+        WHEN gr.dimension2 = 'ownerStay' THEN 3
+        ELSE 4
+      END
+    `)
+      .addOrderBy("gr.dimension2", "ASC"); // secondary order for the rest
 
     const data = await qb.getRawMany();
 
