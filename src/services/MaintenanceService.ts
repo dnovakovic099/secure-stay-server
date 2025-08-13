@@ -1,4 +1,4 @@
-import { Between, Equal, ILike, In, LessThan, MoreThan } from "typeorm";
+import { Between, Equal, ILike, In, IsNull, LessThan, MoreThan, Not } from "typeorm";
 import { ListingSchedule } from "../entity/ListingSchedule";
 import { Maintenance } from "../entity/Maintenance";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
@@ -109,16 +109,19 @@ export class MaintenanceService {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: Equal(today),
+                contactId: Not(IsNull())
             };
         } else if (type && type == "upcoming") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: MoreThan(today),
+                contactId: Not(IsNull())
             };
         } else if (type && type == "past") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: LessThan(today),
+                contactId: Not(IsNull())
             };
         }
 
