@@ -100,22 +100,22 @@ export class MaintenanceService {
 
         const today = format(new Date(), "yyyy-MM-dd");
 
-        if (type == "unassigned") {
+        if (type && type == "unassigned") {
             whereConditions = {
                 ...whereConditions,
                 contactId: null
             };
-        } else if (type == "today") {
+        } else if (type && type == "today") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: Equal(today),
             };
-        } else if (type == "upcoming") {
+        } else if (type && type == "upcoming") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: MoreThan(today),
             };
-        } else if (type == "past") {
+        } else if (type && type == "past") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: LessThan(today),
@@ -182,7 +182,7 @@ export class MaintenanceService {
         }
     }
 
-    async createMaintenanceLog(listingSchedule: ListingSchedule, nextSchedule: string, contactRoles: ContactRole[]) {
+    private async createMaintenanceLog(listingSchedule: ListingSchedule, nextSchedule: string, contactRoles: ContactRole[]) {
         const role = contactRoles.find(d => d.workCategory == listingSchedule.workCategory).role;
         const contacts = await this.contactRepo.find({
             where: {
@@ -215,7 +215,7 @@ export class MaintenanceService {
         await this.maintenanceRepo.save(maintenance);
     }
 
-    async getDateForNextMaintenance(listingSchedule: ListingSchedule) {
+    private async getDateForNextMaintenance(listingSchedule: ListingSchedule) {
         const currentDate = new Date();
 
         // Determine the next 30 days maintenance date based on schedule type
@@ -320,7 +320,7 @@ export class MaintenanceService {
         }
     }
 
-    getUpcomingDatesForWeek(dayList: number[]) {
+    private getUpcomingDatesForWeek(dayList: number[]) {
         const today = new Date();
         const endDate = addDays(today, 30);
         const result: string[] = [];
@@ -344,7 +344,7 @@ export class MaintenanceService {
      * @returns Array of formatted date strings in 'yyyy-MM-dd' format.
      */
 
-    getBiWeeklyDatesFromToday(dayList: number[]): string[] {
+    private getBiWeeklyDatesFromToday(dayList: number[]): string[] {
         const today = new Date();
         const result: string[] = [];
 
@@ -375,7 +375,7 @@ export class MaintenanceService {
         return result.sort();
     }
 
-    getThreeMonthsDatesFromToday(dateOfMonth: number): string[] {
+    private getThreeMonthsDatesFromToday(dateOfMonth: number): string[] {
         const today = new Date();
         const result: string[] = [];
 
@@ -402,7 +402,7 @@ export class MaintenanceService {
         return result.sort();
     }
 
-    getUpcomingDatesForMonth(dayOfWeek: number[], weekOfMonth: number): string[] {
+    private getUpcomingDatesForMonth(dayOfWeek: number[], weekOfMonth: number): string[] {
         const today = new Date();
         const result: string[] = [];
 
@@ -442,7 +442,7 @@ export class MaintenanceService {
         return result.sort();
     }
 
-    getQuarterlyDatesFromToday(
+    private getQuarterlyDatesFromToday(
         dayOfWeek: number[],
         weekOfMonth: number,
         intervalMonth: number // 1 = Jan, 2 = Feb, ..., 3 = Mar (relative month in quarter)
@@ -493,7 +493,7 @@ export class MaintenanceService {
         return result.sort();
     }
 
-    getQuarterlyDatesBasedOnDayOfMonth(dateOfMonth: number, intervalMonth: number): string[] {
+    private getQuarterlyDatesBasedOnDayOfMonth(dateOfMonth: number, intervalMonth: number): string[] {
         const today = new Date();
         const currentYear = getYear(today);
         const result: string[] = [];
@@ -517,7 +517,7 @@ export class MaintenanceService {
         return result.sort();
     }
 
-    getAnuallyDatesBasedOnDayOfMonth(dateOfMonth: number, intervalMonth: number): string[] {
+    private getAnuallyDatesBasedOnDayOfMonth(dateOfMonth: number, intervalMonth: number): string[] {
         const today = new Date();
         const currentYear = getYear(today);
         const result: string[] = [];
@@ -539,7 +539,7 @@ export class MaintenanceService {
         return result;
     }
 
-    getAnuallyDatesFromToday(
+    private getAnuallyDatesFromToday(
         dayOfWeek: number[],
         weekOfMonth: number,
         intervalMonth: number
