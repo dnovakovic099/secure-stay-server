@@ -60,4 +60,28 @@ export class ReservationInfoController {
             return next(error);
         }
     }
+
+    async syncReservationById(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const reservationId = request.body.reservationId;
+            if (!reservationId) {
+                return response.status(400).json({ error: 'Reservation ID is required' });
+            }
+            const result = await reservationInfoService.syncReservationById(reservationId);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getReservationGenericReport(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const result = await reservationInfoService.getReservationGenericReport(request.body);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

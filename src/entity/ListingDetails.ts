@@ -20,24 +20,6 @@ export class ListingDetail {
     @Column({default: false, nullable:true})
     hidePetFee: boolean;
 
-    @Column({ nullable: true })
-    scheduleType: string;
-
-    @Column({ nullable: true })
-    intervalMonth: number;
-
-    @Column({ nullable: true })
-    dayOfWeek: string;
-
-    @Column({ nullable: true })
-    weekOfMonth: number;
-
-    @Column({ nullable: true })
-    dayOfMonth: number;
-
-    @Column({ nullable: true })
-    scheduling: string;
-
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

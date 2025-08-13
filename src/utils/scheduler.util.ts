@@ -2,7 +2,7 @@ import { sendCodes } from "../scripts/sendCodes";
 import { checkForPendingRefundRequest, checkForUnresolvedReviews, checkUnasweredMessages, checkUpdatedReviews } from "../scripts/notifyAdmin";
 import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
-import { syncReservation } from "../scripts/syncReservation";
+import { syncCurrentlyStayingReservations, syncReservation } from "../scripts/syncReservation";
 import { syncHostawayUser } from "../scripts/syncHostawayUser";
 import { OccupancyReportService } from "../services/OccupancyReportService";
 import logger from "./logger.utils";
@@ -34,6 +34,8 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
   // schedule.scheduleJob("0 * * * *", syncReservation);
+
+  schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
 
   schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
@@ -89,7 +91,7 @@ export function scheduleGetReservation() {
     })
 
   schedule.scheduleJob(
-    { hour: 1, minute: 0, tz: "America/New_York" }, // Daily at 1 AM EST
+    { hour: 23, minute: 0, tz: "America/New_York" }, // Daily at 11 PM EST
     async () => {
       try {
         logger.info('Processing checkout date upsells to create extras in HostAway...');

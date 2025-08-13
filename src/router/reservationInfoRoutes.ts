@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { ReservationInfoController } from "../controllers/ReservationInfoController";
 import verifySession from "../middleware/verifySession";
-import { validateGetReservationList } from "../middleware/validation/accounting/reservation.validation";
+import { validateGetReservationList, validateGetReservationReport } from "../middleware/validation/accounting/reservation.validation";
 
 const router = Router();
 
@@ -16,5 +16,9 @@ router.get("/export",verifySession, reservationInfoController.exportReservationT
 router.put('/updatereservationstatusforstatement', verifySession, reservationInfoController.updateReservationStatusForStatement);
 
 router.get('/:reservationId', verifySession, reservationInfoController.getReservation);
+
+router.post('/sync', verifySession, reservationInfoController.syncReservationById);
+
+router.post('/reservation-generic-report', verifySession, validateGetReservationReport, reservationInfoController.getReservationGenericReport)
 
 export default router;

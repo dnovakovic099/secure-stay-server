@@ -16,13 +16,14 @@ import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { format } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
-import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange } from "../helpers/date";
+import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange, getStartOfThreeMonthsAgo } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
 import { Issue } from "../entity/Issue";
 import { ActionItems } from "../entity/ActionItems";
 import { ListingService } from "./ListingService";
 import { IssuesService } from "./IssuesService";
 import { ActionItemsService } from "./ActionItemsService";
+import { GenericReport } from "../entity/GenericReport";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -30,11 +31,15 @@ export class ReservationInfoService {
   private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
   private resolutionRepo = appDatabase.getRepository(Resolution);
+  private genericReportRepo = appDatabase.getRepository(GenericReport);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
   private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
+
+  private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
+  private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
     const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
@@ -55,7 +60,9 @@ export class ReservationInfoService {
     }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName });
+    const listing = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
+    const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     return await this.reservationInfoRepository.save(newReservation);
@@ -82,9 +89,11 @@ export class ReservationInfoService {
     }
     
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
+    const listing = await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
+    const listingName = listing ? listing.internalListingName : "";
 
     reservation.listingMapId = updateData.listingMapId;
-    reservation.listingName = updateData.listingName;
+    reservation.listingName = listingName;
     reservation.channelId = updateData.channelId;
     reservation.source = updateData.source;
     reservation.channelName = updateData.channelName;
@@ -165,6 +174,7 @@ export class ReservationInfoService {
         issues,
         channel,
         payment,
+        keyword,
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
@@ -180,7 +190,8 @@ export class ReservationInfoService {
           actionItems?: string[];
           issues?: string[],
           channel?: string[],
-          payment?: string[]
+          payment?: string[],
+          keyword?: string,
       };
 
       // Convert page/limit to numbers with defaults
@@ -199,14 +210,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment, keyword);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -230,12 +241,13 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
 
 
     // 1) Query for today's records
-    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbToday = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbToday.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -245,7 +257,7 @@ export class ReservationInfoService {
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
-    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbFuture = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbFuture.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -257,7 +269,7 @@ export class ReservationInfoService {
     const futureReservations = await qbFuture.getMany();
 
     // 3) Past records (arrivalDate < today), descending
-    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbPast = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbPast.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -324,8 +336,8 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined) {
-    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+    const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -411,10 +423,11 @@ export class ReservationInfoService {
     actionItemsStatus: string[] | null | undefined,
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
-    payment: string[] | null | undefined
+    payment: string[] | null | undefined,
+    keyword: string | undefined
   ) {
     // 1) Query for currently staying reservation's records
-    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment);
+    const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
@@ -517,7 +530,8 @@ export class ReservationInfoService {
     listingMapId?: string[],
     guestName?: string,
     channel?: string[],
-    payment?: string[]
+    payment?: string[],
+    keyword?: string
   ) {
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
 
@@ -540,6 +554,10 @@ export class ReservationInfoService {
 
     if(payment){
       qb.andWhere("reservation.paymentStatus IN (:...payment)", { payment });
+    }
+
+    if(keyword){
+      qb.andWhere("reservation.guestName LIKE :keyword", { keyword: `%${keyword}%` });
     }
 
     return qb;
@@ -617,6 +635,37 @@ export class ReservationInfoService {
       success: true,
       message: `Reservations synced successfully. No. of reservation: ${reservations.length}`
     };
+  }
+
+  async syncCurrentlyStayingReservations() {
+    const currentDate = format(new Date(), "yyyy-MM-dd");
+    const currentUTCHour = format(new Date(), "HH");
+    logger.info(`[syncCurrentlyStayingReservations] Syncing currently staying reservations for date: ${currentDate} and current hour: ${currentUTCHour}`);
+
+    const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
+    qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
+      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+    });
+    qb.andWhere(" (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)", { today: currentDate });
+    const [result, total] = await qb.addOrderBy("arrivalDate", "DESC").getManyAndCount();
+
+    const reservationIds = result.map((reservation: ReservationInfoEntity) => reservation.id);
+    logger.info(`[syncCurrentlyStayingReservations] Currently staying reservations count: ${result.length}`);
+    if (result.length === 0) {
+      logger.info(`[syncCurrentlyStayingReservations] No currently staying reservations found.`);
+      return;
+    }
+
+    const date = getStartOfThreeMonthsAgo();
+    const reservations = await this.hostAwayClient.syncReservations(date);
+    logger.info(`[syncCurrentlyStayingReservations] Syncing reservations from HostAway...`);
+    for (const reservation of reservations) {
+      if (reservationIds.includes(reservation.id)) {
+        await this.saveReservationInfo(reservation);
+      }
+    }
+    logger.info(`[syncCurrentlyStayingReservations] Successfully synced currently staying reservations.`);
+    return;
   }
 
   async getReservationById(reservationId: number): Promise<ReservationInfoEntity> {
@@ -1092,6 +1141,182 @@ export class ReservationInfoService {
     return reservationInfo;
   }
 
+  async syncReservationById(reservationId: number) {
+    const reservation = await this.hostAwayClient.getReservation(reservationId);
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${reservationId}`);
+    }
+    return await this.saveReservationInfo(reservation);
+  }
 
+  async getReservationGenericReport(body: {
+    year: string,
+    month: string;
+  }) {
+    const { year, month } = body;
+    const reportType = "reservationStatusReport";
+
+    logger.info(`
+      ReportType: ${reportType}
+      Year: ${year},
+      Month: ${month ? month : "-"}
+      `);
+
+    let result = [];
+    result = await this.genericReportRepo.find({
+      where: {
+        reportType: reportType,
+        year: year,
+        ...(month && { month: month })
+      },
+    });
+
+
+    if (!result || result.length === 0) {
+      logger.info(`Data does not exists in database.`);
+      logger.info(`Fetching reservation data from Hostaway and processing it`);
+      await this.generateReservationStatusReportFromHA(year);
+    } 
+
+    return await this.getReportData(reportType, year, month);
+  }
+
+  async getReportData(reportType: string, year: string, month: string | null) {
+    const qb = this.genericReportRepo
+      .createQueryBuilder("gr")
+      .select("gr.dimension2", "status") // dimension2 holds the status value
+      .addSelect("SUM(gr.value)", "count") // value holds the count for each record
+      .where("gr.reportType = :reportType", { reportType })
+      .andWhere("gr.year = :year", { year })
+
+    // Only apply month filter if provided
+    if (month) {
+      qb.andWhere("gr.month = :month", { month });
+    }
+
+    qb.groupBy("gr.dimension2")
+      .orderBy(`
+      CASE
+        WHEN gr.dimension2 = 'new' THEN 1
+        WHEN gr.dimension2 = 'modified' THEN 2
+        WHEN gr.dimension2 = 'ownerStay' THEN 3
+        ELSE 4
+      END
+    `)
+      .addOrderBy("gr.dimension2", "ASC"); // secondary order for the rest
+
+    const data = await qb.getRawMany();
+
+    return data.map(r => ({
+      status: r.status,
+      count: Number(r.count)
+    }));
+  }
+
+  async generateReservationStatusReportFromHA(year: string) {
+    let result = [];
+
+    //fetch reservationInfo from hostaway and generate the report
+    const clientId = this.clientId;
+    const clientSecret = this.clientSecret;
+    if (!clientId || !clientSecret) {
+      logger.info(`Credentials for hostaway not found`);
+      throw new Error("Hostaway client ID and secret are not configured.");
+    }
+
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    let limit = 500;
+    let offset = 0;
+    let hasMoreData = true;
+
+    logger.info(`Fetching reservation data from Hostaway. This might take a while to process`);
+    while (hasMoreData) {
+      const reservations = await this.hostAwayClient.getReservations(clientId, clientSecret, "", "arrival", startDate, endDate, limit, offset, "");
+      if (!reservations || reservations.length === 0) {
+        hasMoreData = false; // No more data to process
+        break;
+      }
+
+      result = result.concat(reservations);
+
+      // Check if there is more data
+      if (reservations.length < limit) {
+        hasMoreData = false; // No more data if the last page contains less than `limit`
+      } else {
+        offset += limit; // Update offset for the next page
+      }
+    }
+    logger.info(`Reservation data fetched from hostaway`);
+    //process the reservations for each month and save the data
+    await this.processReservationStatusReport(result, year);
+  }
+
+  async processReservationStatusReport(reservations: any[], year: string) {
+    const reportType = "reservationStatusReport";
+    const statuses = [
+      "new",
+      "modified",
+      "cancelled",
+      "ownerStay",
+      "pending",
+      "awaitingPayment",
+      "declined",
+      "expired",
+      "inquiry",
+      "inquiryPreapproved",
+      "inquiryDenied",
+      "inquiryTimedout",
+      "inquiryNotPossible"
+    ];
+    const dimension1 = "status";
+
+    const reportsToSave = [];
+
+    logger.info(`Processing the reservation data based on month, year, status and listingId`);
+
+    // Loop through each month (1 to 12)
+    for (let month = 1; month <= 12; month++) {
+      const monthStr = month.toString().padStart(2, "0");
+
+      // Filter reservations for this month
+      const monthReservations = reservations.filter(res => {
+        const arrivalDate = new Date(res.arrivalDate);
+        return arrivalDate.getFullYear() === Number(year) && (arrivalDate.getMonth() + 1) == month;
+      });
+
+      // Group by listingId
+      const listings = [...new Set(monthReservations.map(r => r.listingMapId))];
+
+      for (const listingId of listings) {
+        const listingReservations = monthReservations.filter(r => r.listingMapId === listingId);
+
+        // Count per status
+        for (const status of statuses) {
+          const statusCount = listingReservations.filter(r => r.status === status).length;
+          reportsToSave.push({
+            reportType,
+            listingId,
+            year: year.toString(),
+            month: monthStr,
+            dimension1,        // grouping dimension
+            dimension2: status, // actual status value
+            value: statusCount,
+            createdBy: "system",
+            updatedBy: "system"
+          });
+        }
+
+      }
+    }
+
+    logger.info(`Completed processing the reservation data based on month, year, status and listingId`);
+
+    if (reportsToSave.length > 0) {
+      await this.genericReportRepo.save(reportsToSave);
+      logger.info(`Report Data saved successfully`);
+    }
+    return;
+  }
 
 }

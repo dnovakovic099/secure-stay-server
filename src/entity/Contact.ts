@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany } from 'typeorm';
+import { ContactUpdates } from './ContactUpdates';
 
 @Entity('contact')
 export class Contact {
@@ -19,6 +20,12 @@ export class Contact {
 
     @Column({ nullable: true })
     contact: string;
+
+    @Column({ nullable: true })
+    email: string;
+
+    @Column({ nullable: true })
+    source: string;
 
     @Column({ type: "text", nullable: true })
     notes: string;
@@ -56,6 +63,15 @@ export class Contact {
     @Column({ default: false })
     isAutoPay: boolean;
 
+    @Column({ nullable: true })
+    costRating: number;
+
+    @Column({ nullable: true })
+    trustLevel: number;
+
+    @Column({ nullable: true })
+    speed: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
@@ -73,4 +89,7 @@ export class Contact {
 
     @Column({ nullable: true })
     deletedBy: string;
+
+    @OneToMany(() => ContactUpdates, contact => contact.contact)
+    contactUpdates: ContactUpdates[];
 }

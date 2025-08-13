@@ -437,7 +437,7 @@ export class HostAwayClient {
     }
   }
 
-  public async getReservation(reservationId: number, clientId: string, clientSecret: string) {
+  public async getReservation(reservationId: number, clientId?: string, clientSecret?: string) {
     let url = `https://api.hostaway.com/v1/reservations/${reservationId}`;
 
     try {
