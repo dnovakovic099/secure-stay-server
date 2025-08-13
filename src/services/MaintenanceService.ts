@@ -1,19 +1,53 @@
-import { ListingDetail } from "../entity/ListingDetails";
+import { Between, Equal, ILike, In, LessThan, MoreThan } from "typeorm";
+import { ListingSchedule } from "../entity/ListingSchedule";
 import { Maintenance } from "../entity/Maintenance";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, format, getDate, getDay, getYear, isAfter, isEqual, setDate, startOfMonth } from "date-fns";
+import { Contact } from "../entity/Contact";
+import { ContactRole } from "../entity/ContactRole";
+import { UsersEntity } from "../entity/Users";
+import { ListingService } from "./ListingService";
+
+interface MaintenanceFilter {
+    listingId?: string[];
+    workCategory?: string[];
+    contactId?: number[];
+    fromDate?: string;
+    toDate?: string;
+    propertyType?: number[];
+    keyword?: string;
+    type?: string;
+    page: number;
+    limit: number;
+}
 
 export class MaintenanceService {
     private maintenanceRepo = appDatabase.getRepository(Maintenance);
-    private listingDetailRepo = appDatabase.getRepository(ListingDetail);
+    private contactRepo = appDatabase.getRepository(Contact);
+    private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
+    private contactRoleRepo = appDatabase.getRepository(ContactRole);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
 
     async createMaintenance(body: Partial<Maintenance>, userId: string) {
+        //check if the maintenance log already exists
+        const existingMaintenenace = await this.maintenanceRepo.find({
+            where: {
+                listingId: body.listingId,
+                nextSchedule: body.nextSchedule,
+                workCategory: body.workCategory
+            }
+        });
+
+        if (existingMaintenenace.length > 0) {
+            throw CustomErrorHandler.alreadyExists(`Maintenance log for ${body.workCategory} on ${body.nextSchedule} already exists`);
+        }
+
         const maintenance = this.maintenanceRepo.create({
             ...body,
             createdBy: userId,
-            updatedBy: userId
         });
         return await this.maintenanceRepo.save(maintenance);
     }
@@ -44,32 +78,152 @@ export class MaintenanceService {
         return await this.maintenanceRepo.save(maintenance);
     }
 
+    async getMaintenanceList(filter: MaintenanceFilter, userId: string) {
+        const { listingId, workCategory, contactId, fromDate, toDate, propertyType, keyword, type, page, limit } = filter;
+
+        let listingIds = [];
+        if (propertyType && propertyType.length > 0) {
+            const listingService = new ListingService();
+            listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+        } else {
+            listingIds = listingId;
+        }
+
+        let whereConditions = {
+            ...(workCategory && { workCategory: In(workCategory) }),
+            ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
+            ...(contactId && contactId?.length > 0 && { contactId: In(contactId) }),
+            ...(fromDate && toDate && {
+                nextSchedule: Between(fromDate, toDate),
+            }),
+        };
+
+        const today = format(new Date(), "yyyy-MM-dd");
+
+        if (type == "unassigned") {
+            whereConditions = {
+                ...whereConditions,
+                contactId: null
+            };
+        } else if (type == "today") {
+            whereConditions = {
+                ...whereConditions,
+                nextSchedule: Equal(today),
+            };
+        } else if (type == "upcoming") {
+            whereConditions = {
+                ...whereConditions,
+                nextSchedule: MoreThan(today),
+            };
+        } else if (type == "past") {
+            whereConditions = {
+                ...whereConditions,
+                nextSchedule: LessThan(today),
+            };
+        }
+
+        const where = keyword
+            ? [
+                { ...whereConditions, workCategory: ILike(`%${keyword}%`) },
+                { ...whereConditions, notes: ILike(`%${keyword}%`) },
+            ]
+            : whereConditions;
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        const contacts = await this.contactRepo.find();
+
+        const [maintenanceLogs, total] = await this.maintenanceRepo.findAndCount({
+            where,
+            skip: (page - 1) * limit,
+            take: limit,
+            ...(
+                type == "past" ?
+                    { order: { nextSchedule: 'DESC' } } :
+                    { order: { nextSchedule: 'ASC' } }
+            ),
+        });
+
+
+        const transformedMaintenanceLogs = maintenanceLogs.map(logs => {
+            return {
+                ...logs,
+                contact: contacts.find(contact => contact.id == logs.contactId) || null,
+                createdBy: userMap.get(logs.createdBy) || logs.createdBy,
+                updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
+            };
+        });
+
+        return { maintenanceLogs: transformedMaintenanceLogs, total };
+
+    }
+
 
     async automateMaintenanceLogs() {
-        // Fetch all available listingDetails
-        const listingDetails = await this.listingDetailRepo.find();
-        if (!listingDetails || listingDetails.length === 0) {
+        // Fetch all available listingSchedules
+        const listingSchedules = await this.listingScheduleRepo.find();
+        const contactRoles = await this.contactRoleRepo.find();
+        if (!listingSchedules || listingSchedules.length === 0) {
             logger.info("No listing details found to automate maintenance logs.");
             return;
         }
-        // Iterate through each listing detail
-        for (const detail of listingDetails) {
-            logger.info(`Processing listing detail: ListingId ${detail.listingId}`);
-            const currentDate = format(new Date(), 'yyyy-MM-dd');
-            const result = await this.getDateForNextMaintenance(detail);
-            logger.info(result)
+        // Iterate through each listing schedule
+        for (const schedule of listingSchedules) {
+            logger.info(`Processing listing schedule: ListingId ${schedule.listingId}`);
+            if (!schedule.scheduleType) {
+                logger.info(`Schedule type not found for listingId ${schedule.listingId}(skipped)`);
+                continue;
+            }
+            const nextSchedules = await this.getDateForNextMaintenance(schedule);
+            for (const nextSchedule of nextSchedules) {
+                await this.createMaintenanceLog(schedule, nextSchedule, contactRoles);
+                logger.info(`Maintenance log created for listingId: ${schedule.listingId} for ${nextSchedule}`);
+            }
         }
     }
 
-    async getDateForNextMaintenance(listingDetail: ListingDetail) {
+    async createMaintenanceLog(listingSchedule: ListingSchedule, nextSchedule: string, contactRoles: ContactRole[]) {
+        const role = contactRoles.find(d => d.workCategory == listingSchedule.workCategory).role;
+        const contacts = await this.contactRepo.find({
+            where: {
+                status: In(["active", "active-backup"]),
+                listingId: String(listingSchedule.listingId),
+                role: role
+            }
+        });
+
+        //check if the maintenance log is already present for the nextSchedule
+        const existingMaintenenace = await this.maintenanceRepo.find({
+            where: {
+                listingId: String(listingSchedule.listingId),
+                nextSchedule: nextSchedule,
+                workCategory: listingSchedule.workCategory
+            }
+        });
+
+        if (existingMaintenenace.length > 0) {
+            logger.info(`Maintenance log for the listingId ${listingSchedule.listingId} (workCategory:${listingSchedule.workCategory} nextSchedule:${nextSchedule}) already exists`);
+            return 
+        }
+
+        const maintenance = new Maintenance();
+        maintenance.listingId = String(listingSchedule.listingId);
+        maintenance.workCategory = listingSchedule.workCategory;
+        maintenance.nextSchedule = nextSchedule;
+        maintenance.createdBy = "system";
+        maintenance.contactId = contacts.length === 1 ? contacts[0].id : null;
+        await this.maintenanceRepo.save(maintenance);
+    }
+
+    async getDateForNextMaintenance(listingSchedule: ListingSchedule) {
         const currentDate = new Date();
 
         // Determine the next 30 days maintenance date based on schedule type
         // "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis","as required"
-        switch (listingDetail.scheduleType) {
+        switch (listingSchedule.scheduleType) {
             case 'weekly': {
                 // Calculate next maintenance date for weekly schedule
-                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
+                const dayOfWeek = JSON.parse(listingSchedule.dayOfWeek);
                 const nextSchedule = this.getUpcomingDatesForWeek(dayOfWeek);
                 if (nextSchedule.length > 0) {
                     logger.info(`upcoming dates for weekly maintenance: ${nextSchedule.map(date => format(date, 'yyyy-MM-dd'))}`);
@@ -79,7 +233,7 @@ export class MaintenanceService {
             }
             case 'bi-weekly': {
                 // Calculate next maintenance date for bi-weekly schedule
-                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
+                const dayOfWeek = JSON.parse(listingSchedule.dayOfWeek);
                 const nextSchedule = this.getBiWeeklyDatesFromToday(dayOfWeek);
                 if (nextSchedule.length > 0) {
                     logger.info(`upcoming dates for bi-weekly maintenance: ${nextSchedule.map(date => format(date, 'yyyy-MM-dd'))}`);
@@ -89,9 +243,9 @@ export class MaintenanceService {
             }
             case 'monthly': {
                 // Calculate next maintenance date for monthly schedule
-                const dayOfMonth = listingDetail.dayOfMonth;
-                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
-                const weekOfMonth = listingDetail.weekOfMonth;
+                const dayOfMonth = listingSchedule.dayOfMonth;
+                const dayOfWeek = JSON.parse(listingSchedule.dayOfWeek);
+                const weekOfMonth = listingSchedule.weekOfMonth;
 
                 let nextSchedule = [];
                 if (dayOfMonth) {
@@ -107,11 +261,11 @@ export class MaintenanceService {
             }
             case 'quarterly': {
                 // Calculate next maintenance date for quarterly schedule
-                const intervalMonth = listingDetail.intervalMonth;
-                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
-                const weekOfMonth = listingDetail.weekOfMonth;
+                const intervalMonth = listingSchedule.intervalMonth;
+                const dayOfWeek = JSON.parse(listingSchedule.dayOfWeek);
+                const weekOfMonth = listingSchedule.weekOfMonth;
 
-                const dayOfMonth = listingDetail.dayOfMonth;
+                const dayOfMonth = listingSchedule.dayOfMonth;
                 let nextSchedule = [];
                 if (dayOfMonth && intervalMonth) {
                     nextSchedule = this.getQuarterlyDatesBasedOnDayOfMonth(dayOfMonth, intervalMonth);
@@ -127,11 +281,11 @@ export class MaintenanceService {
             }
             case 'annually': {
                 // Calculate next maintenance date for annual schedule
-                const intervalMonth = listingDetail.intervalMonth;
-                const dayOfWeek = JSON.parse(listingDetail.dayOfWeek);
-                const weekOfMonth = listingDetail.weekOfMonth;
+                const intervalMonth = listingSchedule.intervalMonth;
+                const dayOfWeek = JSON.parse(listingSchedule.dayOfWeek);
+                const weekOfMonth = listingSchedule.weekOfMonth;
 
-                const dayOfMonth = listingDetail.dayOfMonth;
+                const dayOfMonth = listingSchedule.dayOfMonth;
                 let nextSchedule = [];
                 if (dayOfMonth && intervalMonth) {
                     nextSchedule = this.getAnuallyDatesBasedOnDayOfMonth(dayOfMonth, intervalMonth);
@@ -145,6 +299,19 @@ export class MaintenanceService {
                 break;
             }
             case 'check-out basis':
+                const reservations = await appDatabase.getRepository(ReservationInfoEntity).find({
+                    where: {
+                        departureDate: MoreThan(currentDate),
+                        listingMapId: listingSchedule.listingId,
+                        status: In(["new", "modified", "ownerStay"])
+                    },
+                    order: {
+                        departureDate: "ASC"
+                    },
+                    take: 4
+                });
+                const nextSchedule = reservations.map(r => r.departureDate);
+                return nextSchedule;
                 break;
             case 'as required':
                 break;
