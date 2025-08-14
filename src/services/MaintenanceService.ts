@@ -103,25 +103,22 @@ export class MaintenanceService {
         if (type && type == "unassigned") {
             whereConditions = {
                 ...whereConditions,
-                contactId: null
+                contactId: IsNull()
             };
         } else if (type && type == "today") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: Equal(today),
-                contactId: Not(IsNull())
             };
         } else if (type && type == "upcoming") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: MoreThan(today),
-                contactId: Not(IsNull())
             };
         } else if (type && type == "past") {
             whereConditions = {
                 ...whereConditions,
                 nextSchedule: LessThan(today),
-                contactId: Not(IsNull())
             };
         }
 
