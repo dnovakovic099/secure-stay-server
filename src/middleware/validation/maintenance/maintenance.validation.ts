@@ -27,7 +27,8 @@ export const validateUpdateMaintenance = (request: Request, response: Response, 
         nextSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
-        contactId: Joi.number().required().allow(null)
+        contactId: Joi.number().required().allow(null),
+        notes: Joi.string().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);
