@@ -82,8 +82,8 @@ export class MaintenanceService {
         const { listingId, workCategory, contactId, fromDate, toDate, propertyType, keyword, type, page, limit } = filter;
 
         let listingIds = [];
+        const listingService = new ListingService();
         if (propertyType && propertyType.length > 0) {
-            const listingService = new ListingService();
             listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
         } else {
             listingIds = listingId;
@@ -147,6 +147,7 @@ export class MaintenanceService {
             ),
         });
 
+        const listings = await listingService.getListings(userId);
 
         const transformedMaintenanceLogs = maintenanceLogs.map(logs => {
             return {
@@ -154,6 +155,7 @@ export class MaintenanceService {
                 contact: contacts.find(contact => contact.id == logs.contactId) || null,
                 createdBy: userMap.get(logs.createdBy) || logs.createdBy,
                 updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
+                listingName: listings.find(l => l.id == Number(logs.listingId)).internalListingName
             };
         });
 
