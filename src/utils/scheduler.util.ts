@@ -115,4 +115,15 @@ export function scheduleGetReservation() {
         logger.error("Error sending reminder message for pending claims", error);
       }
     });
+
+  schedule.scheduleJob(
+    { hour: 1, minute: 30, tz: "America/New_York" },  // Daily at 1:30 AM EST
+    async () => {
+      try {
+        const reservationInfoService = new ReservationInfoService();
+        await reservationInfoService.refreshCurrentYearReservationStatusReport();
+      } catch (error) {
+        logger.error("Error sending reminder message for pending claims", error);
+      }
+    });
 }
