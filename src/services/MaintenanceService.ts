@@ -132,7 +132,7 @@ export class MaintenanceService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
         const contacts = await this.contactRepo.find();
-        const roleCategory = await appDatabase.getRepository(ContactRole).find()
+        const roleCategory = await this.contactRoleRepo.find();
 
         const [maintenanceLogs, total] = await this.maintenanceRepo.findAndCount({
             where,
