@@ -8,7 +8,7 @@ export class Issue {
 
     @Column({
         type: "enum",
-        enum: ["New", "In Progress", "Overdue", "Completed", "Need Help"],
+        enum: ["New", "In Progress", "Overdue", "Completed", "Need Help", "Scheduled"],
         default: "In Progress"
     })
     status: string;

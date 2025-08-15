@@ -430,4 +430,111 @@ export class IssuesService {
             total
         }
     }
+
+    async bulkUpdateIssues(ids: number[], updateData: Partial<Issue>, userId: string) {
+        try {
+            // Validate that all issues exist
+            const existingIssues = await this.issueRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingIssues.length !== ids.length) {
+                const foundIds = existingIssues.map(issue => issue.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Issues with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all issues with the provided data
+            const updatePromises = existingIssues.map(async (issue) => {
+                // Only update fields that are provided in updateData
+                if (updateData.status !== undefined) {
+                    issue.status = updateData.status;
+                    if (updateData.status === 'Completed') {
+                        issue.completed_at = new Date();
+                        issue.completed_by = userId;
+                    } else {
+                        issue.completed_at = null;
+                        issue.completed_by = null;
+                    }
+                }
+                if (updateData.category !== undefined) {
+                    issue.category = updateData.category;
+                }
+                if (updateData.issue_description !== undefined) {
+                    issue.issue_description = updateData.issue_description;
+                }
+                if (updateData.claim_resolution_status !== undefined) {
+                    issue.claim_resolution_status = updateData.claim_resolution_status;
+                }
+                if (updateData.claim_resolution_amount !== undefined) {
+                    issue.claim_resolution_amount = updateData.claim_resolution_amount;
+                }
+                if (updateData.estimated_reasonable_price !== undefined) {
+                    issue.estimated_reasonable_price = updateData.estimated_reasonable_price;
+                }
+                if (updateData.final_price !== undefined) {
+                    issue.final_price = updateData.final_price;
+                }
+                if (updateData.owner_notes !== undefined) {
+                    issue.owner_notes = updateData.owner_notes;
+                }
+                if (updateData.next_steps !== undefined) {
+                    issue.next_steps = updateData.next_steps;
+                }
+                if (updateData.listing_id !== undefined) {
+                    const listing_name = (await appDatabase.getRepository(Listing).findOne({ 
+                        where: { id: Number(updateData.listing_id) } 
+                    }))?.internalListingName || "";
+                    issue.listing_id = updateData.listing_id;
+                    issue.listing_name = listing_name;
+                }
+                if (updateData.guest_name !== undefined) {
+                    issue.guest_name = updateData.guest_name;
+                }
+                if (updateData.guest_contact_number !== undefined) {
+                    issue.guest_contact_number = updateData.guest_contact_number;
+                }
+                if (updateData.channel !== undefined) {
+                    issue.channel = updateData.channel;
+                }
+                if (updateData.check_in_date !== undefined) {
+                    issue.check_in_date = updateData.check_in_date;
+                }
+                if (updateData.reservation_amount !== undefined) {
+                    issue.reservation_amount = updateData.reservation_amount;
+                }
+                if (updateData.reservation_id !== undefined) {
+                    issue.reservation_id = updateData.reservation_id;
+                }
+                if (updateData.date_time_reported !== undefined) {
+                    issue.date_time_reported = updateData.date_time_reported;
+                }
+                if (updateData.date_time_contractor_contacted !== undefined) {
+                    issue.date_time_contractor_contacted = updateData.date_time_contractor_contacted;
+                }
+                if (updateData.date_time_contractor_deployed !== undefined) {
+                    issue.date_time_contractor_deployed = updateData.date_time_contractor_deployed;
+                }
+                if (updateData.date_time_work_finished !== undefined) {
+                    issue.date_time_work_finished = updateData.date_time_work_finished;
+                }
+                if (updateData.final_contractor_name !== undefined) {
+                    issue.final_contractor_name = updateData.final_contractor_name;
+                }
+                
+                issue.updated_by = userId;
+                return this.issueRepo.save(issue);
+            });
+
+            const updatedIssues = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedIssues.length,
+                message: `Successfully updated ${updatedIssues.length} issues`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
 } 
