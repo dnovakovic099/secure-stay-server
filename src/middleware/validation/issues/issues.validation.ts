@@ -4,7 +4,7 @@ import Joi from "joi";
 export const validateCreateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+            .valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled")
             .default("In Progress")
             .required(),
         listing_id: Joi.number().required(),
@@ -55,7 +55,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
 export const validateUpdateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help", "New"),
+            .valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
         listing_id: Joi.number(),
         listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
@@ -154,7 +154,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Overdue", "Completed", "Need Help")).min(1).optional(),
+        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Overdue", "Completed", "Need Help", "Scheduled")).min(1).optional(),
         guestName: Joi.string().optional(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
@@ -165,6 +165,41 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
     });
 
     const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateBulkUpdateIssues = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().required()).min(1).required(),
+        updateData: Joi.object({
+            status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled").optional(),
+            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").optional(),
+            issue_description: Joi.string().optional(),
+            claim_resolution_status: Joi.string().valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved').optional(),
+            claim_resolution_amount: Joi.number().precision(2).optional(),
+            estimated_reasonable_price: Joi.number().precision(2).optional(),
+            final_price: Joi.number().precision(2).optional(),
+            owner_notes: Joi.string().optional(),
+            next_steps: Joi.string().optional(),
+            listing_id: Joi.number().optional(),
+            guest_name: Joi.string().optional(),
+            guest_contact_number: Joi.string().optional(),
+            channel: Joi.string().optional(),
+            check_in_date: Joi.date().optional(),
+            reservation_amount: Joi.number().precision(2).optional(),
+            reservation_id: Joi.string().optional(),
+            date_time_reported: Joi.date().optional(),
+            date_time_contractor_contacted: Joi.date().optional(),
+            date_time_contractor_deployed: Joi.date().optional(),
+            date_time_work_finished: Joi.date().optional(),
+            final_contractor_name: Joi.string().optional(),
+        }).min(1).required()
+    });
+
+    const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
     }

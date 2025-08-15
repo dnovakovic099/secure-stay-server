@@ -54,7 +54,9 @@ export const getActionItemsValidation = (request: Request, response: Response, n
         toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        ids: Joi.array().items(Joi.number().required()).min(1).optional()
+        ids: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.number()).min(1).optional(),
+        keyword: Joi.string().optional(),
     }).custom((value, helpers) => {
         if (value.fromDate && !value.toDate) {
             return helpers.error('any.required', { message: 'toDate is required when fromDate is provided' });
@@ -103,6 +105,27 @@ export const validateActionItemMigrationToIssue = (request: Request, response: R
         id: Joi.number().required(),
         status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New").required(),
         category: Joi.string().required().valid("MAINTENANCE", "CLEANLINESS")
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+}
+
+export const validateBulkUpdateActionItems = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().required()).min(1).required(),
+        updateData: Joi.object({
+            listingName: Joi.string().optional(),
+            guestName: Joi.string().optional(),
+            item: Joi.string().optional(),
+            category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").optional(),
+            status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').optional(),
+            listingId: Joi.number().optional(),
+            reservationId: Joi.number().optional(),
+        }).min(1).required() // At least one field must be provided for update
     });
 
     const { error } = schema.validate(request.body);

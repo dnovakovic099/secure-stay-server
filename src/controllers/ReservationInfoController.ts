@@ -74,4 +74,14 @@ export class ReservationInfoController {
             return next(error);
         }
     }
+
+    async getReservationGenericReport(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const result = await reservationInfoService.getReservationGenericReport(request.body);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

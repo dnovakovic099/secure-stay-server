@@ -1,10 +1,11 @@
-import { Between, In } from "typeorm";
+import { Between, ILike, In } from "typeorm";
 import { Resolution } from "../entity/Resolution";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
 import { haResolutionDeleteQueue, haResolutionQueue, haResolutionUpdateQueue } from "../queue/haQueue";
 import logger from "../utils/logger.utils";
+import { ListingService } from "./ListingService";
 
 interface ResolutionData {
     category: string;
@@ -100,14 +101,33 @@ export class ResolutionService {
     }
 
     async getResolutions(filters: any) {
-        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit } = filters;
+        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit, keyword, propertyType } = filters;
+
+        let listingIds = [];
+        const listingService = new ListingService();
+
+        if (propertyType && propertyType.length > 0) {
+            listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
+        } else {
+            listingIds = listingId;
+        }
+
+        const baseWhere = {
+            ...(listingIds && { listingMapId: In(listingIds) }),
+            ...(reservationId && { reservationId: reservationId }),
+            ...(category && category.length > 1 && { category: In(category) }),
+            ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
+        }
+
+        const where = keyword
+        ? [
+            { ...baseWhere, guestName: ILike(`%${keyword}%`) },
+            { ...baseWhere, category: ILike(`%${keyword}%`) },
+        ]
+        : baseWhere;
+
         const [resolutions, total] = await this.resolutionRepo.findAndCount({
-            where: {
-                ...(listingId && { listingMapId: In(listingId) }),
-                ...(reservationId && { reservationId: reservationId }),
-                ...(category && category.length > 1 && { category: In(category) }),
-                ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
-            },
+            where,
             skip: (page - 1) * limit,
             take: limit,
             order: {

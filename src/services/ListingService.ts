@@ -123,16 +123,31 @@ export class ListingService {
     images: any[],
     listingId: number
   ) {
-    const imageObjs = images.map((image) => ({
-      caption: image.caption,
-      vrboCaption: image.vrboCaption,
-      airbnbCaption: image.airbnbCaption,
-      url: image.url,
-      sortOrder: image.sortOrder,
-      listing: listingId,
-    }));
+    // const imageObjs = images.map((image) => ({
+    //   caption: image.caption,
+    //   vrboCaption: image.vrboCaption,
+    //   airbnbCaption: image.airbnbCaption,
+    //   url: image.url,
+    //   sortOrder: image.sortOrder,
+    //   listing: listingId,
+    // }));
 
-    await entityManager.save(ListingImage, imageObjs);
+    // await entityManager.save(ListingImage, imageObjs);
+
+    if (!images || images.length === 0) return;
+
+    const firstImage = images[0];
+
+    const imageObj = {
+      caption: firstImage.caption,
+      vrboCaption: firstImage.vrboCaption,
+      airbnbCaption: firstImage.airbnbCaption,
+      url: firstImage.url,
+      sortOrder: firstImage.sortOrder,
+      listing: listingId,
+    };
+
+    await entityManager.save(ListingImage, imageObj);
   }
 
   // Save listing tags
@@ -185,7 +200,7 @@ export class ListingService {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name","listing.internalListingName",
-        "listing.address"
+        "listing.address", "listing.state", "listing.city"
       ])
       .leftJoin("listing.listingTags", "listingTags")
       .where("listingTags.tagId IN (:...tagIds)", { tagIds });
@@ -360,6 +375,61 @@ export class ListingService {
       }
     }
   }
+
+
+  async getListingsByCity(city: string[], userId?: string) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName",
+        "listing.address", "listing.state", "listing.city"
+      ])
+      .where("listing.city IN (:...city)", { city });
+
+    if (userId) {
+      query.andWhere("listing.userId = :userId", { userId });
+    }
+
+    const listings = await query.getMany();
+    return listings;
+  }
+
+  async getListingsByState(state: string[], userId?: string) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName",
+        "listing.address", "listing.city", "listing.state"
+      ])
+      .where("listing.state IN (:...state)", { state });
+
+    if (userId) {
+      query.andWhere("listing.userId = :userId", { userId });
+    }
+
+    const listings = await query.getMany();
+    return listings;
+  }
+
+  public async getStates() {
+    const states = await this.listingRepository
+      .createQueryBuilder("listing_info")
+      .select("DISTINCT listing_info.state", "state")
+      .where("listing_info.state IS NOT NULL AND listing_info.state != ''")
+      .getRawMany();
+
+    return states;
+  }
+
+
+  public async getCities() {
+    const cities = await this.listingRepository
+      .createQueryBuilder("listing_info")
+      .select("DISTINCT listing_info.city", "city")
+      .where("listing_info.city IS NOT NULL AND listing_info.city != ''")
+      .getRawMany();
+
+    return cities;
+  }
+
 
 }
 
