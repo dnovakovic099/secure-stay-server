@@ -132,6 +132,7 @@ export class MaintenanceService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
         const contacts = await this.contactRepo.find();
+        const roleCategory = await appDatabase.getRepository(ContactRole).find()
 
         const [maintenanceLogs, total] = await this.maintenanceRepo.findAndCount({
             where,
@@ -147,8 +148,10 @@ export class MaintenanceService {
         const listings = await listingService.getListings(userId);
 
         const transformedMaintenanceLogs = maintenanceLogs.map(logs => {
+            const role = roleCategory.find(r => r.workCategory == logs.workCategory).role;
             return {
                 ...logs,
+                contactOptions: contacts.filter(c => c.listingId == logs.listingId && (c.status == "active" || c.status == "active-backup") && c.role==role),
                 contact: contacts.find(contact => contact.id == logs.contactId) || null,
                 createdBy: userMap.get(logs.createdBy) || logs.createdBy,
                 updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
