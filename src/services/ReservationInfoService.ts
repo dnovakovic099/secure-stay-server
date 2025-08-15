@@ -1319,4 +1319,28 @@ export class ReservationInfoService {
     return;
   }
 
+  async refreshCurrentYearReservationStatusReport() {
+    const currentYear = new Date().getFullYear().toString();
+    const reportType = "reservationStatusReport";
+
+    logger.info(`Refreshing reservation status report for year: ${currentYear}`);
+
+    // Step 1: Delete existing data for this year
+    logger.info(`Deleting existing ${reportType} data for year ${currentYear}...`);
+    await this.genericReportRepo
+      .createQueryBuilder()
+      .delete()
+      .where("reportType = :reportType", { reportType })
+      .andWhere("year = :year", { year: currentYear })
+      .execute();
+    logger.info(`Old report data deleted.`);
+
+    // Step 2: Generate fresh report from Hostaway
+    logger.info(`Fetching updated data from Hostaway for ${currentYear}...`);
+    await this.generateReservationStatusReportFromHA(currentYear);
+
+    logger.info(`Reservation status report for ${currentYear} refreshed successfully.`);
+  }
+
+
 }
