@@ -1,0 +1,80 @@
+import { appDatabase } from "../utils/database.util";
+import { ListingIntake } from "../entity/ListingIntake";
+import CustomErrorHandler from "../middleware/customError.middleware";
+import { ILike, In } from "typeorm";
+import { UsersEntity } from "../entity/Users";
+
+interface ListingIntakeFilter {
+    status: string[];
+    clientContact: string;
+    clientName: string;
+    page: number;
+    limit: number;
+}
+
+export class ListingIntakeService {
+    private listingIntakeRepo = appDatabase.getRepository(ListingIntake);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+
+    async createListingIntake(body: Partial<ListingIntake>, userId: string) {
+        const listingIntake = this.listingIntakeRepo.create(body);
+        return await this.listingIntakeRepo.save(listingIntake);
+    }
+
+    async updateListingIntake(body: Partial<ListingIntake>, userId: string) {
+        const listingIntake = await this.listingIntakeRepo.findOne({ where: { id: body.id } });
+        if (!listingIntake) {
+            throw CustomErrorHandler.notFound(`Listing intake with id ${body.id} not found`);
+        }
+
+        const updatedData = this.listingIntakeRepo.merge(listingIntake, {
+            ...body,
+            updatedBy: userId
+        });
+
+        return await this.listingIntakeRepo.save(updatedData);
+    }
+
+    async deleteListingIntake(id: number, userId: string) {
+        const listingIntake = await this.listingIntakeRepo.findOneBy({ id });
+        if (!listingIntake) {
+            throw CustomErrorHandler.notFound(`Listing intake with ID ${id} not found.`);
+        }
+
+        listingIntake.deletedBy = userId;
+        listingIntake.deletedAt = new Date();
+
+        return await this.listingIntakeRepo.save(listingIntake);
+    }
+
+    async getListingIntake(filter: ListingIntakeFilter, userId: string) {
+        const { status, clientContact, clientName, page, limit } = filter;
+        let whereConditions = {
+            ...(status && status.length > 0 && { listingId: In(status) }),
+            ...(clientName && { clientName: ILike(`%${clientName}%`) }),
+            ...(clientContact && { clientContact: ILike(`%${clientContact}%`) })
+        };
+
+        const [listingIntakes, total] = await this.listingIntakeRepo.findAndCount({
+            where: whereConditions,
+            order: { createdAt: "DESC" },
+            take: limit,
+            skip: (page - 1) * limit
+        });
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
+        const transformedListingIntakes = listingIntakes.map(logs => {
+            return {
+                ...logs,
+                createdBy: userMap.get(logs.createdBy) || logs.createdBy,
+                updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
+            };
+        });
+
+        return { listingIntakes: transformedListingIntakes, total };
+
+    }
+
+}
