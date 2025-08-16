@@ -59,4 +59,14 @@ export class ListingIntakeController {
         }
     }
 
+    public async getListingIntakeById(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingIntakeService = new ListingIntakeService();
+            const listingIntake = await listingIntakeService.getListingIntakeById(Number(req.params.id));
+            return res.status(200).json(listingIntake);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }

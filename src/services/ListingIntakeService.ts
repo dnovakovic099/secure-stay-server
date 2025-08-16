@@ -17,7 +17,10 @@ export class ListingIntakeService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
     async createListingIntake(body: Partial<ListingIntake>, userId: string) {
-        const listingIntake = this.listingIntakeRepo.create(body);
+        const listingIntake = this.listingIntakeRepo.create({
+            ...body,
+            status: "draft"
+        });
         return await this.listingIntakeRepo.save(listingIntake);
     }
 
@@ -75,6 +78,20 @@ export class ListingIntakeService {
 
         return { listingIntakes: transformedListingIntakes, total };
 
+    }
+
+    async getListingIntakeById(id: number) {
+        return await this.listingIntakeRepo.findOne({ where: { id: id } });
+    }
+
+    async getListingIntakeStatus(listingIntake: ListingIntake) {
+        let hasMissingValue = false;
+        Object.values(listingIntake).forEach(value => {
+            if (value == null || value == "") {
+                hasMissingValue = true;
+            }
+        });
+        return hasMissingValue ? "draft" : "ready";
     }
 
 }

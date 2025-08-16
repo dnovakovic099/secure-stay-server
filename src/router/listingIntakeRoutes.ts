@@ -10,5 +10,6 @@ router.route('/create').post(verifySession, validateCreateListingIntake, listing
 router.route('/update').put(verifySession, validateUpdateListingIntake, listingIntakeController.updateListingIntake);
 router.route('/delete/:id').delete(verifySession, listingIntakeController.deleteListingIntake);
 router.route('/').get(verifySession, validateGetListingIntake, listingIntakeController.getListingIntake);
+router.route('/:id').get(verifySession, listingIntakeController.getListingIntakeById)
 
 export default router;
