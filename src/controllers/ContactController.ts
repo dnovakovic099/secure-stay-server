@@ -135,4 +135,28 @@ export class ContactController {
         }
     }
 
+    async bulkUpdateContacts(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { ids, updateData } = request.body;
+            
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return response.status(400).json({ 
+                    error: "IDs array is required and must not be empty" 
+                });
+            }
+
+            if (!updateData || Object.keys(updateData).length === 0) {
+                return response.status(400).json({ 
+                    error: "Update data is required and must not be empty" 
+                });
+            }
+
+            const contactService = new ContactService();
+            const result = await contactService.bulkUpdateContacts(ids, updateData, request.user.id);
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }
