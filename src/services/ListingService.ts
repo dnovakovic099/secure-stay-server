@@ -430,6 +430,36 @@ export class ListingService {
     return cities;
   }
 
+  public async getPropertyTypes() {
+    const propertyTypes = await this.hostAwayClient.getPropertyTypes();
+    return propertyTypes;
+  }
+
+  public async getCountries() {
+    const countries = await this.hostAwayClient.getCountries();
+    return countries;
+  }
+
+  public async getAmenities() {
+    const amenities = await this.hostAwayClient.getAmenities();
+    return amenities;
+  }
+
+  public async getBedTypes() {
+    const bedTypes = await this.hostAwayClient.getBedTypes();
+    return bedTypes;
+  }
+
+  public async getCurrencies() {
+    const currencies = await this.hostAwayClient.getCurrencies();
+    return currencies;
+  }
+
+  public async getCancellationPolicies(channel?: string) {
+    const cancellationPolicies = await this.hostAwayClient.getCancellationPolicies(channel);
+    return cancellationPolicies;
+  }
+
 
 }
 

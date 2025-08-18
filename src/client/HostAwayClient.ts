@@ -528,6 +528,151 @@ export class HostAwayClient {
     }
     return reservations;
   }
+
+
+  public async createListing(requestBody: any, clientId: string, clientSecret: string) {
+    try {
+      const url = "https://api.hostaway.com/v1/listings";
+      const token = await this.getAccessToken(clientId, clientSecret);
+
+      const response = await axios.post(url, requestBody, {
+        headers: {
+          "Cache-control": "no-cache",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      logger.info(response.data);
+      return response.data?.result;
+    } catch (error) {
+      logger.error(error?.response?.data);
+      return null;
+    }
+  }
+
+
+  public async getPropertyTypes() {
+    let url = `https://api.hostaway.com/v1/propertyTypes`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getCountries() {
+    let url = `https://api.hostaway.com/v1/countries`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getAmenities() {
+    let url = `https://api.hostaway.com/v1/amenities`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getBedTypes() {
+    let url = `https://api.hostaway.com/v1/bedTypes`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getCurrencies() {
+    let url = `https://api.hostaway.com/v1/currencies`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getCancellationPolicies(channel?: string) {
+    let url = `https://api.hostaway.com/v1/cancellationPolicies`;
+    if (channel) {
+      url = url + `/${channel}`;
+    }
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
 }
 
 
