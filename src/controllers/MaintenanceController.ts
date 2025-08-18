@@ -67,7 +67,8 @@ export class MaintenanceController {
                 keyword: request.query.keyword || undefined,
                 type: request.query.type || undefined,
                 page: request.query.page,
-                limit: request.query.limit
+                limit: request.query.limit,
+                currentDate: request.query.currentDate
             };
             const maintenance = await maintenanceService.getMaintenanceList(filter, userId);
             return response.status(200).json(maintenance);
