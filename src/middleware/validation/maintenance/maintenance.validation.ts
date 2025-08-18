@@ -54,7 +54,10 @@ export const validateGetMaintenance = (request: Request, response: Response, nex
         limit: Joi.number().required(),
         propertyType: Joi.array().items(Joi.number()).min(1).optional(),
         keyword: Joi.string().optional(),
-        type: Joi.string().valid("unassigned", "today", "upcoming", "past").optional()
+        type: Joi.string().valid("unassigned", "today", "upcoming", "past").optional(),
+        currentDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+            'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
+        }).required()
     }).custom((value, helpers) => {
         if (value.fromDate && value.toDate && new Date(value.fromDate) > new Date(value.toDate)) {
             return helpers.error('any.invalid', { message: 'fromDate must be before toDate' });

@@ -5,7 +5,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
-import { addDays, addMonths, eachDayOfInterval, endOfMonth, format, getDate, getDay, getYear, isAfter, isEqual, setDate, startOfMonth } from "date-fns";
+import { addDays, addMonths, eachDayOfInterval, endOfMonth, format, getDate, getDay, getYear, isAfter, isEqual, parseISO, setDate, startOfMonth } from "date-fns";
 import { Contact } from "../entity/Contact";
 import { ContactRole } from "../entity/ContactRole";
 import { UsersEntity } from "../entity/Users";
@@ -22,6 +22,7 @@ interface MaintenanceFilter {
     type?: string;
     page: number;
     limit: number;
+    currentDate: string;
 }
 
 export class MaintenanceService {
@@ -79,7 +80,7 @@ export class MaintenanceService {
     }
 
     async getMaintenanceList(filter: MaintenanceFilter, userId: string) {
-        const { listingId, workCategory, contactId, fromDate, toDate, propertyType, keyword, type, page, limit } = filter;
+        const { listingId, workCategory, contactId, fromDate, toDate, propertyType, keyword, type, page, limit, currentDate } = filter;
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -98,7 +99,7 @@ export class MaintenanceService {
             }),
         };
 
-        const today = format(new Date(), "yyyy-MM-dd");
+        const today = currentDate;
 
         if (type && type == "unassigned") {
             whereConditions = {
