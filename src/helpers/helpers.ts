@@ -133,7 +133,7 @@ export const issueCategoryEmoji = (category: string) => {
             break;
         }
         case "HVAC": {
-            emoji = "❄️🔥🌬️"; 
+            emoji = "❄️"; 
             break;
         }
         default: {
