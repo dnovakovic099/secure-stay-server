@@ -3,6 +3,7 @@ import { ListingIntake } from "../entity/ListingIntake";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ILike, In } from "typeorm";
 import { UsersEntity } from "../entity/Users";
+import { ListingIntakeBedTypes } from "../entity/ListingIntakeBedTypes";
 
 interface ListingIntakeFilter {
     status: string[];
@@ -15,6 +16,7 @@ interface ListingIntakeFilter {
 export class ListingIntakeService {
     private listingIntakeRepo = appDatabase.getRepository(ListingIntake);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private listingIntakeBedTypesRepo = appDatabase.getRepository(ListingIntakeBedTypes);
 
     async createListingIntake(body: Partial<ListingIntake>, userId: string) {
         const listingIntake = this.listingIntakeRepo.create({
@@ -92,6 +94,29 @@ export class ListingIntakeService {
             }
         });
         return hasMissingValue ? "draft" : "ready";
+    }
+
+
+    async saveBedTypes(body: Partial<ListingIntakeBedTypes>[]) {
+        const bedTypes = this.listingIntakeBedTypesRepo.create(body);
+        return await this.listingIntakeBedTypesRepo.save(bedTypes);
+    }
+
+    async updateBedTypes(body: Partial<ListingIntakeBedTypes>[]) {
+        return await this.listingIntakeBedTypesRepo.save(body);
+    }
+
+    async getBedTypes(listingIntakeId: number) {
+        return await this.listingIntakeBedTypesRepo.find({ where: { listingIntakeId: listingIntakeId } });
+    }
+
+    async deleteBedTypes(body: Partial<ListingIntakeBedTypes>[]) {
+        const ids = body
+            .map(bedType => bedType.id)
+            .filter((id): id is number => !!id); // filter out undefined/null
+
+        await this.listingIntakeBedTypesRepo.delete(ids);
+        return { message: "Bed types deleted successfully", deletedIds: ids };
     }
 
 }

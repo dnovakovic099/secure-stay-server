@@ -69,4 +69,44 @@ export class ListingIntakeController {
         }
     }
 
+    public async saveBedTypes(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingIntakeService = new ListingIntakeService();
+            const bedTypes = await listingIntakeService.saveBedTypes(req.body);
+            return res.status(201).json(bedTypes);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    public async updateBedTypes(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingIntakeService = new ListingIntakeService();
+            const bedTypes = await listingIntakeService.updateBedTypes(req.body);
+            return res.status(200).json(bedTypes);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    public async getBedTypes(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingIntakeService = new ListingIntakeService();
+            const bedTypes = await listingIntakeService.getBedTypes(Number(req.params.listingIntakeId));
+            return res.status(200).json(bedTypes);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    public async deleteBedTypes(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingIntakeService = new ListingIntakeService();
+            const bedTypes = await listingIntakeService.deleteBedTypes(req.body);
+            return res.status(200).json(bedTypes);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }

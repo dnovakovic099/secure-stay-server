@@ -49,3 +49,56 @@ export const validateGetListingIntake = (request: Request, response: Response, n
     next();
 };
 
+export const validateCreateBedTypes = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.array().items(
+        Joi.object({
+            bedTypeId: Joi.number().required(),
+            quantity: Joi.number().required(),
+            bedRoomNumber: Joi.number().required()
+        })
+    );
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateUpdateBedTypes = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.array().items(
+        Joi.object({
+            id: Joi.number().required(),
+            bedTypeId: Joi.number().required(),
+            quantity: Joi.number().required(),
+            bedRoomNumber: Joi.number().required()
+        })
+    );
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateDeleteBedTypes = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.array().items(
+        Joi.object({
+            id: Joi.number().required(),
+            bedTypeId: Joi.number().required(),
+            quantity: Joi.number().required(),
+            bedRoomNumber: Joi.number().required()
+        })
+    );
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
