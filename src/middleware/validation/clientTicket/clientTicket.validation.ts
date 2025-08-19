@@ -134,3 +134,23 @@ export const validateUpdateLatestUpdates = (request: Request, response: Response
     }
     next();
 };
+
+export const validateBulkUpdateClientTicket = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+        updateData: Joi.object({
+            status: Joi.string().valid("New", "In Progress", "Completed"),
+            listingId: Joi.string(),
+            category: Joi.array().items(Joi.string()
+                .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")),
+            description: Joi.string(),
+            resolution: Joi.string().allow(null),
+        }).min(1).required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
