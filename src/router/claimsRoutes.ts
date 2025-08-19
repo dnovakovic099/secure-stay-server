@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClaimsController } from "../controllers/ClaimsController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClaim, validateUpdateClaim } from "../middleware/validation/claims/claims.validation";
+import { validateCreateClaim, validateUpdateClaim, validateBulkUpdateClaims } from "../middleware/validation/claims/claims.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -19,6 +19,13 @@ router.route('/')
         ]),
         validateCreateClaim,
         claimsController.createClaim
+    );
+
+router.route('/bulk-update')
+    .put(
+        verifySession,
+        validateBulkUpdateClaims,
+        claimsController.bulkUpdateClaims
     );
 
 router.route('/:id')
