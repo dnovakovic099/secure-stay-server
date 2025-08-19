@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { TasksController } from "../controllers/TasksController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateTask, validateUpdateTask } from "../middleware/validation/tasks/tasks.validation";
+import { validateCreateTask, validateUpdateTask, validateBulkUpdateTask } from "../middleware/validation/tasks/tasks.validation";
 import { AssigneeController } from "../controllers/AssigneeController";
 
 const router = Router();
@@ -17,6 +17,13 @@ router.route('/')
         verifySession,
         validateCreateTask,
         tasksController.createTask
+    );
+
+router.route('/bulk-update')
+    .put(
+        verifySession,
+        validateBulkUpdateTask,
+        tasksController.bulkUpdateTasks
     );
 
 router.route('/:id')
