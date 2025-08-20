@@ -147,6 +147,7 @@ export const validateBulkUpdateClientTicket = (request: Request, response: Respo
                 .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")),
             description: Joi.string(),
             resolution: Joi.string().allow(null),
+            clientSatisfaction: Joi.number().integer().min(1).max(5).allow(null),
         }).min(1).required(),
     });
 

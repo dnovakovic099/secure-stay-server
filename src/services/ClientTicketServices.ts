@@ -356,6 +356,9 @@ export class ClientTicketService {
                 if (updateData.resolution !== undefined) {
                     clientTicket.resolution = updateData.resolution;
                 }
+                if (updateData.clientSatisfaction !== undefined) {
+                    clientTicket.clientSatisfaction = updateData.clientSatisfaction;
+                }
                 
                 clientTicket.updatedBy = userId;
                 clientTicket.updatedAt = new Date();
