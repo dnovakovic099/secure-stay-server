@@ -84,6 +84,7 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction
         };
         if (body.category.includes("Other") && mentions && mentions.length > 0) {
             setSelectedSlackUsers(mentions);
@@ -219,6 +220,7 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction
         };
 
         const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
