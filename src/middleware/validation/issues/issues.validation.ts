@@ -41,7 +41,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null, ""),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null, ""),
         resolution: Joi.string().optional().allow(null),
     });
 
@@ -90,7 +90,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         deletedFiles: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,""),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
         resolution: Joi.string().optional().allow(null),
     });
 
@@ -106,7 +106,7 @@ export const validateIssueMigrationToActionItem = (request: Request, response: R
     const schema = Joi.object({
         id: Joi.number().required(),
         status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
-        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").required(),
+        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER", "PROPERTY ACCESS", "HB NOT RESPONDING").required(),
     });
 
     const { error } = schema.validate(request.body);
@@ -176,7 +176,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
         ids: Joi.array().items(Joi.number().required()).min(1).required(),
         updateData: Joi.object({
             status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled").optional(),
-            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").optional(),
+            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").optional(),
             issue_description: Joi.string().optional(),
             claim_resolution_status: Joi.string().valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved').optional(),
             claim_resolution_amount: Joi.number().precision(2).optional(),

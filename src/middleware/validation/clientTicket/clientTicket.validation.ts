@@ -18,7 +18,8 @@ export const validateCreateClientTicket = (request: Request, response: Response,
                 updates: Joi.string().required()
             }).required()
         ).min(1).required().allow(null),
-        mentions: Joi.array().items(Joi.string().optional()).optional()
+        mentions: Joi.array().items(Joi.string().optional()).optional(),
+        clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -48,6 +49,7 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
                 isDeleted: Joi.boolean().optional()
             }).required()
         ).min(1).required().allow(null),
+        clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -145,6 +147,7 @@ export const validateBulkUpdateClientTicket = (request: Request, response: Respo
                 .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")),
             description: Joi.string(),
             resolution: Joi.string().allow(null),
+            clientSatisfaction: Joi.number().integer().min(1).max(5).allow(null),
         }).min(1).required(),
     });
 
