@@ -36,3 +36,22 @@ export const validateUpdateTask = (request: Request, response: Response, next: N
     }
     next();
 };
+
+export const validateBulkUpdateTask = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+        updateData: Joi.object({
+            status: Joi.string()
+                .valid("Assigned", "In Progress", "Need Attention", "Completed"),
+            listing_id: Joi.string(),
+            assignee_id: Joi.string(),
+            task: Joi.string(),
+        }).min(1).required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ClientTicketController } from "../controllers/ClientTicketController";
-import { validateCreateClientTicket, validateCreateLatestUpdates, validateGetClientTicket, validateUpdateClientTicket, validateUpdateLatestUpdates, validateUpdateStatus } from "../middleware/validation/clientTicket/clientTicket.validation";
+import { validateCreateClientTicket, validateCreateLatestUpdates, validateGetClientTicket, validateUpdateClientTicket, validateUpdateLatestUpdates, validateUpdateStatus, validateBulkUpdateClientTicket } from "../middleware/validation/clientTicket/clientTicket.validation";
 
 const router = Router();
 const clientTicketController = new ClientTicketController;
@@ -41,5 +41,9 @@ router
 router
     .route('/latestupdates/delete/:id')
     .delete(verifySession, clientTicketController.deleteClientTicketUpdate);
+
+router
+    .route('/bulk-update')
+    .put(verifySession, validateBulkUpdateClientTicket, clientTicketController.bulkUpdateClientTickets);
 
 export default router;

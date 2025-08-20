@@ -10,7 +10,7 @@ export class ActionItemsController {
         try {
             const actionItemsService = new ActionItemsService();
             const { category, page = 1, limit = 10 } = request.query;
-            const filter = {
+            const filter: any = {
                 category: category || undefined,
                 page: Number(page),
                 limit: Number(limit),
@@ -19,7 +19,9 @@ export class ActionItemsController {
                 status: request.query.status || undefined,
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
-                ids: request.query.ids || undefined
+                ids: request.query.ids || undefined,
+                propertyType: request.query.propertyType || undefined,
+                keyword: request.query.keyword || undefined,
             };
             const actionItems = await actionItemsService.getActionItems(filter);
             return response.status(200).json(actionItems);
@@ -131,6 +133,28 @@ export class ActionItemsController {
             }
 
             return response.status(200).json(migratedIssue);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async bulkUpdateActionItems(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { ids, updateData } = request.body;
+            const userId = request.user?.id;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return response.status(400).json({ message: "IDs array is required and must not be empty" });
+            }
+
+            if (!updateData || Object.keys(updateData).length === 0) {
+                return response.status(400).json({ message: "Update data is required and must not be empty" });
+            }
+
+            const actionItemsService = new ActionItemsService();
+            const result = await actionItemsService.bulkUpdateActionItems(ids, updateData, userId);
+
+            return response.status(200).json(result);
         } catch (error) {
             next(error);
         }
