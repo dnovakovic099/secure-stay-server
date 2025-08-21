@@ -607,10 +607,10 @@ export class ExpenseService {
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
             if (amount !== undefined && amount !== null) expense.amount = amount * -1;
-            if (contractorName !== undefined) expense.contractorName = contractorName;
-            if (contractorNumber !== undefined) expense.contractorNumber = contractorNumber;
-            if (findings !== undefined) expense.findings = findings;
-            if (datePaid !== undefined) expense.datePaid = datePaid;
+            if (contractorName !== undefined && contractorName !==null) expense.contractorName = contractorName;
+            if (contractorNumber !== undefined && contractorNumber !==null) expense.contractorNumber = contractorNumber;
+            if (findings !== undefined && findings !==null) expense.findings = findings;
+            if (datePaid !== undefined && datePaid !==null) expense.datePaid = datePaid;
 
             expense.updatedBy = userId;
             expense.updatedAt = new Date();
