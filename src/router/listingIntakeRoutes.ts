@@ -14,7 +14,6 @@ router.route('/:id').get(verifySession, listingIntakeController.getListingIntake
 
 router.route('/bedTypes/create').post(verifySession, validateCreateBedTypes, listingIntakeController.saveBedTypes);
 router.route('/bedTypes/update').put(verifySession, validateUpdateBedTypes, listingIntakeController.updateBedTypes);
-router.route('/bedTypes/').delete(verifySession, validateDeleteBedTypes, listingIntakeController.deleteBedTypes);
-router.route('/bedTypes/:listingIntakeId').post(verifySession, listingIntakeController.getBedTypes);
-
+router.route('/bedTypes').post(verifySession, validateDeleteBedTypes, listingIntakeController.deleteBedTypes);
+router.route('/bedTypes/:listingIntakeId').get(verifySession, listingIntakeController.getBedTypes);
 export default router;

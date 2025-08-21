@@ -31,13 +31,14 @@ export class ListingIntakeService {
         if (!listingIntake) {
             throw CustomErrorHandler.notFound(`Listing intake with id ${body.id} not found`);
         }
+        const { id, ...rest } = body;
 
         const updatedData = this.listingIntakeRepo.merge(listingIntake, {
-            ...body,
+            ...rest,
             updatedBy: userId
         });
 
-        return await this.listingIntakeRepo.save(updatedData);
+        return await this.listingIntakeRepo.update({ id: body.id }, updatedData);
     }
 
     async deleteListingIntake(id: number, userId: string) {
@@ -83,7 +84,7 @@ export class ListingIntakeService {
     }
 
     async getListingIntakeById(id: number) {
-        return await this.listingIntakeRepo.findOne({ where: { id: id } });
+        return await this.listingIntakeRepo.findOne({ where: { id: id }, relations: ["listingBedTypes"] });
     }
 
     async getListingIntakeStatus(listingIntake: ListingIntake) {
