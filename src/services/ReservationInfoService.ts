@@ -23,6 +23,7 @@ import { ActionItems } from "../entity/ActionItems";
 import { ListingService } from "./ListingService";
 import { IssuesService } from "./IssuesService";
 import { ActionItemsService } from "./ActionItemsService";
+import { GenericReport } from "../entity/GenericReport";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -30,11 +31,15 @@ export class ReservationInfoService {
   private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
   private resolutionRepo = appDatabase.getRepository(Resolution);
+  private genericReportRepo = appDatabase.getRepository(GenericReport);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
   private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
+
+  private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
+  private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
     const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
@@ -1143,4 +1148,199 @@ export class ReservationInfoService {
     }
     return await this.saveReservationInfo(reservation);
   }
+
+  async getReservationGenericReport(body: {
+    year: string,
+    month: string;
+  }) {
+    const { year, month } = body;
+    const reportType = "reservationStatusReport";
+
+    logger.info(`
+      ReportType: ${reportType}
+      Year: ${year},
+      Month: ${month ? month : "-"}
+      `);
+
+    let result = [];
+    result = await this.genericReportRepo.find({
+      where: {
+        reportType: reportType,
+        year: year,
+        ...(month && { month: month })
+      },
+    });
+
+
+    if (!result || result.length === 0) {
+      logger.info(`Data does not exists in database.`);
+      logger.info(`Fetching reservation data from Hostaway and processing it`);
+      await this.generateReservationStatusReportFromHA(year);
+    } 
+
+    return await this.getReportData(reportType, year, month);
+  }
+
+  async getReportData(reportType: string, year: string, month: string | null) {
+    const qb = this.genericReportRepo
+      .createQueryBuilder("gr")
+      .select("gr.dimension2", "status") // dimension2 holds the status value
+      .addSelect("SUM(gr.value)", "count") // value holds the count for each record
+      .where("gr.reportType = :reportType", { reportType })
+      .andWhere("gr.year = :year", { year })
+
+    // Only apply month filter if provided
+    if (month) {
+      qb.andWhere("gr.month = :month", { month });
+    }
+
+    qb.groupBy("gr.dimension2")
+      .orderBy(`
+      CASE
+        WHEN gr.dimension2 = 'new' THEN 1
+        WHEN gr.dimension2 = 'modified' THEN 2
+        WHEN gr.dimension2 = 'ownerStay' THEN 3
+        ELSE 4
+      END
+    `)
+      .addOrderBy("gr.dimension2", "ASC"); // secondary order for the rest
+
+    const data = await qb.getRawMany();
+
+    return data.map(r => ({
+      status: r.status,
+      count: Number(r.count)
+    }));
+  }
+
+  async generateReservationStatusReportFromHA(year: string) {
+    let result = [];
+
+    //fetch reservationInfo from hostaway and generate the report
+    const clientId = this.clientId;
+    const clientSecret = this.clientSecret;
+    if (!clientId || !clientSecret) {
+      logger.info(`Credentials for hostaway not found`);
+      throw new Error("Hostaway client ID and secret are not configured.");
+    }
+
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    let limit = 500;
+    let offset = 0;
+    let hasMoreData = true;
+
+    logger.info(`Fetching reservation data from Hostaway. This might take a while to process`);
+    while (hasMoreData) {
+      const reservations = await this.hostAwayClient.getReservations(clientId, clientSecret, "", "arrival", startDate, endDate, limit, offset, "");
+      if (!reservations || reservations.length === 0) {
+        hasMoreData = false; // No more data to process
+        break;
+      }
+
+      result = result.concat(reservations);
+
+      // Check if there is more data
+      if (reservations.length < limit) {
+        hasMoreData = false; // No more data if the last page contains less than `limit`
+      } else {
+        offset += limit; // Update offset for the next page
+      }
+    }
+    logger.info(`Reservation data fetched from hostaway`);
+    //process the reservations for each month and save the data
+    await this.processReservationStatusReport(result, year);
+  }
+
+  async processReservationStatusReport(reservations: any[], year: string) {
+    const reportType = "reservationStatusReport";
+    const statuses = [
+      "new",
+      "modified",
+      "cancelled",
+      "ownerStay",
+      "pending",
+      "awaitingPayment",
+      "declined",
+      "expired",
+      "inquiry",
+      "inquiryPreapproved",
+      "inquiryDenied",
+      "inquiryTimedout",
+      "inquiryNotPossible"
+    ];
+    const dimension1 = "status";
+
+    const reportsToSave = [];
+
+    logger.info(`Processing the reservation data based on month, year, status and listingId`);
+
+    // Loop through each month (1 to 12)
+    for (let month = 1; month <= 12; month++) {
+      const monthStr = month.toString().padStart(2, "0");
+
+      // Filter reservations for this month
+      const monthReservations = reservations.filter(res => {
+        const arrivalDate = new Date(res.arrivalDate);
+        return arrivalDate.getFullYear() === Number(year) && (arrivalDate.getMonth() + 1) == month;
+      });
+
+      // Group by listingId
+      const listings = [...new Set(monthReservations.map(r => r.listingMapId))];
+
+      for (const listingId of listings) {
+        const listingReservations = monthReservations.filter(r => r.listingMapId === listingId);
+
+        // Count per status
+        for (const status of statuses) {
+          const statusCount = listingReservations.filter(r => r.status === status).length;
+          reportsToSave.push({
+            reportType,
+            listingId,
+            year: year.toString(),
+            month: monthStr,
+            dimension1,        // grouping dimension
+            dimension2: status, // actual status value
+            value: statusCount,
+            createdBy: "system",
+            updatedBy: "system"
+          });
+        }
+
+      }
+    }
+
+    logger.info(`Completed processing the reservation data based on month, year, status and listingId`);
+
+    if (reportsToSave.length > 0) {
+      await this.genericReportRepo.save(reportsToSave);
+      logger.info(`Report Data saved successfully`);
+    }
+    return;
+  }
+
+  async refreshCurrentYearReservationStatusReport() {
+    const currentYear = new Date().getFullYear().toString();
+    const reportType = "reservationStatusReport";
+
+    logger.info(`Refreshing reservation status report for year: ${currentYear}`);
+
+    // Step 1: Delete existing data for this year
+    logger.info(`Deleting existing ${reportType} data for year ${currentYear}...`);
+    await this.genericReportRepo
+      .createQueryBuilder()
+      .delete()
+      .where("reportType = :reportType", { reportType })
+      .andWhere("year = :year", { year: currentYear })
+      .execute();
+    logger.info(`Old report data deleted.`);
+
+    // Step 2: Generate fresh report from Hostaway
+    logger.info(`Fetching updated data from Hostaway for ${currentYear}...`);
+    await this.generateReservationStatusReportFromHA(currentYear);
+
+    logger.info(`Reservation status report for ${currentYear} refreshed successfully.`);
+  }
+
+
 }

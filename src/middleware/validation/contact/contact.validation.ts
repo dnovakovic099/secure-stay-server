@@ -268,3 +268,40 @@ export const validateUpdateLatestUpdate = (request: Request, response: Response,
     next();
 };
 
+export const validateBulkUpdateContacts = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().integer().required()).min(1).required(),
+        updateData: Joi.object({
+            status: Joi.string().valid('active', 'active-backup', 'inactive').optional(),
+            listingId: Joi.string().optional(),
+            role: Joi.string().optional(),
+            name: Joi.string().optional(),
+            contact: Joi.string().optional().allow(null),
+            notes: Joi.string().optional().allow(null),
+            website_name: Joi.string().optional().allow(null),
+            website_link: Joi.string().optional().allow(null),
+            rate: Joi.string().optional().allow(null),
+            paymentScheduleType: Joi.string().valid(
+                "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
+            ).optional().allow(null),
+            paymentIntervalMonth: Joi.number().integer().min(1).max(12).optional().allow(null),
+            paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).optional().allow(null),
+            paymentWeekOfMonth: Joi.number().integer().min(1).max(5).optional().allow(null),
+            paymentDayOfMonth: Joi.number().integer().min(1).max(32).optional().allow(null),
+            paymentMethod: Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal").optional().allow(null),
+            isAutoPay: Joi.boolean().optional(),
+            email: Joi.string().email().optional().allow(null),
+            source: Joi.string().valid("Owner", "Turno", "LL").optional().allow(null),
+            costRating: Joi.number().integer().min(1).max(5).optional().allow(null),
+            trustLevel: Joi.number().integer().min(1).max(5).optional().allow(null),
+            speed: Joi.number().integer().min(1).max(5).optional().allow(null),
+        }).min(1).required()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+

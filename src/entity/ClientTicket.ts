@@ -48,4 +48,7 @@ export class ClientTicket {
     
     @OneToMany(() => ClientTicketUpdates, clientTicket => clientTicket.clientTicket)
     clientTicketUpdates: ClientTicketUpdates[];
+
+    @Column({ nullable: true })
+    clientSatisfaction: number;
 }

@@ -45,3 +45,17 @@ export const validateGetReservationList = (request: Request, response: Response,
     }
     next();
 };
+
+
+export const validateGetReservationReport = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        year: Joi.number().required(),
+        month: Joi.number().optional().allow(null)
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
+};

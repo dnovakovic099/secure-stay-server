@@ -168,4 +168,38 @@ export class ClaimsController {
             });
         }
     }
+
+    async bulkUpdateClaims(request: any, response: Response) {
+        const claimsService = new ClaimsService();
+        try {
+            const { ids, updateData } = request.body;
+            const userId = request.user.id;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: "IDs array is required and must not be empty"
+                });
+            }
+
+            if (!updateData || Object.keys(updateData).length === 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: "Update data is required and must not be empty"
+                });
+            }
+
+            const result = await claimsService.bulkUpdateClaims(ids, updateData, userId);
+
+            return response.status(200).json({
+                status: true,
+                ...result
+            });
+        } catch (error) {
+            return response.status(400).json({
+                status: false,
+                message: error.message
+            });
+        }
+    }
 } 
