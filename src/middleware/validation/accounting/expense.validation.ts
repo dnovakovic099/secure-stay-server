@@ -143,7 +143,9 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .min(1)
             .required()
             .allow('', null),
-        tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null)
+        tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        keyword: Joi.string().optional()
     });
 
     const { error } = schema.validate(request.query);

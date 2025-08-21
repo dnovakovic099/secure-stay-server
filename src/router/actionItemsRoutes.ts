@@ -2,7 +2,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ActionItemsController } from "../controllers/ActionItemsController";
-import { getActionItemsValidation, validateActionItemMigrationToIssue, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate } from "../middleware/validation/actionItems/actionItems.validation";
+import { getActionItemsValidation, validateActionItemMigrationToIssue, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate, validateBulkUpdateActionItems } from "../middleware/validation/actionItems/actionItems.validation";
 
 const router = Router();
 const categoryController = new ActionItemsController();
@@ -15,6 +15,9 @@ router.route('/create')
 
 router.route('/update')
     .put(verifySession, validateUpdateActionItems, categoryController.updateActionItem);
+
+router.route('/bulk-update')
+    .put(verifySession, validateBulkUpdateActionItems, categoryController.bulkUpdateActionItems);
 
 router.route('/delete/:id')
     .delete(verifySession, categoryController.deleteActionItem);

@@ -11,6 +11,7 @@ import { ListingService } from "../services/ListingService";
 import { UpsellOrderService } from "../services/UpsellOrderService";
 import { format } from "date-fns";
 import { ClaimsService } from "../services/ClaimsService";
+import { MaintenanceService } from "../services/MaintenanceService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -113,6 +114,29 @@ export function scheduleGetReservation() {
         logger.info('Sent reminder message for pending claims successfully.');
       } catch (error) {
         logger.error("Error sending reminder message for pending claims", error);
+      }
+    });
+
+  schedule.scheduleJob(
+    { hour: 1, minute: 30, tz: "America/New_York" },  // Daily at 1:30 AM EST
+    async () => {
+      try {
+        const reservationInfoService = new ReservationInfoService();
+        await reservationInfoService.refreshCurrentYearReservationStatusReport();
+      } catch (error) {
+        logger.error("Error sending reminder message for pending claims", error);
+      }
+    });
+  schedule.scheduleJob(
+    { hour: 2, minute: 0, tz: "America/New_York" },  // Daily at 2 AM EST
+    async () => {
+      try {
+        logger.info('Processing maintenance log creation...');
+        const maintenanceService = new MaintenanceService();
+        await maintenanceService.automateMaintenanceLogs();
+        logger.info('Processed maintenance log creation successfully.');
+      } catch (error) {
+        logger.error("Error processing maintenance log creation:", error);
       }
     });
 }

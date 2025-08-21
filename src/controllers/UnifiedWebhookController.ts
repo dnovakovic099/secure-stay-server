@@ -183,6 +183,10 @@ export class UnifiedWebhookController {
             for (let item of body.action_items) {
                 logger.info(`[handleHostBuddyWebhook]Processing action item: ${JSON.stringify(item)}`);
                 switch (item.category) {
+                    case "POOL AND SPA":
+                    case "PEST CONTROL":
+                    case "LANDSCAPING":
+                    case "HVAC":
                     case "MAINTENANCE":
                     case "CLEANLINESS": {
                         logger.info(`[handleHostBuddyWebhook]Creating issue for action item: ${JSON.stringify(item)}`);
@@ -192,6 +196,8 @@ export class UnifiedWebhookController {
                     case "RESERVATION CHANGES":
                     case "GUEST REQUESTS":
                     case "KNOWLEDGE BASE SUGGESTIONS":
+                    case "PROPERTY ACCESS":
+                    case "HB NOT RESPONDING":
                     case "OTHER": {
                         logger.info(`[handleHostBuddyWebhook]Creating action item: ${JSON.stringify(item)}`);
                         const actionItemsService = new ActionItemsService();
@@ -247,7 +253,8 @@ export class UnifiedWebhookController {
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
             final_price: 0,
-            claim_resolution_amount: 0
+            claim_resolution_amount: 0,
+            category: item.category
         };
         try {
             const issueService = new IssuesService();

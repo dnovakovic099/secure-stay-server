@@ -1,7 +1,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ContactController } from "../controllers/ContactController";
-import { validateCreateContact, validateCreateContactRole, validateCreateLatestUpdate, validateDeleteContact, validateGetContacts, validateUpdateContact, validateUpdateContactRole, validateUpdateLatestUpdate } from "../middleware/validation/contact/contact.validation";
+import { validateCreateContact, validateCreateContactRole, validateCreateLatestUpdate, validateDeleteContact, validateGetContacts, validateUpdateContact, validateUpdateContactRole, validateUpdateLatestUpdate, validateBulkUpdateContacts } from "../middleware/validation/contact/contact.validation";
 
 const router = Router();
 const contactController = new ContactController();
@@ -9,6 +9,8 @@ const contactController = new ContactController();
 router.route('/create').post(verifySession, validateCreateContact, contactController.createContact);
 
 router.route('/update').put(verifySession, validateUpdateContact, contactController.updateContact);
+
+router.route('/bulk-update').put(verifySession, validateBulkUpdateContacts, contactController.bulkUpdateContacts);
 
 router.route('/delete/:id').delete(verifySession, validateDeleteContact, contactController.deleteContact);
 

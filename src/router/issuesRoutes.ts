@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { IssuesController } from "../controllers/IssuesController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates } from "../middleware/validation/issues/issues.validation";
+import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates, validateBulkUpdateIssues } from "../middleware/validation/issues/issues.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -20,6 +20,13 @@ router.route('/')
         ]),
         validateCreateIssue,
         issuesController.createIssue
+    );
+
+router.route('/bulk-update')
+    .put(
+        verifySession,
+        validateBulkUpdateIssues,
+        issuesController.bulkUpdateIssues
     );
 
 router.route('/:id')

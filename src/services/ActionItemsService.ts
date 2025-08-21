@@ -4,7 +4,7 @@ import { Listing } from "../entity/Listing";
 import logger from "../utils/logger.utils";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { Between, In } from "typeorm";
+import { Between, ILike, In, Like } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
@@ -13,6 +13,7 @@ import { ReservationService } from "./ReservationService";
 import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
 import { IssueUpdates } from "../entity/IsssueUpdates";
+import { ListingService } from "./ListingService";
 
 interface ActionItemFilter {
     category?: string;
@@ -82,13 +83,23 @@ export class ActionItemsService {
             fromDate,
             toDate,
             ids,
-            reservationId
+            reservationId,
+            propertyType,
+            keyword
         } = filter;
+
+        let listingIds = [];
+        if (propertyType && propertyType.length > 0) {
+            const listingService = new ListingService();
+            listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+        } else {
+            listingIds = listingId;
+        }
 
         const whereConditions = {
             ...(ids?.length > 0 && { id: In(ids) }),
             ...(category && { category: In(category) }),
-            ...(listingId?.length > 0 && { listingId: In(listingId) }),
+            ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
             ...(reservationId?.length > 0 && { reservationId: In(reservationId) }),
             ...(guestName && { guestName }),
             ...(status && { status: In(status) }),
@@ -100,12 +111,19 @@ export class ActionItemsService {
             }),
         };
 
+        const where = keyword
+        ? [
+            { ...whereConditions, item: ILike(`%${keyword}%`) },
+            { ...whereConditions, guestName: ILike(`%${keyword}%`) },
+        ]
+        : whereConditions;
+
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
 
         const [actionItems, total] = await this.actionItemsRepo.findAndCount({
-            where: whereConditions,
+            where,
             skip: (page - 1) * limit,
             relations: ["actionItemsUpdates"],
             take: limit,
@@ -307,6 +325,63 @@ export class ActionItemsService {
         actionItem.status = status;
         actionItem.updatedBy = userId;
         return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async bulkUpdateActionItems(ids: number[], updateData: Partial<ActionItems>, userId: string) {
+        try {
+            // Validate that all action items exist
+            const existingActionItems = await this.actionItemsRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingActionItems.length !== ids.length) {
+                const foundIds = existingActionItems.map(item => item.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Action items with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all action items with the provided data
+            const updatePromises = existingActionItems.map(actionItem => {
+                // Only update fields that are provided in updateData
+                if (updateData.listingName !== undefined) {
+                    actionItem.listingName = updateData.listingName;
+                }
+                if (updateData.guestName !== undefined) {
+                    actionItem.guestName = updateData.guestName;
+                }
+                if (updateData.item !== undefined) {
+                    actionItem.item = updateData.item;
+                }
+                if (updateData.category !== undefined) {
+                    actionItem.category = updateData.category;
+                }
+                if (updateData.status !== undefined) {
+                    actionItem.status = updateData.status;
+                }
+                if (updateData.listingId !== undefined) {
+                    actionItem.listingId = updateData.listingId;
+                }
+                if (updateData.reservationId !== undefined) {
+                    actionItem.reservationId = updateData.reservationId;
+                }
+                
+                actionItem.updatedBy = userId;
+                return this.actionItemsRepo.save(actionItem);
+            });
+
+            const updatedActionItems = await Promise.all(updatePromises);
+            
+            logger.info(`[bulkUpdateActionItems] Successfully updated ${updatedActionItems.length} action items`);
+            
+            return {
+                success: true,
+                updatedCount: updatedActionItems.length,
+                message: `Successfully updated ${updatedActionItems.length} action items`
+            };
+        } catch (error) {
+            logger.error(`[bulkUpdateActionItems] Error updating action items: ${error.message}`);
+            throw error;
+        }
     }
 
 }

@@ -106,4 +106,37 @@ export class TasksController {
             });
         }
     }
+
+    async bulkUpdateTasks(request: any, response: Response) {
+        const tasksService = new TasksService();
+        try {
+            const { ids, updateData } = request.body;
+            const userId = request.user.id;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: "IDs array is required and must not be empty"
+                });
+            }
+
+            if (!updateData || typeof updateData !== 'object') {
+                return response.status(400).json({
+                    status: false,
+                    message: "Update data is required and must be an object"
+                });
+            }
+
+            const result = await tasksService.bulkUpdateTasks(ids, updateData, userId);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            return response.status(400).json({
+                status: false,
+                message: error.message
+            });
+        }
+    }
 } 

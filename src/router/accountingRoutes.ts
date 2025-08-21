@@ -11,7 +11,7 @@ import verifyMobileSession from "../middleware/verifyMobileSession";
 import { ContractorInfoController } from "../controllers/ContractorController";
 import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 import { ResolutionController } from "../controllers/ResolutionController";
-import { validateCreateResolution, validateGetResolutions, validateUpdateResolution } from '../middleware/validation/accounting/resolution.validation';
+import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -130,6 +130,13 @@ router.route('/deleteresolution/:resolutionId')
     .delete(
         verifySession,
         resolutionController.deleteResolution
+    );
+
+router.route('/bulkupdateresolutions')
+    .put(
+        verifySession,
+        validateBulkUpdateResolutions,
+        resolutionController.bulkUpdateResolutions
     );
 
 router.route('/migrateexpensecategories')

@@ -18,7 +18,8 @@ export const validateCreateClientTicket = (request: Request, response: Response,
                 updates: Joi.string().required()
             }).required()
         ).min(1).required().allow(null),
-        mentions: Joi.array().items(Joi.string().optional()).optional()
+        mentions: Joi.array().items(Joi.string().optional()).optional(),
+        clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -48,6 +49,7 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
                 isDeleted: Joi.boolean().optional()
             }).required()
         ).min(1).required().allow(null),
+        clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -68,7 +70,9 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
             .messages({ 'string.pattern.base': 'toDate must be in the format "yyyy-mm-dd"' }),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        ids: Joi.array().items(Joi.number().required()).min(1).optional()
+        ids: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.number()).min(1).optional(),
+        keyword: Joi.string().optional()
     }).custom((value, helpers) => {
         if (value.fromDate && value.toDate && new Date(value.fromDate) > new Date(value.toDate)) {
             return helpers.error('any.invalid', { message: 'fromDate must be before toDate' });
@@ -124,6 +128,27 @@ export const validateUpdateLatestUpdates = (request: Request, response: Response
     const schema = Joi.object({
         id: Joi.number().required(),
         updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateBulkUpdateClientTicket = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+        updateData: Joi.object({
+            status: Joi.string().valid("New", "In Progress", "Completed"),
+            listingId: Joi.string(),
+            category: Joi.array().items(Joi.string()
+                .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")),
+            description: Joi.string(),
+            resolution: Joi.string().allow(null),
+            clientSatisfaction: Joi.number().integer().min(1).max(5).allow(null),
+        }).min(1).required(),
     });
 
     const { error } = schema.validate(request.body);

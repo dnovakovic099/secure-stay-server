@@ -120,6 +120,22 @@ export const issueCategoryEmoji = (category: string) => {
             emoji = "🧹";
             break;
         }
+        case "POOL AND SPA": {
+            emoji = "🏊"; 
+            break;
+        }
+        case "PEST CONTROL": {
+            emoji = "🐜"; 
+            break;
+        }
+        case "LANDSCAPING": {
+            emoji = "🌳"; 
+            break;
+        }
+        case "HVAC": {
+            emoji = "❄️"; 
+            break;
+        }
         default: {
             emoji = "";
         }
