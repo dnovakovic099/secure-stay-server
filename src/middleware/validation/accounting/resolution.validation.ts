@@ -166,4 +166,80 @@ export const validateUpdateResolution = (request: Request, response: Response, n
         next(error);
     }
     next();
+};
+
+export const validateBulkUpdateResolutions = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        ids: Joi.array()
+            .items(Joi.number().required())
+            .min(1)
+            .required()
+            .messages({
+                'array.min': 'At least one resolution ID is required',
+                'any.required': 'IDs array is required'
+            }),
+        updateData: Joi.object({
+            category: Joi.string()
+                .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal")
+                .messages({
+                    'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others, resolution, review_removal'
+                })
+                .optional(),
+            description: Joi.string().allow(null, '').optional(),
+            listingMapId: Joi.number()
+                .messages({
+                    'number.base': 'Listing Map ID must be a number'
+                })
+                .optional(),
+            reservationId: Joi.number()
+                .messages({
+                    'number.base': 'Reservation ID must be a number'
+                })
+                .optional(),
+            guestName: Joi.string()
+                .messages({
+                    'string.empty': 'Guest name cannot be empty'
+                })
+                .optional(),
+            claimDate: Joi.string()
+                .regex(/^\d{4}-\d{2}-\d{2}$/)
+                .messages({
+                    'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"'
+                })
+                .optional(),
+            amount: Joi.number()
+                .messages({
+                    'number.base': 'Amount must be a number'
+                })
+                .optional(),
+            arrivalDate: Joi.string()
+                .messages({
+                    'string.empty': 'Arrival date cannot be empty'
+                })
+                .optional(),
+            departureDate: Joi.string()
+                .messages({
+                    'string.empty': 'Departure date cannot be empty'
+                })
+                .optional(),
+            amountToPayout: Joi.number()
+                .messages({
+                    'number.base': 'Amount must be a number',
+                    'any.required': 'Amount is required'
+                })
+                .optional(),
+        })
+        .min(1)
+        .required()
+        .messages({
+            'object.min': 'At least one field must be provided for update',
+            'any.required': 'Update data is required'
+        })
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+    }
+    next();
 }; 
