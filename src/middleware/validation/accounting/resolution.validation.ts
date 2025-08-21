@@ -223,12 +223,11 @@ export const validateBulkUpdateResolutions = (request: Request, response: Respon
                 })
                 .optional(),
             amountToPayout: Joi.number()
-                .required()
                 .messages({
                     'number.base': 'Amount must be a number',
                     'any.required': 'Amount is required'
                 })
-                .allow(null),
+                .optional(),
         })
         .min(1)
         .required()
