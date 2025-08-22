@@ -688,7 +688,7 @@ export class ReservationInfoService {
       throw new Error(`Reservation not found with ID: ${id}`);
     }
 
-    reservation.isProcessedInStatement = atRisk;
+    reservation.atRisk = atRisk;
     return await this.reservationInfoRepository.save(reservation);
   }
 
