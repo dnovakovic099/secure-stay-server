@@ -63,3 +63,31 @@ export const validateSaveReview = (request: Request, response: Response, next: N
     }
     next();
 };
+
+export const validateGetReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        todayDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).required().messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+            'any.required': 'todayDate is required'
+        }),
+        listingMapId: Joi.array().items(Joi.number()).min(1).allow("", null),
+        guestName: Joi.string().allow(''),
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        actionItems: Joi.array().items(
+            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
+        ).optional(),
+        issues: Joi.array().items(
+            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+        ).optional(),
+        channel: Joi.array().items(Joi.string()).optional(),
+        keyword: Joi.string().optional(),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        next(error);
+    }
+    next();
+};

@@ -75,4 +75,16 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async getReviewsForCheckout(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const reviewService = new ReviewService();
+            const data = await reviewService.getReviewsForCheckout(request.query, userId);
+            return response.status(200).json(data);
+        } catch (error) {
+            logger.error("Error fetching review for checkout:", error);
+            return next(error);
+        }
+    }
 }
