@@ -682,6 +682,16 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.save(reservation);
   }
 
+  async updateReservationRiskStatus(id: number, atRisk: boolean) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id}`);
+    }
+
+    reservation.isProcessedInStatement = atRisk;
+    return await this.reservationInfoRepository.save(reservation);
+  }
+
   private async checkAirbnbClosedResoultionSum(reservation: any) {
     if (!reservation) {
       logger.info('[ReservationInfoService] [checkAirbnbClosedResolutionSum] No reservation object found.')
