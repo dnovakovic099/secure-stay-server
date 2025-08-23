@@ -61,7 +61,9 @@ export class ReviewService {
         status,
         isClaimOnly,
         keyword,
-        propertyType
+        propertyType,
+        dateType,
+        channel
     }) {
         try {
             let listingIds: number[] = [];
@@ -88,10 +90,13 @@ export class ReviewService {
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
                 ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
                 ...(keyword && { publicReview: ILike(`%${keyword}%`) }),
+                ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
 
-            if (fromDate !== undefined && toDate !== undefined) {
-                condition.submittedAt = Between(fromDate, toDate);
+            const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
+
+            if (fromDate !== undefined && toDate !== undefined && dateType && allowedDateTypes.includes(dateType)) {
+                condition[dateType] = Between(fromDate, toDate);
             }
 
             const reviewDetailCondition: Record<string, any> = {};
@@ -113,7 +118,8 @@ export class ReviewService {
 
             if (Object.keys(order).length === 0) {
                 order.rating = 'ASC';
-                order.submittedAt = 'DESC';
+                const dateColumn = (dateType && allowedDateTypes.includes(dateType)) ? dateType : "submittedAt";
+                order[dateColumn] = 'DESC';
             }
 
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({

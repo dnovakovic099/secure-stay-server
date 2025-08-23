@@ -3,6 +3,7 @@ import Joi, { custom } from "joi";
 
 export const validateGetReviewRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
+        dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt"),
         fromDate: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'fromDate must be in the format "yyyy-mm-dd"' }).optional(),
@@ -21,6 +22,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         status: Joi.string().required().valid("active", "hidden").allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        channel: Joi.array().items(Joi.number()).optional(),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
