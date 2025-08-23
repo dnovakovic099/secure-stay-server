@@ -206,4 +206,79 @@ export class ResolutionService {
              },
         });
     }
+
+    async bulkUpdateResolutions(ids: number[], updateData: Partial<Resolution>, userId: string) {
+        try {
+            // Validate that all resolutions exist
+            const existingResolutions = await this.resolutionRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingResolutions.length !== ids.length) {
+                const foundIds = existingResolutions.map(resolution => resolution.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw new Error(`Resolutions with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all resolutions with the provided data
+            const updatePromises = existingResolutions.map(resolution => {
+                // Only update fields that are provided in updateData
+                if (updateData.category !== undefined) {
+                    resolution.category = updateData.category;
+                }
+                if (updateData.description !== undefined) {
+                    resolution.description = updateData.description;
+                }
+                if (updateData.listingMapId !== undefined) {
+                    resolution.listingMapId = updateData.listingMapId;
+                }
+                if (updateData.guestName !== undefined) {
+                    resolution.guestName = updateData.guestName;
+                }
+                if (updateData.reservationId !== undefined) {
+                    resolution.reservationId = updateData.reservationId;
+                }
+                if (updateData.claimDate !== undefined) {
+                    resolution.claimDate = updateData.claimDate;
+                }
+                if (updateData.amount !== undefined) {
+                    resolution.amount = updateData.amount;
+                }
+                if (updateData.arrivalDate !== undefined) {
+                    resolution.arrivalDate = updateData.arrivalDate;
+                }
+                if (updateData.departureDate !== undefined) {
+                    resolution.departureDate = updateData.departureDate;
+                }
+                if (updateData.amountToPayout !== undefined) {
+                    resolution.amountToPayout = updateData.amountToPayout;
+                }
+                
+                resolution.updatedBy = userId;
+                return this.resolutionRepo.save(resolution);
+            });
+
+            const updatedResolutions = await Promise.all(updatePromises);
+            
+            // Add to queue to update resolutions in HA for those that have ha_id
+            const resolutionsWithHaId = updatedResolutions.filter(resolution => resolution.ha_id);
+            for (const resolution of resolutionsWithHaId) {
+                try {
+                    await haResolutionUpdateQueue.add('update-HA-resolution', {
+                        resolution,
+                    });
+                } catch (error) {
+                    logger.error(`Queueing Hostaway job failed for bulk update resolution ${resolution.id}: ${error.message}`);
+                }
+            }
+            
+            return {
+                success: true,
+                updatedCount: updatedResolutions.length,
+                message: `Successfully updated ${updatedResolutions.length} resolutions`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
 } 

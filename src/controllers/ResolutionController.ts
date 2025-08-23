@@ -65,4 +65,24 @@ export class ResolutionController {
             next(error);
         }
     }
+
+    bulkUpdateResolutions = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            const userId = request.user.id;
+            const { ids, updateData } = request.body;
+            
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return response.status(400).json({ error: 'IDs array is required and must not be empty' });
+            }
+            
+            if (!updateData || typeof updateData !== 'object') {
+                return response.status(400).json({ error: 'Update data is required' });
+            }
+            
+            const result = await this.resolutionService.bulkUpdateResolutions(ids, updateData, userId);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
 } 

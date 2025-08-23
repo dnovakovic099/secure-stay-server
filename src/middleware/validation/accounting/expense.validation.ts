@@ -186,6 +186,10 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         concept: Joi.string().required().allow(null),
         listingMapId: Joi.number().required().allow(null),
         amount: Joi.number().required().allow(null),
+        contractorName: Joi.string().required().allow(null),
+        contractorNumber: Joi.string().required().allow(null),
+        findings: Joi.string().required().allow(null),
+        datePaid: Joi.string().required().allow(null),
     });
 
     const { error } = schema.validate(request.body);

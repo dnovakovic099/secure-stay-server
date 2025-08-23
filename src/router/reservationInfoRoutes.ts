@@ -21,4 +21,6 @@ router.post('/sync', verifySession, reservationInfoController.syncReservationByI
 
 router.post('/reservation-generic-report', verifySession, validateGetReservationReport, reservationInfoController.getReservationGenericReport)
 
+router.put('/riskStatus', verifySession, reservationInfoController.updateReservationRiskStatus);
+
 export default router;
