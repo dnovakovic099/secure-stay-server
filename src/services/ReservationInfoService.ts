@@ -336,7 +336,7 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+  public async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
     const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
@@ -679,6 +679,16 @@ export class ReservationInfoService {
     }
 
     reservation.isProcessedInStatement = isProcessedInStatement;
+    return await this.reservationInfoRepository.save(reservation);
+  }
+
+  async updateReservationRiskStatus(id: number, atRisk: boolean) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id}`);
+    }
+
+    reservation.atRisk = atRisk;
     return await this.reservationInfoRepository.save(reservation);
   }
 

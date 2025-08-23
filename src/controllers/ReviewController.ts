@@ -11,9 +11,9 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel } = request.query;
 
-            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType });
+            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel });
 
             return response.status(200).json({
                 success: true,
@@ -72,6 +72,18 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error saving review:", error);
+            return next(error);
+        }
+    }
+
+    async getReviewsForCheckout(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const reviewService = new ReviewService();
+            const data = await reviewService.getReviewsForCheckout(request.query, userId);
+            return response.status(200).json(data);
+        } catch (error) {
+            logger.error("Error fetching review for checkout:", error);
             return next(error);
         }
     }
