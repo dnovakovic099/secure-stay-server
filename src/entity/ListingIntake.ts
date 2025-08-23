@@ -92,6 +92,10 @@ export class ListingIntake {
     //amenities ends...
 
     //price & fees start...
+
+    @Column({ nullable: true })
+    currencyCode: string;
+    
     @Column({ type: "float", nullable: true })
     price: number;
 
@@ -274,5 +278,6 @@ export class ListingIntake {
     @Column({ nullable: true })
     deletedBy: string;
 
-
+    @Column({ nullable: true })
+    listingId: number;
 }
