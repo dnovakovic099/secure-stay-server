@@ -530,10 +530,10 @@ export class HostAwayClient {
   }
 
 
-  public async createListing(requestBody: any, clientId: string, clientSecret: string) {
+  public async createListing(requestBody: any) {
     try {
       const url = "https://api.hostaway.com/v1/listings";
-      const token = await this.getAccessToken(clientId, clientSecret);
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
 
       const response = await axios.post(url, requestBody, {
         headers: {

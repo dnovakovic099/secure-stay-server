@@ -4,6 +4,9 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { ILike, In } from "typeorm";
 import { UsersEntity } from "../entity/Users";
 import { ListingIntakeBedTypes } from "../entity/ListingIntakeBedTypes";
+import logger from "../utils/logger.utils";
+import { max } from "date-fns";
+import { HostAwayClient } from "../client/HostAwayClient";
 
 interface ListingIntakeFilter {
     status: string[];
@@ -17,6 +20,7 @@ export class ListingIntakeService {
     private listingIntakeRepo = appDatabase.getRepository(ListingIntake);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingIntakeBedTypesRepo = appDatabase.getRepository(ListingIntakeBedTypes);
+    private hostawayClient = new HostAwayClient();
 
     async createListingIntake(body: Partial<ListingIntake>, userId: string) {
         const listingIntake = this.listingIntakeRepo.create({
@@ -84,16 +88,30 @@ export class ListingIntakeService {
     }
 
     async getListingIntakeById(id: number) {
-        return await this.listingIntakeRepo.findOne({ where: { id: id }, relations: ["listingBedTypes"] });
+        const listingIntake = await this.listingIntakeRepo.findOne({ where: { id: id }, relations: ["listingBedTypes"] });
+        if (!listingIntake) {
+            throw CustomErrorHandler.notFound(`Listing intake with ID ${id} not found.`);
+        }
+        listingIntake.status = this.getListingIntakeStatus(listingIntake);
+
+        return await this.listingIntakeRepo.save(listingIntake);
     }
 
-    async getListingIntakeStatus(listingIntake: ListingIntake) {
-        let hasMissingValue = false;
-        Object.values(listingIntake).forEach(value => {
-            if (value == null || value == "") {
-                hasMissingValue = true;
-            }
+    private getListingIntakeStatus(listingIntake: ListingIntake) {
+        const requiredFields = [
+            "externalListingName",
+            "address",
+            "price",
+            "guestsIncluded",
+            "priceForExtraPerson",
+            "currencyCode"
+        ];
+
+        const hasMissingValue = requiredFields.some(field => {
+            const value = (listingIntake as any)[field];
+            return value == null || value === "";
         });
+
         return hasMissingValue ? "draft" : "ready";
     }
 
@@ -118,6 +136,121 @@ export class ListingIntakeService {
 
         await this.listingIntakeBedTypesRepo.delete(ids);
         return { message: "Bed types deleted successfully", deletedIds: ids };
+    }
+
+    //publish listingIntake to hostaway
+    async publishListingIntakeToHostaway(listingIntakeId: number, userId: string) {
+        const listingIntake = await this.listingIntakeRepo.findOne({
+            where: { id: listingIntakeId },
+            relations: ["listingBedTypes"]
+        });
+
+        if (!listingIntake) {
+            throw CustomErrorHandler.notFound(`Listing intake with ID ${listingIntakeId} not found.`);
+        }
+
+        // Here you would implement the logic to publish the listingIntake to Hostaway
+        // This is a placeholder for the actual implementation
+        logger.info("Publishing listing intake to Hostaway:", listingIntake);
+
+        // Simulate successful publishing
+        let status = this.getListingIntakeStatus(listingIntake);
+        if (status === "draft") {
+            throw CustomErrorHandler.forbidden("Listing intake is in draft status and cannot be published to Hostaway.");
+        }
+        if (status === "published") {
+            throw CustomErrorHandler.forbidden("Listing intake is already published to Hostaway.");
+        }
+
+        //prepare hostaway payload
+        const hostawayPayload = {
+            externalListingName: listingIntake.externalListingName,
+            description: listingIntake.description,
+            personCapacity: listingIntake.personCapacity,
+            propertyTypeId: listingIntake.propertyTypeId,
+            roomType: listingIntake.roomType,
+            bedroomsNumber: listingIntake.bedroomsNumber,
+            bedsNumber: listingIntake.bedsNumber,
+            bathroomsNumber: listingIntake.bathroomsNumber,
+            bathroomType: listingIntake.bathroomType,
+            guestBathroomsNumber: listingIntake.guestBathroomsNumber,
+            address: listingIntake.address,
+            publicAddress: listingIntake.publicAddress,
+            country: listingIntake.country,
+            countryCode: listingIntake.countryCode,
+            state: listingIntake.state,
+            city: listingIntake.city,
+            street: listingIntake.street,
+            zipcode: listingIntake.zipcode,
+            amenities: JSON.parse(listingIntake.amenities).map((amenity: any) => {
+                return { amenityId: Number(amenity) };
+            }),
+            currencyCode: listingIntake.currencyCode,
+            price: listingIntake.price,
+            priceForExtraPerson: listingIntake.priceForExtraPerson,
+            guestsIncluded: listingIntake.guestsIncluded,
+            cleaningFee: listingIntake.cleaningFee,
+            airbnbPetFeeAmount: listingIntake.airbnbPetFeeAmount,
+            houseRules: listingIntake.houseRules,
+            checkOutTime: listingIntake.checkOutTime,
+            checkInTimeStart: listingIntake.checkInTimeStart,
+            checkInTimeEnd: listingIntake.checkInTimeEnd,
+            squareMeters: listingIntake.squareMeters,
+            language: listingIntake.language,
+            instantBookable: listingIntake.instantBookable,
+            wifiUsername: listingIntake.wifiUsername,
+            wifiPassword: listingIntake.wifiPassword,
+            airBnbCancellationPolicyId: listingIntake.airBnbCancellationPolicyId,
+            bookingCancellationPolicyId: listingIntake.bookingCancellationPolicyId,
+            marriottBnbCancellationPolicyId: listingIntake.marriottBnbCancellationPolicyId,
+            vrboCancellationPolicyId: listingIntake.vrboCancellationPolicyId,
+            cancellationPolicyId: listingIntake.cancellationPolicyId,
+            minNights: listingIntake.minNights,
+            maxNights: listingIntake.maxNights,
+            airbnbName: listingIntake.airbnbName,
+            airbnbSummary: listingIntake.airbnbSummary,
+            airbnbSpace: listingIntake.airbnbSpace,
+            airbnbAccess: listingIntake.airbnbAccess,
+            airbnbInteraction: listingIntake.airbnbInteraction,
+            airbnbNeighborhoodOverview: listingIntake.airbnbNeighborhoodOverview,
+            airbnbTransit: listingIntake.airbnbTransit,
+            airbnbNotes: listingIntake.airbnbNotes,
+            homeawayPropertyName: listingIntake.homeawayPropertyName,
+            homeawayPropertyHeadline: listingIntake.homeawayPropertyHeadline,
+            homeawayPropertyDescription: listingIntake.homeawayPropertyDescription,
+            bookingcomPropertyName: listingIntake.bookingcomPropertyName,
+            bookingcomPropertyDescription: listingIntake.bookingcomPropertyDescription,
+            marriottListingName: listingIntake.marriottListingName,
+            contactName: listingIntake.contactName,
+            contactPhone1: listingIntake.contactPhone1,
+            contactLanguage: listingIntake.contactLanguage,
+
+            listingBedTypes: listingIntake.listingBedTypes.map(bedType => ({
+                bedTypeId: bedType.bedTypeId,
+                quantity: bedType.quantity,
+                bedroomNumber: bedType.bedroomNumber,
+            })),
+
+            propertyLicenseNumber: listingIntake.propertyLicenseNumber,
+            propertyLicenseType: listingIntake.propertyLicenseType,
+            propertyLicenseIssueDate: listingIntake.propertyLicenseIssueDate,
+            propertyLicenseExpirationDate: listingIntake.propertyLicenseExpirationDate,
+        };
+
+        logger.info("Hostaway payload:", JSON.stringify(hostawayPayload));
+
+        //simulate taking time of 10s
+        await new Promise(resolve => setTimeout(resolve, 10000));
+
+        // const response = await this.hostawayClient.createListing(hostawayPayload);
+        // if (!response) {
+        //     throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+        // }
+        // // Update the listingIntake status to published
+        // listingIntake.status = "published";
+        // listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+
+        return { message: "Listing intake published to Hostaway successfully", listingIntake };
     }
 
 }

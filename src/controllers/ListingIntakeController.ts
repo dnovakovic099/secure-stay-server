@@ -109,4 +109,15 @@ export class ListingIntakeController {
         }
     }
 
+    public async publishListingIntake(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const userId = req.user?.id;
+            const listingIntakeService = new ListingIntakeService();
+            const listingIntake = await listingIntakeService.publishListingIntakeToHostaway(Number(req.params.id), userId);
+            return res.status(200).json(listingIntake);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }
