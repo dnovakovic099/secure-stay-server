@@ -54,7 +54,8 @@ export const validateCreateBedTypes = (request: Request, response: Response, nex
         Joi.object({
             bedTypeId: Joi.number().required(),
             quantity: Joi.number().required(),
-            bedRoomNumber: Joi.number().required()
+            bedroomNumber: Joi.number().required(),
+            listingIntakeId: Joi.number().required(),
         })
     );
 
@@ -72,7 +73,8 @@ export const validateUpdateBedTypes = (request: Request, response: Response, nex
             id: Joi.number().required(),
             bedTypeId: Joi.number().required(),
             quantity: Joi.number().required(),
-            bedRoomNumber: Joi.number().required()
+            bedroomNumber: Joi.number().required(),
+            listingIntakeId: Joi.number().required(),
         })
     );
 
@@ -90,7 +92,7 @@ export const validateDeleteBedTypes = (request: Request, response: Response, nex
             id: Joi.number().required(),
             bedTypeId: Joi.number().required(),
             quantity: Joi.number().required(),
-            bedRoomNumber: Joi.number().required()
+            bedroomNumber: Joi.number().required()
         })
     );
 
