@@ -249,6 +249,8 @@ export class ListingIntakeService {
         // // Update the listingIntake status to published
         // listingIntake.status = "published";
         // listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+        // listingIntake.updatedBy = userId;
+        // await this.listingIntakeRepo.save(listingIntake);
 
         return { message: "Listing intake published to Hostaway successfully", listingIntake };
     }

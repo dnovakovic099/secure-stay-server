@@ -17,5 +17,5 @@ router.route('/bedTypes/update').put(verifySession, validateUpdateBedTypes, list
 router.route('/bedTypes').post(verifySession, validateDeleteBedTypes, listingIntakeController.deleteBedTypes);
 router.route('/bedTypes/:listingIntakeId').get(verifySession, listingIntakeController.getBedTypes);
 
-router.route('/publish/:id').post(verifySession, listingIntakeController.publishListingIntake);
+router.route('/publish/:id').get(verifySession, listingIntakeController.publishListingIntake);
 export default router;
