@@ -673,6 +673,26 @@ export class HostAwayClient {
     }
   }
 
+  public async getTimeZones() {
+    let url = `https://api.hostaway.com/v1/timezones`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
 }
 
 

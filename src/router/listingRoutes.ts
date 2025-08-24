@@ -95,4 +95,6 @@ router.route('/currencies').get(verifySession, listingController.getCurrencies);
 
 router.route('/cancellationPolicies').get(verifySession, listingController.getCancellationPolicies);
 
+router.route('/timezones').get(verifySession, listingController.getTimeZones);
+
 export default router;

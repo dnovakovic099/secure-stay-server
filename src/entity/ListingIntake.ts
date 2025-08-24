@@ -84,6 +84,9 @@ export class ListingIntake {
     @Column({ nullable: true })
     zipcode: string;
 
+    @Column({ nullable: true })
+    timeZoneName: string;
+
     //Address ends...
 
     //amenities start...

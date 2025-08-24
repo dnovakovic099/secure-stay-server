@@ -460,6 +460,10 @@ export class ListingService {
     return cancellationPolicies;
   }
 
+  public async getTimezones() {
+    const timeZones = await this.hostAwayClient.getTimeZones();
+    return timeZones;
+  }
 
 }
 

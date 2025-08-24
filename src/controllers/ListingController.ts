@@ -250,4 +250,14 @@ export class ListingController {
     }
   }
 
+  async getTimeZones(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const timeZones = await listingService.getTimezones();
+      return response.status(200).json(successDataFetch(timeZones));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

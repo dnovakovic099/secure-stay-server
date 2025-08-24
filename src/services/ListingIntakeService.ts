@@ -182,6 +182,7 @@ export class ListingIntakeService {
             city: listingIntake.city,
             street: listingIntake.street,
             zipcode: listingIntake.zipcode,
+            timeZoneName: listingIntake.timeZoneName,
             amenities: JSON.parse(listingIntake.amenities).map((amenity: any) => {
                 return { amenityId: Number(amenity) };
             }),
