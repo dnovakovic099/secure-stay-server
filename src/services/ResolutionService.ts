@@ -6,6 +6,10 @@ import { UsersEntity } from "../entity/Users";
 import { haResolutionDeleteQueue, haResolutionQueue, haResolutionUpdateQueue } from "../queue/haQueue";
 import logger from "../utils/logger.utils";
 import { ListingService } from "./ListingService";
+import fs from "fs";
+import csv from "csv-parser";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { format, parse } from "date-fns";
 
 interface ResolutionData {
     category: string;
@@ -39,9 +43,22 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.REVIEW_REMOVAL]: "Review Removal"
 };
 
+interface CsvRow {
+    "Date": string;
+    "Type": string;
+    "Confirmation code": string;
+    "Booking date": string;
+    "Start date": string;
+    "End date": string;
+    "Guest": string;
+    "Listing": string;
+    "Amount": string;
+}
+
 export class ResolutionService {
     private resolutionRepo = appDatabase.getRepository(Resolution);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity)
 
     async createResolution(data: ResolutionData, userId: string | null) {
         const resolution = new Resolution();
@@ -280,5 +297,78 @@ export class ResolutionService {
         } catch (error) {
             throw error;
         }
+    }
+
+    async processCSVData(filePath: string): Promise<CsvRow[]> {
+        const allowedTypes = [
+            "Resolution Adjustment",
+            "Resolution Payout",
+            "Cancellation Fee",
+            "Cancellation Fee Refund",
+        ];
+
+        return new Promise((resolve, reject) => {
+            const results: CsvRow[] = [];
+
+            fs.createReadStream(filePath)
+                .pipe(csv())
+                .on("data", (data: CsvRow) => {
+                    if (allowedTypes.includes(data.Type)) {
+                        results.push(data);
+                    }
+                })
+                .on("end", () => {
+                    resolve(results);
+                })
+                .on("error", (err) => {
+                    reject(err);
+                });
+        });
+    }
+
+
+    async processCSVFileForResolution(filePath: string) {
+        const filteredRows = await this.processCSVData(filePath);
+        const failedToProcessData: CsvRow[] = [];
+
+        for (const row of filteredRows) {
+            const guestName = row.Guest;
+            const arrivalDate = format(
+                parse(row["Start date"], "MM/dd/yyyy", new Date()),
+                "yyyy-MM-dd"
+            );;
+            const departureDate = format(
+                parse(row["End date"], "MM/dd/yyyy", new Date()),
+                "yyyy-MM-dd"
+            );
+
+            const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
+            qb.where("reservation.guestName = :guestName", { guestName })
+                .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
+                .andWhere("reservation.departureDate = :departureDate", { departureDate });
+
+            const reservation = await qb.getOne();
+            if (!reservation) {
+                failedToProcessData.push(row);
+                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, departure: ${departureDate}`);
+                continue;
+            }
+
+            const resolutionData: ResolutionData = {
+                category: categoriesList[CategoryKey.RESOLUTION],
+                description: "",
+                listingMapId: reservation.listingMapId, 
+                reservationId: reservation.id, 
+                guestName: reservation.guestName,
+                claimDate: format(new Date(), "yyyy-MM-dd"),
+                amount: Number(row.Amount), 
+                arrivalDate: arrivalDate,
+                departureDate: departureDate,
+            };
+
+            // await this.createResolution(resolutionData, null);
+        }
+
+        return filteredRows;
     }
 } 

@@ -151,4 +151,11 @@ router.route('/fixpositiveexpensesandsync')
         expenseController.fixPositiveExpensesAndSync
     );
 
+router.route('/resolution/upload-csv')
+    .post(
+        verifySession,
+        fileUpload("resolution").single("file"),
+        resolutionController.processCSVForResolution
+    )
+
 export default router;
