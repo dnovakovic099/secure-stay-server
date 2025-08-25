@@ -41,7 +41,7 @@ export class ClientService {
     // Check if email already exists
     const existingClient = await this.clientRepo.findOneBy({ email: body.email });
     if (existingClient) {
-      throw CustomErrorHandler.badRequest("Client with this email already exists.");
+      throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
     }
 
     const client = this.clientRepo.create({
@@ -63,7 +63,7 @@ export class ClientService {
     if (body.email && body.email !== existingClient.email) {
       const emailExists = await this.clientRepo.findOneBy({ email: body.email });
       if (emailExists) {
-        throw CustomErrorHandler.badRequest("Client with this email already exists.");
+        throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
       }
     }
 
