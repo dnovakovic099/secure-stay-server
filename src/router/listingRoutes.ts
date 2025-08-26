@@ -83,4 +83,18 @@ router.route('/cities')
     listingController.getCities
   );
 
+router.route('/propertyTypes').get(verifySession, listingController.getPropertyTypes);
+
+router.route('/countries').get(verifySession, listingController.getCountries);
+
+router.route('/amenities').get(verifySession, listingController.getAmenities);
+
+router.route('/bedTypes').get(verifySession, listingController.getBedTypes);
+
+router.route('/currencies').get(verifySession, listingController.getCurrencies);
+
+router.route('/cancellationPolicies').get(verifySession, listingController.getCancellationPolicies);
+
+router.route('/timezones').get(verifySession, listingController.getTimeZones);
+
 export default router;

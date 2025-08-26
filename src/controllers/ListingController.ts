@@ -190,4 +190,74 @@ export class ListingController {
     }
   }
 
+  async getPropertyTypes(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const propertyTypes = await listingService.getPropertyTypes();
+      return response.status(200).json(successDataFetch(propertyTypes));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getCountries(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const countries = await listingService.getCountries();
+      return response.status(200).json(successDataFetch(countries));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getAmenities(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const amenities = await listingService.getAmenities();
+      return response.status(200).json(successDataFetch(amenities));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getBedTypes(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const bedTypes = await listingService.getBedTypes();
+      return response.status(200).json(successDataFetch(bedTypes));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getCurrencies(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const currencies = await listingService.getCurrencies();
+      return response.status(200).json(successDataFetch(currencies));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getCancellationPolicies(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const cancellationPolicies = await listingService.getCancellationPolicies(request.query.channel as string);
+      return response.status(200).json(successDataFetch(cancellationPolicies));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getTimeZones(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const timeZones = await listingService.getTimezones();
+      return response.status(200).json(successDataFetch(timeZones));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }
