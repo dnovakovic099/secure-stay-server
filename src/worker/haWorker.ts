@@ -44,7 +44,7 @@ import { Resolution } from "../entity/Resolution";
             const obj = {
                 listingMapId: String(resolution.listingMapId),
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: `Airbnb Resolution: ${resolution.guestName}`,
+                concept: `${resolution.description ? `Airbnb ${resolution.description}`: `${resolution.category}`}: ${resolution.guestName}`,
                 amount: resolution.amount,
                 categories: JSON.parse(categories),
                 reservationId: resolution.reservationId
@@ -89,7 +89,7 @@ import { Resolution } from "../entity/Resolution";
             const obj = {
                 listingMapId: String(resolution.listingMapId),
                 expenseDate: expense?.expenseDate,
-                concept: `Airbnb Resolution: ${resolution.guestName}`,
+                concept: `${resolution.description ? `Airbnb ${resolution.description}` : `${resolution.category}`}: ${resolution.guestName}`,
                 amount: amount,
                 categories: JSON.parse(categories),
                 reservationId: resolution.reservationId

@@ -93,7 +93,7 @@ export class ResolutionController {
             if (!request.file) {
                 return response.status(400).json({ message: "No file uploaded" });
             }
-            const resolution = await resolutionService.processCSVFileForResolution(request.file.path);
+            const resolution = await resolutionService.processCSVFileForResolution(request.file.path, userId);
             return response.status(200).json(resolution);
         } catch (error) {
             next(error);

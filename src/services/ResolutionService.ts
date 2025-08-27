@@ -10,6 +10,9 @@ import fs from "fs";
 import csv from "csv-parser";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { format, parse } from "date-fns";
+import sendEmail from "../utils/sendEmai";
+import { Listing } from "../entity/Listing";
+import { formatCurrency } from "../helpers/helpers";
 
 interface ResolutionData {
     category: string;
@@ -58,7 +61,8 @@ interface CsvRow {
 export class ResolutionService {
     private resolutionRepo = appDatabase.getRepository(Resolution);
     private usersRepo = appDatabase.getRepository(UsersEntity);
-    private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity)
+    private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+    private listingInfoRepository = appDatabase.getRepository(Listing);
 
     async createResolution(data: ResolutionData, userId: string | null) {
         const resolution = new Resolution();
@@ -224,6 +228,15 @@ export class ResolutionService {
         });
     }
 
+    async getResolutionsByReservationId(reservationId: number) {
+        return await this.resolutionRepo.find({
+            where: {
+                reservationId,
+                category: "resolution"
+            },
+        });
+    }
+
     async bulkUpdateResolutions(ids: number[], updateData: Partial<Resolution>, userId: string) {
         try {
             // Validate that all resolutions exist
@@ -316,6 +329,14 @@ export class ResolutionService {
                     if (allowedTypes.includes(data.Type)) {
                         results.push(data);
                     }
+                    //check if following headers are available or not. If not available, reject the file
+                    const requiredHeaders = ["Guest", "Start date", "End date", "Amount", "Type"];
+                    const dataHeaders = Object.keys(data);
+                    const missingHeaders = requiredHeaders.filter(header => !dataHeaders.includes(header));
+                    if (missingHeaders.length > 0) {
+                        reject(new CustomErrorHandler(400, `Missing required headers in the CSV file: ${missingHeaders.join(", ")}`));
+                    }
+
                 })
                 .on("end", () => {
                     resolve(results);
@@ -327,7 +348,7 @@ export class ResolutionService {
     }
 
 
-    async processCSVFileForResolution(filePath: string) {
+    async processCSVFileForResolution(filePath: string, userId: string) {
         const filteredRows = await this.processCSVData(filePath);
         const failedToProcessData: CsvRow[] = [];
         const successfullyProcessedData: CsvRow[] = [];
@@ -357,30 +378,100 @@ export class ResolutionService {
 
             const resolutionData: ResolutionData = {
                 category: categoriesList[CategoryKey.RESOLUTION],
-                description: "",
+                description: row.Type,
                 listingMapId: reservation.listingMapId, 
                 reservationId: reservation.id, 
                 guestName: reservation.guestName,
-                claimDate: format(new Date(), "yyyy-MM-dd"),
+                claimDate: format(
+                    parse(row["Date"], "MM/dd/yyyy", new Date()),
+                    "yyyy-MM-dd"
+                ),
                 amount: Number(row.Amount), 
                 arrivalDate: arrivalDate,
                 departureDate: departureDate,
             };
 
-            //check if the resolution already exists
-            const existingResolution = await this.getResolutionByReservationId(reservation.id);
-            if (existingResolution) {
-                logger.info(`Resolution already exists for reservation id ${reservation.id}, updating it.`);
-                // await this.updateResolution({ ...resolutionData, id: existingResolution.id }, null);
-                successfullyProcessedData.push(row);
-                continue;
+            let cancellationFeeInfo = null;
+            if (row.Type === "Cancellation Fee Refund") {
+                const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
+                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
             }
-            // await this.createResolution(resolutionData, null);
+
+            const resolution = await this.createResolution(resolutionData, userId);
             successfullyProcessedData.push(row);
+            if (cancellationFeeInfo && cancellationFeeInfo?.length == 1) {
+                // send email notification
+                this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
+                logger.info(`Cancellation Fee Refund processed for reservation ID ${reservation.id} with existing Cancellation Fee.`);
+            }
         }
 
         fs.unlinkSync(filePath); // Delete the file after processing
 
         return { successfullyProcessedData, failedToProcessData };
+    }
+
+    async sendCancellationFeeNotification(reservation: ReservationInfoEntity, resolution: Resolution, cancellationFeeInfo: Resolution) {
+        const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+
+        let searchKey = "";
+        const channelReservationId = reservation?.channelReservationId;
+        const searchKeys = channelReservationId.split('-');
+        if (searchKeys && searchKeys.length > 0) {
+            searchKey = searchKeys[searchKeys.length - 1];
+        }
+
+        let subject = `Airbnb Cancellation Fee Refund Processed for ${reservation?.guestName} - ${searchKey} `;
+
+        const html = `
+                <html>
+                  <body style="font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f9; padding: 20px; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); padding: 20px;">
+                      <h2 style="color: #007BFF; border-bottom: 2px solid #007BFF; padding-bottom: 10px;">Airbnb Cancellation Fee Refund</h2>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Guest Name:</strong> ${reservation?.guestName}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Check-In:</strong> ${reservation?.arrivalDate}
+                      </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                          <strong>Check-Out:</strong> ${reservation?.departureDate}
+                        </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                          <strong>Listing:</strong> ${listingInfo?.internalListingName}
+                        </p>
+                        <p style="margin: 20px 0; font-size: 16px;">
+                          <strong>Amount:</strong> ${formatCurrency(resolution.amount)}
+                        </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                          <strong>Date (Cancellation Fee):</strong> ${cancellationFeeInfo.claimDate}
+                        </p>
+                      <p style="margin: 20px 0; font-size: 16px;">
+                        <strong>Date (Cancellation Fee Refund):</strong> ${resolution.claimDate}
+                      </p>
+                      <p style="margin: 30px 0 0; font-size: 14px; color: #777;">Thank you!</p>
+                    </div>
+                  </body>
+                </html>
+
+        `;
+
+        const receipientsList = [
+            "ferdinand@luxurylodgingpm.com",
+            "receipts@luxurylodgingstr.com"
+        ];
+
+        const results = await Promise.allSettled(
+            receipientsList.map(receipient =>
+                sendEmail(subject, html, process.env.EMAIL_FROM, receipient)
+            )
+        );
+
+        results.forEach((result, index) => {
+            if (result.status === "rejected") {
+                logger.error(`Failed to send email to recipient #${index}`, result?.reason);
+            }
+        });
+
     }
 } 
