@@ -330,6 +330,7 @@ export class ResolutionService {
     async processCSVFileForResolution(filePath: string) {
         const filteredRows = await this.processCSVData(filePath);
         const failedToProcessData: CsvRow[] = [];
+        const successfullyProcessedData: CsvRow[] = [];
 
         for (const row of filteredRows) {
             const guestName = row.Guest;
@@ -366,9 +367,20 @@ export class ResolutionService {
                 departureDate: departureDate,
             };
 
+            //check if the resolution already exists
+            const existingResolution = await this.getResolutionByReservationId(reservation.id);
+            if (existingResolution) {
+                logger.info(`Resolution already exists for reservation id ${reservation.id}, updating it.`);
+                // await this.updateResolution({ ...resolutionData, id: existingResolution.id }, null);
+                successfullyProcessedData.push(row);
+                continue;
+            }
             // await this.createResolution(resolutionData, null);
+            successfullyProcessedData.push(row);
         }
 
-        return filteredRows;
+        fs.unlinkSync(filePath); // Delete the file after processing
+
+        return { successfullyProcessedData, failedToProcessData };
     }
 } 
