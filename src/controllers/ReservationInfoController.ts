@@ -61,6 +61,17 @@ export class ReservationInfoController {
         }
     }
 
+    async updateReservationRiskStatus(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const { id, atRisk } = request.body;
+            const result = await reservationInfoService.updateReservationRiskStatus(id, atRisk);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async syncReservationById(request: Request, response: Response, next: NextFunction) {
         try {
             const reservationInfoService = new ReservationInfoService();

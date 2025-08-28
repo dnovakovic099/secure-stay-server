@@ -26,6 +26,10 @@ interface ExpenseBulkUpdateObject {
     listingMapId: number;
     amount: number;
     expenseId: number[];
+    contractorName?: string;
+    contractorNumber?: string;
+    findings?: string;
+    datePaid?: string;
 }
 
 export class ExpenseService {
@@ -576,6 +580,10 @@ export class ExpenseService {
             concept,
             listingMapId,
             amount,
+            contractorName,
+            contractorNumber,
+            findings,
+            datePaid,
         } = body;
 
         const failedExpenseUpdate: number[] = [];
@@ -599,6 +607,10 @@ export class ExpenseService {
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
             if (amount !== undefined && amount !== null) expense.amount = amount * -1;
+            if (contractorName !== undefined && contractorName !==null) expense.contractorName = contractorName;
+            if (contractorNumber !== undefined && contractorNumber !==null) expense.contractorNumber = contractorNumber;
+            if (findings !== undefined && findings !==null) expense.findings = findings;
+            if (datePaid !== undefined && datePaid !==null) expense.datePaid = datePaid;
 
             expense.updatedBy = userId;
             expense.updatedAt = new Date();

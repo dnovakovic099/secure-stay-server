@@ -169,4 +169,7 @@ export class ReservationInfoEntity {
 
     @Column({ default: false })
     isProcessedInStatement: boolean;
+
+    @Column({ default: false })
+    atRisk: boolean;
 }

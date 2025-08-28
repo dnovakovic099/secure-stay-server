@@ -327,4 +327,61 @@ export class ActionItemsService {
         return await this.actionItemsRepo.save(actionItem);
     }
 
+    async bulkUpdateActionItems(ids: number[], updateData: Partial<ActionItems>, userId: string) {
+        try {
+            // Validate that all action items exist
+            const existingActionItems = await this.actionItemsRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingActionItems.length !== ids.length) {
+                const foundIds = existingActionItems.map(item => item.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Action items with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all action items with the provided data
+            const updatePromises = existingActionItems.map(actionItem => {
+                // Only update fields that are provided in updateData
+                if (updateData.listingName !== undefined) {
+                    actionItem.listingName = updateData.listingName;
+                }
+                if (updateData.guestName !== undefined) {
+                    actionItem.guestName = updateData.guestName;
+                }
+                if (updateData.item !== undefined) {
+                    actionItem.item = updateData.item;
+                }
+                if (updateData.category !== undefined) {
+                    actionItem.category = updateData.category;
+                }
+                if (updateData.status !== undefined) {
+                    actionItem.status = updateData.status;
+                }
+                if (updateData.listingId !== undefined) {
+                    actionItem.listingId = updateData.listingId;
+                }
+                if (updateData.reservationId !== undefined) {
+                    actionItem.reservationId = updateData.reservationId;
+                }
+                
+                actionItem.updatedBy = userId;
+                return this.actionItemsRepo.save(actionItem);
+            });
+
+            const updatedActionItems = await Promise.all(updatePromises);
+            
+            logger.info(`[bulkUpdateActionItems] Successfully updated ${updatedActionItems.length} action items`);
+            
+            return {
+                success: true,
+                updatedCount: updatedActionItems.length,
+                message: `Successfully updated ${updatedActionItems.length} action items`
+            };
+        } catch (error) {
+            logger.error(`[bulkUpdateActionItems] Error updating action items: ${error.message}`);
+            throw error;
+        }
+    }
+
 }

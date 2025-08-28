@@ -283,4 +283,121 @@ export class ClaimsService {
         return claim;
     }
 
+    async bulkUpdateClaims(ids: number[], updateData: Partial<Claim>, userId: string) {
+        try {
+            // Validate that all claims exist
+            const existingClaims = await this.claimRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingClaims.length !== ids.length) {
+                const foundIds = existingClaims.map(claim => claim.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw new Error(`Claims with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all claims with the provided data
+            const updatePromises = existingClaims.map(claim => {
+                // Only update fields that are provided in updateData
+                if (updateData.status !== undefined) {
+                    claim.status = updateData.status;
+                }
+                if (updateData.listing_id !== undefined) {
+                    claim.listing_id = updateData.listing_id;
+                }
+                if (updateData.listing_name !== undefined) {
+                    claim.listing_name = updateData.listing_name;
+                }
+                if (updateData.description !== undefined) {
+                    claim.description = updateData.description;
+                }
+                if (updateData.reservation_id !== undefined) {
+                    claim.reservation_id = updateData.reservation_id;
+                }
+                if (updateData.reservation_amount !== undefined) {
+                    claim.reservation_amount = updateData.reservation_amount;
+                }
+                if (updateData.channel !== undefined) {
+                    claim.channel = updateData.channel;
+                }
+                if (updateData.guest_name !== undefined) {
+                    claim.guest_name = updateData.guest_name;
+                }
+                if (updateData.guest_contact_number !== undefined) {
+                    claim.guest_contact_number = updateData.guest_contact_number;
+                }
+                if (updateData.quote_1 !== undefined) {
+                    claim.quote_1 = updateData.quote_1;
+                }
+                if (updateData.quote_2 !== undefined) {
+                    claim.quote_2 = updateData.quote_2;
+                }
+                if (updateData.quote_3 !== undefined) {
+                    claim.quote_3 = updateData.quote_3;
+                }
+                if (updateData.estimated_reasonable_price !== undefined) {
+                    claim.estimated_reasonable_price = updateData.estimated_reasonable_price;
+                }
+                if (updateData.final_price !== undefined) {
+                    claim.final_price = updateData.final_price;
+                }
+                if (updateData.client_paid_amount !== undefined) {
+                    claim.client_paid_amount = updateData.client_paid_amount;
+                }
+                if (updateData.claim_resolution_amount !== undefined) {
+                    claim.claim_resolution_amount = updateData.claim_resolution_amount;
+                }
+                if (updateData.payment_information !== undefined) {
+                    claim.payment_information = updateData.payment_information;
+                }
+                if (updateData.reporter !== undefined) {
+                    claim.reporter = updateData.reporter;
+                }
+                if (updateData.reservation_link !== undefined) {
+                    claim.reservation_link = updateData.reservation_link;
+                }
+                if (updateData.client_requested_amount !== undefined) {
+                    claim.client_requested_amount = updateData.client_requested_amount;
+                }
+                if (updateData.airbnb_filing_amount !== undefined) {
+                    claim.airbnb_filing_amount = updateData.airbnb_filing_amount;
+                }
+                if (updateData.airbnb_resolution !== undefined) {
+                    claim.airbnb_resolution = updateData.airbnb_resolution;
+                }
+                if (updateData.airbnb_resolution_won_amount !== undefined) {
+                    claim.airbnb_resolution_won_amount = updateData.airbnb_resolution_won_amount;
+                }
+                if (updateData.payee !== undefined) {
+                    claim.payee = updateData.payee;
+                }
+                if (updateData.payment_status !== undefined) {
+                    claim.payment_status = updateData.payment_status;
+                }
+                if (updateData.due_date !== undefined) {
+                    claim.due_date = updateData.due_date;
+                }
+                if (updateData.claim_type !== undefined) {
+                    claim.claim_type = updateData.claim_type;
+                }
+                if (updateData.reservation_code !== undefined) {
+                    claim.reservation_code = updateData.reservation_code;
+                }
+                
+                claim.updated_by = userId;
+                return this.claimRepo.save(claim);
+            });
+
+            const updatedClaims = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedClaims.length,
+                message: `Successfully updated ${updatedClaims.length} claims`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
 } 

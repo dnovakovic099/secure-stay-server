@@ -84,6 +84,7 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction
         };
         if (body.category.includes("Other") && mentions && mentions.length > 0) {
             setSelectedSlackUsers(mentions);
@@ -219,6 +220,7 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction
         };
 
         const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
@@ -310,6 +312,69 @@ export class ClientTicketService {
         await this.clientTicketUpdateRepo.save(clientTicketUpdate);
 
         return { message: `Client ticket update with ID ${id} deleted successfully.` };
+    }
+
+    public async bulkUpdateClientTickets(ids: number[], updateData: Partial<ClientTicket>, userId: string) {
+        try {
+            // Validate that all client tickets exist
+            const existingClientTickets = await this.clientTicketRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingClientTickets.length !== ids.length) {
+                const foundIds = existingClientTickets.map(ticket => ticket.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Client tickets with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all client tickets with the provided data
+            const updatePromises = existingClientTickets.map(async (clientTicket) => {
+                // Only update fields that are provided in updateData
+                if (updateData.status !== undefined) {
+                    clientTicket.status = updateData.status;
+                    
+                    // Handle completedOn and completedBy logic for status changes
+                    if (updateData.status === 'Completed' && clientTicket.status !== 'Completed') {
+                        clientTicket.completedOn = new Date().toISOString();
+                        clientTicket.completedBy = userId;
+                    } else if (updateData.status !== 'Completed' && clientTicket.status === 'Completed') {
+                        clientTicket.completedOn = null;
+                        clientTicket.completedBy = null;
+                    }
+                }
+                if (updateData.listingId !== undefined) {
+                    clientTicket.listingId = updateData.listingId;
+                }
+                if (updateData.category !== undefined) {
+                    clientTicket.category = typeof updateData.category === 'string' 
+                        ? updateData.category 
+                        : JSON.stringify(updateData.category);
+                }
+                if (updateData.description !== undefined) {
+                    clientTicket.description = updateData.description;
+                }
+                if (updateData.resolution !== undefined) {
+                    clientTicket.resolution = updateData.resolution;
+                }
+                if (updateData.clientSatisfaction !== undefined) {
+                    clientTicket.clientSatisfaction = updateData.clientSatisfaction;
+                }
+                
+                clientTicket.updatedBy = userId;
+                clientTicket.updatedAt = new Date();
+                return this.clientTicketRepo.save(clientTicket);
+            });
+
+            const updatedClientTickets = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedClientTickets.length,
+                message: `Successfully updated ${updatedClientTickets.length} client tickets`
+            };
+        } catch (error) {
+            throw error;
+        }
     }
 
 }
