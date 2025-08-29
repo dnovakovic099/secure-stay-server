@@ -1,19 +1,13 @@
 -- Create client_management table
 CREATE TABLE IF NOT EXISTS `client_management` (
   `id` varchar(36) NOT NULL,
-  `fullName` varchar(255) NOT NULL,
+  `firstName` varchar(255) NOT NULL,
+  `lastName` varchar(255) NOT NULL,
+  `preferredName` varchar(255) NOT NULL,
   `email` varchar(255) NOT NULL UNIQUE,
+  `timezone` varchar(255) NOT NULL UNIQUE,
   `phone` varchar(50) NOT NULL,
-  `dialCode` varchar(10) NOT NULL,
-  `status` enum('Active','Inactive','Pending','Suspended') NOT NULL DEFAULT 'Active',
   `companyName` varchar(255) DEFAULT NULL,
-  `address` text DEFAULT NULL,
-  `city` varchar(100) DEFAULT NULL,
-  `state` varchar(100) DEFAULT NULL,
-  `zipCode` varchar(20) DEFAULT NULL,
-  `country` varchar(100) DEFAULT NULL,
-  `clientType` enum('Individual','Corporate','Agency') NOT NULL DEFAULT 'Individual',
-  `source` enum('Direct','Referral','Website','Social Media','Other') NOT NULL DEFAULT 'Direct',
   `notes` text DEFAULT NULL,
   `propertyId` int(11) DEFAULT NULL,
   `totalBookings` int(11) NOT NULL DEFAULT 0,
@@ -39,9 +33,8 @@ CREATE TABLE IF NOT EXISTS `client_management` (
 
 -- Insert some sample data for testing
 INSERT INTO `client_management` (
-  `id`, `fullName`, `email`, `phone`, `dialCode`, `status`, 
-  `companyName`, `address`, `city`, `state`, `zipCode`, `country`,
-  `clientType`, `source`, `notes`, `totalBookings`, `totalSpent`,
+  `id`, `firstName`, `lastName`, `preferredName`, `timezone`, `email`, `phone`,
+  `companyName`, `clientType`, `source`, `notes`, `totalBookings`, `totalSpent`,
   `createdBy`
 ) VALUES 
 (
