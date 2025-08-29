@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS `client_management` (
   `clientType` enum('Individual','Corporate','Agency') NOT NULL DEFAULT 'Individual',
   `source` enum('Direct','Referral','Website','Social Media','Other') NOT NULL DEFAULT 'Direct',
   `notes` text DEFAULT NULL,
+  `propertyId` int(11) DEFAULT NULL,
   `totalBookings` int(11) NOT NULL DEFAULT 0,
   `totalSpent` decimal(10,2) NOT NULL DEFAULT 0.00,
   `lastBookingDate` timestamp NULL DEFAULT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `client_management` (
   KEY `idx_status` (`status`),
   KEY `idx_clientType` (`clientType`),
   KEY `idx_source` (`source`),
+  KEY `idx_propertyId` (`propertyId`),
   KEY `idx_createdAt` (`createdAt`),
   KEY `idx_deletedAt` (`deletedAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

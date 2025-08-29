@@ -14,7 +14,16 @@ export class ClientEntity {
   id: string;
 
   @Column()
-  fullName: string;
+  firstName: string;
+
+  @Column()
+  lastName: string;
+
+  @Column()
+  preferredName: string;
+
+  @Column()
+  timezone: string;
 
   @Column({ unique: true })
   email: string;
@@ -35,37 +44,11 @@ export class ClientEntity {
   @Column({ nullable: true })
   companyName: string;
 
-  @Column({ nullable: true })
-  address: string;
-
-  @Column({ nullable: true })
-  city: string;
-
-  @Column({ nullable: true })
-  state: string;
-
-  @Column({ nullable: true })
-  zipCode: string;
-
-  @Column({ nullable: true })
-  country: string;
-
-  @Column({
-    type: "enum",
-    enum: ["Individual", "Corporate", "Agency"],
-    default: "Individual"
-  })
-  clientType: string;
-
-  @Column({
-    type: "enum",
-    enum: ["Direct", "Referral", "Website", "Social Media", "Other"],
-    default: "Direct"
-  })
-  source: string;
-
   @Column({ type: "text", nullable: true })
   notes: string;
+
+  @Column({ type: "int", nullable: true })
+  propertyId: number;
 
   @Column({ type: "int", default: 0 })
   totalBookings: number;
@@ -78,13 +61,6 @@ export class ClientEntity {
 
   @Column({ type: "simple-array", nullable: true })
   tags: string[];
-
-  @Column({ type: "json", nullable: true })
-  preferences: {
-    preferredContactMethod: "Email" | "Phone" | "SMS";
-    newsletterSubscription: boolean;
-    marketingEmails: boolean;
-  };
 
   @CreateDateColumn({ type: "timestamp" })
   createdAt: Date;
