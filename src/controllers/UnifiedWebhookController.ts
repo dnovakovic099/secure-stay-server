@@ -10,12 +10,6 @@ import { IssuesService } from "../services/IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
-import { appDatabase } from "../utils/database.util";
-import { SlackMessageEntity } from "../entity/SlackMessageInfo";
-import { buildActionItemsSlackMessage, buildActionItemStatusUpdateMessage } from "../utils/slackMessageBuilder";
-import sendSlackMessage from "../utils/sendSlackMsg";
-import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import updateSlackMessage from "../utils/updateSlackMsg";
 
 export class UnifiedWebhookController {
 
@@ -39,7 +33,7 @@ export class UnifiedWebhookController {
                     break;
                 case "reservation.updated":
                     await reservationInfoService.updateReservationInfo(body.data.id, body.data);
-                    runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
+                    // runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
                     break;
                 case "message.received":
                     // this.handleReservationCancelled(body);
