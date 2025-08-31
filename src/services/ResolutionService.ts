@@ -56,6 +56,7 @@ interface CsvRow {
     "Guest": string;
     "Listing": string;
     "Amount": string;
+    "Nights": string;
 }
 
 export class ResolutionService {
@@ -232,7 +233,7 @@ export class ResolutionService {
         return await this.resolutionRepo.find({
             where: {
                 reservationId,
-                category: "resolution"
+                category: "Resolution"
             },
         });
     }
@@ -324,19 +325,39 @@ export class ResolutionService {
             const results: CsvRow[] = [];
 
             fs.createReadStream(filePath)
-                .pipe(csv())
+                .pipe(csv({
+                    mapHeaders: ({ header }) => header.replace(/^\uFEFF/, "").trim()
+                }))
+                .on("headers", (headers: string[]) => {
+                    // ✅ validate headers once, not per row
+                    const requiredHeaders = ["Guest", "Start date", "End date", "Amount", "Nights", "Type", "Date"];
+                    const missing = requiredHeaders.filter(h => !headers.includes(h));
+                    if (missing.length > 0) {
+                        reject(new CustomErrorHandler(400, `Missing required headers in the CSV file: ${missing.join(", ")}`));
+                    }
+                })
                 .on("data", (data: CsvRow) => {
-                    if (allowedTypes.includes(data.Type)) {
-                        results.push(data);
-                    }
-                    //check if following headers are available or not. If not available, reject the file
-                    const requiredHeaders = ["Guest", "Start date", "End date", "Amount", "Type"];
-                    const dataHeaders = Object.keys(data);
-                    const missingHeaders = requiredHeaders.filter(header => !dataHeaders.includes(header));
-                    if (missingHeaders.length > 0) {
-                        reject(new CustomErrorHandler(400, `Missing required headers in the CSV file: ${missingHeaders.join(", ")}`));
-                    }
+                    try {
+                        if (!allowedTypes.includes(data.Type)) return;
 
+                        const rawDate = data["Date"]?.trim();
+                        if (!rawDate) return;
+
+                        // parse CSV "Date" (assuming in MM/dd/yyyy format)
+                        const parsedDate = parse(rawDate, "MM/dd/yyyy", new Date());
+
+                        // format to yyyy-MM-dd for comparison
+                        const formattedDate = format(parsedDate, "yyyy-MM-dd");
+
+                        const startDate = "2025-09-01";
+
+                        if (formattedDate >= startDate) {
+                            results.push(data);
+                        }
+                    } catch (err) {
+                        // skip rows with invalid date format
+                        logger.warn(`Skipping row with invalid date: ${JSON.stringify(data)}`);
+                    }
                 })
                 .on("end", () => {
                     resolve(results);
@@ -350,29 +371,65 @@ export class ResolutionService {
 
     async processCSVFileForResolution(filePath: string, userId: string) {
         const filteredRows = await this.processCSVData(filePath);
-        const failedToProcessData: CsvRow[] = [];
+        const failedToProcessData: (CsvRow & { reason?: string; })[] = [];
         const successfullyProcessedData: CsvRow[] = [];
+
+        if (filteredRows.length === 0) {
+            fs.unlinkSync(filePath); // Delete the file after processing
+            return { successfullyProcessedData, failedToProcessData };
+        }
 
         for (const row of filteredRows) {
             const guestName = row.Guest;
-            const arrivalDate = format(
-                parse(row["Start date"], "MM/dd/yyyy", new Date()),
-                "yyyy-MM-dd"
-            );;
-            const departureDate = format(
-                parse(row["End date"], "MM/dd/yyyy", new Date()),
-                "yyyy-MM-dd"
-            );
+
+            // ✅ Defensive checks for missing/empty values
+            const startDateRaw = row["Start date"]?.trim();
+            const endDateRaw = row["End date"]?.trim();
+            const claimDateRaw = row.Date;
+            const amountRaw = row.Amount;
+            const nights = row.Nights;
+
+            if (!guestName || !startDateRaw || !endDateRaw || !amountRaw || !claimDateRaw || !nights) {
+                failedToProcessData.push({ ...row, reason: "Missing required data" });
+                logger.warn(`Skipping row due to missing data: ${JSON.stringify(row)}`);
+                continue;
+            }
+
+            let arrivalDate: string;
+            let departureDate: string;
+            let claimDate: string | null = null;
+
+            try {
+                arrivalDate = format(
+                    parse(startDateRaw, "MM/dd/yyyy", new Date()),
+                    "yyyy-MM-dd"
+                );
+                departureDate = format(
+                    parse(endDateRaw, "MM/dd/yyyy", new Date()),
+                    "yyyy-MM-dd"
+                );
+                if (claimDateRaw) {
+                    claimDate = format(
+                        claimDateRaw,
+                        "yyyy-MM-dd"
+                    );
+                }
+            } catch (err) {
+                failedToProcessData.push({ ...row, reason: "Invalid date format" });
+                logger.warn(`Invalid date format for row: ${JSON.stringify(row)}`);
+                continue;
+            }
 
             const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
-            qb.where("reservation.guestName = :guestName", { guestName })
+            qb.where("reservation.guestName Like :guestName", { guestName: `${guestName}%` })
                 .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
-                .andWhere("reservation.departureDate = :departureDate", { departureDate });
+                .andWhere("reservation.departureDate = :departureDate", { departureDate })
+                .andWhere("reservation.nights = :nights", { nights: nights });
 
             const reservation = await qb.getOne();
             if (!reservation) {
-                failedToProcessData.push(row);
-                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, departure: ${departureDate}`);
+                failedToProcessData.push({ ...row, reason: "No matching reservation found" });
+                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, departure: ${departureDate}, nights: ${nights}`);
                 continue;
             }
 
@@ -382,18 +439,22 @@ export class ResolutionService {
                 listingMapId: reservation.listingMapId, 
                 reservationId: reservation.id, 
                 guestName: reservation.guestName,
-                claimDate: format(
-                    parse(row["Date"], "MM/dd/yyyy", new Date()),
-                    "yyyy-MM-dd"
-                ),
+                claimDate: claimDate ? claimDate : format(new Date(), "yyyy-MM-dd"),
                 amount: Number(row.Amount), 
                 arrivalDate: arrivalDate,
                 departureDate: departureDate,
             };
 
             let cancellationFeeInfo = null;
+            const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
+            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && res.description == row.Type));
+            if (hasExistingResolution) {
+                // failedToProcessData.push(row);
+                logger.warn(`Skipping duplicate resolution for reservation ID ${reservation.id} with amount ${row.Amount} and type ${row.Type}`);
+                continue;
+            }
+
             if (row.Type === "Cancellation Fee Refund") {
-                const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
                 cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
             }
 

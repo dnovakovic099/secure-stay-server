@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { ResolutionService } from '../services/ResolutionService';
+import { unparse } from "papaparse";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: {
@@ -93,8 +95,23 @@ export class ResolutionController {
             if (!request.file) {
                 return response.status(400).json({ message: "No file uploaded" });
             }
-            const resolution = await resolutionService.processCSVFileForResolution(request.file.path, userId);
-            return response.status(200).json(resolution);
+
+            const { failedToProcessData, successfullyProcessedData } = await resolutionService.processCSVFileForResolution(request.file.path, userId);
+            
+            if (failedToProcessData.length > 0) {
+                const csv = unparse(failedToProcessData);
+
+                response.setHeader("Content-Disposition", "attachment; filename=failed_resolutions.csv");
+                response.setHeader("Content-Type", "text/csv");
+                response.status(200).send(csv);
+            } else {
+                response.status(200).json({
+                    success: true,
+                    message: successfullyProcessedData.length > 0 ? `${successfullyProcessedData.length} records processed successfully` : "No records to process",
+                    successfullyProcessedData,
+                    failedToProcessData
+                });
+            }
         } catch (error) {
             next(error);
         }
