@@ -12,6 +12,7 @@ import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
+import { FileInfo } from "../entity/FileInfo";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -19,6 +20,7 @@ export class IssuesService {
     private actionItemUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
     private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -27,7 +29,7 @@ export class IssuesService {
         return `${year}-${month}-${day}`;
     }
 
-    async createIssue(data: Partial<Issue>, userId: string, fileNames?: string[]) {
+    async createIssue(data: Partial<Issue>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
 
         if (data.status === 'Completed') {
@@ -41,10 +43,24 @@ export class IssuesService {
         const newIssue = this.issueRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : ""
+            fileNames: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : ""
         });
 
         const savedIssue = await this.issueRepo.save(newIssue);
+
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'issues';
+                fileRecord.entityId = savedIssue.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return savedIssue;
     }
 
@@ -411,6 +427,7 @@ export class IssuesService {
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'issues' } });
 
         const transformedIssues = issues.map(issue => {
             return {
@@ -422,6 +439,7 @@ export class IssuesService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
+                fileInfo: fileInfoList.filter(file => file.entityId === issue.id)
             };
         });
 

@@ -62,12 +62,21 @@ export class IssuesController {
         try {
             const userId = request.user.id;
 
-            let fileNames: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
-            const result = await issuesService.createIssue(request.body, userId, fileNames);
+            const result = await issuesService.createIssue(request.body, userId, fileInfo);
             return response.status(201).json({
                 status: true,
                 data: result
