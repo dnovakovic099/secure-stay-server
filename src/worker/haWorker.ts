@@ -10,6 +10,9 @@ import { categoryIds } from "../constant";
 import { format } from "date-fns/format";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Resolution } from "../entity/Resolution";
+import { FileInfo } from "../entity/FileInfo";
+import { initRootFolder, getOrCreateFolder, drive, uploadToDrive } from "../utils/drive";
+import fs from "fs";
 
 (async () => {
     if (!appDatabase.isInitialized) {
@@ -132,6 +135,43 @@ import { Resolution } from "../entity/Resolution";
         connection
     });
 
+    // 🔧 Worker 4: google-drive-file-upload
+    const googleDriveFileUploadWorker = new Worker('google-drive-file-upload', async job => {
+        try {
+            const fileInfo: FileInfo = job.data.entity;
+            const ROOT_FOLDER_ID = await initRootFolder();
+            const SUB_FOLDER_ID = await getOrCreateFolder(drive, fileInfo.entityType, ROOT_FOLDER_ID);
+            const response = await uploadToDrive(
+                fileInfo.localPath,
+                fileInfo.fileName,
+                fileInfo.mimetype,
+                SUB_FOLDER_ID,
+                ROOT_FOLDER_ID
+            );
+
+            if (response && response.id) {
+                const fileRepo = appDatabase.getRepository(FileInfo);
+                fileInfo.driveFileId = response.id;
+                fileInfo.webViewLink = response.webViewLink || '';
+                fileInfo.webContentLink = response.webContentLink || '';
+                fileInfo.status = 'uploaded';
+                await fileRepo.save(fileInfo);
+                logger.info(`File uploaded successfully: ${JSON.stringify(fileInfo)}`);
+                logger.info(`Deleting local file: ${fileInfo.localPath}`);
+                fs.unlinkSync(fileInfo.localPath);
+            } else {
+                logger.error(`Failed to upload file to Google Drive for ${JSON.stringify(fileInfo)}`);
+            }
+
+        } catch (error) {
+            logger.error(`Error uploading file ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
+
 
     // Listeners for both workers
     expenseWorker.on('completed', job => {
@@ -165,6 +205,14 @@ import { Resolution } from "../entity/Resolution";
 
     deleteResolutionWorker.on('failed', (job, err) => {
         logger.error(`❌ Resolution Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    googleDriveFileUploadWorker.on('completed', job => {
+        logger.info(`✅ File upload Job ${job.id} completed for fileId ${job.data.entity.id}`);
+    });
+
+    googleDriveFileUploadWorker.on('failed', (job, err) => {
+        logger.error(`❌ File upload Job ${job.id} failed for fileId ${job.data.entity.id}: ${err.message}`);
     });
 
 })();

@@ -81,5 +81,7 @@ router
     );
 
 
+router.route('/migratefilestodrive').get(verifySession, issuesController.migrateFilesToDrive)
+
 
 export default router;
