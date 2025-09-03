@@ -136,40 +136,76 @@ import fs from "fs";
     });
 
     // 🔧 Worker 4: google-drive-file-upload
-    const googleDriveFileUploadWorker = new Worker('google-drive-file-upload', async job => {
-        try {
-            const fileInfo: FileInfo = job.data.entity;
-            const ROOT_FOLDER_ID = await initRootFolder();
-            const SUB_FOLDER_ID = await getOrCreateFolder(drive, fileInfo.entityType, ROOT_FOLDER_ID);
-            const response = await uploadToDrive(
-                fileInfo.localPath,
-                fileInfo.fileName,
-                fileInfo.mimetype,
-                SUB_FOLDER_ID,
-                ROOT_FOLDER_ID
-            );
-
-            if (response && response.id) {
+    const googleDriveFileUploadWorker = new Worker(
+        "google-drive-file-upload",
+        async job => {
+            try {
+                const fileInfo: FileInfo = job.data.entity;
                 const fileRepo = appDatabase.getRepository(FileInfo);
-                fileInfo.driveFileId = response.id;
-                fileInfo.webViewLink = response.webViewLink || '';
-                fileInfo.webContentLink = response.webContentLink || '';
-                fileInfo.status = 'uploaded';
-                await fileRepo.save(fileInfo);
-                logger.info(`File uploaded successfully: ${JSON.stringify(fileInfo)}`);
-                logger.info(`Deleting local file: ${fileInfo.localPath}`);
-                fs.unlinkSync(fileInfo.localPath);
-            } else {
-                logger.error(`Failed to upload file to Google Drive for ${JSON.stringify(fileInfo)}`);
-            }
 
-        } catch (error) {
-            logger.error(`Error uploading file ${job.id}:`, error);
-            throw error;
+                // 🔹 Check if local file exists first
+                if (!fs.existsSync(fileInfo.localPath)) {
+                    logger.warn(
+                        `Local file not found for entityId ${fileInfo.entityId}: ${fileInfo.localPath}`
+                    );
+
+                    // mark record as missing instead of retrying forever
+                    fileInfo.status = "failed";
+                    await fileRepo.save(fileInfo);
+
+                    return; // exit gracefully
+                }
+
+                const ROOT_FOLDER_ID = await initRootFolder();
+                const SUB_FOLDER_ID = await getOrCreateFolder(
+                    drive,
+                    fileInfo.entityType,
+                    ROOT_FOLDER_ID
+                );
+
+                const response = await uploadToDrive(
+                    fileInfo.localPath,
+                    fileInfo.fileName,
+                    fileInfo.mimetype,
+                    SUB_FOLDER_ID,
+                    ROOT_FOLDER_ID
+                );
+
+                if (response && response.id) {
+                    fileInfo.driveFileId = response.id;
+                    fileInfo.webViewLink = response.webViewLink || "";
+                    fileInfo.webContentLink = response.webContentLink || "";
+                    fileInfo.status = "uploaded";
+                    await fileRepo.save(fileInfo);
+
+                    logger.info(`File uploaded successfully: ${JSON.stringify(fileInfo)}`);
+
+                    // delete local file after upload
+                    try {
+                        fs.unlinkSync(fileInfo.localPath);
+                        logger.info(`Deleted local file: ${fileInfo.localPath}`);
+                    } catch (unlinkErr) {
+                        logger.error(
+                            `Failed to delete local file ${fileInfo.localPath}: ${unlinkErr.message}`
+                        );
+                    }
+                } else {
+                    logger.error(
+                        `Failed to upload file to Google Drive for ${JSON.stringify(fileInfo)}`
+                    );
+                    fileInfo.status = "failed";
+                    await fileRepo.save(fileInfo);
+                }
+            } catch (error) {
+                logger.error(`Error uploading file ${job.id}:`, error);
+                throw error; // job may retry depending on queue config
+            }
+        },
+        {
+            connection
         }
-    }, {
-        connection
-    });
+    );
+
 
 
 
