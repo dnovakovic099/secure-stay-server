@@ -36,9 +36,17 @@ export class ReservationDetailPostStayAuditController {
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
 
-            let attachmentNames: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
             if (Array.isArray(req.files['attachments']) && req.files['attachments'].length > 0) {
-                attachmentNames = (req.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (req.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
             const audit = await this.postStayAuditService.createAudit({
@@ -50,7 +58,7 @@ export class ReservationDetailPostStayAuditController {
                 airbnbReimbursement,
                 luxuryLodgingReimbursement,
                 potentialReviewIssue: potentialReviewIssue as PotentialReviewIssue,
-                attachments: JSON.stringify(attachmentNames) || '',
+                attachments: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
                 damageReport: damageReport as DamageReport,
                 damageReportNotes,
                 missingItems: missingItems as MissingItems,
@@ -60,7 +68,7 @@ export class ReservationDetailPostStayAuditController {
                 guestBookCheck: guestBookCheck as GuestBookCheck,
                 securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
                 approvedUpsells: approvedUpsells
-            }, userId);
+            }, userId, fileInfo);
 
             return res.status(201).json(audit);
         } catch (error) {
@@ -92,9 +100,17 @@ export class ReservationDetailPostStayAuditController {
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
 
-            let newAttachments: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
             if (Array.isArray(req.files['attachments']) && req.files['attachments'].length > 0) {
-                newAttachments = (req.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (req.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
             const audit = await this.postStayAuditService.updateAudit({
@@ -115,9 +131,9 @@ export class ReservationDetailPostStayAuditController {
                 guestBookCheck: guestBookCheck as GuestBookCheck,
                 securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
                 deletedAttachments: deletedAttachments,
-                newAttachments: JSON.stringify(newAttachments),
+                newAttachments: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
                 approvedUpsells: approvedUpsells
-            }, userId);
+            }, userId, fileInfo);
 
             return res.status(200).json(audit);
         } catch (error) {
@@ -130,6 +146,19 @@ export class ReservationDetailPostStayAuditController {
             const reservationId = Number(req.params.reservationId);
             const audit = await this.postStayAuditService.fetchAuditByReservationId(reservationId);
             return res.status(200).json(audit);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async migrateFileToDrive(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { fromDate, toDate } = req.body;
+            if (!fromDate || !toDate) {
+                return res.status(400).json({ message: "fromDate and toDate are required" });
+            }
+            const result = await this.postStayAuditService.migrateFilesToDrive(fromDate, toDate);
+            return res.status(200).json({message: "Migration completed", details: result});
         } catch (error) {
             next(error);
         }
