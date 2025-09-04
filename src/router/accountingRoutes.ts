@@ -50,6 +50,8 @@ router.route('/deleteexpense/:expenseId').delete(verifySession, expenseControlle
 
 router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 
+router.route('/expense/migratefilestodrive').get(verifySession, expenseController.migrateFilesToDrive);
+
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
 
 router.route("/updateexpensestatus")
