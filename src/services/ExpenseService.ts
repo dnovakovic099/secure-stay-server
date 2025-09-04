@@ -15,6 +15,7 @@ import { ListingService } from "./ListingService";
 import { CategoryEntity } from "../entity/Category";
 import logger from "../utils/logger.utils";
 import { haExpenseUpdateQueue } from "../queue/haQueue";
+import { FileInfo } from "../entity/FileInfo";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -39,10 +40,10 @@ export class ExpenseService {
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
-    private listingDetailRepository = appDatabase.getRepository(ListingDetail);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
 
-    async createExpense(request: any, userId: string, fileNames?: string[]) {
+    async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
             listingMapId,
             expenseDate,
@@ -72,7 +73,7 @@ export class ExpenseService {
         newExpense.contractorNumber = contractorNumber;
         newExpense.findings = findings;
         newExpense.userId = userId;
-        newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
+        newExpense.fileNames = fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "";
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
@@ -92,6 +93,19 @@ export class ExpenseService {
 
         newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'expense';
+                fileRecord.entityId = expense.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return expense;
     }
 
@@ -211,6 +225,7 @@ export class ExpenseService {
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
         const users = await this.usersRepository.find();
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
 
         const data = expenses.map((expense) => {
             const fileLinks = expense.fileNames
@@ -248,6 +263,7 @@ export class ExpenseService {
                 updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
                 updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
                 attachments: fileLinks,
+                fileInfo: fileInfoList.filter(file => file.entityId === expense.id)
             };
         });
 
@@ -310,7 +326,7 @@ export class ExpenseService {
         return expense;
     }
 
-    async updateExpense(request: any, userId: string, fileNames?: string[]) {
+    async updateExpense(request: any, userId: string, fileNames?: string[], fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
             expenseId,
             listingMapId,
@@ -366,6 +382,19 @@ export class ExpenseService {
         }
 
         await this.expenseRepo.save(expense);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'expense';
+                fileRecord.entityId = expense.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return expense;
     }
 
@@ -643,6 +672,37 @@ export class ExpenseService {
             failedExpenseUpdate,
             failedHostawayExpenseUpdate,
         };
+    }
+
+    async migrateFilesToDrive() {
+        //get all expenses
+        const expenses = await this.expenseRepo.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
+
+        for (const expense of expenses) {
+            try {
+                if (expense.fileNames) {
+                    const fileNames = JSON.parse(expense.fileNames) as string[];
+                    const fileForExpense = fileInfo.filter(file => file.entityId === expense.id);
+                    for (const file of fileNames) {
+                        const fileExists = fileForExpense.find(f => f.fileName === file);
+                        if (!fileExists) {
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'expense';
+                            fileRecord.entityId = expense.id;
+                            fileRecord.fileName = file;
+                            fileRecord.createdBy = expense.createdBy;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/expense/${file}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for expense ID ${expense.id}: ${error.message}`);
+            }
+        }
     }
 
 
