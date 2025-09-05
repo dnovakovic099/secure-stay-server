@@ -10,10 +10,13 @@ import { addDays, format } from "date-fns";
 import { buildClaimReminderMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
+import { FileInfo } from "../entity/FileInfo";
+import logger from "../utils/logger.utils";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
     private usersRepo = appDatabase.getRepository(UsersEntity); 
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -22,16 +25,30 @@ export class ClaimsService {
         return `${year}-${month}-${day}`;
     }
 
-    async createClaim(data: Partial<Claim>, userId: string, fileNames?: string[]) {
+    async createClaim(data: Partial<Claim>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
+
         const newClaim = this.claimRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : "",
-            created_by: userId
+            fileNames: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
+            created_by: userId,
         });
 
         const savedClaim = await this.claimRepo.save(newClaim);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'claims';
+                fileRecord.entityId = savedClaim.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return savedClaim;
     }
 
@@ -113,12 +130,15 @@ export class ClaimsService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     
 
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'claims' } });
+
         const [claims, total] = await this.claimRepo.findAndCount(queryOptions);
 
         const transformedData = claims.map(claim => {
             return {
                 ...claim,
                 updated_by: userMap.get(claim.updated_by) || claim.updated_by,
+                fileInfo: fileInfoList.filter(file => file.entityId === claim.id)
             };
         })
 
@@ -133,7 +153,7 @@ export class ClaimsService {
         };
     }
 
-    async updateClaim(id: number, data: Partial<Claim>, userId: string, fileNames?: string[]) {
+    async updateClaim(id: number, data: Partial<Claim>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const claim = await this.claimRepo.findOne({ 
             where: { id }
         });
@@ -155,7 +175,22 @@ export class ClaimsService {
             updated_by: userId,
         });
 
-        return await this.claimRepo.save(claim);
+        const updatedData = await this.claimRepo.save(claim);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'claims';
+                fileRecord.entityId = updatedData.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+
+        return updatedData;
     }
 
     async deleteClaim(id: number, userId: string) {
@@ -397,6 +432,37 @@ export class ClaimsService {
             };
         } catch (error) {
             throw error;
+        }
+    }
+
+    async migrateFilesToDrive() {
+        //get all claims
+        const claims = await this.claimRepo.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'claims' } });
+
+        for (const claim of claims) {
+            try {
+                if (claim.fileNames) {
+                    const fileNames = JSON.parse(claim.fileNames) as string[];
+                    const filesForClaim = fileInfo.filter(file => file.entityId === claim.id);
+                    for (const file of fileNames) {
+                        const fileExists = filesForClaim.find(f => f.fileName === file);
+                        if (!fileExists) {
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'claims';
+                            fileRecord.entityId = claim.id;
+                            fileRecord.fileName = file;
+                            fileRecord.createdBy = claim.created_by;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/claims/${file}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for claim ID ${claim.id}: ${error.message}`);
+            }
         }
     }
 
