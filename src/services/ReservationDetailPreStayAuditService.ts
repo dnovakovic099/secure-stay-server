@@ -1,6 +1,8 @@
 import { Repository } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPreStayAudit, CompletionStatus, DoorCodeStatus, CleanerCheck, CleanerNotified, CleanlinessCheck, DamageCheck, InventoryCheckStatus     } from "../entity/ReservationDetailPreStayAudit";
+import { FileInfo } from "../entity/FileInfo";
+import logger from "../utils/logger.utils";
 
 interface ReservationDetailPreStayAuditDTO {
     reservationId: number;
@@ -25,13 +27,16 @@ interface ReservationDetailPreStayAuditUpdateDTO extends ReservationDetailPreSta
 
 export class ReservationDetailPreStayAuditService {
     private preStayAuditRepository: Repository<ReservationDetailPreStayAudit>;
+    private fileInfoRepo: Repository<FileInfo> = appDatabase.getRepository(FileInfo);
 
     constructor() {
         this.preStayAuditRepository = appDatabase.getRepository(ReservationDetailPreStayAudit);
     }
 
-    async fetchAuditByReservationId(reservationId: number): Promise<ReservationDetailPreStayAudit | null> {
-        return await this.preStayAuditRepository.findOne({ where: { reservationId: Number(reservationId) } });
+    async fetchAuditByReservationId(reservationId: number): Promise<ReservationDetailPreStayAudit & { fileInfo: FileInfo[]; }> {
+        const data= await this.preStayAuditRepository.findOne({ where: { reservationId: Number(reservationId) } });
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'pre-stay-audit', entityId: reservationId } });
+        return data ? { ...data, fileInfo } : null;
     }
 
     async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
@@ -39,7 +44,7 @@ export class ReservationDetailPreStayAuditService {
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
 
-    async createAudit(dto: ReservationDetailPreStayAuditDTO, userId: string): Promise<ReservationDetailPreStayAudit> {
+    async createAudit(dto: ReservationDetailPreStayAuditDTO, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]): Promise<ReservationDetailPreStayAudit> {
         const audit = this.preStayAuditRepository.create({
             reservationId: dto.reservationId,
             doorCode: dto.doorCode,
@@ -56,10 +61,26 @@ export class ReservationDetailPreStayAuditService {
             createdBy: userId
         });
 
-        return await this.preStayAuditRepository.save(audit);
+        const savedData = await this.preStayAuditRepository.save(audit);
+
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'pre-stay-audit';
+                fileRecord.entityId = savedData.reservationId;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+
+        return savedData;
     }
 
-    async updateAudit(dto: ReservationDetailPreStayAuditUpdateDTO, userId: string): Promise<ReservationDetailPreStayAudit> {
+    async updateAudit(dto: ReservationDetailPreStayAuditUpdateDTO, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]): Promise<ReservationDetailPreStayAudit> {
         const audit = await this.fetchAuditByReservationId(dto.reservationId);
 
         if (!audit) {
@@ -84,7 +105,23 @@ export class ReservationDetailPreStayAuditService {
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
 
-        return await this.preStayAuditRepository.save(audit);
+        const updatedData = await this.preStayAuditRepository.save(audit);
+
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'pre-stay-audit';
+                fileRecord.entityId = updatedData.reservationId;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+
+        return updatedData;
     }
 
     private determineCompletionStatus(dto: ReservationDetailPreStayAuditDTO | ReservationDetailPreStayAuditUpdateDTO): CompletionStatus {
@@ -100,5 +137,37 @@ export class ReservationDetailPreStayAuditService {
         return CompletionStatus.IN_PROGRESS;
 
         
+    }
+
+    async migrateFilesToDrive() {
+        const audits = await this.preStayAuditRepository.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'pre-stay-audit' } });
+        for (const audit of audits) {
+            try {
+                if (audit.attachments) {
+                    const attachments = JSON.parse(audit.attachments);
+                    const filesForAudit = fileInfo.filter(file => file.entityId == audit.reservationId);
+                    logger.info(JSON.stringify(filesForAudit));
+                    for (const attachment of attachments) {
+                        const fileExists = filesForAudit.find(f => f.fileName === attachment);
+                        logger.info(JSON.stringify(fileExists));
+                        if (!fileExists) {
+                            logger.info(`Migrating file for reservationId ${audit.reservationId}: ${attachment}`);
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'pre-stay-audit';
+                            fileRecord.entityId = audit.reservationId;
+                            fileRecord.fileName = attachment;
+                            fileRecord.createdBy = audit.createdBy;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/pre-stay-audit/${attachment}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for reservationId ${audit.reservationId}: ${error.message}`);
+            }
+        }
     }
 } 
