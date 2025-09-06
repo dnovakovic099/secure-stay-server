@@ -396,4 +396,14 @@ export class ContactService {
         }
     }
 
+
+    async getContactList(keyword: string) {
+        const contacts = await this.contactRepo.find({
+            where: { name: ILike(`${keyword}%`) },
+            select: ["id", "name", "contact", "email"],
+            order: { name: "ASC" }
+        });
+        return contacts;
+    }
+
 }
