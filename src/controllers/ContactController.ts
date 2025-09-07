@@ -159,4 +159,14 @@ export class ContactController {
         }
     }
 
+    async getContactList(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const contacts = await contactService.getContactList(request.query.keyword as string);
+            return response.status(200).json(contacts);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }
