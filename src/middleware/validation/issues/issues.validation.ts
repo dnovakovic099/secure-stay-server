@@ -92,6 +92,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         deletedFiles: Joi.string().allow(null, ''),
         category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
         resolution: Joi.string().optional().allow(null),
+        fileInfo: Joi.any().optional()
     });
 
     const { error } = schema.validate(request.body);

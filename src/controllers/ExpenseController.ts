@@ -12,11 +12,22 @@ export class ExpenseController {
             const userId = request.user.id;
 
             //check either attachments are present or not
-            let fileNames: string[] = [];
+
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
-            const expenseData = await expenseService.createExpense(request, userId, fileNames);
+
+            const expenseData = await expenseService.createExpense(request, userId, fileInfo);
 
             return response.send(expenseData);
         } catch (error) {
@@ -31,17 +42,26 @@ export class ExpenseController {
 
             //check either attachments are present or not
             let fileNames: string[] = [];
-            let newFiles: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
             // Parse oldFiles safely
             const oldFiles: string[] = JSON.parse(request.body.oldFiles) || [];
 
-            fileNames = [...oldFiles, ...newFiles];
+            fileNames = [...oldFiles, ...(fileInfo ? fileInfo.map(file => file.fileName) : [])];
 
-            const expenseData = await expenseService.updateExpense(request, userId, fileNames);
+            const expenseData = await expenseService.updateExpense(request, userId, fileNames, fileInfo);
 
             return response.send(expenseData);
         } catch (error) {
@@ -139,6 +159,16 @@ export class ExpenseController {
             const userId = request.user.id;
             const result = await expenseService.bulkUpdateExpense(request.body, userId);
             return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async migrateFilesToDrive(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const result = await expenseService.migrateFilesToDrive();
+            return response.status(200).json({ message: 'Files migrated to drive successfully', result });
         } catch (error) {
             return next(error);
         }

@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { ClaimsService } from "../services/ClaimsService";
 import path from "path";
 import fs from "fs";
@@ -52,12 +52,20 @@ export class ClaimsController {
         try {
             const userId = request.user.id;
 
-            let fileNames: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
-            const result = await claimsService.createClaim(request.body, userId, fileNames);
+            const result = await claimsService.createClaim(request.body, userId, fileInfo);
             return response.status(201).json({
                 status: true,
                 data: result
@@ -95,18 +103,26 @@ export class ClaimsController {
             const updatedFiles = currentFiles.filter(file => !deletedFiles.includes(file));
             console.log({updatedFiles});
 
-            let newFiles: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
-            console.log({newFiles});
-            const finalFileNames = [...updatedFiles, ...newFiles];
-            console.log({finalFileNames});
+
+            const finalFileNames = [...updatedFiles, ...(fileInfo ? fileInfo.map(file => file.fileName) : [])];
 
             const result = await claimsService.updateClaim(id, {
                 ...request.body,
                 fileNames: JSON.stringify(finalFileNames)
-            }, userId, newFiles);
+            }, userId, fileInfo);
 
             return response.status(200).json({
                 status: true,
@@ -200,6 +216,19 @@ export class ClaimsController {
                 status: false,
                 message: error.message
             });
+        }
+    }
+
+    async migrateFilesToDrive(request: Request, response: Response, next: NextFunction) {
+        try {
+            const claimsService = new ClaimsService();
+            await claimsService.migrateFilesToDrive();
+            return response.status(200).json({
+                status: true,
+                message: "Migration completed",
+            });
+        } catch (error) {
+            return next(error);
         }
     }
 } 

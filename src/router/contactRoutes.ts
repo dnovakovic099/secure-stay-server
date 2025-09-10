@@ -16,6 +16,8 @@ router.route('/delete/:id').delete(verifySession, validateDeleteContact, contact
 
 router.route('/').get(verifySession, validateGetContacts, contactController.getContacts);
 
+router.route('/get-contact-list').get(verifySession, contactController.getContactList);
+
 
 router.route('/roles').post(verifySession, validateCreateContactRole, contactController.createContactRole);
 router.route('/roles').put(verifySession, validateUpdateContactRole, contactController.updateContactRole);

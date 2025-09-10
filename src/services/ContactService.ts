@@ -396,4 +396,23 @@ export class ContactService {
         }
     }
 
+
+    async getContactList(keyword: string) {
+        const contacts = await this.contactRepo
+            .createQueryBuilder("contact")
+            .select([
+                "MIN(contact.id) as id",
+                "contact.name as name",
+                "contact.contact as contact",
+                "contact.email as email"
+            ])
+            .where("contact.name LIKE :keyword", { keyword: `${keyword}%` })
+            .groupBy("contact.contact") // distinct on contact
+            .orderBy("name", "DESC")
+            .getRawMany();
+
+        return contacts;
+    }
+
+
 }
