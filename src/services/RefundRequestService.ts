@@ -15,11 +15,13 @@ import { SlackMessageService } from "./SlackMessageService";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { ExpenseStatus } from "../entity/Expense";
 import { ListingService } from "./ListingService";
+import { FileInfo } from "../entity/FileInfo";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
         const newRefundRequest = new RefundRequestEntity();
@@ -65,7 +67,7 @@ export class RefundRequestService {
   async saveRefundRequest(
     body: Partial<RefundRequestEntity>,
     userId: string,
-    attachments: string[],
+    fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[],
     refundRequest?: RefundRequestEntity
   ) {
     const slackMessageService = new SlackMessageService();
@@ -78,7 +80,8 @@ export class RefundRequestService {
           transactionManager,
           body,
           userId,
-          attachments,
+          fileInfo ? fileInfo.map(file => file.fileName) : [],
+          fileInfo,
           refundRequest,
           user,
           slackMessageService
@@ -89,11 +92,26 @@ export class RefundRequestService {
         transactionManager,
         body,
         userId,
-        attachments,
+        fileInfo ? fileInfo.map(file => file.fileName) : [],
+        fileInfo,
         user,
         slackMessageService
       );
     });
+  }
+
+  private async saveFileInfo(fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[], refundRequest: RefundRequestEntity, userId: string) {
+    for (const file of fileInfo) {
+      const fileRecord = new FileInfo();
+      fileRecord.entityType = 'refundRequest';
+      fileRecord.entityId = refundRequest.id;
+      fileRecord.fileName = file.fileName;
+      fileRecord.createdBy = userId;
+      fileRecord.localPath = file.filePath;
+      fileRecord.mimetype = file.mimeType;
+      fileRecord.originalName = file.originalName;
+      await this.fileInfoRepo.save(fileRecord);
+    }
   }
 
   private async updateRefundRequestFlow(
@@ -101,6 +119,7 @@ export class RefundRequestService {
     body: Partial<RefundRequestEntity>,
     userId: string,
     attachments: string[],
+    fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null,
     refundRequest: RefundRequestEntity,
     user: string,
     slackMessageService: SlackMessageService
@@ -138,6 +157,10 @@ export class RefundRequestService {
       logger.error("Email notification failed (update)", error);
     }
 
+    if (fileInfo && fileInfo.length > 0) {
+      await this.saveFileInfo(fileInfo, refundRequest, userId);
+    }
+
     return refundRequest;
   }
 
@@ -146,6 +169,7 @@ export class RefundRequestService {
     body: Partial<RefundRequestEntity>,
     userId: string,
     attachments: string[],
+    fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null,
     user: string,
     slackMessageService: SlackMessageService
   ) {
@@ -175,6 +199,10 @@ export class RefundRequestService {
       await this.sendEmailForNewRefundRequest(newRefundRequest);
     } catch (error) {
       logger.error("Email notification failed (new)", error);
+    }
+
+    if (fileInfo && fileInfo.length > 0) {
+      await this.saveFileInfo(fileInfo, newRefundRequest, userId);
     }
 
     return newRefundRequest;
