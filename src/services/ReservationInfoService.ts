@@ -308,7 +308,7 @@ export class ReservationInfoService {
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: [...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
         nextReservationIssues,
@@ -389,7 +389,7 @@ export class ReservationInfoService {
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: [...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
         nextReservationIssues,
@@ -506,7 +506,7 @@ export class ReservationInfoService {
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: [...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus,
+        postStayAuditStatus: postStayStatus=="Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus): postStayStatus,
         upsells: upsells,
         issues,
         nextReservationIssues,
