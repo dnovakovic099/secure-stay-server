@@ -23,6 +23,8 @@ interface ReservationDetailPostStayAuditDTO {
     guestBookCheck?: GuestBookCheck;
     securityDepositStatus?: SecurityDepositStatus;
     approvedUpsells?: string;
+    reasonForMissingIssue?: string;
+    improvementSuggestion?: string;
 }
 
 interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostStayAuditDTO {
@@ -102,14 +104,14 @@ export class ReservationDetailPostStayAuditService {
         }
 
         const deletedAttachments = dto.deletedAttachments ? JSON.parse(dto.deletedAttachments) : [];
-        const updatedAttachments = JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment));
-        const finalAttachments = [...updatedAttachments, ...JSON.parse(dto.newAttachments)];
+        const updatedAttachments = audit.attachments ? JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment)) : [];
+        const finalAttachments = dto.newAttachments ? [...updatedAttachments, ...JSON.parse(dto.newAttachments)] : null;
 
         audit.maintenanceIssues = dto.maintenanceIssues ?? audit.maintenanceIssues;
         audit.cleaningIssues = dto.cleaningIssues ?? audit.cleaningIssues;
         audit.cleaningSupplies = dto.cleaningSupplies ?? audit.cleaningSupplies;
         audit.refundForReview = dto.refundForReview ?? audit.refundForReview;
-        audit.attachments = JSON.stringify(finalAttachments) ?? '';
+        audit.attachments = finalAttachments ? JSON.stringify(finalAttachments) : audit.attachments;
         audit.airbnbReimbursement = dto.airbnbReimbursement ?? audit.airbnbReimbursement;
         audit.luxuryLodgingReimbursement = dto.luxuryLodgingReimbursement ?? audit.luxuryLodgingReimbursement;
         audit.potentialReviewIssue = dto.potentialReviewIssue ?? audit.potentialReviewIssue;
@@ -125,6 +127,8 @@ export class ReservationDetailPostStayAuditService {
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
         audit.approvedUpsells = dto.approvedUpsells ?? audit.approvedUpsells;
+        audit.reasonForMissingIssue = dto.reasonForMissingIssue ?? audit.reasonForMissingIssue;
+        audit.improvementSuggestion = dto.improvementSuggestion ?? audit.improvementSuggestion;
 
         const updatedData = await this.postStayAuditRepository.save(audit);
         if (fileInfo) {

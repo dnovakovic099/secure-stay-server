@@ -95,7 +95,9 @@ export class ReservationDetailPostStayAuditController {
                 guestBookCheck,
                 securityDepositStatus,
                 deletedAttachments,
-                approvedUpsells
+                approvedUpsells,
+                reasonForMissingIssue,
+                improvementSuggestion
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -132,11 +134,15 @@ export class ReservationDetailPostStayAuditController {
                 securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
                 deletedAttachments: deletedAttachments,
                 newAttachments: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
-                approvedUpsells: approvedUpsells
+                approvedUpsells: approvedUpsells,
+                reasonForMissingIssue,
+                improvementSuggestion
             }, userId, fileInfo);
 
             return res.status(200).json(audit);
         } catch (error) {
+            console.log(error.stack);
+            
             next(error);
         }
     }
