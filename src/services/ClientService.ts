@@ -1,307 +1,183 @@
 import { appDatabase } from "../utils/database.util";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { ILike, In, Between } from "typeorm";
+import { IsNull, Not } from "typeorm";
 
-interface FilterQuery {
+interface ClientFilter {
   page: number;
   limit: number;
   search?: string;
+  listingId?: string[];
+  serviceType?: string[];
   status?: string[];
-  clientType?: string[];
-  source?: string[];
-  city?: string[];
-  state?: string[];
-  country?: string[];
-  tags?: string[];
-  minTotalSpent?: number;
-  maxTotalSpent?: number;
-  minTotalBookings?: number;
-  maxTotalBookings?: number;
-  startDate?: Date;
-  endDate?: Date;
-}
-
-interface ClientStats {
-  totalClients: number;
-  activeClients: number;
-  inactiveClients: number;
-  pendingClients: number;
-  suspendedClients: number;
-  totalRevenue: number;
-  averageRevenuePerClient: number;
-  topClientTypes: Array<{ type: string; count: number }>;
-  topSources: Array<{ source: string; count: number }>;
 }
 
 export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
+  private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
+  private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
 
-  async createClient(body: Partial<ClientEntity>, userId: string) {
-    // Check if email already exists
-    const existingClient = await this.clientRepo.findOneBy({ email: body.email });
-    if (existingClient) {
-      throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
-    }
+  async saveClient(
+    clientData: Partial<ClientEntity>,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[],
+    clientProperties?: string[],
+  ) {
+    const client = this.clientRepo.create({ ...clientData, createdBy: userId });
 
-    const client = this.clientRepo.create({
-      ...body,
-      createdBy: userId,
-      updatedBy: userId,
-    });
-
-    return await this.clientRepo.save(client);
-  }
-
-  async updateClient(id: string, body: Partial<ClientEntity>, userId: string) {
-    const existingClient = await this.clientRepo.findOneBy({ id });
-    if (!existingClient) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-
-    // Check if email is being changed and if it already exists
-    if (body.email && body.email !== existingClient.email) {
-      const emailExists = await this.clientRepo.findOneBy({ email: body.email });
-      if (emailExists) {
-        throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
-      }
-    }
-
-    const updatedClient = this.clientRepo.merge(existingClient, {
-      ...body,
-      updatedBy: userId,
-    });
-
-    return await this.clientRepo.save(updatedClient);
-  }
-
-  async deleteClient(id: string, userId: string) {
-    const client = await this.clientRepo.findOneBy({ id });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-
-    client.deletedBy = userId;
-    await this.clientRepo.save(client);
-    return await this.clientRepo.softRemove(client);
-  }
-
-  async getClients(query: FilterQuery, userId: string) {
-    const {
-      page,
-      limit,
-      search,
-      status,
-      clientType,
-      source,
-      city,
-      state,
-      country,
-      tags,
-      minTotalSpent,
-      maxTotalSpent,
-      minTotalBookings,
-      maxTotalBookings,
-      startDate,
-      endDate,
-    } = query;
-
-    const queryBuilder = this.clientRepo.createQueryBuilder("client");
-
-    // Apply filters
-    if (search) {
-      queryBuilder.andWhere(
-        "(client.fullName ILIKE :search OR client.email ILIKE :search OR client.companyName ILIKE :search OR client.phone ILIKE :search)",
-        { search: `%${search}%` }
+    if (secondaryContacts && secondaryContacts.length > 0) {
+      client.secondaryContacts = secondaryContacts.map((contact) =>
+        this.contactRepo.create({ ...contact, createdBy: userId })
       );
     }
 
-    if (status && status.length > 0) {
-      queryBuilder.andWhere("client.status IN (:...status)", { status });
+    if (clientProperties && clientProperties.length > 0) {
+      client.properties = clientProperties.map((listingId) =>
+        this.propertyRepo.create({ listingId, createdBy: userId })
+      );
     }
-
-    if (clientType && clientType.length > 0) {
-      queryBuilder.andWhere("client.clientType IN (:...clientType)", { clientType });
-    }
-
-    if (source && source.length > 0) {
-      queryBuilder.andWhere("client.source IN (:...source)", { source });
-    }
-
-    if (city && city.length > 0) {
-      queryBuilder.andWhere("client.city IN (:...city)", { city });
-    }
-
-    if (state && state.length > 0) {
-      queryBuilder.andWhere("client.state IN (:...state)", { state });
-    }
-
-    if (country && country.length > 0) {
-      queryBuilder.andWhere("client.country IN (:...country)", { country });
-    }
-
-    if (tags && tags.length > 0) {
-      queryBuilder.andWhere("client.tags && :tags", { tags });
-    }
-
-    if (minTotalSpent !== undefined) {
-      queryBuilder.andWhere("client.totalSpent >= :minTotalSpent", { minTotalSpent });
-    }
-
-    if (maxTotalSpent !== undefined) {
-      queryBuilder.andWhere("client.totalSpent <= :maxTotalSpent", { maxTotalSpent });
-    }
-
-    if (minTotalBookings !== undefined) {
-      queryBuilder.andWhere("client.totalBookings >= :minTotalBookings", { minTotalBookings });
-    }
-
-    if (maxTotalBookings !== undefined) {
-      queryBuilder.andWhere("client.totalBookings <= :maxTotalBookings", { maxTotalBookings });
-    }
-
-    if (startDate && endDate) {
-      queryBuilder.andWhere("client.createdAt BETWEEN :startDate AND :endDate", {
-        startDate,
-        endDate,
-      });
-    }
-
-    // Get total count
-    const total = await queryBuilder.getCount();
-
-    // Apply pagination and ordering
-    const clients = await queryBuilder
-      .orderBy("client.createdAt", "DESC")
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
-
-    return {
-      clients,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  async getClientsByIds(ids: string[]) {
-    return await this.clientRepo.findBy({ id: In(ids) });
-  }
-
-  async getClientById(id: string) {
-    const client = await this.clientRepo.findOneBy({ id });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-    return client;
-  }
-
-  async searchClients(searchTerm: string, filters?: any) {
-    const queryBuilder = this.clientRepo.createQueryBuilder("client");
-
-    // Apply search
-    queryBuilder.andWhere(
-      "(client.fullName ILIKE :search OR client.email ILIKE :search OR client.companyName ILIKE :search OR client.phone ILIKE :search)",
-      { search: `%${searchTerm}%` }
-    );
-
-    // Apply additional filters
-    if (filters) {
-      if (filters.status && filters.status.length > 0) {
-        queryBuilder.andWhere("client.status IN (:...status)", { status: filters.status });
-      }
-
-      if (filters.clientType && filters.clientType.length > 0) {
-        queryBuilder.andWhere("client.clientType IN (:...clientType)", { clientType: filters.clientType });
-      }
-
-      if (filters.source && filters.source.length > 0) {
-        queryBuilder.andWhere("client.source IN (:...source)", { source: filters.source });
-      }
-    }
-
-    return await queryBuilder
-      .orderBy("client.fullName", "ASC")
-      .take(50)
-      .getMany();
-  }
-
-  async getClientStats(): Promise<ClientStats> {
-    const [
-      totalClients,
-      activeClients,
-      inactiveClients,
-      pendingClients,
-      suspendedClients,
-      totalRevenue,
-      averageRevenue,
-      clientTypes,
-      sources,
-    ] = await Promise.all([
-      this.clientRepo.count(),
-      this.clientRepo.countBy({ status: "Active" }),
-      this.clientRepo.countBy({ status: "Inactive" }),
-      this.clientRepo.countBy({ status: "Pending" }),
-      this.clientRepo.countBy({ status: "Suspended" }),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("SUM(client.totalSpent)", "total")
-        .getRawOne(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("AVG(client.totalSpent)", "average")
-        .getRawOne(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("client.clientType", "type")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("client.clientType")
-        .orderBy("count", "DESC")
-        .limit(5)
-        .getRawMany(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("client.source", "source")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("client.source")
-        .orderBy("count", "DESC")
-        .limit(5)
-        .getRawMany(),
-    ]);
-
-    return {
-      totalClients,
-      activeClients,
-      inactiveClients,
-      pendingClients,
-      suspendedClients,
-      totalRevenue: parseFloat(totalRevenue?.total || "0"),
-      averageRevenuePerClient: parseFloat(averageRevenue?.average || "0"),
-      topClientTypes: clientTypes.map((item: any) => ({
-        type: item.type,
-        count: parseInt(item.count),
-      })),
-      topSources: sources.map((item: any) => ({
-        source: item.source,
-        count: parseInt(item.count),
-      })),
-    };
-  }
-
-  async updateClientStats(clientId: string, bookingData: { amount: number; date: Date }) {
-    const client = await this.clientRepo.findOneBy({ id: clientId });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${clientId} not found.`);
-    }
-
-    client.totalBookings += 1;
-    client.totalSpent += bookingData.amount;
-    client.lastBookingDate = bookingData.date;
 
     return await this.clientRepo.save(client);
   }
+
+  async updateClient(
+    clientData: Partial<ClientEntity>,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[],
+    clientProperties?: string[],
+  ) {
+    const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    Object.assign(client, clientData);
+    client.updatedAt = new Date();
+    client.updatedBy = userId;
+
+    await this.handleClientSecondaryContactUpdate(client, userId, secondaryContacts);
+    await this.handleClientPropertiesUpdate(client, userId, clientProperties);
+
+    return await this.clientRepo.save(client);
+  }
+
+  private async handleClientSecondaryContactUpdate(client: ClientEntity, userId: string, secondaryContacts?: Partial<ClientSecondaryContact>[]) {
+    if (secondaryContacts) {
+      const existingContacts = await this.contactRepo.find({ where: { client: { id: client.id } } });
+      const existingContactIds = existingContacts.map((c) => c.id);
+      const incomingContactIds = secondaryContacts.map((c) => c.id).filter((id): id is string => !!id);
+
+      // Delete contacts that are not in the incoming list
+      const contactsToDelete = existingContacts.filter((c) => !incomingContactIds.includes(c.id));
+      if (contactsToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        contactsToDelete.forEach(contact => {
+          contact.deletedAt = new Date();
+          contact.deletedBy = userId;
+        });
+        await this.contactRepo.save(contactsToDelete);
+      }
+
+      // Update or create contacts
+      client.secondaryContacts = secondaryContacts.map((contact) => {
+        if (contact.id && existingContactIds.includes(contact.id)) {
+          const existingContact = existingContacts.find((c) => c.id === contact.id)!;
+          Object.assign(existingContact, contact);
+          existingContact.updatedAt = new Date();
+          existingContact.updatedBy = userId;
+          return existingContact;
+        } else {
+          return this.contactRepo.create({ ...contact, createdBy: userId });
+        }
+      });
+    }
+  }
+
+  private async handleClientPropertiesUpdate(client: ClientEntity, userId: string, clientProperties?: string[]) {
+    if (clientProperties) {
+      const existingProperties = await this.propertyRepo.find({ where: { client: { id: client.id } } });
+      const existingListingIds = existingProperties.map((p) => p.listingId);
+
+      // Delete properties that are not in the incoming list
+      const propertiesToDelete = existingProperties.filter((p) => !clientProperties.includes(p.listingId));
+      if (propertiesToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        propertiesToDelete.forEach(property => {
+          property.deletedAt = new Date();
+          property.deletedBy = userId;
+        });
+        await this.propertyRepo.save(propertiesToDelete);
+      }
+
+      // Add new properties
+      const newProperties = clientProperties
+        .filter((listingId) => !existingListingIds.includes(listingId))
+        .map((listingId) => this.propertyRepo.create({ listingId, createdBy: userId }));
+
+      client.properties = [...existingProperties.filter(p => !propertiesToDelete.includes(p)), ...newProperties];
+    }
+  }
+
+  async getClientList(filter: ClientFilter) {
+    const { page, limit, search } = filter;
+
+    // fetch the associated clientSecondaryContacts and clientProperties as well
+    const query = this.clientRepo.createQueryBuilder("client")
+      .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
+      .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+      .where("client.deletedAt IS NULL");
+
+    if (search) {
+      query.andWhere("client.firstName ILIKE :search OR client.lastName ILIKE :search OR client.email ILIKE :search", { search: `%${search}%` });
+    }
+
+    if (filter.listingId && filter.listingId.length > 0) {
+      query.andWhere("property.listingId IN (:...listingIds)", { listingIds: filter.listingId });
+    }
+
+    if (filter.serviceType && filter.serviceType.length > 0) {
+      query.andWhere("client.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
+    }
+
+    if (filter.status && filter.status.length > 0) {
+      query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+    }
+
+    query.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+    return { data, total };
+  }
+
+  async deleteClient(clientId: string, userId: string) {
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+       throw CustomErrorHandler.notFound("Client not found");
+     }
+
+     // Soft delete by setting deletedAt and deletedBy
+     client.deletedAt = new Date();
+     client.deletedBy = userId;
+     await this.clientRepo.save(client);
+   }
+
+   async getClientMetadata() {
+    //status can be one of active, at_risk, offboarding, offboarded
+    // find the total no. of clients whose status is other than offboarded
+    const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
+    // total no. of each serviceType of clients whose status is other than offboarded
+    const serviceTypeCounts = await this.clientRepo.createQueryBuilder("client")
+      .select("client.serviceType", "serviceType")
+      .addSelect("COUNT(*)", "count")
+      .where("client.status != :status AND client.deletedAt IS NULL", { status: "offboarded" })
+      .groupBy("client.serviceType")
+      .getRawMany();
+
+      return { totalActiveClients, ...serviceTypeCounts };
+   }
+
+
+
 }
