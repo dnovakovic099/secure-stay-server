@@ -19,10 +19,10 @@ export class PublishedStatementEntity {
     toDate: string;
 
     @Column({nullable: true})
-    dateType: string;
+    dateType: string;         // arrivalDate/departureDate/prorated
 
     @Column({ nullable: true })
-    listingId: string;
+    listingMapIds: string;
 
     @Column({ nullable: true })
     statementName: string;
@@ -31,10 +31,16 @@ export class PublishedStatementEntity {
     statementId: number;
 
     @Column({ nullable: true })
-    durationType: string;
+    durationType: string;   // weekly/bi-weekly/monthly
 
     @Column({ nullable: true })
     grandTotal: number;
+
+    @Column({ nullable: true })
+    propertyOwnerName: string;
+
+    @Column({ nullable: true })
+    propertyOwnerPhone: string;
 
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
