@@ -88,15 +88,15 @@ export class ReservationDetailPreStayAuditService {
         }
       
         const deletedAttachments = dto.deletedAttachments ? JSON.parse(dto.deletedAttachments) : [];
-        const updatedAttachments = JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment));
-        const finalAttachments = [...updatedAttachments, ...JSON.parse(dto.newAttachments)];
+        const updatedAttachments = audit.attachments ? JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment)) : [];
+        const finalAttachments = dto.newAttachments ? [...updatedAttachments, ...JSON.parse(dto.newAttachments)] : null;
 
         audit.doorCode = dto.doorCode ?? audit.doorCode;
         audit.amenitiesConfirmed = dto.amenitiesConfirmed ?? audit.amenitiesConfirmed;
         audit.completionStatus = this.determineCompletionStatus(dto);
         audit.damageCheck = dto.damageCheck ?? audit.damageCheck;
         audit.inventoryCheckStatus = dto.inventoryCheckStatus ?? audit.inventoryCheckStatus;
-        audit.attachments = JSON.stringify(finalAttachments) ?? '';
+        audit.attachments = finalAttachments ? JSON.stringify(finalAttachments) : audit.attachments;
         audit.approvedUpsells = dto.approvedUpsells ?? audit.approvedUpsells;
         audit.wifiConnectedAndActive = dto.wifiConnectedAndActive ?? audit.wifiConnectedAndActive;
         audit.cleanlinessCheck = dto.cleanlinessCheck ?? audit.cleanlinessCheck;
