@@ -3,7 +3,7 @@ import Joi from "joi";
 
 export const validateCreateClientTicket = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        status: Joi.string().required().valid("New", "In Progress", "Completed")
+        status: Joi.string().required().valid("New", "In Progress", "Completed", "Need Help")
             .messages({
                 'any.required': 'Status is required',
                 'any.only': 'Status must be one of New, In Progress, or Completed'
@@ -32,7 +32,7 @@ export const validateCreateClientTicket = (request: Request, response: Response,
 export const validateUpdateClientTicket = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid("New", "In Progress", "Completed")
+        status: Joi.string().required().valid("New", "In Progress", "Completed", "Need Help")
             .messages({
                 'any.required': 'Status is required',
                 'any.only': 'Status must be one of New, In Progress, or Completed'
@@ -61,7 +61,7 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
 
 export const validateGetClientTicket = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Completed")).optional(),
+        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Completed", "Need Help")).optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
         category: Joi.array().items(Joi.string().valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")).optional(),
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional()
@@ -97,7 +97,7 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
 export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid("New", "In Progress", "Completed")
+        status: Joi.string().required().valid("New", "In Progress", "Completed", "Need Help")
             .messages({
                 'any.required': 'Status is required',
                 'any.only': 'Status must be one of New, In Progress, or Completed'
@@ -141,7 +141,7 @@ export const validateBulkUpdateClientTicket = (request: Request, response: Respo
     const schema = Joi.object({
         ids: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
         updateData: Joi.object({
-            status: Joi.string().valid("New", "In Progress", "Completed"),
+            status: Joi.string().valid("New", "In Progress", "Completed", "Need Help"),
             listingId: Joi.string(),
             category: Joi.array().items(Joi.string()
                 .valid("Pricing", "Statement", "Reservation", "Listing", "Maintenance", "Other", "Onboarding")),
