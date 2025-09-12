@@ -4,6 +4,8 @@ import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { IsNull, Not } from "typeorm";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant"
 
 interface ClientFilter {
   page: number;
@@ -25,6 +27,24 @@ export class ClientService {
     secondaryContacts?: Partial<ClientSecondaryContact>[],
     clientProperties?: string[],
   ) {
+    const listingService = new ListingService();
+    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
+
+    if (clientProperties && clientProperties.length > 0) {
+      for (const listingId of clientProperties) {
+        //find the service type of the listingId by checking which array it belongs to
+        if (FULL_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "FULL_SERVICE";
+        } else if (PRO_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "PRO_SERVICE";
+        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "LAUNCH_SERVICE";
+        } else {
+          clientData.serviceType = null;
+        }
+      }
+    }
+
     const client = this.clientRepo.create({ ...clientData, createdBy: userId });
 
     if (secondaryContacts && secondaryContacts.length > 0) {
@@ -48,6 +68,24 @@ export class ClientService {
     secondaryContacts?: Partial<ClientSecondaryContact>[],
     clientProperties?: string[],
   ) {
+    const listingService = new ListingService();
+    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
+
+    if (clientProperties && clientProperties.length > 0) {
+      for (const listingId of clientProperties) {
+        //find the service type of the listingId by checking which array it belongs to
+        if (FULL_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "FULL_SERVICE";
+        } else if (PRO_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "PRO_SERVICE";
+        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "LAUNCH_SERVICE";
+        } else {
+          clientData.serviceType = null;
+        }
+      }
+    }
+    
     const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
@@ -175,7 +213,7 @@ export class ClientService {
       .groupBy("client.serviceType")
       .getRawMany();
 
-      return { totalActiveClients, ...serviceTypeCounts };
+     return { totalActiveClients, serviceTypeCounts };
    }
 
 
