@@ -6,6 +6,8 @@ import fileUpload from "../utils/upload.util";
 const router = Router();
 const postStayAuditController = new ReservationDetailPostStayAuditController();
 
+router.post("/migratefilestodrive", verifySession, postStayAuditController.migrateFileToDrive.bind(postStayAuditController));
+
 router.post("/:reservationId", verifySession, fileUpload('post-stay-audit').fields([
     { name: 'attachments', maxCount: 100 }
 ]), postStayAuditController.createAudit.bind(postStayAuditController));

@@ -301,14 +301,18 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -378,14 +382,18 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -492,13 +500,17 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus=="Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus): postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -1350,6 +1362,21 @@ export class ReservationInfoService {
     await this.generateReservationStatusReportFromHA(currentYear);
 
     logger.info(`Reservation status report for ${currentYear} refreshed successfully.`);
+  }
+
+  async getNextReservation(id: number, listingMapId: number) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id, listingMapId } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id} and ListingMapId: ${listingMapId}`);
+    }
+
+    const nextReservation = await this.reservationInfoRepository.createQueryBuilder("reservation")
+      .where("reservation.listingMapId = :listingMapId", { listingMapId })
+      .andWhere("reservation.arrivalDate > :arrivalDate", { arrivalDate: reservation.arrivalDate })
+      .orderBy("reservation.arrivalDate", "ASC")
+      .getOne();
+
+    return nextReservation;
   }
 
 

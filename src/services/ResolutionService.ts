@@ -330,9 +330,10 @@ export class ResolutionService {
                 }))
                 .on("headers", (headers: string[]) => {
                     // ✅ validate headers once, not per row
-                    const requiredHeaders = ["Guest", "Start date", "End date", "Amount", "Nights", "Type", "Date"];
+                    const requiredHeaders = ["Guest", "Start date", "Amount", "Nights", "Type", "Date"];
                     const missing = requiredHeaders.filter(h => !headers.includes(h));
                     if (missing.length > 0) {
+                        fs.unlinkSync(filePath);
                         reject(new CustomErrorHandler(400, `Missing required headers in the CSV file: ${missing.join(", ")}`));
                     }
                 })
@@ -363,6 +364,7 @@ export class ResolutionService {
                     resolve(results);
                 })
                 .on("error", (err) => {
+                    fs.unlinkSync(filePath);
                     reject(err);
                 });
         });
@@ -384,19 +386,19 @@ export class ResolutionService {
 
             // ✅ Defensive checks for missing/empty values
             const startDateRaw = row["Start date"]?.trim();
-            const endDateRaw = row["End date"]?.trim();
+            // const endDateRaw = row["End date"]?.trim();
             const claimDateRaw = row.Date;
             const amountRaw = row.Amount;
             const nights = row.Nights;
 
-            if (!guestName || !startDateRaw || !endDateRaw || !amountRaw || !claimDateRaw || !nights) {
+            if (!guestName || !startDateRaw || !amountRaw || !claimDateRaw || !nights) {
                 failedToProcessData.push({ ...row, reason: "Missing required data" });
                 logger.warn(`Skipping row due to missing data: ${JSON.stringify(row)}`);
                 continue;
             }
 
             let arrivalDate: string;
-            let departureDate: string;
+            // let departureDate: string;
             let claimDate: string | null = null;
 
             try {
@@ -404,10 +406,10 @@ export class ResolutionService {
                     parse(startDateRaw, "MM/dd/yyyy", new Date()),
                     "yyyy-MM-dd"
                 );
-                departureDate = format(
-                    parse(endDateRaw, "MM/dd/yyyy", new Date()),
-                    "yyyy-MM-dd"
-                );
+                // departureDate = format(
+                //     parse(endDateRaw, "MM/dd/yyyy", new Date()),
+                //     "yyyy-MM-dd"
+                // );
                 if (claimDateRaw) {
                     claimDate = format(
                         claimDateRaw,
@@ -423,13 +425,13 @@ export class ResolutionService {
             const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
             qb.where("reservation.guestName Like :guestName", { guestName: `${guestName}%` })
                 .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
-                .andWhere("reservation.departureDate = :departureDate", { departureDate })
+                // .andWhere("reservation.departureDate = :departureDate", { departureDate })
                 .andWhere("reservation.nights = :nights", { nights: nights });
 
             const reservation = await qb.getOne();
             if (!reservation) {
                 failedToProcessData.push({ ...row, reason: "No matching reservation found" });
-                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, departure: ${departureDate}, nights: ${nights}`);
+                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, nights: ${nights}`);
                 continue;
             }
 
@@ -442,7 +444,7 @@ export class ResolutionService {
                 claimDate: claimDate ? claimDate : format(new Date(), "yyyy-MM-dd"),
                 amount: Number(row.Amount), 
                 arrivalDate: arrivalDate,
-                departureDate: departureDate,
+                departureDate: String(reservation.departureDate),
             };
 
             let cancellationFeeInfo = null;
@@ -458,11 +460,11 @@ export class ResolutionService {
                 cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
             }
 
-            const resolution = await this.createResolution(resolutionData, userId);
+            // const resolution = await this.createResolution(resolutionData, userId);
             successfullyProcessedData.push(row);
             if (cancellationFeeInfo && cancellationFeeInfo?.length == 1) {
                 // send email notification
-                this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
+                // this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
                 logger.info(`Cancellation Fee Refund processed for reservation ID ${reservation.id} with existing Cancellation Fee.`);
             }
         }

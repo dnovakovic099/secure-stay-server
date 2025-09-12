@@ -50,4 +50,6 @@ router.route('/export')
 
 router.route('/attachment/:fileName').get(claimsController.getAttachment);
 
+router.route('/migratefilestodrive').get(verifySession, claimsController.migrateFilesToDrive);
+
 export default router;
