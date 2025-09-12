@@ -1,5 +1,6 @@
 import { HostAwayClient } from "../client/HostAwayClient";
 import { PublishedStatementEntity } from "../entity/PublishedStatements";
+import { getPeriodType } from "../helpers/date";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 
@@ -17,7 +18,8 @@ export class PublishedStatementService {
         const transformedStatements = statements.map(statement => ({
             ...statement,
             listingMapIds: statement.listingMapIds ? JSON.parse(statement.listingMapIds) : [],
-            url: `https://dashboard.hostaway.com/v3/owner-statements/${statement.statementId}`
+            url: `https://dashboard.hostaway.com/v3/owner-statements/${statement.statementId}`,
+            durationType: getPeriodType(statement.fromDate, statement.toDate),
         }));
         return transformedStatements;
     }
@@ -47,13 +49,8 @@ export class PublishedStatementService {
         const publishedStatements = await this.fetchPublishedStatementFromHA();
         const existingStatements = await this.getPublishedStatements();
         const existingStatementIds = existingStatements.map(statement => statement.statementId);
-        let count = 0;
         for (const statement of publishedStatements) {
             if (!existingStatementIds.includes(statement.id)) {
-                if (count == 5) {
-                    logger.info("Processed 3 new statements, stopping further processing for now.");
-                    break;
-                }
                 logger.info(`Processing new published statement with ID ${statement.id}...`);
 
                 const statementInfo = await this.fetchPublishedStatementByIdFromHA(statement.id);
@@ -84,7 +81,6 @@ export class PublishedStatementService {
 
                 await this.createPublishedStatement(newStatementData);
                 logger.info(`Published statement with ID ${statement.id} saved successfully.`);
-                count++;
             } else {
                 logger.info(`Published statement with ID ${statement.id} already exists in the database.`);
             }

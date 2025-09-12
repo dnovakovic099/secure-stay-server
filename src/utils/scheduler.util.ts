@@ -12,6 +12,7 @@ import { UpsellOrderService } from "../services/UpsellOrderService";
 import { format } from "date-fns";
 import { ClaimsService } from "../services/ClaimsService";
 import { MaintenanceService } from "../services/MaintenanceService";
+import { PublishedStatementService } from "../services/PublishedStatementService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -127,6 +128,7 @@ export function scheduleGetReservation() {
         logger.error("Error sending reminder message for pending claims", error);
       }
     });
+
   schedule.scheduleJob(
     { hour: 2, minute: 0, tz: "America/New_York" },  // Daily at 2 AM EST
     async () => {
@@ -139,4 +141,15 @@ export function scheduleGetReservation() {
         logger.error("Error processing maintenance log creation:", error);
       }
     });
+
+  schedule.scheduleJob("0 * * * *", async () => {
+    try {
+      logger.info('Checking for new published statements from HostAway...');
+      const publishedStatementService = new PublishedStatementService();
+      await publishedStatementService.savePublishedStatement();
+      logger.info('Checked for new published statements from HostAway successfully.');
+    } catch (error) {
+      logger.error("Error checking for new published statements from HostAway:", error);
+    }
+  });
 }
