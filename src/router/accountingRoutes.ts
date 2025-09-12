@@ -12,6 +12,7 @@ import { ContractorInfoController } from "../controllers/ContractorController";
 import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 import { ResolutionController } from "../controllers/ResolutionController";
 import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
+import { PublishedStatementController } from "../controllers/PublishedStatementController";
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -19,6 +20,7 @@ const incomeController = new IncomeController();
 const accountingController = new AccountingReportController();
 const contractorInfoController = new ContractorInfoController();
 const resolutionController = new ResolutionController();
+const publishedStatementController = new PublishedStatementController();
 
 router.route('/createexpense')
     .post(
@@ -158,6 +160,18 @@ router.route('/resolution/upload-csv')
         verifySession,
         fileUpload("resolution").single("file"),
         resolutionController.processCSVForResolution
+    )
+
+router.route('/save-published-ha-statements')
+    .get(
+        verifySession,
+        publishedStatementController.savePublishedStatementFromHA
+    );
+
+router.route('/get-published-ha-statements')
+    .get(
+        verifySession,
+        publishedStatementController.getPublishedStatements
     )
 
 export default router;

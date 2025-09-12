@@ -13,7 +13,13 @@ export class PublishedStatementService {
     }
 
     async getPublishedStatements(): Promise<PublishedStatementEntity[]> {
-        return await this.publishedStatementRepo.find();
+        const statements = await this.publishedStatementRepo.find();
+        const transformedStatements = statements.map(statement => ({
+            ...statement,
+            listingMapIds: statement.listingMapIds ? JSON.parse(statement.listingMapIds) : [],
+            url: `https://dashboard.hostaway.com/v3/owner-statements/${statement.statementId}`
+        }));
+        return transformedStatements;
     }
 
     async fetchPublishedStatementFromHA() {
@@ -23,6 +29,8 @@ export class PublishedStatementService {
             return [];
         }
         const publishedStatements = response.filter((statement: any) => statement.status === "new");
+        //sort the publishedStatements in desc order by id
+        publishedStatements.sort((a: any, b: any) => b.id - a.id);
         return publishedStatements;
     }
 
@@ -39,9 +47,17 @@ export class PublishedStatementService {
         const publishedStatements = await this.fetchPublishedStatementFromHA();
         const existingStatements = await this.getPublishedStatements();
         const existingStatementIds = existingStatements.map(statement => statement.statementId);
+        let count = 0;
         for (const statement of publishedStatements) {
             if (!existingStatementIds.includes(statement.id)) {
+                if (count == 5) {
+                    logger.info("Processed 3 new statements, stopping further processing for now.");
+                    break;
+                }
+                logger.info(`Processing new published statement with ID ${statement.id}...`);
+
                 const statementInfo = await this.fetchPublishedStatementByIdFromHA(statement.id);
+
                 if (!statementInfo) {
                     logger.error(`Failed to fetch detailed info for statement ID ${statement.id}. Skipping...`);
                     continue;
@@ -67,6 +83,8 @@ export class PublishedStatementService {
                 };
 
                 await this.createPublishedStatement(newStatementData);
+                logger.info(`Published statement with ID ${statement.id} saved successfully.`);
+                count++;
             } else {
                 logger.info(`Published statement with ID ${statement.id} already exists in the database.`);
             }
