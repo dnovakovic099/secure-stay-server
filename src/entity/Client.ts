@@ -48,10 +48,10 @@ export class ClientEntity {
   @Column({ nullable: true })
   serviceType: string;
 
-  @OneToMany(() => ClientPropertyEntity, (property) => property.client)
+  @OneToMany(() => ClientPropertyEntity, (property) => property.client, { cascade: true, eager: false })
   properties: ClientPropertyEntity[];
 
-  @OneToMany(() => ClientSecondaryContact, (contact) => contact.client)
+  @OneToMany(() => ClientSecondaryContact, (contact) => contact.client, { cascade: true, eager: false })
   secondaryContacts: ClientSecondaryContact[];
 
   @CreateDateColumn({ type: "timestamp" })

@@ -15,9 +15,6 @@ export class ClientPropertyEntity {
     @PrimaryGeneratedColumn()
     id: string;
 
-    @Column({ type: "uuid" })
-    client_id: string;
-
     @Column()
     listingId: string;
 

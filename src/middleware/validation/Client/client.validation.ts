@@ -84,6 +84,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
 
 export const validateGetClients = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
+        page: Joi.number().required(),
         limit: Joi.number().required(),
         keyword: Joi.string().optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
