@@ -3,9 +3,10 @@ import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { IsNull, Not } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant"
+import { ClientTicket } from "../entity/ClientTicket";
 
 interface ClientFilter {
   page: number;
@@ -20,6 +21,7 @@ export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
   private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
   private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
+  private clientTicketRepo = appDatabase.getRepository(ClientTicket);
 
   async saveClient(
     clientData: Partial<ClientEntity>,
@@ -190,18 +192,34 @@ export class ClientService {
     const listingService = new ListingService();
     const listings = await listingService.getListingNames(userId);
 
-    // add internalListingName as listingName for each property in data
-    const transformedData = data.map(client => {
-      const transformedProperties = client.properties.map(property => ({
-        ...property,
-        listingName: listings.find((listing) => listing.id == Number(property.listingId)).internalListingName || property.listingId
-      }));
-      return {
-        ...client,
-        properties: transformedProperties
-      };
-    });
-    return { data: transformedData, total };
+    const transformedData = await Promise.all(data.map(async (client) => {
+      if (client.properties) {
+        client.properties = client.properties.map((property) => {
+          const listing = listings.find((l) => l.id === Number(property.listingId));
+          return { ...property, listingName: listing ? listing.internalListingName : "Unknown Listing" };
+        });
+      }
+      const listingIds = client.properties ? client.properties.map(p => p.listingId) : [];
+      const clientSatisfaction = await this.getClientSatisfactionData(listingIds);
+      return { ...client, clientSatisfaction };
+    }));
+
+    const satisfactionCounts = transformedData.reduce(
+      (acc, client) => {
+        if (client.clientSatisfaction) {
+          acc[client.clientSatisfaction] = (acc[client.clientSatisfaction] || 0) + 1;
+        }
+        return acc;
+      },
+      { "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0 }
+    );
+
+    return { 
+      total,
+      data: transformedData,
+      satisfactionCounts
+    };
+
   }
 
   async deleteClient(clientId: string, userId: string) {
@@ -231,6 +249,33 @@ export class ClientService {
      return { totalActiveClients, serviceTypeCounts };
    }
 
+  async getClientSatisfactionData(listingIds: string[]) {
+    // find the client tickets with these listingIds and find the average of clientSatisfaction field
+    const clientTickets = await this.clientTicketRepo.find({
+      where: {
+        listingId: In(listingIds),
+        clientSatisfaction: Not(IsNull()),
+        deletedAt: IsNull()
+      }
+    });
+
+    if (clientTickets.length === 0) {
+      return "Neutral";
+    }
+
+    const totalSatisfaction = clientTickets.reduce((sum, ticket) => sum + (ticket.clientSatisfaction || 0), 0);
+    const averageSatisfaction = totalSatisfaction / clientTickets.length;
+
+    if (averageSatisfaction >= 4) {
+      return "Satisfied";
+    } else if (averageSatisfaction >= 2 && averageSatisfaction < 4) {
+      return "Neutral";
+    } else if (averageSatisfaction < 2) {
+      return "Dissatisfied";
+    }
+
+    return "Neutral";
+  }
 
 
 }
