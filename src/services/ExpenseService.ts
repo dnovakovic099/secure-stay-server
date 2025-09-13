@@ -16,6 +16,7 @@ import { CategoryEntity } from "../entity/Category";
 import logger from "../utils/logger.utils";
 import { haExpenseUpdateQueue } from "../queue/haQueue";
 import { FileInfo } from "../entity/FileInfo";
+import { IssuesService } from "./IssuesService";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -153,15 +154,15 @@ export class ExpenseService {
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
-        const skip = (page - 1) * limit;        
+        const skip = (page - 1) * limit;
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
-        //fetch all the listingIds assciated with the tags
+        // fetch all the listingIds associated with the tags
         const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
 
         let listingIds = [];
         const listingService = new ListingService();
-        
+
         if (propertyType && Array.isArray(propertyType)) {
             listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
         } else {
@@ -176,36 +177,34 @@ export class ExpenseService {
 
         const [expenses, total] = await this.expenseRepo.findAndCount({
             where: keyword
-            ? [
-                { contractorNumber: ILike(`%${keyword}%`) },
-                { contractorName: ILike(`%${keyword}%`) },
-                { paymentMethod: ILike(`%${keyword}%`) },
-                { concept: ILike(`%${keyword}%`) },
-            ]
-            : 
-            {
-                // userId,
-                ...(effectiveListingIds.length > 0 && {
-                    listingMapId: In(effectiveListingIds),
-                }),
-                ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
-                [`${dateType}`]: Between(String(fromDate), String(toDate)),
-               ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1}),
-                ...(Array.isArray(status) && status.length > 0 && {
-                    status: In(status),
-                }),
-                ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
-                    paymentMethod: In(paymentMethod),
-                }),
-                expenseId: Raw(alias => `${alias} IS NOT NULL`),
-                ...(Array.isArray(contractorName) && contractorName.length > 0 && {
-                    contractorName: In(contractorName),
-                }),
-                // ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
-                ...(categoriesFilter.length > 0 && {
-                    categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
-                }),
-            },
+                ? [
+                    { contractorNumber: ILike(`%${keyword}%`) },
+                    { contractorName: ILike(`%${keyword}%`) },
+                    { paymentMethod: ILike(`%${keyword}%`) },
+                    { concept: ILike(`%${keyword}%`) },
+                ]
+                :
+                {
+                    ...(effectiveListingIds.length > 0 && {
+                        listingMapId: In(effectiveListingIds),
+                    }),
+                    ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
+                    [`${dateType}`]: Between(String(fromDate), String(toDate)),
+                    ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
+                    ...(Array.isArray(status) && status.length > 0 && {
+                        status: In(status),
+                    }),
+                    ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
+                        paymentMethod: In(paymentMethod),
+                    }),
+                    expenseId: Raw(alias => `${alias} IS NOT NULL`),
+                    ...(Array.isArray(contractorName) && contractorName.length > 0 && {
+                        contractorName: In(contractorName),
+                    }),
+                    ...(categoriesFilter.length > 0 && {
+                        categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
+                    }),
+                },
             order: { id: "DESC" },
             skip,
             take: limit,
@@ -222,54 +221,70 @@ export class ExpenseService {
         const listingNameMap = listings.reduce((acc, listing) => {
             acc[listing.id] = listing.internalListingName;
             return acc;
-        }, {});
+        }, {} as Record<number, string>);
 
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
         const users = await this.usersRepository.find();
         const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
 
-        const data = expenses.map((expense) => {
-            const fileLinks = expense.fileNames
-                ? expense.fileNames.split(',').map(fileName => {
-                    const cleanFileName = fileName.replace(/[\[\]"]/g, '');
-                    return `${cleanFileName}`;
-                }).join(', ')
-                : '';
+        const issueService = new IssuesService();
 
-            const categoryNames = expense.categories
-                ? expense.categories.split(',').map(id => {
-                    const cleanId = id.replace(/[\[\]"]/g, '');
-                    const category = categories.find(category => category.id === Number(cleanId));
-                    return category ? category.categoryName : 'Unknown Category';
-                }).join(', ')
-                : '';
+        const data = await Promise.all(
+            expenses.map(async (expense) => {
+                const fileLinks = expense.fileNames
+                    ? expense.fileNames.split(',').map(fileName => {
+                        const cleanFileName = fileName.replace(/[\[\]"]/g, '');
+                        return `${cleanFileName}`;
+                    }).join(', ')
+                    : '';
 
-            const user = users.find(user => user.uid == expense.updatedBy);
+                const categoryNames = expense.categories
+                    ? expense.categories.split(',').map(id => {
+                        const cleanId = id.replace(/[\[\]"]/g, '');
+                        const category = categories.find(category => category.id === Number(cleanId));
+                        return category ? category.categoryName : 'Unknown Category';
+                    }).join(', ')
+                    : '';
 
-            return {
-                expenseId: expense.expenseId,
-                status: expense.status,
-                amount: Math.abs(expense.amount),
-                listing: listingNameMap[expense.listingMapId] || 'N/A',
-                dateAdded: expense.expenseDate,
-                dateOfWork: expense.dateOfWork,
-                datePaid: expense.datePaid,
-                description: expense.concept,
-                categories: categoryNames,
-                contractorName: expense.contractorName,
-                contractorNumber: expense.contractorNumber,
-                findings: expense.findings,
-                paymentMethod: expense.paymentMethod,
-                createdAt: format(expense.createdAt, "yyyy-MM-dd"),
-                updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
-                updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
-                attachments: fileLinks,
-                fileInfo: fileInfoList.filter(file => file.entityId === expense.id)
-            };
-        });
+                const user = users.find(user => user.uid == expense.updatedBy);
 
-        //calculate total expense filter values in given period of time without limit and page.
+                const issueIds = expense.issues ? JSON.parse(expense.issues) : [];
+                let issueList = [];
+                if (issueIds.length > 0) {
+                    const { issues } = await issueService.getGuestIssues(
+                        { issueId: issueIds, page: 1, limit: 50 },
+                        userId
+                    );
+                    issueList = issues;
+                }
+
+                return {
+                    expenseId: expense.expenseId,
+                    status: expense.status,
+                    amount: Math.abs(expense.amount),
+                    listing: listingNameMap[expense.listingMapId] || 'N/A',
+                    dateAdded: expense.expenseDate,
+                    dateOfWork: expense.dateOfWork,
+                    datePaid: expense.datePaid,
+                    description: expense.concept,
+                    categories: categoryNames,
+                    contractorName: expense.contractorName,
+                    contractorNumber: expense.contractorNumber,
+                    findings: expense.findings,
+                    paymentMethod: expense.paymentMethod,
+                    createdAt: format(expense.createdAt, "yyyy-MM-dd"),
+                    updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
+                    updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
+                    attachments: fileLinks,
+                    fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
+                    issues: issueIds,
+                    issuesList: issueList,
+                };
+            })
+        );
+
+        // calculate total expense filter values in given period of time without limit and page
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
             .select('SUM(ABS(expense.amount))', 'totalExpense')
@@ -299,12 +314,11 @@ export class ExpenseService {
 
         const { totalExpense } = await qb.getRawOne();
 
-
         return {
             data,
             totalExpense,
             total
-        }
+        };
     }
 
     async getExpenseById(expenseId: number, userId: string) {
