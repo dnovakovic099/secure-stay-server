@@ -56,7 +56,8 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
-            datePaid
+            datePaid,
+            issues
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -78,6 +79,7 @@ export class ExpenseService {
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
+        newExpense.issues = issues ? JSON.stringify(issues) : null;
 
         const hostawayExpense = await this.createHostawayExpense({
             listingMapId,
@@ -340,7 +342,8 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
-            datePaid
+            datePaid,
+            issues
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -364,6 +367,7 @@ export class ExpenseService {
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
+        expense.issues = issues ? JSON.stringify(issues) : null;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
