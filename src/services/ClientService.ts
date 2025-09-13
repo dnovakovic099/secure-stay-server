@@ -158,7 +158,7 @@ export class ClientService {
     }
   }
 
-  async getClientList(filter: ClientFilter) {
+  async getClientList(filter: ClientFilter, userId: string) {
     const { page, limit, search } = filter;
 
     // fetch the associated clientSecondaryContacts and clientProperties as well
@@ -186,7 +186,22 @@ export class ClientService {
     query.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await query.getManyAndCount();
-    return { data, total };
+
+    const listingService = new ListingService();
+    const listings = await listingService.getListingNames(userId);
+
+    // add internalListingName as listingName for each property in data
+    const transformedData = data.map(client => {
+      const transformedProperties = client.properties.map(property => ({
+        ...property,
+        listingName: listings.find((listing) => listing.id == Number(property.listingId)).internalListingName || property.listingId
+      }));
+      return {
+        ...client,
+        properties: transformedProperties
+      };
+    });
+    return { data: transformedData, total };
   }
 
   async deleteClient(clientId: string, userId: string) {
