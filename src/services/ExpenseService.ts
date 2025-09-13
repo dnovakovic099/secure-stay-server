@@ -265,7 +265,8 @@ export class ExpenseService {
                 updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
                 updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
                 attachments: fileLinks,
-                fileInfo: fileInfoList.filter(file => file.entityId === expense.id)
+                fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
+                issus: expense.issues,
             };
         });
 
