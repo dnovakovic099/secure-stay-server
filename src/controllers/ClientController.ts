@@ -57,7 +57,7 @@ export class ClientController {
         serviceType: request.query.serviceType ? (Array.isArray(request.query.serviceType) ? request.query.serviceType : [request.query.serviceType]) as string[] : undefined,
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
       };
-      const { total, data } = await clientService.getClientList(filters);
+      const { total, data } = await clientService.getClientList(filters, request.user.id);
 
       const summaryInfo = await clientService.getClientMetadata();
 
