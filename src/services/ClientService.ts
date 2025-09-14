@@ -11,7 +11,7 @@ import { ClientTicket } from "../entity/ClientTicket";
 interface ClientFilter {
   page: number;
   limit: number;
-  search?: string;
+  keyword?: string;
   listingId?: string[];
   serviceType?: string[];
   status?: string[];
@@ -161,7 +161,7 @@ export class ClientService {
   }
 
   async getClientList(filter: ClientFilter, userId: string) {
-    const { page, limit, search } = filter;
+    const { page, limit, keyword } = filter;
 
     // fetch the associated clientSecondaryContacts and clientProperties as well
     const query = this.clientRepo.createQueryBuilder("client")
@@ -169,8 +169,14 @@ export class ClientService {
       .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
       .where("client.deletedAt IS NULL");
 
-    if (search) {
-      query.andWhere("client.firstName ILIKE :search OR client.lastName ILIKE :search OR client.email ILIKE :search", { search: `%${search}%` });
+    if (keyword) {
+      const k = `%${keyword.toLowerCase()}%`;
+      query.andWhere(
+        `(LOWER(client.firstName) LIKE :keyword 
+        OR LOWER(client.lastName) LIKE :keyword 
+        OR LOWER(client.email) LIKE :keyword)`,
+        { keyword: k }
+      );
     }
 
     if (filter.listingId && filter.listingId.length > 0) {
@@ -255,23 +261,30 @@ export class ClientService {
       where: {
         listingId: In(listingIds),
         clientSatisfaction: Not(IsNull()),
-        deletedAt: IsNull()
-      }
+        deletedAt: IsNull(),
+      },
     });
 
     if (clientTickets.length === 0) {
       return "Neutral";
     }
 
-    const totalSatisfaction = clientTickets.reduce((sum, ticket) => sum + (ticket.clientSatisfaction || 0), 0);
+    const totalSatisfaction = clientTickets.reduce(
+      (sum, ticket) => sum + (ticket.clientSatisfaction || 0),
+      0
+    );
     const averageSatisfaction = totalSatisfaction / clientTickets.length;
 
-    if (averageSatisfaction >= 4) {
-      return "Satisfied";
-    } else if (averageSatisfaction >= 2 && averageSatisfaction < 4) {
-      return "Neutral";
-    } else if (averageSatisfaction < 2) {
+    if (averageSatisfaction >= 1.0 && averageSatisfaction <= 1.8) {
+      return "Very Dissatisfied";
+    } else if (averageSatisfaction > 1.8 && averageSatisfaction <= 2.6) {
       return "Dissatisfied";
+    } else if (averageSatisfaction > 2.6 && averageSatisfaction <= 3.4) {
+      return "Neutral";
+    } else if (averageSatisfaction > 3.4 && averageSatisfaction <= 4.2) {
+      return "Satisfied";
+    } else if (averageSatisfaction > 4.2 && averageSatisfaction <= 5.0) {
+      return "Very Satisfied";
     }
 
     return "Neutral";
