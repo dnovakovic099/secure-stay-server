@@ -144,17 +144,25 @@ export const validateUpdateExpenseStatus = (request: Request, response: Response
 
 export const validateGetExpenseList = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        // listingId: Joi.number().required().allow(''),
         listingId: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
-        // listingGroup: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned").allow(null, ""),
-        fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
-            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required(),
-        toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
-            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required(),
+
+        fromDate: Joi.string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .messages({
+                'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+            })
+            .allow("", null),
+
+        toDate: Joi.string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .messages({
+                'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+            })
+            .allow("", null),
+
         page: Joi.number().required(),
         limit: Joi.number().required(),
+
         status: Joi.array()
             .items(
                 Joi.string().valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
@@ -162,10 +170,13 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .min(1)
             .required()
             .allow('', null),
+
         categories: Joi.string().required().allow(''),
         contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
+
         dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
         expenseState: Joi.string().required().valid("active", "deleted").allow(null, ""),
+
         paymentMethod: Joi.array()
             .items(
                 Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
@@ -173,15 +184,19 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .min(1)
             .required()
             .allow('', null),
+
         tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional()
-    });
+    })
+        // enforce fromDate <-> toDate dependency
+        .with("fromDate", "toDate")
+        .with("toDate", "fromDate");
 
     const { error } = schema.validate(request.query);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
 };

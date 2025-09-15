@@ -195,7 +195,7 @@ export class ExpenseService {
                         listingMapId: In(effectiveListingIds),
                     }),
                     ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
-                    [`${dateType}`]: Between(String(fromDate), String(toDate)),
+                    ...(fromDate && toDate && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
                     ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
                     ...(Array.isArray(status) && status.length > 0 && {
                         status: In(status),
@@ -296,8 +296,11 @@ export class ExpenseService {
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
             .select('SUM(ABS(expense.amount))', 'totalExpense')
-            .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
+
+        if (fromDate && toDate) {
+            qb.andWhere(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+        }
         
         if (expenseIds.length > 0) {
             qb.andWhere('expense.expenseId IN (:...expenseIds)', { expenseIds });
