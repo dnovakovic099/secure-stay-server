@@ -80,7 +80,7 @@ export class ExpenseService {
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
-        newExpense.issues = issues ? JSON.stringify(issues) : null;
+        newExpense.issues = issues ? issues : null;
 
         const hostawayExpense = await this.createHostawayExpense({
             listingMapId,
@@ -150,12 +150,18 @@ export class ExpenseService {
             paymentMethod,
             tags,
             propertyType,
-            keyword
+            keyword, 
+            expenseId
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
         const skip = (page - 1) * limit;
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
+
+        // expenseId filter
+        const expenseIds = expenseId
+            ? (Array.isArray(expenseId) ? expenseId.map(String) : String(expenseId).split(','))
+            : [];
 
         // fetch all the listingIds associated with the tags
         const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
@@ -197,7 +203,9 @@ export class ExpenseService {
                     ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
                         paymentMethod: In(paymentMethod),
                     }),
-                    expenseId: Raw(alias => `${alias} IS NOT NULL`),
+                    ...(expenseIds.length > 0
+                        ? { expenseId: In(expenseIds) }
+                        : { expenseId: Raw(alias => `${alias} IS NOT NULL`) }),
                     ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                         contractorName: In(contractorName),
                     }),
@@ -290,7 +298,13 @@ export class ExpenseService {
             .select('SUM(ABS(expense.amount))', 'totalExpense')
             .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
-            .andWhere('expense.expenseId IS NOT NULL');
+        
+        if (expenseIds.length > 0) {
+            qb.andWhere('expense.expenseId IN (:...expenseIds)', { expenseIds });
+        } else {
+            qb.andWhere('expense.expenseId IS NOT NULL');
+        }
+
 
         if (effectiveListingIds.length > 0) {
             qb.andWhere('expense.listingMapId IN (:...listingIds)', { listingIds: effectiveListingIds });
@@ -381,7 +395,7 @@ export class ExpenseService {
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
-        expense.issues = issues ? JSON.stringify(issues) : null;
+        expense.issues = issues ? issues : null;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
