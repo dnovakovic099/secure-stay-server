@@ -60,6 +60,9 @@ export class ExpenseEntity {
     @Column({ type: 'varchar', nullable: true })
     paymentMethod: string;
 
+    @Column({ nullable: true })
+    issues: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
