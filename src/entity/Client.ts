@@ -7,6 +7,8 @@ import {
   DeleteDateColumn,
   OneToMany,
 } from "typeorm";
+import { ClientPropertyEntity } from "./ClientProperty";
+import { ClientSecondaryContact } from "./ClientSecondaryContact";
 
 @Entity("client_management")
 export class ClientEntity {
@@ -19,48 +21,38 @@ export class ClientEntity {
   @Column()
   lastName: string;
 
-  @Column()
+  @Column({ nullable: true })
   preferredName: string;
-
-  @Column()
-  timezone: string;
 
   @Column({ unique: true })
   email: string;
 
-  @Column()
-  phone: string;
-
-  @Column()
+  @Column({ nullable: true })
   dialCode: string;
 
-  @Column({
-    type: "enum",
-    enum: ["Active", "Inactive", "Pending", "Suspended"],
-    default: "Active"
-  })
-  status: string;
+  @Column({ nullable: true })
+  phone: string;
+
+  @Column({ nullable: true })
+  timezone: string;
 
   @Column({ nullable: true })
   companyName: string;
 
+  @Column({ nullable: true })
+  status: string;
+
   @Column({ type: "text", nullable: true })
   notes: string;
 
-  @Column({ type: "int", nullable: true })
-  propertyId: number;
+  @Column({ nullable: true })
+  serviceType: string;
 
-  @Column({ type: "int", default: 0 })
-  totalBookings: number;
+  @OneToMany(() => ClientPropertyEntity, (property) => property.client, { cascade: true, eager: false })
+  properties: ClientPropertyEntity[];
 
-  @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
-  totalSpent: number;
-
-  @Column({ type: "timestamp", nullable: true })
-  lastBookingDate: Date;
-
-  @Column({ type: "simple-array", nullable: true })
-  tags: string[];
+  @OneToMany(() => ClientSecondaryContact, (contact) => contact.client, { cascade: true, eager: false })
+  secondaryContacts: ClientSecondaryContact[];
 
   @CreateDateColumn({ type: "timestamp" })
   createdAt: Date;
