@@ -489,5 +489,94 @@ export class ClientService {
     return { clientId, data };
   }
 
+  async updatePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo?: PropertyServiceInfo | null; onboarding?: PropertyOnboarding | null; }> = [];
+
+    // Proper update loop using id
+    for (const property of clientProperties as Array<Property & { id: string; }>) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if (property.address !== undefined) {
+        clientProperty.address = property.address;
+      }
+      clientProperty.updatedAt = new Date();
+      clientProperty.updatedBy = userId;
+      await this.propertyRepo.save(clientProperty);
+
+      // Update Service Info if provided
+      if (property.onboarding?.serviceInfo) {
+        const siPayload = property.onboarding.serviceInfo;
+        let si = clientProperty.serviceInfo;
+        if (!si) {
+          si = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+        if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
+        if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
+        if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+        si.updatedBy = userId;
+        await this.propertyServiceInfoRepo.save(si);
+      }
+
+      // Update Onboarding if provided
+      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
+        const sales = property.onboarding.sales;
+        const listing = property.onboarding.listing;
+        const photography = property.onboarding.photography;
+
+        let ob = clientProperty.onboarding;
+        if (!ob) {
+          ob = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        if (sales) {
+          if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
+          if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
+          if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+        }
+
+        if (listing) {
+          if (listing.clientCurrentListingLink !== undefined) {
+            ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+              ? JSON.stringify(listing.clientCurrentListingLink)
+              : (listing.clientCurrentListingLink as unknown as string) ?? null;
+          }
+          if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
+          if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
+          if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
+          if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
+          if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
+          if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+        }
+
+        if (photography) {
+          if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
+          if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+        }
+
+        ob.updatedBy = userId;
+        await this.propertyOnboardingRepo.save(ob);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
+    }
+
+    return { message: "Property pre-onboarding info updated", updated };
+  }
+
 
 }

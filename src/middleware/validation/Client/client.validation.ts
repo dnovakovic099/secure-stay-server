@@ -147,3 +147,52 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
     }
     next();
 };
+
+export const validateUpdatePropertyOnboarding = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        clientId: Joi.string().required(),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                id: Joi.string().required(),
+                address: Joi.string().optional(),
+                onboarding: Joi.object({
+                    serviceInfo: Joi.object({
+                        managementFee: Joi.number().optional().allow(null),
+                        serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
+                        contractLink: Joi.string().optional().allow(null),
+                        serviceNotes: Joi.string().optional().allow(null)
+                    }).optional(),
+                    sales: Joi.object({
+                        salesRepresentative: Joi.string().optional().allow(null),
+                        salesNotes: Joi.string().optional().allow(null),
+                        projectedRevenue: Joi.number().optional().allow(null),
+                    }).optional(),
+                    listing: Joi.object({
+                        clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
+                        listingOwner: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                        clientListingStatus: Joi.string().optional().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+                            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+                        }).optional().allow(null),
+                        targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+                            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+                        }).optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null),
+                        upcomingReservations: Joi.string().optional().allow(null),
+                    }).optional(),
+                    photography: Joi.object({
+                        photographyCoverage: Joi.string().optional().allow(null)
+                            .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
+                        photographyNotes: Joi.string().optional().allow(null),
+                    }).optional()
+                }).optional()
+            })
+        )
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

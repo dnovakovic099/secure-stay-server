@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding } from "../middleware/validation/Client/client.validation";
+import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding } from "../middleware/validation/Client/client.validation";
 
 const router = Router();
 const clientController = new ClientController();
@@ -13,6 +13,7 @@ router.route('/:id').delete(verifySession, clientController.deleteClient.bind(cl
 
 //sales representative form apis
 router.route('/sales/pre-onboarding').post(verifySession, validateCreatePropertyOnboarding, clientController.savePropertyPreOnboardingInfo.bind(clientController));
+router.route('/sales/pre-onboarding').put(verifySession, validateUpdatePropertyOnboarding, clientController.updatePropertyPreOnboardingInfo.bind(clientController));
 router.route('/sales/pre-onboarding/:clientId').get(verifySession, clientController.getPropertyPreOnboardingInfo.bind(clientController));
 
 
