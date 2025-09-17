@@ -7,6 +7,10 @@ import { In, IsNull, Not } from "typeorm";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant"
 import { ClientTicket } from "../entity/ClientTicket";
+import { PropertyOnboarding } from "../entity/PropertyOnboarding";
+import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
+import { PropertyInfo } from "../entity/PropertyInfo";
+import { PropertyBedTypes } from "../entity/PropertyBedTypes";
 
 interface ClientFilter {
   page: number;
@@ -17,11 +21,67 @@ interface ClientFilter {
   status?: string[];
 }
 
+// types/propertyOnboarding.ts
+interface PropertyOnboardingRequest {
+  clientId: string;
+  clientProperties: Property[];
+}
+
+interface Property {
+  address: string;
+  onboarding: Onboarding;
+}
+
+interface Onboarding {
+  serviceInfo: ServiceInfo;
+  sales: Sales;
+  listing: Listing;
+  photography: Photography;
+}
+
+interface ServiceInfo {
+  managementFee: number | null;
+  serviceType: "LAUNCH" | "PRO" | "FULL";
+  contractLink: string | null;
+  serviceNotes: string | null;
+}
+
+interface Sales {
+  salesRepresentative: string | null;
+  salesNotes: string | null;
+  projectedRevenue: number | null;
+}
+
+interface Listing {
+  clientCurrentListingLink: string[] | null;
+  listingOwner: "Luxury Lodging" | "Client" | null;
+  clientListingStatus: "Closed" | "Open - Will Close" | "Open - Keeping" | null;
+  targetLiveDate: string | null;  // yyyy-mm-dd
+  targetStartDate: string | null; // yyyy-mm-dd
+  targetDateNotes: string | null;
+  upcomingReservations: string | null;
+}
+
+interface Photography {
+  photographyCoverage:
+  | "Yes (Covered by Luxury Lodging)"
+  | "Yes (Covered by Client)"
+  | "No"
+  | null;
+  photographyNotes: string | null;
+}
+
+
 export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
   private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
   private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
   private clientTicketRepo = appDatabase.getRepository(ClientTicket);
+
+  private propertyOnboardingRepo = appDatabase.getRepository(PropertyOnboarding);
+  private propertyServiceInfoRepo = appDatabase.getRepository(PropertyServiceInfo);
+  private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
+  private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
 
   async saveClient(
     clientData: Partial<ClientEntity>,
@@ -288,6 +348,74 @@ export class ClientService {
     }
 
     return "Neutral";
+  }
+
+
+  async savePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    // Ensure client exists
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; onboarding: PropertyOnboarding; }> = [];
+
+    for (const property of clientProperties) {
+      // Create ClientProperty
+      const clientProperty = this.propertyRepo.create({
+        address: property.address,
+        client: { id: clientId } as any,
+        createdBy: userId,
+      });
+      const savedClientProperty = await this.propertyRepo.save(clientProperty);
+
+      // Map Service Info
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const serviceInfoEntity = this.propertyServiceInfoRepo.create({
+        managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
+        serviceType: serviceInfoPayload?.serviceType ?? null,
+        contractLink: serviceInfoPayload?.contractLink ?? null,
+        serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
+        clientProperty: savedClientProperty,
+        createdBy: userId,
+      });
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+
+      // Map Onboarding (sales, listing, photography)
+      const sales = property.onboarding?.sales;
+      const listing = property.onboarding?.listing;
+      const photography = property.onboarding?.photography;
+
+      const onboardingEntity = this.propertyOnboardingRepo.create({
+        // sales
+        salesRepresentative: sales?.salesRepresentative ?? null,
+        salesNotes: sales?.salesNotes ?? null,
+        projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
+        // listing
+        clientCurrentListingLink: Array.isArray(listing?.clientCurrentListingLink)
+          ? JSON.stringify(listing?.clientCurrentListingLink)
+          : (listing?.clientCurrentListingLink as unknown as string) ?? null,
+        listingOwner: listing?.listingOwner ?? null,
+        clientListingStatus: listing?.clientListingStatus ?? null,
+        targetLiveDate: listing?.targetLiveDate ?? null,
+        targetStartDate: listing?.targetStartDate ?? null,
+        targetDateNotes: listing?.targetDateNotes ?? null,
+        upcomingReservations: listing?.upcomingReservations ?? null,
+        // photography
+        photographyCoverage: photography?.photographyCoverage ?? null,
+        photographyNotes: photography?.photographyNotes ?? null,
+        // relations/meta
+        clientProperty: savedClientProperty,
+        createdBy: userId,
+      });
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
+
+      results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
+    }
+
+    return { message: "Property pre-onboarding info saved", results };
   }
 
 
