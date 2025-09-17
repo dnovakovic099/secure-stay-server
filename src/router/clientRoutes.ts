@@ -13,6 +13,7 @@ router.route('/:id').delete(verifySession, clientController.deleteClient.bind(cl
 
 //sales representative form apis
 router.route('/sales/pre-onboarding').post(verifySession, validateCreatePropertyOnboarding, clientController.savePropertyPreOnboardingInfo.bind(clientController));
+router.route('/sales/pre-onboarding/:clientId').get(verifySession, clientController.getPropertyPreOnboardingInfo.bind(clientController));
 
 
 export default router;

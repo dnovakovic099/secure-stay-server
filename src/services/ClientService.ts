@@ -418,5 +418,76 @@ export class ClientService {
     return { message: "Property pre-onboarding info saved", results };
   }
 
+  async getPropertyPreOnboardingInfo(clientId: string) {
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const clientProperties = await this.propertyRepo
+      .createQueryBuilder("cp")
+      .leftJoinAndSelect("cp.onboarding", "onboarding")
+      .leftJoinAndSelect("cp.serviceInfo", "serviceInfo")
+      .where("cp.clientId = :clientId", { clientId })
+      .andWhere("cp.deletedAt IS NULL")
+      .getMany();
+
+    const data = clientProperties.map((cp) => {
+      const si = cp.serviceInfo;
+      const ob = cp.onboarding;
+
+      const parsedClientCurrentListingLink = (() => {
+        if (!ob?.clientCurrentListingLink) return null;
+        try {
+          const parsed = JSON.parse(ob.clientCurrentListingLink);
+          return Array.isArray(parsed) ? parsed : [String(parsed)];
+        } catch (_) {
+          return [ob.clientCurrentListingLink];
+        }
+      })();
+
+      return {
+        id: cp.id,
+        address: cp.address,
+        onboarding: {
+          serviceInfo: si
+            ? {
+              managementFee: si.managementFee != null ? Number(si.managementFee) : null,
+              serviceType: si.serviceType ?? null,
+              contractLink: si.contractLink ?? null,
+              serviceNotes: si.serviceNotes ?? null,
+            }
+            : null,
+          sales: ob
+            ? {
+              salesRepresentative: ob.salesRepresentative ?? null,
+              salesNotes: ob.salesNotes ?? null,
+              projectedRevenue: ob.projectedRevenue != null ? Number(ob.projectedRevenue) : null,
+            }
+            : null,
+          listing: ob
+            ? {
+              clientCurrentListingLink: parsedClientCurrentListingLink,
+              listingOwner: ob.listingOwner ?? null,
+              clientListingStatus: ob.clientListingStatus ?? null,
+              targetLiveDate: ob.targetLiveDate ?? null,
+              targetStartDate: ob.targetStartDate ?? null,
+              targetDateNotes: ob.targetDateNotes ?? null,
+              upcomingReservations: ob.upcomingReservations ?? null,
+            }
+            : null,
+          photography: ob
+            ? {
+              photographyCoverage: ob.photographyCoverage ?? null,
+              photographyNotes: ob.photographyNotes ?? null,
+            }
+            : null,
+        },
+      };
+    });
+
+    return { clientId, data };
+  }
+
 
 }

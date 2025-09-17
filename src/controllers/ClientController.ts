@@ -77,5 +77,16 @@ export class ClientController {
     }
   }
 
+  async getPropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { clientId } = request.params as { clientId: string; };
+      const result = await clientService.getPropertyPreOnboardingInfo(clientId);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
 }
