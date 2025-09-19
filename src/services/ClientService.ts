@@ -804,6 +804,22 @@ export class ClientService {
     return { message: "Service info updated", updated };
   }
 
+  async getClientDetails(id: string) {
+    return await this.clientRepo.findOne({
+      where: { id },
+      relations: [
+        "properties",
+        "secondaryContacts",
+        "properties.onboarding",
+        "properties.serviceInfo",
+        "properties.propertyInfo",
+        "properties.propertyInfo.propertyBedTypes",
+        "properties.propertyInfo.propertyUpsells",
+      ],
+    });
+  }
+
+
 
 
 }

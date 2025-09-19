@@ -25,5 +25,6 @@ router.route('/internal/onboarding').put(verifySession, validateUpdateOnboarding
 router.route('/internal/service-info').post(verifySession, validateSaveServiceInfo, clientController.saveServiceInfo.bind(clientController));
 router.route('/internal/service-info').put(verifySession, validateUpdateServiceInfo, clientController.updateServiceInfo.bind(clientController));
 
+router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 
 export default router;
