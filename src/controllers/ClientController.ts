@@ -88,6 +88,16 @@ export class ClientController {
     }
   }
 
+  async getSalesRepresentativeList(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getSalesRepresentativeList();
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async updatePropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
@@ -119,5 +129,24 @@ export class ClientController {
     }
   }
 
+  async saveServiceInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveServiceInfo(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateServiceInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateServiceInfo(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 
 }

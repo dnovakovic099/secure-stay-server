@@ -714,6 +714,95 @@ export class ClientService {
     return { message: "Internal onboarding details updated", updated };
   }
 
+  async getSalesRepresentativeList() {
+    // find the distinct salesRepresentative from propertyOnboarding repo and return the list
+    const rows = await this.propertyOnboardingRepo.createQueryBuilder("po")
+      .select("DISTINCT po.salesRepresentative", "salesRepresentative")
+      .where("po.salesRepresentative IS NOT NULL AND po.salesRepresentative != ''")
+      .getRawMany();
+    return rows.map(r => r.salesRepresentative);
+  }
+
+  async saveServiceInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest;
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; }> = [];
+
+    for (const property of clientProperties) {
+      // create client property (address) if needed
+      const clientProperty = this.propertyRepo.create({
+        address: property.address,
+        client: { id: clientId } as any,
+        createdBy: userId,
+      });
+      const savedClientProperty = await this.propertyRepo.save(clientProperty);
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const serviceInfoEntity = this.propertyServiceInfoRepo.create({
+        managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
+        serviceType: serviceInfoPayload?.serviceType ?? null,
+        contractLink: serviceInfoPayload?.contractLink ?? null,
+        serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
+        clientProperty: savedClientProperty,
+        createdBy: userId,
+      });
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+
+      results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo });
+    }
+
+    return { message: "Service info saved", results };
+  }
+
+  async updateServiceInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest;
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; }> = [];
+
+    for (const property of clientProperties as Array<Property & { id: string; }>) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if (property.address !== undefined) {
+        clientProperty.address = property.address;
+      }
+      clientProperty.updatedAt = new Date();
+      clientProperty.updatedBy = userId;
+      await this.propertyRepo.save(clientProperty);
+
+      const siPayload = property.onboarding?.serviceInfo;
+      if (siPayload) {
+        let si = clientProperty.serviceInfo;
+        if (!si) {
+          si = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+        if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
+        if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
+        if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+        si.updatedBy = userId;
+        await this.propertyServiceInfoRepo.save(si);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo"] });
+      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo ?? null });
+    }
+
+    return { message: "Service info updated", updated };
+  }
 
 
 

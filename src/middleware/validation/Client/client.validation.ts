@@ -295,3 +295,55 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
     }
     next();
 };
+
+export const validateSaveServiceInfo = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        clientId: Joi.string().required(),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                address: Joi.string().required(),
+                onboarding: Joi.object({
+                    serviceInfo: Joi.object({
+                        managementFee: Joi.number().required().allow(null),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL"),
+                        contractLink: Joi.string().required().allow(null),
+                        serviceNotes: Joi.string().required().allow(null)
+                    }),
+                })
+            })
+        )
+
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateServiceInfo = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        clientId: Joi.string().required(),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                id: Joi.string().required(),
+                address: Joi.string().optional(),
+                onboarding: Joi.object({
+                    serviceInfo: Joi.object({
+                        managementFee: Joi.number().optional().allow(null),
+                        serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
+                        contractLink: Joi.string().optional().allow(null),
+                        serviceNotes: Joi.string().optional().allow(null)
+                    }).required()
+                }).required()
+            })
+        )
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
