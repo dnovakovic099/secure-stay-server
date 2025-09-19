@@ -99,4 +99,25 @@ export class ClientController {
   }
 
 
+  async saveOnboardingDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveOnboardingDetails(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatedOnboardingDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updatedOnboardingDetails(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
 }

@@ -11,6 +11,7 @@ import {
 } from "typeorm";
 import { ClientPropertyEntity } from "./ClientProperty";
 import { PropertyBedTypes } from "./PropertyBedTypes";
+import { PropertyUpsells } from "./PropertyUpsells";
 
 
 @Entity("property_info")
@@ -95,6 +96,95 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     bookingAcceptanceNoticeNotes: string;
+
+
+    //House Rules
+    @Column({ type: "boolean", nullable: true })
+    allowPartiesAndEvents: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    allowSmoking: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    allowPets: boolean;
+
+    @Column({ type: "decimal", nullable: true })
+    petFee: number;
+
+    @Column({ type: "int", nullable: true })
+    numberOfPetsAllowed: number;
+
+    @Column({ type: "text", nullable: true })
+    petRestrictionsNotes: string;
+
+    @Column({ type: "text", nullable: true })
+    otherHouseRules: string;
+
+
+    //Parking
+    @Column({ type: "simple-array", nullable: true })
+    parkingTypes: string[];
+
+    @Column({ type: "decimal", nullable: true })
+    parkingFee: number;
+
+    @Column({ type: "int", nullable: true })
+    numberOfParkingSpots: number;
+
+    @Column({ type: "text", nullable: true })
+    parkingInstructions: string;
+
+
+    // Property Access
+    @Column({ nullable: true })
+    doorLockType: string;
+
+    @Column({ nullable: true })
+    doorLockCodeType: string;
+
+    @Column({ nullable: true })
+    codeResponsibleParty: string; // e.g. "Client", "Luxury Lodging"
+
+    @Column({ nullable: true })
+    doorLockAppName: string;
+
+    @Column({ nullable: true })
+    doorLockAppUsername: string;
+
+    @Column({ nullable: true })
+    doorLockAppPassword: string;
+
+    @Column({ nullable: true })
+    lockboxLocation: string;
+
+    @Column({ nullable: true })
+    lockboxCode: string;
+
+    @Column({ type: "text", nullable: true })
+    doorLockInstructions: string;
+
+
+    // Waste Management Information
+    @Column({ type: "text", nullable: true })
+    wasteCollectionDays: string;
+
+    @Column({ type: "text", nullable: true })
+    wasteBinLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    wasteManagementInstructions: string;
+
+
+    //Additional Services/Upsells
+    @OneToMany(() => PropertyUpsells, (upsell) => upsell.propertyId, {
+        cascade: true,
+        eager: false,
+        onDelete: "CASCADE"
+    })
+    propertyUpsells: PropertyUpsells[];
+
+    @Column({ type: "text", nullable: true })
+    additionalServiceNotes: string;
 
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })

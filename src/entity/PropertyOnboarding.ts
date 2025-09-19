@@ -55,6 +55,16 @@ export class PropertyOnboarding {
     @Column({ type: "text", nullable: true })
     upcomingReservations: string;
 
+    //client facing fields
+    @Column({ type: "boolean", default: false })
+    agreesUnpublishExternalListings: boolean;
+
+    @Column({ type: "text", nullable: true })
+    externalListingNotes: string;
+
+    @Column({ type: "boolean", default: false })
+    acknowledgesResponsibilityToInform: boolean;
+
 
     //photography
     @Column({ nullable: true })
