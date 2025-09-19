@@ -301,6 +301,7 @@ export const validateSaveServiceInfo = (request: Request, response: Response, ne
         clientId: Joi.string().required(),
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
+                id: Joi.string().required(),
                 address: Joi.string().required(),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({

@@ -724,7 +724,7 @@ export class ClientService {
   }
 
   async saveServiceInfo(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest;
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
@@ -733,26 +733,38 @@ export class ClientService {
     const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; }> = [];
 
     for (const property of clientProperties) {
-      // create client property (address) if needed
-      const clientProperty = this.propertyRepo.create({
-        address: property.address,
-        client: { id: clientId } as any,
-        createdBy: userId,
-      });
-      const savedClientProperty = await this.propertyRepo.save(clientProperty);
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
 
       const serviceInfoPayload = property.onboarding?.serviceInfo;
-      const serviceInfoEntity = this.propertyServiceInfoRepo.create({
-        managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
-        serviceType: serviceInfoPayload?.serviceType ?? null,
-        contractLink: serviceInfoPayload?.contractLink ?? null,
-        serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
-        clientProperty: savedClientProperty,
-        createdBy: userId,
-      });
-      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+      if (!serviceInfoPayload) {
+        throw CustomErrorHandler.validationError("serviceInfo payload is required");
+      }
 
-      results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo });
+      let serviceInfoEntity = clientProperty.serviceInfo;
+      if (!serviceInfoEntity) {
+        serviceInfoEntity = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+      serviceInfoEntity.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfoEntity.serviceType = serviceInfoPayload.serviceType ?? null;
+      serviceInfoEntity.contractLink = serviceInfoPayload.contractLink ?? null;
+      serviceInfoEntity.serviceNotes = serviceInfoPayload.serviceNotes ?? null;
+      serviceInfoEntity.updatedBy = userId;
+
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+      results.push({ clientProperty, serviceInfo: savedServiceInfo });
     }
 
     return { message: "Service info saved", results };
