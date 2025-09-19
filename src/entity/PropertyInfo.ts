@@ -120,6 +120,12 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     otherHouseRules: string;
 
+    @Column({ type: "boolean", nullable: true })
+    allowChildreAndInfants: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    allowLuggageDropoffBeforeCheckIn: boolean;
+
 
     //Parking
     @Column({ type: "simple-array", nullable: true })
@@ -136,8 +142,11 @@ export class PropertyInfo {
 
 
     // Property Access
-    @Column({ nullable: true })
-    doorLockType: string;
+    @Column({ type: "simple-array", nullable: true })
+    checkInProcess: string[];
+
+    @Column({ type: "simple-array", nullable: true })
+    doorLockType: string[];
 
     @Column({ nullable: true })
     doorLockCodeType: string;
@@ -185,6 +194,34 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     additionalServiceNotes: string;
+
+    //amenities
+    @Column({ type: "simple-array", nullable: true })
+    amenities: string[];
+
+    @Column({ type: "text", nullable: true })
+    locationOfThemostat: string;
+
+    @Column({ type: "text", nullable: true })
+    heatControlInstructions: string;
+
+    @Column({ nullable: true })
+    wifiUsername: string;
+
+    @Column({ nullable: true })
+    wifiPassword: string;
+
+    @Column({ nullable: true })
+    wifiSpeed: string;
+
+    @Column({ type: "text", nullable: true })
+    locationOfModem: string;
+
+    @Column({ type: "text", nullable: true })
+    swimmingPoolNotes: string;
+
+    @Column({ type: "text", nullable: true })
+    hotTubInstructions: string;
 
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })

@@ -62,6 +62,67 @@ interface Listing {
   upcomingReservations: string | null;
   actualLiveDate?: string | null;  // yyyy-mm-dd
   actualStartDate?: string | null; // yyyy-mm-dd
+
+  // Property listing info fields
+  propertyTypeId?: number | null;
+  noOfFloors?: number | null;
+  squareMeters?: number | null;
+  personCapacity?: number | null;
+  roomType?: string | null;
+  bedroomsNumber?: number | null;
+  propertyBedTypes?: Array<{
+    floorLevel: string;
+    bedroomNumber: number;
+    bedTypeId: number;
+    quantity: number;
+  }> | null;
+  bathroomType?: string | null;
+  bathroomsNumber?: number | null;
+  guestBathroomsNumber?: number | null;
+  checkInTimeStart?: number | null;
+  checkOutTime?: number | null;
+  canAnyoneBookAnytime?: string | null;
+  bookingAcceptanceNoticeNotes?: string | null;
+  allowPartiesAndEvents?: boolean | null;
+  allowSmoking?: boolean | null;
+  allowPets?: boolean | null;
+  petFee?: number | null;
+  numberOfPetsAllowed?: number | null;
+  petRestrictionsNotes?: string | null;
+  allowChildreAndInfants?: boolean | null;
+  allowLuggageDropoffBeforeCheckIn?: boolean | null;
+  otherHouseRules?: string | null;
+  parkingType?: string[] | null;
+  parkingFee?: number | null;
+  numberOfParkingSpots?: number | null;
+  parkingInstructions?: string | null;
+  checkInProcess?: string[] | null;
+  doorLockType?: string[] | null;
+  doorLockCodeType?: string | null;
+  codeResponsibleParty?: string | null;
+  doorLockAppName?: string | null;
+  doorLockAppUsername?: string | null;
+  doorLockAppPassword?: string | null;
+  lockboxLocation?: string | null;
+  lockboxCode?: string | null;
+  doorLockInstructions?: string | null;
+  wasteCollectionDays?: string | null;
+  wasteBinLocation?: string | null;
+  wasteManagementInstructions?: string | null;
+  propertyUpsells?: Array<{
+    upsellName: string;
+    allowUpsell: boolean;
+    feeType: string;
+    maxAdditionalHours: number | null;
+  }> | null;
+  additionalServiceNotes?: string | null;
+  amenities?: string[] | null;
+  wifiUsername?: string | null;
+  wifiPassword?: string | null;
+  wifiSpeed?: string | null;
+  locationOfModem?: string | null;
+  swimmingPoolNotes?: string | null;
+  hotTubInstructions?: string | null;
 }
 
 interface Photography {
@@ -829,6 +890,195 @@ export class ClientService {
         "properties.propertyInfo.propertyUpsells",
       ],
     });
+  }
+
+  async saveListingInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (!listingPayload) {
+        throw CustomErrorHandler.validationError("listing payload is required");
+      }
+
+      let propertyInfo = clientProperty.propertyInfo;
+      if (!propertyInfo) {
+        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map all listing fields to propertyInfo
+      this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+      propertyInfo.updatedBy = userId;
+      const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+
+      // Handle PropertyBedTypes
+      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      }
+
+      results.push({ clientProperty, propertyInfo: savedPropertyInfo });
+    }
+
+    return { message: "Listing info saved", results };
+  }
+
+  async updateListingInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (listingPayload) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map all listing fields to propertyInfo
+        this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+
+        // Handle PropertyBedTypes
+        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    return { message: "Listing info updated", updated };
+  }
+
+  private mapListingFieldsToPropertyInfo(propertyInfo: PropertyInfo, listingPayload: any) {
+    // General info
+    if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
+    if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
+    if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
+    if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+
+    // Bedrooms
+    if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
+    if (listingPayload.bedroomsNumber !== undefined) propertyInfo.bedroomsNumber = listingPayload.bedroomsNumber ?? null;
+
+    // Bathrooms
+    if (listingPayload.bathroomType !== undefined) propertyInfo.bathroomType = listingPayload.bathroomType ?? null;
+    if (listingPayload.bathroomsNumber !== undefined) propertyInfo.bathroomsNumber = listingPayload.bathroomsNumber ?? null;
+    if (listingPayload.guestBathroomsNumber !== undefined) propertyInfo.guestBathroomsNumber = listingPayload.guestBathroomsNumber ?? null;
+
+    // Listing Information
+    if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
+    if (listingPayload.checkOutTime !== undefined) propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
+    if (listingPayload.canAnyoneBookAnytime !== undefined) propertyInfo.canAnyoneBookAnytime = listingPayload.canAnyoneBookAnytime ?? null;
+    if (listingPayload.bookingAcceptanceNoticeNotes !== undefined) propertyInfo.bookingAcceptanceNoticeNotes = listingPayload.bookingAcceptanceNoticeNotes ?? null;
+
+    // House Rules
+    if (listingPayload.allowPartiesAndEvents !== undefined) propertyInfo.allowPartiesAndEvents = listingPayload.allowPartiesAndEvents ?? null;
+    if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
+    if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
+    if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
+    if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
+    if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
+    if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
+    if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
+    if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+
+    // Parking
+    if (listingPayload.parkingType !== undefined) propertyInfo.parkingTypes = listingPayload.parkingType ?? null;
+    if (listingPayload.parkingFee !== undefined) propertyInfo.parkingFee = listingPayload.parkingFee ?? null;
+    if (listingPayload.numberOfParkingSpots !== undefined) propertyInfo.numberOfParkingSpots = listingPayload.numberOfParkingSpots ?? null;
+    if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
+
+    // Property Access
+    if (listingPayload.checkInProcess !== undefined) propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
+    if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
+    if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
+    if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
+    if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
+    if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
+    if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
+    if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
+    if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
+    if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+
+    // Waste Management
+    if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
+    if (listingPayload.wasteBinLocation !== undefined) propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
+    if (listingPayload.wasteManagementInstructions !== undefined) propertyInfo.wasteManagementInstructions = listingPayload.wasteManagementInstructions ?? null;
+
+    // Additional Services/Upsells
+    if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
+
+    // Amenities
+    if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
+    if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
+    if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
+    if (listingPayload.wifiSpeed !== undefined) propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
+    if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
+    if (listingPayload.swimmingPoolNotes !== undefined) propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
+    if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
+  }
+
+  private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
+    // Remove existing bed types
+    if (propertyInfo.propertyBedTypes) {
+      await this.propertyBedTypesRepo.remove(propertyInfo.propertyBedTypes);
+    }
+
+    // Create new bed types
+    const bedTypes = bedTypesData.map(bedType =>
+      this.propertyBedTypesRepo.create({
+        floorLevel: Number(bedType.floorLevel),
+        bedroomNumber: bedType.bedroomNumber,
+        bedTypeId: bedType.bedTypeId,
+        quantity: bedType.quantity,
+        propertyId: propertyInfo
+      })
+    );
+    await this.propertyBedTypesRepo.save(bedTypes);
   }
 
 

@@ -159,4 +159,25 @@ export class ClientController {
     }
   }
 
+  async saveListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveListingInfo(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingInfo(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
 }

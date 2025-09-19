@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo } from "../middleware/validation/Client/client.validation";
+import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo } from "../middleware/validation/Client/client.validation";
 
 const router = Router();
 const clientController = new ClientController();
@@ -24,6 +24,9 @@ router.route('/internal/onboarding').put(verifySession, validateUpdateOnboarding
 
 router.route('/internal/service-info').post(verifySession, validateSaveServiceInfo, clientController.saveServiceInfo.bind(clientController));
 router.route('/internal/service-info').put(verifySession, validateUpdateServiceInfo, clientController.updateServiceInfo.bind(clientController));
+
+router.route('/internal/listing-info').post(verifySession, validateSaveListingInfo, clientController.saveListingInfo.bind(clientController));
+router.route('/internal/listing-info').put(verifySession, validateUpdateListingInfo, clientController.updateListingInfo.bind(clientController));
 
 router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 
