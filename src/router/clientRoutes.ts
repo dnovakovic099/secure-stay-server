@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo } from "../middleware/validation/Client/client.validation";
+import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm } from "../middleware/validation/Client/client.validation";
 
 const router = Router();
 const clientController = new ClientController();
@@ -27,6 +27,14 @@ router.route('/internal/service-info').put(verifySession, validateUpdateServiceI
 
 router.route('/internal/listing-info').post(verifySession, validateSaveListingInfo, clientController.saveListingInfo.bind(clientController));
 router.route('/internal/listing-info').put(verifySession, validateUpdateListingInfo, clientController.updateListingInfo.bind(clientController));
+
+//client form apis
+router.route('/client-facing/onboarding').post(verifySession, validateSaveOnboardingDetailsClientForm, clientController.saveOnboardingDetailsClientForm.bind(clientController));
+router.route('/client-facing/onboarding').put(verifySession, validateUpdateOnboardingDetailsClientForm, clientController.updateOnboardingDetailsClientForm.bind(clientController));
+
+router.route('/client-facing/listing-info').post(verifySession, validateSaveListingDetailsClientForm, clientController.saveListingDetailsClientForm.bind(clientController));
+router.route('/client-facing/listing-info').put(verifySession, validateUpdateListingDetailsClientForm, clientController.updateListingDetailsClientForm.bind(clientController));
+
 
 router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 

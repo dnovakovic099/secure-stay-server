@@ -57,6 +57,9 @@ export class PropertyOnboarding {
 
     //client facing fields
     @Column({ type: "boolean", default: false })
+    acknowledgePropertyReadyByStartDate: boolean;
+    
+    @Column({ type: "boolean", default: false })
     agreesUnpublishExternalListings: boolean;
 
     @Column({ type: "text", nullable: true })

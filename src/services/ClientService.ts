@@ -63,6 +63,12 @@ interface Listing {
   actualLiveDate?: string | null;  // yyyy-mm-dd
   actualStartDate?: string | null; // yyyy-mm-dd
 
+  // Client-facing onboarding specific fields
+  acknowledgePropertyReadyByStartDate?: boolean | null;
+  agreesUnpublishExternalListings?: boolean | null;
+  externalListingNotes?: string | null;
+  acknowledgesResponsibilityToInform?: boolean | null;
+
   // Property listing info fields
   propertyTypeId?: number | null;
   noOfFloors?: number | null;
@@ -1082,6 +1088,262 @@ export class ClientService {
   }
 
 
+  async saveOnboardingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
 
+    const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+
+    for (const property of clientProperties) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (!listingPayload) {
+        throw CustomErrorHandler.validationError("listing payload is required");
+      }
+
+      let onboarding = clientProperty.onboarding;
+      if (!onboarding) {
+        onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map client-facing onboarding fields
+      if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+      if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+      if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+
+      // Store client-facing specific fields in targetDateNotes as JSON
+      const clientFormData = {
+        acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+        agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+        externalListingNotes: listingPayload.externalListingNotes ?? null,
+        acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+      };
+      onboarding.targetDateNotes = JSON.stringify(clientFormData);
+
+      onboarding.updatedBy = userId;
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
+
+      results.push({ clientProperty, onboarding: savedOnboarding });
+    }
+
+    return { message: "Client onboarding details saved", results };
+  }
+
+  async updateOnboardingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (listingPayload) {
+        let onboarding = clientProperty.onboarding;
+        if (!onboarding) {
+          onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map client-facing onboarding fields
+        if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+        if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+        if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+
+        // Store client-facing specific fields in targetDateNotes as JSON
+        const clientFormData = {
+          acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+          agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+          externalListingNotes: listingPayload.externalListingNotes ?? null,
+          acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+        };
+        onboarding.targetDateNotes = JSON.stringify(clientFormData);
+
+        onboarding.updatedBy = userId;
+        await this.propertyOnboardingRepo.save(onboarding);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+      updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+    }
+
+    return { message: "Client onboarding details updated", updated };
+  }
+
+  async saveListingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; propertyInfo: PropertyInfo; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const listingPayload = property.onboarding?.listing;
+
+      if (!serviceInfoPayload || !listingPayload) {
+        throw CustomErrorHandler.validationError("serviceInfo and listing payloads are required");
+      }
+
+      // Handle Service Info
+      let serviceInfo = clientProperty.serviceInfo;
+      if (!serviceInfo) {
+        serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+      serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
+      serviceInfo.updatedBy = userId;
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfo);
+
+      // Handle Property Info
+      let propertyInfo = clientProperty.propertyInfo;
+      if (!propertyInfo) {
+        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map all listing fields to propertyInfo
+      this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+      propertyInfo.updatedBy = userId;
+      const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+
+      // Handle PropertyBedTypes
+      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      }
+
+      results.push({ clientProperty, serviceInfo: savedServiceInfo, propertyInfo: savedPropertyInfo });
+    }
+
+    return { message: "Client listing details saved", results };
+  }
+
+  async updateListingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const listingPayload = property.onboarding?.listing;
+
+      // Handle Service Info
+      if (serviceInfoPayload) {
+        let serviceInfo = clientProperty.serviceInfo;
+        if (!serviceInfo) {
+          serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+        if (serviceInfoPayload.managementFee !== undefined) serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+        if (serviceInfoPayload.serviceType !== undefined) serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
+        serviceInfo.updatedBy = userId;
+        await this.propertyServiceInfoRepo.save(serviceInfo);
+      }
+
+      // Handle Property Info
+      if (listingPayload) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map all listing fields to propertyInfo
+        this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+
+        // Handle PropertyBedTypes
+        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo"] });
+      updated.push({
+        clientProperty: refreshed!,
+        serviceInfo: refreshed!.serviceInfo ?? null,
+        propertyInfo: refreshed!.propertyInfo ?? null
+      });
+    }
+
+    return { message: "Client listing details updated", updated };
+  }
 
 }

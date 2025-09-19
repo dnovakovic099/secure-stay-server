@@ -179,5 +179,44 @@ export class ClientController {
     }
   }
 
+  async saveOnboardingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveOnboardingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateOnboardingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateOnboardingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveListingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveListingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 
 }
