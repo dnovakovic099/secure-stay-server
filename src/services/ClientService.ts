@@ -28,6 +28,7 @@ interface PropertyOnboardingRequest {
 }
 
 interface Property {
+  id?: string; // Optional for create/update logic
   address: string;
   onboarding: Onboarding;
 }
@@ -660,46 +661,76 @@ export class ClientService {
     const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
 
     for (const property of clientProperties) {
-      // Create ClientProperty
-      const clientProperty = this.propertyRepo.create({
-        address: property.address,
-        client: { id: clientId } as any,
-        createdBy: userId,
-      });
-      const savedClientProperty = await this.propertyRepo.save(clientProperty);
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      }
 
       // Map Onboarding (sales, listing, photography) - no serviceInfo for internal onboarding
       const sales = property.onboarding?.sales;
       const listing = property.onboarding?.listing;
       const photography = property.onboarding?.photography;
 
-      const onboardingEntity = this.propertyOnboardingRepo.create({
-        // sales
-        salesRepresentative: sales?.salesRepresentative ?? null,
-        salesNotes: sales?.salesNotes ?? null,
-        projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
-        // listing
-        clientCurrentListingLink: Array.isArray(listing?.clientCurrentListingLink)
-          ? JSON.stringify(listing?.clientCurrentListingLink)
-          : (listing?.clientCurrentListingLink as unknown as string) ?? null,
-        listingOwner: listing?.listingOwner ?? null,
-        clientListingStatus: listing?.clientListingStatus ?? null,
-        targetLiveDate: listing?.targetLiveDate ?? null,
-        targetStartDate: listing?.targetStartDate ?? null,
-        actualLiveDate: listing?.actualLiveDate ?? null,
-        actualStartDate: listing?.actualStartDate ?? null,
-        targetDateNotes: listing?.targetDateNotes ?? null,
-        upcomingReservations: listing?.upcomingReservations ?? null,
-        // photography
-        photographyCoverage: photography?.photographyCoverage ?? null,
-        photographyNotes: photography?.photographyNotes ?? null,
-        // relations/meta
-        clientProperty: savedClientProperty,
-        createdBy: userId,
-      });
+      let onboardingEntity = clientProperty.onboarding;
+      if (!onboardingEntity) {
+        onboardingEntity = this.propertyOnboardingRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
+      }
+
+      // Update onboarding fields
+      if (sales) {
+        if (sales.salesRepresentative !== undefined) onboardingEntity.salesRepresentative = sales.salesRepresentative ?? null;
+        if (sales.salesNotes !== undefined) onboardingEntity.salesNotes = sales.salesNotes ?? null;
+        if (sales.projectedRevenue !== undefined) onboardingEntity.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+      }
+
+      if (listing) {
+        if (listing.clientCurrentListingLink !== undefined) {
+          onboardingEntity.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+            ? JSON.stringify(listing.clientCurrentListingLink)
+            : (listing.clientCurrentListingLink as unknown as string) ?? null;
+        }
+        if (listing.listingOwner !== undefined) onboardingEntity.listingOwner = listing.listingOwner ?? null;
+        if (listing.clientListingStatus !== undefined) onboardingEntity.clientListingStatus = listing.clientListingStatus ?? null;
+        if (listing.targetLiveDate !== undefined) onboardingEntity.targetLiveDate = listing.targetLiveDate ?? null;
+        if (listing.targetStartDate !== undefined) onboardingEntity.targetStartDate = listing.targetStartDate ?? null;
+        if (listing.actualLiveDate !== undefined) onboardingEntity.actualLiveDate = listing.actualLiveDate ?? null;
+        if (listing.actualStartDate !== undefined) onboardingEntity.actualStartDate = listing.actualStartDate ?? null;
+        if (listing.targetDateNotes !== undefined) onboardingEntity.targetDateNotes = listing.targetDateNotes ?? null;
+        if (listing.upcomingReservations !== undefined) onboardingEntity.upcomingReservations = listing.upcomingReservations ?? null;
+      }
+
+      if (photography) {
+        if (photography.photographyCoverage !== undefined) onboardingEntity.photographyCoverage = photography.photographyCoverage ?? null;
+        if (photography.photographyNotes !== undefined) onboardingEntity.photographyNotes = photography.photographyNotes ?? null;
+      }
+
+      onboardingEntity.updatedBy = userId;
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
 
-      results.push({ clientProperty: savedClientProperty, onboarding: savedOnboarding });
+      results.push({ clientProperty, onboarding: savedOnboarding });
     }
 
     return { message: "Internal onboarding details saved", results };
