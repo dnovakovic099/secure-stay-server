@@ -440,6 +440,7 @@ export class ClientService {
       // Create ClientProperty
       const clientProperty = this.propertyRepo.create({
         address: property.address,
+        status: "draft",
         client: { id: clientId } as any,
         createdBy: userId,
       });
@@ -686,6 +687,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
+          status: "draft",
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
@@ -1154,6 +1156,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
+          status: "draft",
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
@@ -1225,6 +1228,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
+          status: "draft",
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
