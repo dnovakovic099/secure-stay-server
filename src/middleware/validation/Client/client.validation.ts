@@ -684,7 +684,7 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
         clientId: Joi.string().required(),
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
-                id: Joi.string().required(),
+                id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().optional(),
                 onboarding: Joi.object({
                     listing: Joi.object({

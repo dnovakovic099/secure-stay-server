@@ -11,6 +11,8 @@ import { PropertyOnboarding } from "../entity/PropertyOnboarding";
 import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
 import { PropertyInfo } from "../entity/PropertyInfo";
 import { PropertyBedTypes } from "../entity/PropertyBedTypes";
+import logger from "../utils/logger.utils";
+import { HostAwayClient } from "../client/HostAwayClient";
 
 interface ClientFilter {
   page: number;
@@ -152,6 +154,8 @@ export class ClientService {
   private propertyServiceInfoRepo = appDatabase.getRepository(PropertyServiceInfo);
   private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
   private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
+
+  private hostawayClient = new HostAwayClient();
 
   async saveClient(
     clientData: Partial<ClientEntity>,
@@ -1188,7 +1192,7 @@ export class ClientService {
   }
 
   async updateOnboardingDetailsClientForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
@@ -1197,19 +1201,32 @@ export class ClientService {
     const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
-      if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
-      }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
-      }
+      let clientProperty: ClientPropertyEntity;
 
-      if ((property as any).address !== undefined) {
-        clientProperty.address = property.address;
-        clientProperty.updatedAt = new Date();
-        clientProperty.updatedBy = userId;
-        await this.propertyRepo.save(clientProperty);
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+
+        if ((property as any).address !== undefined) {
+          clientProperty.address = property.address;
+          clientProperty.updatedAt = new Date();
+          clientProperty.updatedBy = userId;
+          await this.propertyRepo.save(clientProperty);
+        }
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
       }
 
       const listingPayload = property.onboarding?.listing;
@@ -1237,7 +1254,7 @@ export class ClientService {
         await this.propertyOnboardingRepo.save(onboarding);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
       updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
     }
 
@@ -1376,5 +1393,144 @@ export class ClientService {
 
     return { message: "Client listing details updated", updated };
   }
+
+
+  //publish listingIntake to hostaway
+  async publishListingIntakeToHostaway(propertyId: string, userId: string) {
+    const listingIntake = await this.propertyRepo.findOne({
+      where: { id: propertyId },
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
+    });
+
+
+    if (!listingIntake) {
+      throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
+    }
+
+    // Here you would implement the logic to publish the property to Hostaway
+    // This is a placeholder for the actual implementation
+    logger.info("Publishing property to Hostaway:", listingIntake);
+
+    // Simulate successful publishing
+    let status = this.getListingIntakeStatus(listingIntake);
+    if (status === "draft") {
+      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
+    }
+    if (status === "published") {
+      throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
+    }
+
+    //prepare hostaway payload
+    const hostawayPayload = {
+      externalListingName: listingIntake.propertyInfo.externalListingName,
+      // description: listingIntake.propertyInfo.description,
+      personCapacity: listingIntake.propertyInfo.personCapacity,
+      propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
+      roomType: listingIntake.propertyInfo.roomType,
+      bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
+      // bedsNumber: listingIntake.propertyInfo.bedsNumber,
+      bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
+      bathroomType: listingIntake.propertyInfo.bathroomType,
+      guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
+      address: listingIntake.propertyInfo.address,
+      // publicAddress: listingIntake.propertyInfo.publicAddress,
+      // country: listingIntake.propertyInfo.country,
+      // countryCode: listingIntake.propertyInfo.countryCode,
+      // state: listingIntake.propertyInfo.state,
+      // city: listingIntake.propertyInfo.city,
+      // street: listingIntake.propertyInfo.street,
+      // zipcode: listingIntake.propertyInfo.zipcode,
+      timeZoneName: listingIntake.client.timezone,
+      amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
+        return { amenityId: Number(amenity) };
+      }),
+      currencyCode: listingIntake.propertyInfo.currencyCode,
+      price: listingIntake.propertyInfo.price,
+      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson,
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
+      // cleaningFee: listingIntake.propertyInfo.cleaningFee,
+      airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
+      // houseRules: listingIntake.propertyInfo.houseRules,
+      checkOutTime: listingIntake.propertyInfo.checkOutTime,
+      checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
+      // checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
+      squareMeters: listingIntake.propertyInfo.squareMeters,
+      // language: listingIntake.propertyInfo.language,
+      // instantBookable: listingIntake.propertyInfo.instantBookable,
+      wifiUsername: listingIntake.propertyInfo.wifiUsername,
+      wifiPassword: listingIntake.propertyInfo.wifiPassword,
+      // airBnbCancellationPolicyId: listingIntake.propertyInfo.airBnbCancellationPolicyId,
+      // bookingCancellationPolicyId: listingIntake.propertyInfo.bookingCancellationPolicyId,
+      // marriottBnbCancellationPolicyId: listingIntake.propertyInfo.marriottBnbCancellationPolicyId,
+      // vrboCancellationPolicyId: listingIntake.propertyInfo.vrboCancellationPolicyId,
+      // cancellationPolicyId: listingIntake.propertyInfo.cancellationPolicyId,
+      // minNights: listingIntake.propertyInfo.minNights,
+      // maxNights: listingIntake.propertyInfo.maxNights,
+      // airbnbName: listingIntake.propertyInfo.airbnbName,
+      // airbnbSummary: listingIntake.propertyInfo.airbnbSummary,
+      // airbnbSpace: listingIntake.propertyInfo.airbnbSpace,
+      // airbnbAccess: listingIntake.propertyInfo.airbnbAccess,
+      // airbnbInteraction: listingIntake.propertyInfo.airbnbInteraction,
+      // airbnbNeighborhoodOverview: listingIntake.propertyInfo.airbnbNeighborhoodOverview,
+      // airbnbTransit: listingIntake.propertyInfo.airbnbTransit,
+      // airbnbNotes: listingIntake.propertyInfo.airbnbNotes,
+      // homeawayPropertyName: listingIntake.propertyInfo.homeawayPropertyName,
+      // homeawayPropertyHeadline: listingIntake.propertyInfo.homeawayPropertyHeadline,
+      // homeawayPropertyDescription: listingIntake.propertyInfo.homeawayPropertyDescription,
+      // bookingcomPropertyName: listingIntake.propertyInfo.bookingcomPropertyName,
+      // bookingcomPropertyDescription: listingIntake.propertyInfo.bookingcomPropertyDescription,
+      // marriottListingName: listingIntake.propertyInfo.marriottListingName,
+      // contactName: listingIntake.propertyInfo.contactName,
+      // contactPhone1: listingIntake.propertyInfo.contactPhone1,
+      // contactLanguage: listingIntake.propertyInfo.contactLanguage,
+
+      listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.map(bedType => ({
+        bedTypeId: bedType.bedTypeId,
+        quantity: bedType.quantity,
+        bedroomNumber: bedType.bedroomNumber,
+      })),
+
+      // propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
+      // propertyLicenseType: listingIntake.propertyInfo.propertyLicenseType,
+      // propertyLicenseIssueDate: listingIntake.propertyInfo.propertyLicenseIssueDate,
+      // propertyLicenseExpirationDate: listingIntake.propertyInfo.propertyLicenseExpirationDate,
+    };
+
+    logger.info("Hostaway payload:", JSON.stringify(hostawayPayload));
+
+    //simulate taking time of 10s
+    // await new Promise(resolve => setTimeout(resolve, 10000));
+
+    const response = await this.hostawayClient.createListing(hostawayPayload);
+    if (!response) {
+      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    }
+    // Update the listingIntake status to published
+    listingIntake.status = "published";
+    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    listingIntake.updatedBy = userId;
+    await this.propertyRepo.save(listingIntake);
+
+    return { message: "Property published to Hostaway successfully", listingIntake };
+  }
+
+  private getListingIntakeStatus(listingIntake: any) {
+    const requiredFields = [
+      "externalListingName",
+      "address",
+      "price",
+      "guestsIncluded",
+      "priceForExtraPerson",
+      "currencyCode"
+    ];
+
+    const hasMissingValue = requiredFields.some(field => {
+      const value = (listingIntake as any)[field];
+      return value == null || value === "";
+    });
+
+    return hasMissingValue ? "draft" : "ready";
+  }
+
 
 }
