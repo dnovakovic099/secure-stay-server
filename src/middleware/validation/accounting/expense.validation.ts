@@ -52,7 +52,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
                     return helpers.error("any.invalid");
                 }
             })
-        ).required().allow(null, ""),
+        ).optional().allow(null, ""),
     });
 
     const { error } = schema.validate(request.body);
@@ -115,7 +115,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
                     return helpers.error("any.invalid");
                 }
             })
-        ).required().allow(null, ""),
+        ).optional().allow(null, ""),
     });
 
     const { error } = schema.validate(request.body);
