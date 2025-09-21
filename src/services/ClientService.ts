@@ -13,6 +13,7 @@ import { PropertyInfo } from "../entity/PropertyInfo";
 import { PropertyBedTypes } from "../entity/PropertyBedTypes";
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
+import { PropertyUpsells } from "../entity/PropertyUpsells";
 
 interface ClientFilter {
   page: number;
@@ -154,6 +155,7 @@ export class ClientService {
   private propertyServiceInfoRepo = appDatabase.getRepository(PropertyServiceInfo);
   private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
   private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
+  private propertyUpsellsRepo = appDatabase.getRepository(PropertyUpsells);
 
   private hostawayClient = new HostAwayClient();
 
@@ -980,6 +982,11 @@ export class ClientService {
         await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
       }
 
+      // Handle PropertyUpsells
+      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      }
+
       results.push({ clientProperty, propertyInfo: savedPropertyInfo });
     }
 
@@ -1026,6 +1033,11 @@ export class ClientService {
         // Handle PropertyBedTypes
         if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
           await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+
+        // Handle PropertyUpsells
+        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
       }
 
@@ -1106,22 +1118,85 @@ export class ClientService {
   }
 
   private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
-    // Remove existing bed types
-    if (propertyInfo.propertyBedTypes) {
-      await this.propertyBedTypesRepo.remove(propertyInfo.propertyBedTypes);
+    // Get existing bed types for this property
+    const existingBedTypes = await this.propertyBedTypesRepo.find({
+      where: { propertyId: { id: propertyInfo.id } }
+    });
+    const existingBedTypeIds = existingBedTypes.map(bt => bt.id);
+    const incomingBedTypeIds = bedTypesData.map(bt => bt.id).filter(id => id !== undefined);
+
+    // Remove bed types that are not in the incoming list
+    const bedTypesToDelete = existingBedTypes.filter(bt => !incomingBedTypeIds.includes(bt.id));
+    if (bedTypesToDelete.length > 0) {
+      await this.propertyBedTypesRepo.remove(bedTypesToDelete);
     }
 
-    // Create new bed types
-    const bedTypes = bedTypesData.map(bedType =>
-      this.propertyBedTypesRepo.create({
-        floorLevel: Number(bedType.floorLevel),
-        bedroomNumber: bedType.bedroomNumber,
-        bedTypeId: bedType.bedTypeId,
-        quantity: bedType.quantity,
-        propertyId: propertyInfo
-      })
-    );
-    await this.propertyBedTypesRepo.save(bedTypes);
+    // Process each bed type in the incoming data
+    for (const bedTypeData of bedTypesData) {
+      if (bedTypeData.id && existingBedTypeIds.includes(bedTypeData.id)) {
+        // Update existing bed type
+        const existingBedType = existingBedTypes.find(bt => bt.id === bedTypeData.id);
+        if (existingBedType) {
+          if (bedTypeData.floorLevel !== undefined) existingBedType.floorLevel = Number(bedTypeData.floorLevel);
+          if (bedTypeData.bedroomNumber !== undefined) existingBedType.bedroomNumber = bedTypeData.bedroomNumber;
+          if (bedTypeData.bedTypeId !== undefined) existingBedType.bedTypeId = bedTypeData.bedTypeId;
+          if (bedTypeData.quantity !== undefined) existingBedType.quantity = bedTypeData.quantity;
+          await this.propertyBedTypesRepo.save(existingBedType);
+        }
+      } else {
+        // Create new bed type
+        const newBedType = this.propertyBedTypesRepo.create({
+          floorLevel: Number(bedTypeData.floorLevel),
+          bedroomNumber: bedTypeData.bedroomNumber,
+          bedTypeId: bedTypeData.bedTypeId,
+          quantity: bedTypeData.quantity,
+          propertyId: propertyInfo
+        });
+        await this.propertyBedTypesRepo.save(newBedType);
+      }
+    }
+  }
+
+  private async handlePropertyUpsells(propertyInfo: PropertyInfo, upsellsData: any[]) {
+    // Get existing upsells for this property
+    const existingUpsells = await this.propertyUpsellsRepo.find({
+      where: { propertyId: { id: propertyInfo.id } }
+    });
+    const existingUpsellIds = existingUpsells.map(u => u.id);
+    const incomingUpsellIds = upsellsData.map(u => u.id).filter(id => id !== undefined);
+
+    // Remove upsells that are not in the incoming list
+    const upsellsToDelete = existingUpsells.filter(u => !incomingUpsellIds.includes(u.id));
+    if (upsellsToDelete.length > 0) {
+      await this.propertyUpsellsRepo.remove(upsellsToDelete);
+    }
+
+    // Process each upsell in the incoming data
+    for (const upsellData of upsellsData) {
+      if (upsellData.id && existingUpsellIds.includes(upsellData.id)) {
+        // Update existing upsell
+        const existingUpsell = existingUpsells.find(u => u.id === upsellData.id);
+        if (existingUpsell) {
+          if (upsellData.upsellName !== undefined) existingUpsell.upsellName = upsellData.upsellName;
+          if (upsellData.allowUpsell !== undefined) existingUpsell.allowUpsell = upsellData.allowUpsell;
+          if (upsellData.feeType !== undefined) existingUpsell.feeType = upsellData.feeType;
+          if (upsellData.fee !== undefined) existingUpsell.fee = upsellData.fee;
+          if (upsellData.maxAdditionalHours !== undefined) existingUpsell.maxAdditionalHours = upsellData.maxAdditionalHours;
+          await this.propertyUpsellsRepo.save(existingUpsell);
+        }
+      } else {
+        // Create new upsell
+        const newUpsell = this.propertyUpsellsRepo.create({
+          upsellName: upsellData.upsellName,
+          allowUpsell: upsellData.allowUpsell,
+          feeType: upsellData.feeType,
+          fee: upsellData.fee,
+          maxAdditionalHours: upsellData.maxAdditionalHours,
+          propertyId: propertyInfo
+        });
+        await this.propertyUpsellsRepo.save(newUpsell);
+      }
+    }
   }
 
 
@@ -1323,6 +1398,11 @@ export class ClientService {
         await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
       }
 
+      // Handle PropertyUpsells
+      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      }
+
       results.push({ clientProperty, serviceInfo: savedServiceInfo, propertyInfo: savedPropertyInfo });
     }
 
@@ -1384,6 +1464,11 @@ export class ClientService {
         // Handle PropertyBedTypes
         if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
           await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+
+        // Handle PropertyUpsells
+        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
       }
 

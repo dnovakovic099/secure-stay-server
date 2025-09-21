@@ -520,7 +520,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
-                                floorLevel: Joi.string().optional(),
+                                id: Joi.number().optional(), // if id is passed then update else create new
+                                floorLevel: Joi.number().optional(),
                                 bedroomNumber: Joi.number().optional(),
                                 bedTypeId: Joi.number().optional(),
                                 quantity: Joi.number().optional()
@@ -613,8 +614,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         //additional services/upsells
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
                             Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 upsellName: Joi.string().optional(),
                                 allowUpsell: Joi.boolean().optional(),
+                                fee: Joi.number().optional().allow(null),
                                 feeType: Joi.string().optional().valid("Free", "Standard Fee", "Per Hour"),
                                 maxAdditionalHours: Joi.number().optional().allow(null)
                             })
@@ -890,7 +893,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
-                                floorLevel: Joi.string().optional(),
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                floorLevel: Joi.number().optional(),
                                 bedroomNumber: Joi.number().optional(),
                                 bedTypeId: Joi.number().optional(),
                                 quantity: Joi.number().optional()
@@ -983,9 +987,11 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         //additional services/upsells
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
                             Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 upsellName: Joi.string().optional(),
                                 allowUpsell: Joi.boolean().optional(),
                                 feeType: Joi.string().optional().valid("Free", "Standard Fee", "Per Hour"),
+                                fee: Joi.number().optional().allow(null),
                                 maxAdditionalHours: Joi.number().optional().allow(null)
                             })
                         ),

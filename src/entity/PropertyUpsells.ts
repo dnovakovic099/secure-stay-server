@@ -7,7 +7,7 @@ export class PropertyUpsells {
     id: number;
 
     @Column({ nullable: true })
-    upsellName: number;
+    upsellName: string;
 
     @Column({ type: "boolean", nullable: true })
     allowUpsell: boolean;
