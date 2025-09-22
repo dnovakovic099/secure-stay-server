@@ -156,7 +156,7 @@ export class MaintenanceService {
                 contact: contacts.find(contact => contact.id == logs.contactId) || null,
                 createdBy: userMap.get(logs.createdBy) || logs.createdBy,
                 updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
-                listingName: listings.find(l => l.id == Number(logs.listingId)).internalListingName
+                listingName: listings.find(l => l.id == Number(logs.listingId))?.internalListingName || listings.find(l => l.id == Number(logs.listingId))?.name || "Unknown"
             };
         });
 
