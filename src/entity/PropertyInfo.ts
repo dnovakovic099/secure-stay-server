@@ -12,6 +12,7 @@ import {
 import { ClientPropertyEntity } from "./ClientProperty";
 import { PropertyBedTypes } from "./PropertyBedTypes";
 import { PropertyUpsells } from "./PropertyUpsells";
+import { PropertyVendorManagement } from "./PropertyVendorManagement";
 
 
 @Entity("property_info")
@@ -195,6 +196,54 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     additionalServiceNotes: string;
 
+
+    //Special Instructions for guests
+    @Column({ type: "text", nullable: true })
+    checkInInstructions: string;
+
+    @Column({ type: "text", nullable: true })
+    checkOutInstructions: string;
+
+
+    //Contractors/Vendor Management
+    @OneToOne(() => PropertyVendorManagement, (vendorManagementInfo) => vendorManagementInfo.propertyInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
+    vendorManagementInfo: PropertyVendorManagement;
+
+
+    //Management
+    @Column({ nullable: true })
+    specialInstructions: string;
+
+    @Column({ type: 'int', nullable: true })
+    leadTimeDays: number;
+
+    @Column({ type: 'text', nullable: true })
+    bookingAcceptanceNotes: string;
+
+    @Column({ type: 'text', nullable: true })
+    managementNotes: string;
+
+
+    //Financials
+    @Column({ type: "float", nullable: true })
+    minPrice: number;
+
+    @Column({ nullable: true })
+    minNights: number;
+
+    @Column({ nullable: true })
+    maxNights: number;
+
+    @Column({ nullable: true })
+    propertyLicenseNumber: string;
+
+    @Column({ type: "text", nullable: true })
+    tax: string;
+
+    @Column({ type: "text", nullable: true })
+    financialNotes: string;
+
+
     //amenities
     @Column({ type: "simple-array", nullable: true })
     amenities: string[];
@@ -223,6 +272,8 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     hotTubInstructions: string;
 
+    @Column({ type: "text", nullable: true })
+    firepitNotes: string;
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()
