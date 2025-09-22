@@ -153,7 +153,7 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
         clientId: Joi.string().required(),
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
-                id: Joi.string().required(),
+                id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
@@ -998,7 +998,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         additionalServiceNotes: Joi.string().optional().allow(null),
 
                         //amenities
-                        amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        amenities: Joi.array().items(Joi.number()).min(1).optional().allow(null),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),
                         wifiSpeed: Joi.string().optional().allow(null),

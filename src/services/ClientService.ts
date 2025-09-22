@@ -576,39 +576,62 @@ export class ClientService {
 
     const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo?: PropertyServiceInfo | null; onboarding?: PropertyOnboarding | null; }> = [];
 
-    // Proper update loop using id
-    for (const property of clientProperties as Array<Property & { id: string; }>) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
-      if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
-      }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+    // Handle both update and create scenarios based on id presence
+    for (const property of clientProperties as Array<Property & { id?: string; }>) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+
+        if (property.address !== undefined) {
+          clientProperty.address = property.address;
+        }
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          status: "draft",
+          client: { id: clientId } as any,
+          createdBy: userId,
+        });
+        const savedClientProperty = await this.propertyRepo.save(clientProperty);
+        clientProperty = savedClientProperty;
       }
 
-      if (property.address !== undefined) {
-        clientProperty.address = property.address;
-      }
-      clientProperty.updatedAt = new Date();
-      clientProperty.updatedBy = userId;
-      await this.propertyRepo.save(clientProperty);
-
-      // Update Service Info if provided
+      // Update or Create Service Info if provided
       if (property.onboarding?.serviceInfo) {
         const siPayload = property.onboarding.serviceInfo;
         let si = clientProperty.serviceInfo;
         if (!si) {
-          si = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+          si = this.propertyServiceInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+            managementFee: siPayload.managementFee != null ? String(siPayload.managementFee) : null,
+            serviceType: siPayload.serviceType ?? null,
+            contractLink: siPayload.contractLink ?? null,
+            serviceNotes: siPayload.serviceNotes ?? null
+          });
+        } else {
+          if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
+          if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+          if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
+          if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+          si.updatedBy = userId;
         }
-        if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
-        if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
-        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
-        if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
-        si.updatedBy = userId;
         await this.propertyServiceInfoRepo.save(si);
       }
 
-      // Update Onboarding if provided
+      // Update or Create Onboarding if provided
       if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
         const sales = property.onboarding.sales;
         const listing = property.onboarding.listing;
@@ -616,39 +639,61 @@ export class ClientService {
 
         let ob = clientProperty.onboarding;
         if (!ob) {
-          ob = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
-        }
-
-        if (sales) {
-          if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
-          if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
-          if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
-        }
-
-        if (listing) {
-          if (listing.clientCurrentListingLink !== undefined) {
-            ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
-              ? JSON.stringify(listing.clientCurrentListingLink)
-              : (listing.clientCurrentListingLink as unknown as string) ?? null;
+          // Create new onboarding record with initial values
+          ob = this.propertyOnboardingRepo.create({
+            clientProperty,
+            createdBy: userId,
+            salesRepresentative: sales?.salesRepresentative ?? null,
+            salesNotes: sales?.salesNotes ?? null,
+            projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
+            clientCurrentListingLink: listing?.clientCurrentListingLink ?
+              (Array.isArray(listing.clientCurrentListingLink)
+                ? JSON.stringify(listing.clientCurrentListingLink)
+                : (listing.clientCurrentListingLink as unknown as string)) : null,
+            listingOwner: listing?.listingOwner ?? null,
+            clientListingStatus: listing?.clientListingStatus ?? null,
+            targetLiveDate: listing?.targetLiveDate ?? null,
+            targetStartDate: listing?.targetStartDate ?? null,
+            targetDateNotes: listing?.targetDateNotes ?? null,
+            upcomingReservations: listing?.upcomingReservations ?? null,
+            photographyCoverage: photography?.photographyCoverage ?? null,
+            photographyNotes: photography?.photographyNotes ?? null
+          });
+        } else {
+          // Update existing onboarding record
+          if (sales) {
+            if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
+            if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
+            if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
           }
-          if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
-          if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
-          if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
-          if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
-          if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
-          if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
-        }
 
-        if (photography) {
-          if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
-          if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
-        }
+          if (listing) {
+            if (listing.clientCurrentListingLink !== undefined) {
+              ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+                ? JSON.stringify(listing.clientCurrentListingLink)
+                : (listing.clientCurrentListingLink as unknown as string) ?? null;
+            }
+            if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
+            if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
+            if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
+            if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
+            if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
+            if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+          }
 
-        ob.updatedBy = userId;
+          if (photography) {
+            if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
+            if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+          }
+
+          ob.updatedBy = userId;
+        }
         await this.propertyOnboardingRepo.save(ob);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+      // Refresh the property to get the latest data with relations
+      const propertyId = property.id || clientProperty.id;
+      const refreshed = await this.propertyRepo.findOne({ where: { id: propertyId }, relations: ["onboarding", "serviceInfo"] });
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
     }
 
