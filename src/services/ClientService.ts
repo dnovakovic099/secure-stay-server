@@ -1,307 +1,1670 @@
 import { appDatabase } from "../utils/database.util";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { ILike, In, Between } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
+import { ListingService } from "./ListingService";
+import { tagIds } from "../constant"
+import { ClientTicket } from "../entity/ClientTicket";
+import { PropertyOnboarding } from "../entity/PropertyOnboarding";
+import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
+import { PropertyInfo } from "../entity/PropertyInfo";
+import { PropertyBedTypes } from "../entity/PropertyBedTypes";
+import logger from "../utils/logger.utils";
+import { HostAwayClient } from "../client/HostAwayClient";
+import { PropertyUpsells } from "../entity/PropertyUpsells";
 
-interface FilterQuery {
+interface ClientFilter {
   page: number;
   limit: number;
-  search?: string;
+  keyword?: string;
+  listingId?: string[];
+  serviceType?: string[];
   status?: string[];
-  clientType?: string[];
-  source?: string[];
-  city?: string[];
-  state?: string[];
-  country?: string[];
-  tags?: string[];
-  minTotalSpent?: number;
-  maxTotalSpent?: number;
-  minTotalBookings?: number;
-  maxTotalBookings?: number;
-  startDate?: Date;
-  endDate?: Date;
 }
 
-interface ClientStats {
-  totalClients: number;
-  activeClients: number;
-  inactiveClients: number;
-  pendingClients: number;
-  suspendedClients: number;
-  totalRevenue: number;
-  averageRevenuePerClient: number;
-  topClientTypes: Array<{ type: string; count: number }>;
-  topSources: Array<{ source: string; count: number }>;
+// types/propertyOnboarding.ts
+interface PropertyOnboardingRequest {
+  clientId: string;
+  clientProperties: Property[];
 }
+
+interface Property {
+  id?: string; // Optional for create/update logic
+  address: string;
+  onboarding: Onboarding;
+}
+
+interface Onboarding {
+  serviceInfo: ServiceInfo;
+  sales: Sales;
+  listing: Listing;
+  photography: Photography;
+}
+
+interface ServiceInfo {
+  managementFee: number | null;
+  serviceType: "LAUNCH" | "PRO" | "FULL";
+  contractLink: string | null;
+  serviceNotes: string | null;
+}
+
+interface Sales {
+  salesRepresentative: string | null;
+  salesNotes: string | null;
+  projectedRevenue: number | null;
+}
+
+interface Listing {
+  clientCurrentListingLink: string[] | null;
+  listingOwner: "Luxury Lodging" | "Client" | null;
+  clientListingStatus: "Closed" | "Open - Will Close" | "Open - Keeping" | null;
+  targetLiveDate: string | null;  // yyyy-mm-dd
+  targetStartDate: string | null; // yyyy-mm-dd
+  targetDateNotes: string | null;
+  upcomingReservations: string | null;
+  actualLiveDate?: string | null;  // yyyy-mm-dd
+  actualStartDate?: string | null; // yyyy-mm-dd
+
+  // Client-facing onboarding specific fields
+  acknowledgePropertyReadyByStartDate?: boolean | null;
+  agreesUnpublishExternalListings?: boolean | null;
+  externalListingNotes?: string | null;
+  acknowledgesResponsibilityToInform?: boolean | null;
+
+  // Property listing info fields
+  propertyTypeId?: number | null;
+  noOfFloors?: number | null;
+  squareMeters?: number | null;
+  personCapacity?: number | null;
+  roomType?: string | null;
+  bedroomsNumber?: number | null;
+  propertyBedTypes?: Array<{
+    floorLevel: string;
+    bedroomNumber: number;
+    bedTypeId: number;
+    quantity: number;
+  }> | null;
+  bathroomType?: string | null;
+  bathroomsNumber?: number | null;
+  guestBathroomsNumber?: number | null;
+  checkInTimeStart?: number | null;
+  checkOutTime?: number | null;
+  canAnyoneBookAnytime?: string | null;
+  bookingAcceptanceNoticeNotes?: string | null;
+  allowPartiesAndEvents?: boolean | null;
+  allowSmoking?: boolean | null;
+  allowPets?: boolean | null;
+  petFee?: number | null;
+  numberOfPetsAllowed?: number | null;
+  petRestrictionsNotes?: string | null;
+  allowChildreAndInfants?: boolean | null;
+  allowLuggageDropoffBeforeCheckIn?: boolean | null;
+  otherHouseRules?: string | null;
+  parkingType?: string[] | null;
+  parkingFee?: number | null;
+  numberOfParkingSpots?: number | null;
+  parkingInstructions?: string | null;
+  checkInProcess?: string[] | null;
+  doorLockType?: string[] | null;
+  doorLockCodeType?: string | null;
+  codeResponsibleParty?: string | null;
+  doorLockAppName?: string | null;
+  doorLockAppUsername?: string | null;
+  doorLockAppPassword?: string | null;
+  lockboxLocation?: string | null;
+  lockboxCode?: string | null;
+  doorLockInstructions?: string | null;
+  wasteCollectionDays?: string | null;
+  wasteBinLocation?: string | null;
+  wasteManagementInstructions?: string | null;
+  propertyUpsells?: Array<{
+    upsellName: string;
+    allowUpsell: boolean;
+    feeType: string;
+    maxAdditionalHours: number | null;
+  }> | null;
+  additionalServiceNotes?: string | null;
+  amenities?: string[] | null;
+  wifiUsername?: string | null;
+  wifiPassword?: string | null;
+  wifiSpeed?: string | null;
+  locationOfModem?: string | null;
+  swimmingPoolNotes?: string | null;
+  hotTubInstructions?: string | null;
+}
+
+interface Photography {
+  photographyCoverage:
+  | "Yes (Covered by Luxury Lodging)"
+  | "Yes (Covered by Client)"
+  | "No"
+  | null;
+  photographyNotes: string | null;
+}
+
 
 export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
+  private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
+  private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
+  private clientTicketRepo = appDatabase.getRepository(ClientTicket);
 
-  async createClient(body: Partial<ClientEntity>, userId: string) {
-    // Check if email already exists
-    const existingClient = await this.clientRepo.findOneBy({ email: body.email });
-    if (existingClient) {
-      throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
-    }
+  private propertyOnboardingRepo = appDatabase.getRepository(PropertyOnboarding);
+  private propertyServiceInfoRepo = appDatabase.getRepository(PropertyServiceInfo);
+  private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
+  private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
+  private propertyUpsellsRepo = appDatabase.getRepository(PropertyUpsells);
 
-    const client = this.clientRepo.create({
-      ...body,
-      createdBy: userId,
-      updatedBy: userId,
-    });
+  private hostawayClient = new HostAwayClient();
 
-    return await this.clientRepo.save(client);
-  }
+  async saveClient(
+    clientData: Partial<ClientEntity>,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[],
+    clientProperties?: string[],
+  ) {
+    const listingService = new ListingService();
+    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
 
-  async updateClient(id: string, body: Partial<ClientEntity>, userId: string) {
-    const existingClient = await this.clientRepo.findOneBy({ id });
-    if (!existingClient) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-
-    // Check if email is being changed and if it already exists
-    if (body.email && body.email !== existingClient.email) {
-      const emailExists = await this.clientRepo.findOneBy({ email: body.email });
-      if (emailExists) {
-        throw CustomErrorHandler.alreadyExists("Client with this email already exists.");
+    if (clientProperties && clientProperties.length > 0) {
+      for (const listingId of clientProperties) {
+        //find the service type of the listingId by checking which array it belongs to
+        if (FULL_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "FULL_SERVICE";
+        } else if (PRO_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "PRO_SERVICE";
+        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "LAUNCH_SERVICE";
+        } else {
+          clientData.serviceType = null;
+        }
       }
     }
 
-    const updatedClient = this.clientRepo.merge(existingClient, {
-      ...body,
-      updatedBy: userId,
-    });
+    const client = this.clientRepo.create({ ...clientData, createdBy: userId });
 
-    return await this.clientRepo.save(updatedClient);
-  }
-
-  async deleteClient(id: string, userId: string) {
-    const client = await this.clientRepo.findOneBy({ id });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-
-    client.deletedBy = userId;
-    await this.clientRepo.save(client);
-    return await this.clientRepo.softRemove(client);
-  }
-
-  async getClients(query: FilterQuery, userId: string) {
-    const {
-      page,
-      limit,
-      search,
-      status,
-      clientType,
-      source,
-      city,
-      state,
-      country,
-      tags,
-      minTotalSpent,
-      maxTotalSpent,
-      minTotalBookings,
-      maxTotalBookings,
-      startDate,
-      endDate,
-    } = query;
-
-    const queryBuilder = this.clientRepo.createQueryBuilder("client");
-
-    // Apply filters
-    if (search) {
-      queryBuilder.andWhere(
-        "(client.fullName ILIKE :search OR client.email ILIKE :search OR client.companyName ILIKE :search OR client.phone ILIKE :search)",
-        { search: `%${search}%` }
+    if (secondaryContacts && secondaryContacts.length > 0) {
+      client.secondaryContacts = secondaryContacts.map((contact) =>
+        this.contactRepo.create({ ...contact, createdBy: userId })
       );
     }
 
-    if (status && status.length > 0) {
-      queryBuilder.andWhere("client.status IN (:...status)", { status });
+    if (clientProperties && clientProperties.length > 0) {
+      client.properties = clientProperties.map((listingId) =>
+        this.propertyRepo.create({ listingId, createdBy: userId })
+      );
     }
-
-    if (clientType && clientType.length > 0) {
-      queryBuilder.andWhere("client.clientType IN (:...clientType)", { clientType });
-    }
-
-    if (source && source.length > 0) {
-      queryBuilder.andWhere("client.source IN (:...source)", { source });
-    }
-
-    if (city && city.length > 0) {
-      queryBuilder.andWhere("client.city IN (:...city)", { city });
-    }
-
-    if (state && state.length > 0) {
-      queryBuilder.andWhere("client.state IN (:...state)", { state });
-    }
-
-    if (country && country.length > 0) {
-      queryBuilder.andWhere("client.country IN (:...country)", { country });
-    }
-
-    if (tags && tags.length > 0) {
-      queryBuilder.andWhere("client.tags && :tags", { tags });
-    }
-
-    if (minTotalSpent !== undefined) {
-      queryBuilder.andWhere("client.totalSpent >= :minTotalSpent", { minTotalSpent });
-    }
-
-    if (maxTotalSpent !== undefined) {
-      queryBuilder.andWhere("client.totalSpent <= :maxTotalSpent", { maxTotalSpent });
-    }
-
-    if (minTotalBookings !== undefined) {
-      queryBuilder.andWhere("client.totalBookings >= :minTotalBookings", { minTotalBookings });
-    }
-
-    if (maxTotalBookings !== undefined) {
-      queryBuilder.andWhere("client.totalBookings <= :maxTotalBookings", { maxTotalBookings });
-    }
-
-    if (startDate && endDate) {
-      queryBuilder.andWhere("client.createdAt BETWEEN :startDate AND :endDate", {
-        startDate,
-        endDate,
-      });
-    }
-
-    // Get total count
-    const total = await queryBuilder.getCount();
-
-    // Apply pagination and ordering
-    const clients = await queryBuilder
-      .orderBy("client.createdAt", "DESC")
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
-
-    return {
-      clients,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  async getClientsByIds(ids: string[]) {
-    return await this.clientRepo.findBy({ id: In(ids) });
-  }
-
-  async getClientById(id: string) {
-    const client = await this.clientRepo.findOneBy({ id });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${id} not found.`);
-    }
-    return client;
-  }
-
-  async searchClients(searchTerm: string, filters?: any) {
-    const queryBuilder = this.clientRepo.createQueryBuilder("client");
-
-    // Apply search
-    queryBuilder.andWhere(
-      "(client.fullName ILIKE :search OR client.email ILIKE :search OR client.companyName ILIKE :search OR client.phone ILIKE :search)",
-      { search: `%${searchTerm}%` }
-    );
-
-    // Apply additional filters
-    if (filters) {
-      if (filters.status && filters.status.length > 0) {
-        queryBuilder.andWhere("client.status IN (:...status)", { status: filters.status });
-      }
-
-      if (filters.clientType && filters.clientType.length > 0) {
-        queryBuilder.andWhere("client.clientType IN (:...clientType)", { clientType: filters.clientType });
-      }
-
-      if (filters.source && filters.source.length > 0) {
-        queryBuilder.andWhere("client.source IN (:...source)", { source: filters.source });
-      }
-    }
-
-    return await queryBuilder
-      .orderBy("client.fullName", "ASC")
-      .take(50)
-      .getMany();
-  }
-
-  async getClientStats(): Promise<ClientStats> {
-    const [
-      totalClients,
-      activeClients,
-      inactiveClients,
-      pendingClients,
-      suspendedClients,
-      totalRevenue,
-      averageRevenue,
-      clientTypes,
-      sources,
-    ] = await Promise.all([
-      this.clientRepo.count(),
-      this.clientRepo.countBy({ status: "Active" }),
-      this.clientRepo.countBy({ status: "Inactive" }),
-      this.clientRepo.countBy({ status: "Pending" }),
-      this.clientRepo.countBy({ status: "Suspended" }),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("SUM(client.totalSpent)", "total")
-        .getRawOne(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("AVG(client.totalSpent)", "average")
-        .getRawOne(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("client.clientType", "type")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("client.clientType")
-        .orderBy("count", "DESC")
-        .limit(5)
-        .getRawMany(),
-      this.clientRepo
-        .createQueryBuilder("client")
-        .select("client.source", "source")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("client.source")
-        .orderBy("count", "DESC")
-        .limit(5)
-        .getRawMany(),
-    ]);
-
-    return {
-      totalClients,
-      activeClients,
-      inactiveClients,
-      pendingClients,
-      suspendedClients,
-      totalRevenue: parseFloat(totalRevenue?.total || "0"),
-      averageRevenuePerClient: parseFloat(averageRevenue?.average || "0"),
-      topClientTypes: clientTypes.map((item: any) => ({
-        type: item.type,
-        count: parseInt(item.count),
-      })),
-      topSources: sources.map((item: any) => ({
-        source: item.source,
-        count: parseInt(item.count),
-      })),
-    };
-  }
-
-  async updateClientStats(clientId: string, bookingData: { amount: number; date: Date }) {
-    const client = await this.clientRepo.findOneBy({ id: clientId });
-    if (!client) {
-      throw CustomErrorHandler.notFound(`Client with ID ${clientId} not found.`);
-    }
-
-    client.totalBookings += 1;
-    client.totalSpent += bookingData.amount;
-    client.lastBookingDate = bookingData.date;
 
     return await this.clientRepo.save(client);
   }
+
+  async updateClient(
+    clientData: Partial<ClientEntity>,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[],
+    clientProperties?: string[],
+  ) {
+    const listingService = new ListingService();
+    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
+
+    if (clientProperties && clientProperties.length > 0) {
+      for (const listingId of clientProperties) {
+        //find the service type of the listingId by checking which array it belongs to
+        if (FULL_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "FULL_SERVICE";
+        } else if (PRO_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "PRO_SERVICE";
+        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
+          clientData.serviceType = "LAUNCH_SERVICE";
+        } else {
+          clientData.serviceType = null;
+        }
+      }
+    }
+    
+    const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    Object.assign(client, clientData);
+    client.updatedAt = new Date();
+    client.updatedBy = userId;
+
+    await this.handleClientSecondaryContactUpdate(client, userId, secondaryContacts);
+    await this.handleClientPropertiesUpdate(client, userId, clientProperties);
+
+    return await this.clientRepo.save(client);
+  }
+
+  private async handleClientSecondaryContactUpdate(client: ClientEntity, userId: string, secondaryContacts?: Partial<ClientSecondaryContact>[]) {
+    if (secondaryContacts) {
+      const existingContacts = await this.contactRepo.find({ where: { client: { id: client.id } } });
+      const existingContactIds = existingContacts.map((c) => c.id);
+      const incomingContactIds = secondaryContacts.map((c) => c.id).filter((id): id is string => !!id);
+
+      // Delete contacts that are not in the incoming list
+      const contactsToDelete = existingContacts.filter((c) => !incomingContactIds.includes(c.id));
+      if (contactsToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        contactsToDelete.forEach(contact => {
+          contact.deletedAt = new Date();
+          contact.deletedBy = userId;
+        });
+        await this.contactRepo.save(contactsToDelete);
+      }
+
+      // Update or create contacts
+      client.secondaryContacts = secondaryContacts.map((contact) => {
+        if (contact.id && existingContactIds.includes(contact.id)) {
+          const existingContact = existingContacts.find((c) => c.id === contact.id)!;
+          Object.assign(existingContact, contact);
+          existingContact.updatedAt = new Date();
+          existingContact.updatedBy = userId;
+          return existingContact;
+        } else {
+          return this.contactRepo.create({ ...contact, createdBy: userId });
+        }
+      });
+    }
+  }
+
+  private async handleClientPropertiesUpdate(client: ClientEntity, userId: string, clientProperties?: string[]) {
+    if (clientProperties) {
+      const existingProperties = await this.propertyRepo.find({ where: { client: { id: client.id } } });
+      const existingListingIds = existingProperties.map((p) => p.listingId);
+
+      // Delete properties that are not in the incoming list
+      const propertiesToDelete = existingProperties.filter((p) => !clientProperties.includes(p.listingId));
+      if (propertiesToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        propertiesToDelete.forEach(property => {
+          property.deletedAt = new Date();
+          property.deletedBy = userId;
+        });
+        await this.propertyRepo.save(propertiesToDelete);
+      }
+
+      // Add new properties
+      const newProperties = clientProperties
+        .filter((listingId) => !existingListingIds.includes(listingId))
+        .map((listingId) => this.propertyRepo.create({ listingId, createdBy: userId }));
+
+      client.properties = [...existingProperties.filter(p => !propertiesToDelete.includes(p)), ...newProperties];
+    }
+  }
+
+  async getClientList(filter: ClientFilter, userId: string) {
+    const { page, limit, keyword } = filter;
+
+    // fetch the associated clientSecondaryContacts and clientProperties as well
+    const query = this.clientRepo.createQueryBuilder("client")
+      .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
+      .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+      .where("client.deletedAt IS NULL");
+
+    if (keyword) {
+      const k = `%${keyword.toLowerCase()}%`;
+      query.andWhere(
+        `(LOWER(client.firstName) LIKE :keyword 
+        OR LOWER(client.lastName) LIKE :keyword 
+        OR LOWER(client.email) LIKE :keyword)`,
+        { keyword: k }
+      );
+    }
+
+    if (filter.listingId && filter.listingId.length > 0) {
+      query.andWhere("property.listingId IN (:...listingIds)", { listingIds: filter.listingId });
+    }
+
+    if (filter.serviceType && filter.serviceType.length > 0) {
+      query.andWhere("client.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
+    }
+
+    if (filter.status && filter.status.length > 0) {
+      query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+    }
+
+    query.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+
+    const listingService = new ListingService();
+    const listings = await listingService.getListingNames(userId);
+
+    const transformedData = await Promise.all(data.map(async (client) => {
+      if (client.properties) {
+        client.properties = client.properties.map((property) => {
+          const listing = listings.find((l) => l.id === Number(property.listingId));
+          return { ...property, listingName: listing ? listing.internalListingName : "Unknown Listing" };
+        });
+      }
+      const listingIds = client.properties ? client.properties.map(p => p.listingId) : [];
+      const clientSatisfaction = await this.getClientSatisfactionData(listingIds);
+      return { ...client, clientSatisfaction };
+    }));
+
+    const satisfactionCounts = transformedData.reduce(
+      (acc, client) => {
+        if (client.clientSatisfaction) {
+          acc[client.clientSatisfaction] = (acc[client.clientSatisfaction] || 0) + 1;
+        }
+        return acc;
+      },
+      { "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0 }
+    );
+
+    return { 
+      total,
+      data: transformedData,
+      satisfactionCounts
+    };
+
+  }
+
+  async deleteClient(clientId: string, userId: string) {
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+       throw CustomErrorHandler.notFound("Client not found");
+     }
+
+     // Soft delete by setting deletedAt and deletedBy
+     client.deletedAt = new Date();
+     client.deletedBy = userId;
+     await this.clientRepo.save(client);
+   }
+
+   async getClientMetadata() {
+    //status can be one of active, at_risk, offboarding, offboarded
+    // find the total no. of clients whose status is other than offboarded
+    const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
+    // total no. of each serviceType of clients whose status is other than offboarded
+    const serviceTypeCounts = await this.clientRepo.createQueryBuilder("client")
+      .select("client.serviceType", "serviceType")
+      .addSelect("COUNT(*)", "count")
+      .where("client.status != :status AND client.deletedAt IS NULL", { status: "offboarded" })
+      .groupBy("client.serviceType")
+      .getRawMany();
+
+     return { totalActiveClients, serviceTypeCounts };
+   }
+
+  async getClientSatisfactionData(listingIds: string[]) {
+    // find the client tickets with these listingIds and find the average of clientSatisfaction field
+    const clientTickets = await this.clientTicketRepo.find({
+      where: {
+        listingId: In(listingIds),
+        clientSatisfaction: Not(IsNull()),
+        deletedAt: IsNull(),
+      },
+    });
+
+    if (clientTickets.length === 0) {
+      return "Neutral";
+    }
+
+    const totalSatisfaction = clientTickets.reduce(
+      (sum, ticket) => sum + (ticket.clientSatisfaction || 0),
+      0
+    );
+    const averageSatisfaction = totalSatisfaction / clientTickets.length;
+
+    if (averageSatisfaction >= 1.0 && averageSatisfaction <= 1.8) {
+      return "Very Dissatisfied";
+    } else if (averageSatisfaction > 1.8 && averageSatisfaction <= 2.6) {
+      return "Dissatisfied";
+    } else if (averageSatisfaction > 2.6 && averageSatisfaction <= 3.4) {
+      return "Neutral";
+    } else if (averageSatisfaction > 3.4 && averageSatisfaction <= 4.2) {
+      return "Satisfied";
+    } else if (averageSatisfaction > 4.2 && averageSatisfaction <= 5.0) {
+      return "Very Satisfied";
+    }
+
+    return "Neutral";
+  }
+
+
+  async savePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    // Ensure client exists
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; onboarding: PropertyOnboarding; }> = [];
+
+    for (const property of clientProperties) {
+      // Create ClientProperty
+      const clientProperty = this.propertyRepo.create({
+        address: property.address,
+        status: "draft",
+        client: { id: clientId } as any,
+        createdBy: userId,
+      });
+      const savedClientProperty = await this.propertyRepo.save(clientProperty);
+
+      // Map Service Info
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const serviceInfoEntity = this.propertyServiceInfoRepo.create({
+        managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
+        serviceType: serviceInfoPayload?.serviceType ?? null,
+        contractLink: serviceInfoPayload?.contractLink ?? null,
+        serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
+        clientProperty: savedClientProperty,
+        createdBy: userId,
+      });
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+
+      // Map Onboarding (sales, listing, photography)
+      const sales = property.onboarding?.sales;
+      const listing = property.onboarding?.listing;
+      const photography = property.onboarding?.photography;
+
+      const onboardingEntity = this.propertyOnboardingRepo.create({
+        // sales
+        salesRepresentative: sales?.salesRepresentative ?? null,
+        salesNotes: sales?.salesNotes ?? null,
+        projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
+        // listing
+        clientCurrentListingLink: Array.isArray(listing?.clientCurrentListingLink)
+          ? JSON.stringify(listing?.clientCurrentListingLink)
+          : (listing?.clientCurrentListingLink as unknown as string) ?? null,
+        listingOwner: listing?.listingOwner ?? null,
+        clientListingStatus: listing?.clientListingStatus ?? null,
+        targetLiveDate: listing?.targetLiveDate ?? null,
+        targetStartDate: listing?.targetStartDate ?? null,
+        targetDateNotes: listing?.targetDateNotes ?? null,
+        upcomingReservations: listing?.upcomingReservations ?? null,
+        // photography
+        photographyCoverage: photography?.photographyCoverage ?? null,
+        photographyNotes: photography?.photographyNotes ?? null,
+        // relations/meta
+        clientProperty: savedClientProperty,
+        createdBy: userId,
+      });
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
+
+      results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
+    }
+
+    return { message: "Property pre-onboarding info saved", results };
+  }
+
+  async getPropertyPreOnboardingInfo(clientId: string) {
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const clientProperties = await this.propertyRepo
+      .createQueryBuilder("cp")
+      .leftJoinAndSelect("cp.onboarding", "onboarding")
+      .leftJoinAndSelect("cp.serviceInfo", "serviceInfo")
+      .where("cp.clientId = :clientId", { clientId })
+      .andWhere("cp.deletedAt IS NULL")
+      .getMany();
+
+    const data = clientProperties.map((cp) => {
+      const si = cp.serviceInfo;
+      const ob = cp.onboarding;
+
+      const parsedClientCurrentListingLink = (() => {
+        if (!ob?.clientCurrentListingLink) return null;
+        try {
+          const parsed = JSON.parse(ob.clientCurrentListingLink);
+          return Array.isArray(parsed) ? parsed : [String(parsed)];
+        } catch (_) {
+          return [ob.clientCurrentListingLink];
+        }
+      })();
+
+      return {
+        id: cp.id,
+        address: cp.address,
+        onboarding: {
+          serviceInfo: si
+            ? {
+              managementFee: si.managementFee != null ? Number(si.managementFee) : null,
+              serviceType: si.serviceType ?? null,
+              contractLink: si.contractLink ?? null,
+              serviceNotes: si.serviceNotes ?? null,
+            }
+            : null,
+          sales: ob
+            ? {
+              salesRepresentative: ob.salesRepresentative ?? null,
+              salesNotes: ob.salesNotes ?? null,
+              projectedRevenue: ob.projectedRevenue != null ? Number(ob.projectedRevenue) : null,
+            }
+            : null,
+          listing: ob
+            ? {
+              clientCurrentListingLink: parsedClientCurrentListingLink,
+              listingOwner: ob.listingOwner ?? null,
+              clientListingStatus: ob.clientListingStatus ?? null,
+              targetLiveDate: ob.targetLiveDate ?? null,
+              targetStartDate: ob.targetStartDate ?? null,
+              targetDateNotes: ob.targetDateNotes ?? null,
+              upcomingReservations: ob.upcomingReservations ?? null,
+            }
+            : null,
+          photography: ob
+            ? {
+              photographyCoverage: ob.photographyCoverage ?? null,
+              photographyNotes: ob.photographyNotes ?? null,
+            }
+            : null,
+        },
+      };
+    });
+
+    return { clientId, data };
+  }
+
+  async updatePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo?: PropertyServiceInfo | null; onboarding?: PropertyOnboarding | null; }> = [];
+
+    // Handle both update and create scenarios based on id presence
+    for (const property of clientProperties as Array<Property & { id?: string; }>) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+
+        if (property.address !== undefined) {
+          clientProperty.address = property.address;
+        }
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          status: "draft",
+          client: { id: clientId } as any,
+          createdBy: userId,
+        });
+        const savedClientProperty = await this.propertyRepo.save(clientProperty);
+        clientProperty = savedClientProperty;
+      }
+
+      // Update or Create Service Info if provided
+      if (property.onboarding?.serviceInfo) {
+        const siPayload = property.onboarding.serviceInfo;
+        let si = clientProperty.serviceInfo;
+        if (!si) {
+          si = this.propertyServiceInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+            managementFee: siPayload.managementFee != null ? String(siPayload.managementFee) : null,
+            serviceType: siPayload.serviceType ?? null,
+            contractLink: siPayload.contractLink ?? null,
+            serviceNotes: siPayload.serviceNotes ?? null
+          });
+        } else {
+          if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
+          if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+          if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
+          if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+          si.updatedBy = userId;
+        }
+        await this.propertyServiceInfoRepo.save(si);
+      }
+
+      // Update or Create Onboarding if provided
+      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
+        const sales = property.onboarding.sales;
+        const listing = property.onboarding.listing;
+        const photography = property.onboarding.photography;
+
+        let ob = clientProperty.onboarding;
+        if (!ob) {
+          // Create new onboarding record with initial values
+          ob = this.propertyOnboardingRepo.create({
+            clientProperty,
+            createdBy: userId,
+            salesRepresentative: sales?.salesRepresentative ?? null,
+            salesNotes: sales?.salesNotes ?? null,
+            projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
+            clientCurrentListingLink: listing?.clientCurrentListingLink ?
+              (Array.isArray(listing.clientCurrentListingLink)
+                ? JSON.stringify(listing.clientCurrentListingLink)
+                : (listing.clientCurrentListingLink as unknown as string)) : null,
+            listingOwner: listing?.listingOwner ?? null,
+            clientListingStatus: listing?.clientListingStatus ?? null,
+            targetLiveDate: listing?.targetLiveDate ?? null,
+            targetStartDate: listing?.targetStartDate ?? null,
+            targetDateNotes: listing?.targetDateNotes ?? null,
+            upcomingReservations: listing?.upcomingReservations ?? null,
+            photographyCoverage: photography?.photographyCoverage ?? null,
+            photographyNotes: photography?.photographyNotes ?? null
+          });
+        } else {
+          // Update existing onboarding record
+          if (sales) {
+            if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
+            if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
+            if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+          }
+
+          if (listing) {
+            if (listing.clientCurrentListingLink !== undefined) {
+              ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+                ? JSON.stringify(listing.clientCurrentListingLink)
+                : (listing.clientCurrentListingLink as unknown as string) ?? null;
+            }
+            if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
+            if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
+            if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
+            if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
+            if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
+            if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+          }
+
+          if (photography) {
+            if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
+            if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+          }
+
+          ob.updatedBy = userId;
+        }
+        await this.propertyOnboardingRepo.save(ob);
+      }
+
+      // Refresh the property to get the latest data with relations
+      const propertyId = property.id || clientProperty.id;
+      const refreshed = await this.propertyRepo.findOne({ where: { id: propertyId }, relations: ["onboarding", "serviceInfo"] });
+      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
+    }
+
+    return { message: "Property pre-onboarding info updated", updated };
+  }
+
+
+  async saveOnboardingDetails(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    // Ensure client exists
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+
+    for (const property of clientProperties) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+          status: "draft",
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      }
+
+      // Map Onboarding (sales, listing, photography) - no serviceInfo for internal onboarding
+      const sales = property.onboarding?.sales;
+      const listing = property.onboarding?.listing;
+      const photography = property.onboarding?.photography;
+
+      let onboardingEntity = clientProperty.onboarding;
+      if (!onboardingEntity) {
+        onboardingEntity = this.propertyOnboardingRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
+      }
+
+      // Update onboarding fields
+      if (sales) {
+        if (sales.salesRepresentative !== undefined) onboardingEntity.salesRepresentative = sales.salesRepresentative ?? null;
+        if (sales.salesNotes !== undefined) onboardingEntity.salesNotes = sales.salesNotes ?? null;
+        if (sales.projectedRevenue !== undefined) onboardingEntity.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+      }
+
+      if (listing) {
+        if (listing.clientCurrentListingLink !== undefined) {
+          onboardingEntity.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+            ? JSON.stringify(listing.clientCurrentListingLink)
+            : (listing.clientCurrentListingLink as unknown as string) ?? null;
+        }
+        if (listing.listingOwner !== undefined) onboardingEntity.listingOwner = listing.listingOwner ?? null;
+        if (listing.clientListingStatus !== undefined) onboardingEntity.clientListingStatus = listing.clientListingStatus ?? null;
+        if (listing.targetLiveDate !== undefined) onboardingEntity.targetLiveDate = listing.targetLiveDate ?? null;
+        if (listing.targetStartDate !== undefined) onboardingEntity.targetStartDate = listing.targetStartDate ?? null;
+        if (listing.actualLiveDate !== undefined) onboardingEntity.actualLiveDate = listing.actualLiveDate ?? null;
+        if (listing.actualStartDate !== undefined) onboardingEntity.actualStartDate = listing.actualStartDate ?? null;
+        if (listing.targetDateNotes !== undefined) onboardingEntity.targetDateNotes = listing.targetDateNotes ?? null;
+        if (listing.upcomingReservations !== undefined) onboardingEntity.upcomingReservations = listing.upcomingReservations ?? null;
+      }
+
+      if (photography) {
+        if (photography.photographyCoverage !== undefined) onboardingEntity.photographyCoverage = photography.photographyCoverage ?? null;
+        if (photography.photographyNotes !== undefined) onboardingEntity.photographyNotes = photography.photographyNotes ?? null;
+      }
+
+      onboardingEntity.updatedBy = userId;
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
+
+      results.push({ clientProperty, onboarding: savedOnboarding });
+    }
+
+    return { message: "Internal onboarding details saved", results };
+  }
+
+  async updatedOnboardingDetails(body: PropertyOnboardingRequest, userId: string) {
+    const { clientId, clientProperties } = body;
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
+
+    // Proper update loop using id
+    for (const property of clientProperties as Array<Property & { id: string; }>) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if (property.address !== undefined) {
+        clientProperty.address = property.address;
+      }
+      clientProperty.updatedAt = new Date();
+      clientProperty.updatedBy = userId;
+      await this.propertyRepo.save(clientProperty);
+
+      // Update Onboarding if provided (no serviceInfo for internal onboarding)
+      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
+        const sales = property.onboarding.sales;
+        const listing = property.onboarding.listing;
+        const photography = property.onboarding.photography;
+
+        let ob = clientProperty.onboarding;
+        if (!ob) {
+          ob = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        if (sales) {
+          if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
+          if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
+          if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+        }
+
+        if (listing) {
+          if (listing.clientCurrentListingLink !== undefined) {
+            ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+              ? JSON.stringify(listing.clientCurrentListingLink)
+              : (listing.clientCurrentListingLink as unknown as string) ?? null;
+          }
+          if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
+          if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
+          if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
+          if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
+          if (listing.actualLiveDate !== undefined) ob.actualLiveDate = listing.actualLiveDate ?? null;
+          if (listing.actualStartDate !== undefined) ob.actualStartDate = listing.actualStartDate ?? null;
+          if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
+          if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+        }
+
+        if (photography) {
+          if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
+          if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+        }
+
+        ob.updatedBy = userId;
+        await this.propertyOnboardingRepo.save(ob);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+      updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+    }
+
+    return { message: "Internal onboarding details updated", updated };
+  }
+
+  async getSalesRepresentativeList() {
+    // find the distinct salesRepresentative from propertyOnboarding repo and return the list
+    const rows = await this.propertyOnboardingRepo.createQueryBuilder("po")
+      .select("DISTINCT po.salesRepresentative", "salesRepresentative")
+      .where("po.salesRepresentative IS NOT NULL AND po.salesRepresentative != ''")
+      .getRawMany();
+    return rows.map(r => r.salesRepresentative);
+  }
+
+  async saveServiceInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      if (!serviceInfoPayload) {
+        throw CustomErrorHandler.validationError("serviceInfo payload is required");
+      }
+
+      let serviceInfoEntity = clientProperty.serviceInfo;
+      if (!serviceInfoEntity) {
+        serviceInfoEntity = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+      serviceInfoEntity.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfoEntity.serviceType = serviceInfoPayload.serviceType ?? null;
+      serviceInfoEntity.contractLink = serviceInfoPayload.contractLink ?? null;
+      serviceInfoEntity.serviceNotes = serviceInfoPayload.serviceNotes ?? null;
+      serviceInfoEntity.updatedBy = userId;
+
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+      results.push({ clientProperty, serviceInfo: savedServiceInfo });
+    }
+
+    return { message: "Service info saved", results };
+  }
+
+  async updateServiceInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest;
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; }> = [];
+
+    for (const property of clientProperties as Array<Property & { id: string; }>) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if (property.address !== undefined) {
+        clientProperty.address = property.address;
+      }
+      clientProperty.updatedAt = new Date();
+      clientProperty.updatedBy = userId;
+      await this.propertyRepo.save(clientProperty);
+
+      const siPayload = property.onboarding?.serviceInfo;
+      if (siPayload) {
+        let si = clientProperty.serviceInfo;
+        if (!si) {
+          si = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+        if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
+        if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
+        if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+        si.updatedBy = userId;
+        await this.propertyServiceInfoRepo.save(si);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo"] });
+      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo ?? null });
+    }
+
+    return { message: "Service info updated", updated };
+  }
+
+  async getClientDetails(id: string) {
+    return await this.clientRepo.findOne({
+      where: { id },
+      relations: [
+        "properties",
+        "secondaryContacts",
+        "properties.onboarding",
+        "properties.serviceInfo",
+        "properties.propertyInfo",
+        "properties.propertyInfo.propertyBedTypes",
+        "properties.propertyInfo.propertyUpsells",
+      ],
+    });
+  }
+
+  async saveListingInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (!listingPayload) {
+        throw CustomErrorHandler.validationError("listing payload is required");
+      }
+
+      let propertyInfo = clientProperty.propertyInfo;
+      if (!propertyInfo) {
+        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map all listing fields to propertyInfo
+      this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+      propertyInfo.updatedBy = userId;
+      const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+
+      // Handle PropertyBedTypes
+      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      }
+
+      // Handle PropertyUpsells
+      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      }
+
+      results.push({ clientProperty, propertyInfo: savedPropertyInfo });
+    }
+
+    return { message: "Listing info saved", results };
+  }
+
+  async updateListingInfo(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (listingPayload) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map all listing fields to propertyInfo
+        this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+
+        // Handle PropertyBedTypes
+        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+
+        // Handle PropertyUpsells
+        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        }
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    return { message: "Listing info updated", updated };
+  }
+
+  private mapListingFieldsToPropertyInfo(propertyInfo: PropertyInfo, listingPayload: any) {
+    // General info
+    if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
+    if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
+    if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
+    if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+
+    // Bedrooms
+    if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
+    if (listingPayload.bedroomsNumber !== undefined) propertyInfo.bedroomsNumber = listingPayload.bedroomsNumber ?? null;
+
+    // Bathrooms
+    if (listingPayload.bathroomType !== undefined) propertyInfo.bathroomType = listingPayload.bathroomType ?? null;
+    if (listingPayload.bathroomsNumber !== undefined) propertyInfo.bathroomsNumber = listingPayload.bathroomsNumber ?? null;
+    if (listingPayload.guestBathroomsNumber !== undefined) propertyInfo.guestBathroomsNumber = listingPayload.guestBathroomsNumber ?? null;
+
+    // Listing Information
+    if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
+    if (listingPayload.checkOutTime !== undefined) propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
+    if (listingPayload.canAnyoneBookAnytime !== undefined) propertyInfo.canAnyoneBookAnytime = listingPayload.canAnyoneBookAnytime ?? null;
+    if (listingPayload.bookingAcceptanceNoticeNotes !== undefined) propertyInfo.bookingAcceptanceNoticeNotes = listingPayload.bookingAcceptanceNoticeNotes ?? null;
+
+    // House Rules
+    if (listingPayload.allowPartiesAndEvents !== undefined) propertyInfo.allowPartiesAndEvents = listingPayload.allowPartiesAndEvents ?? null;
+    if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
+    if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
+    if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
+    if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
+    if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
+    if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
+    if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
+    if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+
+    // Parking
+    if (listingPayload.parkingType !== undefined) propertyInfo.parkingTypes = listingPayload.parkingType ?? null;
+    if (listingPayload.parkingFee !== undefined) propertyInfo.parkingFee = listingPayload.parkingFee ?? null;
+    if (listingPayload.numberOfParkingSpots !== undefined) propertyInfo.numberOfParkingSpots = listingPayload.numberOfParkingSpots ?? null;
+    if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
+
+    // Property Access
+    if (listingPayload.checkInProcess !== undefined) propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
+    if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
+    if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
+    if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
+    if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
+    if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
+    if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
+    if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
+    if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
+    if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+
+    // Waste Management
+    if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
+    if (listingPayload.wasteBinLocation !== undefined) propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
+    if (listingPayload.wasteManagementInstructions !== undefined) propertyInfo.wasteManagementInstructions = listingPayload.wasteManagementInstructions ?? null;
+
+    // Additional Services/Upsells
+    if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
+
+    // Amenities
+    if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
+    if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
+    if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
+    if (listingPayload.wifiSpeed !== undefined) propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
+    if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
+    if (listingPayload.swimmingPoolNotes !== undefined) propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
+    if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
+  }
+
+  private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
+    // Get existing bed types for this property
+    const existingBedTypes = await this.propertyBedTypesRepo.find({
+      where: { propertyId: { id: propertyInfo.id } }
+    });
+    const existingBedTypeIds = existingBedTypes.map(bt => bt.id);
+    const incomingBedTypeIds = bedTypesData.map(bt => bt.id).filter(id => id !== undefined);
+
+    // Remove bed types that are not in the incoming list
+    const bedTypesToDelete = existingBedTypes.filter(bt => !incomingBedTypeIds.includes(bt.id));
+    if (bedTypesToDelete.length > 0) {
+      await this.propertyBedTypesRepo.remove(bedTypesToDelete);
+    }
+
+    // Process each bed type in the incoming data
+    for (const bedTypeData of bedTypesData) {
+      if (bedTypeData.id && existingBedTypeIds.includes(bedTypeData.id)) {
+        // Update existing bed type
+        const existingBedType = existingBedTypes.find(bt => bt.id === bedTypeData.id);
+        if (existingBedType) {
+          if (bedTypeData.floorLevel !== undefined) existingBedType.floorLevel = Number(bedTypeData.floorLevel);
+          if (bedTypeData.bedroomNumber !== undefined) existingBedType.bedroomNumber = bedTypeData.bedroomNumber;
+          if (bedTypeData.bedTypeId !== undefined) existingBedType.bedTypeId = bedTypeData.bedTypeId;
+          if (bedTypeData.quantity !== undefined) existingBedType.quantity = bedTypeData.quantity;
+          await this.propertyBedTypesRepo.save(existingBedType);
+        }
+      } else {
+        // Create new bed type
+        const newBedType = this.propertyBedTypesRepo.create({
+          floorLevel: Number(bedTypeData.floorLevel),
+          bedroomNumber: bedTypeData.bedroomNumber,
+          bedTypeId: bedTypeData.bedTypeId,
+          quantity: bedTypeData.quantity,
+          propertyId: propertyInfo
+        });
+        await this.propertyBedTypesRepo.save(newBedType);
+      }
+    }
+  }
+
+  private async handlePropertyUpsells(propertyInfo: PropertyInfo, upsellsData: any[]) {
+    // Get existing upsells for this property
+    const existingUpsells = await this.propertyUpsellsRepo.find({
+      where: { propertyId: { id: propertyInfo.id } }
+    });
+    const existingUpsellIds = existingUpsells.map(u => u.id);
+    const incomingUpsellIds = upsellsData.map(u => u.id).filter(id => id !== undefined);
+
+    // Remove upsells that are not in the incoming list
+    const upsellsToDelete = existingUpsells.filter(u => !incomingUpsellIds.includes(u.id));
+    if (upsellsToDelete.length > 0) {
+      await this.propertyUpsellsRepo.remove(upsellsToDelete);
+    }
+
+    // Process each upsell in the incoming data
+    for (const upsellData of upsellsData) {
+      if (upsellData.id && existingUpsellIds.includes(upsellData.id)) {
+        // Update existing upsell
+        const existingUpsell = existingUpsells.find(u => u.id === upsellData.id);
+        if (existingUpsell) {
+          if (upsellData.upsellName !== undefined) existingUpsell.upsellName = upsellData.upsellName;
+          if (upsellData.allowUpsell !== undefined) existingUpsell.allowUpsell = upsellData.allowUpsell;
+          if (upsellData.feeType !== undefined) existingUpsell.feeType = upsellData.feeType;
+          if (upsellData.fee !== undefined) existingUpsell.fee = upsellData.fee;
+          if (upsellData.maxAdditionalHours !== undefined) existingUpsell.maxAdditionalHours = upsellData.maxAdditionalHours;
+          await this.propertyUpsellsRepo.save(existingUpsell);
+        }
+      } else {
+        // Create new upsell
+        const newUpsell = this.propertyUpsellsRepo.create({
+          upsellName: upsellData.upsellName,
+          allowUpsell: upsellData.allowUpsell,
+          feeType: upsellData.feeType,
+          fee: upsellData.fee,
+          maxAdditionalHours: upsellData.maxAdditionalHours,
+          propertyId: propertyInfo
+        });
+        await this.propertyUpsellsRepo.save(newUpsell);
+      }
+    }
+  }
+
+
+  async saveOnboardingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+
+    for (const property of clientProperties) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+          status: "draft",
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (!listingPayload) {
+        throw CustomErrorHandler.validationError("listing payload is required");
+      }
+
+      let onboarding = clientProperty.onboarding;
+      if (!onboarding) {
+        onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map client-facing onboarding fields
+      if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+      if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+      if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+
+      // Store client-facing specific fields in targetDateNotes as JSON
+      const clientFormData = {
+        acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+        agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+        externalListingNotes: listingPayload.externalListingNotes ?? null,
+        acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+      };
+      onboarding.targetDateNotes = JSON.stringify(clientFormData);
+
+      onboarding.updatedBy = userId;
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
+
+      results.push({ clientProperty, onboarding: savedOnboarding });
+    }
+
+    return { message: "Client onboarding details saved", results };
+  }
+
+  async updateOnboardingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
+
+    for (const property of clientProperties) {
+      let clientProperty: ClientPropertyEntity;
+
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+
+        if ((property as any).address !== undefined) {
+          clientProperty.address = property.address;
+          clientProperty.updatedAt = new Date();
+          clientProperty.updatedBy = userId;
+          await this.propertyRepo.save(clientProperty);
+        }
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          client: { id: clientId } as any,
+          createdBy: userId,
+          status: "draft",
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = property.onboarding?.listing;
+      if (listingPayload) {
+        let onboarding = clientProperty.onboarding;
+        if (!onboarding) {
+          onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map client-facing onboarding fields
+        if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+        if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+        if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+
+        // Store client-facing specific fields in targetDateNotes as JSON
+        const clientFormData = {
+          acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+          agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+          externalListingNotes: listingPayload.externalListingNotes ?? null,
+          acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+        };
+        onboarding.targetDateNotes = JSON.stringify(clientFormData);
+
+        onboarding.updatedBy = userId;
+        await this.propertyOnboardingRepo.save(onboarding);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
+      updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+    }
+
+    return { message: "Client onboarding details updated", updated };
+  }
+
+  async saveListingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; propertyInfo: PropertyInfo; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const listingPayload = property.onboarding?.listing;
+
+      if (!serviceInfoPayload || !listingPayload) {
+        throw CustomErrorHandler.validationError("serviceInfo and listing payloads are required");
+      }
+
+      // Handle Service Info
+      let serviceInfo = clientProperty.serviceInfo;
+      if (!serviceInfo) {
+        serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+      serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
+      serviceInfo.updatedBy = userId;
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfo);
+
+      // Handle Property Info
+      let propertyInfo = clientProperty.propertyInfo;
+      if (!propertyInfo) {
+        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+      }
+
+      // Map all listing fields to propertyInfo
+      this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+      propertyInfo.updatedBy = userId;
+      const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+
+      // Handle PropertyBedTypes
+      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      }
+
+      // Handle PropertyUpsells
+      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      }
+
+      results.push({ clientProperty, serviceInfo: savedServiceInfo, propertyInfo: savedPropertyInfo });
+    }
+
+    return { message: "Client listing details saved", results };
+  }
+
+  async updateListingDetailsClientForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const serviceInfoPayload = property.onboarding?.serviceInfo;
+      const listingPayload = property.onboarding?.listing;
+
+      // Handle Service Info
+      if (serviceInfoPayload) {
+        let serviceInfo = clientProperty.serviceInfo;
+        if (!serviceInfo) {
+          serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+        if (serviceInfoPayload.managementFee !== undefined) serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+        if (serviceInfoPayload.serviceType !== undefined) serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
+        serviceInfo.updatedBy = userId;
+        await this.propertyServiceInfoRepo.save(serviceInfo);
+      }
+
+      // Handle Property Info
+      if (listingPayload) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Map all listing fields to propertyInfo
+        this.mapListingFieldsToPropertyInfo(propertyInfo, listingPayload);
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+
+        // Handle PropertyBedTypes
+        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
+          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        }
+
+        // Handle PropertyUpsells
+        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        }
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo"] });
+      updated.push({
+        clientProperty: refreshed!,
+        serviceInfo: refreshed!.serviceInfo ?? null,
+        propertyInfo: refreshed!.propertyInfo ?? null
+      });
+    }
+
+    return { message: "Client listing details updated", updated };
+  }
+
+
+  //publish listingIntake to hostaway
+  async publishListingIntakeToHostaway(propertyId: string, userId: string) {
+    const listingIntake = await this.propertyRepo.findOne({
+      where: { id: propertyId },
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
+    });
+
+
+    if (!listingIntake) {
+      throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
+    }
+
+    // Here you would implement the logic to publish the property to Hostaway
+    // This is a placeholder for the actual implementation
+    logger.info("Publishing property to Hostaway:", listingIntake);
+
+    // Simulate successful publishing
+    let status = this.getListingIntakeStatus(listingIntake);
+    if (status === "draft") {
+      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
+    }
+    if (status === "published") {
+      throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
+    }
+
+    //prepare hostaway payload
+    const hostawayPayload = {
+      externalListingName: listingIntake.propertyInfo.externalListingName,
+      // description: listingIntake.propertyInfo.description,
+      personCapacity: listingIntake.propertyInfo.personCapacity,
+      propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
+      roomType: listingIntake.propertyInfo.roomType,
+      bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
+      // bedsNumber: listingIntake.propertyInfo.bedsNumber,
+      bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
+      bathroomType: listingIntake.propertyInfo.bathroomType,
+      guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
+      address: listingIntake.propertyInfo.address,
+      // publicAddress: listingIntake.propertyInfo.publicAddress,
+      // country: listingIntake.propertyInfo.country,
+      // countryCode: listingIntake.propertyInfo.countryCode,
+      // state: listingIntake.propertyInfo.state,
+      // city: listingIntake.propertyInfo.city,
+      // street: listingIntake.propertyInfo.street,
+      // zipcode: listingIntake.propertyInfo.zipcode,
+      timeZoneName: listingIntake.client.timezone,
+      amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
+        return { amenityId: Number(amenity) };
+      }),
+      currencyCode: listingIntake.propertyInfo.currencyCode,
+      price: listingIntake.propertyInfo.price,
+      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson,
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
+      // cleaningFee: listingIntake.propertyInfo.cleaningFee,
+      airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
+      // houseRules: listingIntake.propertyInfo.houseRules,
+      checkOutTime: listingIntake.propertyInfo.checkOutTime,
+      checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
+      // checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
+      squareMeters: listingIntake.propertyInfo.squareMeters,
+      // language: listingIntake.propertyInfo.language,
+      // instantBookable: listingIntake.propertyInfo.instantBookable,
+      wifiUsername: listingIntake.propertyInfo.wifiUsername,
+      wifiPassword: listingIntake.propertyInfo.wifiPassword,
+      // airBnbCancellationPolicyId: listingIntake.propertyInfo.airBnbCancellationPolicyId,
+      // bookingCancellationPolicyId: listingIntake.propertyInfo.bookingCancellationPolicyId,
+      // marriottBnbCancellationPolicyId: listingIntake.propertyInfo.marriottBnbCancellationPolicyId,
+      // vrboCancellationPolicyId: listingIntake.propertyInfo.vrboCancellationPolicyId,
+      // cancellationPolicyId: listingIntake.propertyInfo.cancellationPolicyId,
+      // minNights: listingIntake.propertyInfo.minNights,
+      // maxNights: listingIntake.propertyInfo.maxNights,
+      // airbnbName: listingIntake.propertyInfo.airbnbName,
+      // airbnbSummary: listingIntake.propertyInfo.airbnbSummary,
+      // airbnbSpace: listingIntake.propertyInfo.airbnbSpace,
+      // airbnbAccess: listingIntake.propertyInfo.airbnbAccess,
+      // airbnbInteraction: listingIntake.propertyInfo.airbnbInteraction,
+      // airbnbNeighborhoodOverview: listingIntake.propertyInfo.airbnbNeighborhoodOverview,
+      // airbnbTransit: listingIntake.propertyInfo.airbnbTransit,
+      // airbnbNotes: listingIntake.propertyInfo.airbnbNotes,
+      // homeawayPropertyName: listingIntake.propertyInfo.homeawayPropertyName,
+      // homeawayPropertyHeadline: listingIntake.propertyInfo.homeawayPropertyHeadline,
+      // homeawayPropertyDescription: listingIntake.propertyInfo.homeawayPropertyDescription,
+      // bookingcomPropertyName: listingIntake.propertyInfo.bookingcomPropertyName,
+      // bookingcomPropertyDescription: listingIntake.propertyInfo.bookingcomPropertyDescription,
+      // marriottListingName: listingIntake.propertyInfo.marriottListingName,
+      // contactName: listingIntake.propertyInfo.contactName,
+      // contactPhone1: listingIntake.propertyInfo.contactPhone1,
+      // contactLanguage: listingIntake.propertyInfo.contactLanguage,
+
+      listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.map(bedType => ({
+        bedTypeId: bedType.bedTypeId,
+        quantity: bedType.quantity,
+        bedroomNumber: bedType.bedroomNumber,
+      })),
+
+      // propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
+      // propertyLicenseType: listingIntake.propertyInfo.propertyLicenseType,
+      // propertyLicenseIssueDate: listingIntake.propertyInfo.propertyLicenseIssueDate,
+      // propertyLicenseExpirationDate: listingIntake.propertyInfo.propertyLicenseExpirationDate,
+    };
+
+    logger.info("Hostaway payload:", JSON.stringify(hostawayPayload));
+
+    //simulate taking time of 10s
+    // await new Promise(resolve => setTimeout(resolve, 10000));
+
+    const response = await this.hostawayClient.createListing(hostawayPayload);
+    if (!response) {
+      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    }
+    // Update the listingIntake status to published
+    listingIntake.status = "published";
+    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    listingIntake.updatedBy = userId;
+    await this.propertyRepo.save(listingIntake);
+
+    return { message: "Property published to Hostaway successfully", listingIntake };
+  }
+
+  private getListingIntakeStatus(listingIntake: any) {
+    const requiredFields = [
+      "externalListingName",
+      "address",
+      "price",
+      "guestsIncluded",
+      "priceForExtraPerson",
+      "currencyCode"
+    ];
+
+    const hasMissingValue = requiredFields.some(field => {
+      const value = (listingIntake as any)[field];
+      return value == null || value === "";
+    });
+
+    return hasMissingValue ? "draft" : "ready";
+  }
+
+
 }

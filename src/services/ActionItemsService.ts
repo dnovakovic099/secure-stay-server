@@ -54,7 +54,14 @@ export class ActionItemsService {
             logger.error(`Listing with name ${property_name} not found`);
         }
 
-        const reservation = await this.reservationInfoRepo.findOne({ where: { guestName: guest_name } });
+        const reservation = await this.reservationInfoRepo.findOne({
+            where: {
+                guestName: guest_name,
+                listingMapId: listing ? listing.id : -1
+            },
+            order: { arrivalDate: 'DESC' }
+        });
+        
         if (!reservation) {
             logger.error(`Reservation for guest ${guest_name} not found`);
         }

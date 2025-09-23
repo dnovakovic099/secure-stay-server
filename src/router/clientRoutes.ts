@@ -1,38 +1,41 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
-import verifyToken from "../middleware/verifySession";
+import verifySession from "../middleware/verifySession";
+import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm } from "../middleware/validation/Client/client.validation";
 
 const router = Router();
 const clientController = new ClientController();
 
-// Apply authentication middleware to all routes
-router.use(verifyToken);
+router.route('/create').post(verifySession, validateCreateClient, clientController.createClient.bind(clientController));
+router.route('/update').put(verifySession, validateUpdateClient, clientController.updateClient.bind(clientController));
+router.route('/').get(verifySession, validateGetClients, clientController.getClients.bind(clientController));
+router.route('/:id').delete(verifySession, clientController.deleteClient.bind(clientController));
 
-// Get all clients with pagination and filters
-router.get("/", clientController.getClients.bind(clientController));
+//sales representative form apis
+router.route('/sales/pre-onboarding').post(verifySession, validateCreatePropertyOnboarding, clientController.savePropertyPreOnboardingInfo.bind(clientController));
+router.route('/sales/pre-onboarding').put(verifySession, validateUpdatePropertyOnboarding, clientController.updatePropertyPreOnboardingInfo.bind(clientController));
+router.route('/sales/pre-onboarding/:clientId').get(verifySession, clientController.getPropertyPreOnboardingInfo.bind(clientController));
 
-// Get clients by IDs
-router.get("/by-ids", clientController.getClientsByIds.bind(clientController));
+router.route('/sales/representative-list').get(verifySession, clientController.getSalesRepresentativeList.bind(clientController));
 
-// Get client by ID
-router.get("/:id", clientController.getClientById.bind(clientController));
+//internal form apis
+router.route('/internal/onboarding').post(verifySession, validateSaveOnboardingDetails, clientController.saveOnboardingDetails.bind(clientController));
+router.route('/internal/onboarding').put(verifySession, validateUpdateOnboardingDetails, clientController.updatedOnboardingDetails.bind(clientController));
 
-// Create new client
-router.post("/", clientController.createClient.bind(clientController));
+router.route('/internal/service-info').post(verifySession, validateSaveServiceInfo, clientController.saveServiceInfo.bind(clientController));
+router.route('/internal/service-info').put(verifySession, validateUpdateServiceInfo, clientController.updateServiceInfo.bind(clientController));
 
-// Update client
-router.put("/:id", clientController.updateClient.bind(clientController));
+router.route('/internal/listing-info').post(verifySession, validateSaveListingInfo, clientController.saveListingInfo.bind(clientController));
+router.route('/internal/listing-info').put(verifySession, validateUpdateListingInfo, clientController.updateListingInfo.bind(clientController));
 
-// Delete client
-router.delete("/:id", clientController.deleteClient.bind(clientController));
+//client form apis
+router.route('/client-facing/onboarding').post(verifySession, validateSaveOnboardingDetailsClientForm, clientController.saveOnboardingDetailsClientForm.bind(clientController));
+router.route('/client-facing/onboarding').put(verifySession, validateUpdateOnboardingDetailsClientForm, clientController.updateOnboardingDetailsClientForm.bind(clientController));
 
-// Search clients
-router.get("/search", clientController.searchClients.bind(clientController));
+router.route('/client-facing/listing-info').post(verifySession, validateSaveListingDetailsClientForm, clientController.saveListingDetailsClientForm.bind(clientController));
+router.route('/client-facing/listing-info').put(verifySession, validateUpdateListingDetailsClientForm, clientController.updateListingDetailsClientForm.bind(clientController));
 
-// Get client statistics
-router.get("/stats", clientController.getClientStats.bind(clientController));
 
-// Update client statistics (for booking updates)
-router.patch("/:id/stats", clientController.updateClientStats.bind(clientController));
+router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 
 export default router;
