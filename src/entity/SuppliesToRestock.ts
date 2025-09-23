@@ -12,7 +12,7 @@ import { PropertyVendorManagement } from "./PropertyVendorManagement";
 @Entity("supplies_to_restock")
 export class SuppliesToRestock {
     @PrimaryGeneratedColumn()
-    id: string;
+    id: number;
 
     @Column()
     supplyName: string;
@@ -24,7 +24,7 @@ export class SuppliesToRestock {
         onDelete: "CASCADE"
     })
     @JoinColumn()
-    propertyId: PropertyVendorManagement;
+    propertyVendorManagementId: PropertyVendorManagement;
 
 
     @CreateDateColumn()

@@ -13,6 +13,7 @@ import { ClientPropertyEntity } from "./ClientProperty";
 import { PropertyBedTypes } from "./PropertyBedTypes";
 import { PropertyUpsells } from "./PropertyUpsells";
 import { PropertyVendorManagement } from "./PropertyVendorManagement";
+import { PropertyParkingInfo } from "./PropertyParkingInfo";
 
 
 @Entity("property_info")
@@ -124,19 +125,20 @@ export class PropertyInfo {
     @Column({ type: "boolean", nullable: true })
     allowChildreAndInfants: boolean;
 
+    @Column({ type: "text", nullable: true })
+    childrenInfantsRestrictionReason: string;
+
     @Column({ type: "boolean", nullable: true })
     allowLuggageDropoffBeforeCheckIn: boolean;
 
 
     //Parking
-    @Column({ type: "simple-array", nullable: true })
-    parkingTypes: string[];
-
-    @Column({ type: "decimal", nullable: true })
-    parkingFee: number;
-
-    @Column({ type: "int", nullable: true })
-    numberOfParkingSpots: number;
+    @OneToMany(() => PropertyParkingInfo, (parkingInfo) => parkingInfo.propertyId, {
+        cascade: true,
+        eager: false,
+        onDelete: "CASCADE"
+    })
+    propertyParkingInfo: PropertyParkingInfo[];
 
     @Column({ type: "text", nullable: true })
     parkingInstructions: string;
@@ -271,6 +273,9 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     hotTubInstructions: string;
+
+    @Column({ type: "text", nullable: true })
+    firePlaceNotes: string;
 
     @Column({ type: "text", nullable: true })
     firepitNotes: string;

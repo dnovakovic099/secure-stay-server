@@ -73,7 +73,7 @@ export class PropertyVendorManagement {
     luxuryLodgingConfirmBeforePurchase: boolean;
 
     //Supplies To Restock
-    @OneToMany(() => SuppliesToRestock, (suppliesToRestock) => suppliesToRestock.propertyId, {
+    @OneToMany(() => SuppliesToRestock, (suppliesToRestock) => suppliesToRestock.propertyVendorManagementId, {
         cascade: true,
         eager: false,
         onDelete: "CASCADE"
@@ -81,7 +81,7 @@ export class PropertyVendorManagement {
     suppliesToRestock: SuppliesToRestock[];
 
     //Other Contractors/Vendors
-    @OneToMany(() => VendorInfo, (vendorInfo) => vendorInfo.propertyId, {
+    @OneToMany(() => VendorInfo, (vendorInfo) => vendorInfo.propertyVendorManagementId, {
         cascade: true,
         eager: false,
         onDelete: "CASCADE"

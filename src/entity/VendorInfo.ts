@@ -12,7 +12,7 @@ import { PropertyVendorManagement } from "./PropertyVendorManagement";
 @Entity("vendor_info")
 export class VendorInfo {
     @PrimaryGeneratedColumn()
-    id: string;
+    id: number;
 
     @Column({ nullable: true })
     workCategory: string;
@@ -51,7 +51,7 @@ export class VendorInfo {
         onDelete: "CASCADE"
     })
     @JoinColumn()
-    propertyId: PropertyVendorManagement;
+    propertyVendorManagementId: PropertyVendorManagement;
 
 
     @CreateDateColumn()
