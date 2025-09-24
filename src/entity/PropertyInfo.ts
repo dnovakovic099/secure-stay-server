@@ -167,6 +167,9 @@ export class PropertyInfo {
     @Column({ nullable: true })
     codeResponsibleParty: string; // e.g. "Client", "Luxury Lodging"
 
+    @Column({ type: "boolean", nullable: true })
+    responsibilityToSetDoorCodes: boolean;
+
     @Column({ nullable: true })
     doorLockAppName: string;
 
