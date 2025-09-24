@@ -14,6 +14,7 @@ import { PropertyBedTypes } from "./PropertyBedTypes";
 import { PropertyUpsells } from "./PropertyUpsells";
 import { PropertyVendorManagement } from "./PropertyVendorManagement";
 import { PropertyParkingInfo } from "./PropertyParkingInfo";
+import { PropertyBathroomLocation } from "./PropertyBathroomLocation";
 
 
 @Entity("property_info")
@@ -82,6 +83,15 @@ export class PropertyInfo {
     @Column({ nullable: true })
     guestBathroomsNumber: number;    // Number of Half Baths
 
+    //bathroom location and types
+    @OneToMany(() => PropertyBathroomLocation, (bedType) => bedType.propertyId, {
+        cascade: true,
+        eager: false,
+        onDelete: "CASCADE"
+    })
+    propertyBathroomLocation: PropertyBathroomLocation[];
+
+    
 
     //Listing Information
     @Column({ type: "int", nullable: true })

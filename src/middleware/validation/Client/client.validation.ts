@@ -534,6 +534,17 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
 
+                        //bathroom location and types
+                        propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
+                            Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                floorLevel: Joi.number().optional().allow(null),
+                                bathroomType: Joi.number().optional().valid("Full", "Half"),
+                                bathroomNumber: Joi.number().optional(),
+                                ensuite: Joi.number().optional().allow(null),
+                            })
+                        ),
+
                         //Listing Information
                         checkInTimeStart: Joi.number().optional().allow(null),
                         checkOutTime: Joi.number().optional().allow(null),
@@ -997,6 +1008,18 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
 
+                        //bathroom location and types
+                        propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
+                            Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                floorLevel: Joi.number().optional().allow(null),
+                                bathroomType: Joi.number().optional().valid("Full", "Half"),
+                                bathroomNumber: Joi.number().optional(),
+                                ensuite: Joi.number().optional().allow(null),
+                            })
+                        ),
+
+                        
                         //Listing Information
                         checkInTimeStart: Joi.number().optional().allow(null),
                         checkOutTime: Joi.number().optional().allow(null),

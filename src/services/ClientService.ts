@@ -15,6 +15,7 @@ import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { PropertyUpsells } from "../entity/PropertyUpsells";
 import { PropertyParkingInfo } from "../entity/PropertyParkingInfo";
+import { PropertyBathroomLocation } from "../entity/PropertyBathroomLocation";
 import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
 import { SuppliesToRestock } from "../entity/SuppliesToRestock";
 import { VendorInfo } from "../entity/VendorInfo";
@@ -93,6 +94,13 @@ interface Listing {
   bathroomType?: string | null;
   bathroomsNumber?: number | null;
   guestBathroomsNumber?: number | null;
+  propertyBathroomLocation?: Array<{
+    id?: number;
+    floorLevel?: number | null;
+    bathroomType?: any;
+    bathroomNumber?: number | null;
+    ensuite?: number | null;
+  }> | null;
   checkInTimeStart?: number | null;
   checkOutTime?: number | null;
   canAnyoneBookAnytime?: string | null;
@@ -213,6 +221,7 @@ export class ClientService {
   private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
   private propertyUpsellsRepo = appDatabase.getRepository(PropertyUpsells);
   private propertyParkingInfoRepo = appDatabase.getRepository(PropertyParkingInfo);
+  private propertyBathroomLocationRepo = appDatabase.getRepository(PropertyBathroomLocation);
   private propertyVendorManagementRepo = appDatabase.getRepository(PropertyVendorManagement);
   private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
   private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
@@ -1037,6 +1046,7 @@ export class ClientService {
         "properties.serviceInfo",
         "properties.propertyInfo",
         "properties.propertyInfo.propertyBedTypes",
+        "properties.propertyInfo.propertyBathroomLocation",
         "properties.propertyInfo.propertyUpsells",
         "properties.propertyInfo.propertyParkingInfo",
         "properties.propertyInfo.vendorManagementInfo",
@@ -1161,6 +1171,11 @@ export class ClientService {
             listingPayload.parkingFee ?? null,
             listingPayload.numberOfParkingSpots ?? null,
           );
+        }
+
+        // Handle Bathroom Locations
+        if (listingPayload.propertyBathroomLocation !== undefined) {
+          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
         }
 
         // Handle Vendor Management
@@ -1450,6 +1465,29 @@ export class ClientService {
     }
   }
 
+  private async handlePropertyBathroomLocation(propertyInfo: PropertyInfo, bathroomsData: any[]) {
+    // Fetch existing
+    const existing = await this.propertyBathroomLocationRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
+    const existingById = new Map(existing.map(b => [b.id, b] as const));
+    const incomingIds = new Set<number>();
+
+    for (const b of bathroomsData || []) {
+      let row = b.id && existingById.has(b.id) ? existingById.get(b.id)! : this.propertyBathroomLocationRepo.create({ propertyId: propertyInfo });
+      if (b.floorLevel !== undefined) row.floorLevel = b.floorLevel ?? null;
+      if (b.bathroomType !== undefined) row.bathroomType = b.bathroomType ?? null;
+      if (b.bathroomNumber !== undefined) row.bathroomNumber = b.bathroomNumber ?? null;
+      if (b.ensuite !== undefined) row.ensuite = b.ensuite ?? null;
+      row = await this.propertyBathroomLocationRepo.save(row);
+      incomingIds.add(row.id);
+    }
+
+    // delete removed
+    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    if (toDelete.length > 0) {
+      await this.propertyBathroomLocationRepo.remove(toDelete);
+    }
+  }
+
 
   async saveOnboardingDetailsClientForm(body: any, userId: string) {
     const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
@@ -1734,6 +1772,11 @@ export class ClientService {
             listingPayload.parkingFee ?? null,
             listingPayload.numberOfParkingSpots ?? null,
           );
+        }
+
+        // Handle Bathroom Locations
+        if (listingPayload.propertyBathroomLocation !== undefined) {
+          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
         }
 
         // Handle Vendor Management
