@@ -118,6 +118,12 @@ interface Listing {
   parkingFee?: number | null;
   numberOfParkingSpots?: number | null;
   parkingInstructions?: string | null;
+  parking?: Array<{
+    id?: number;
+    parkingType: string;
+    parkingFee?: number | null;
+    numberOfParkingSpots?: number | null;
+  }> | null;
   checkInProcess?: string[] | null;
   doorLockType?: string[] | null;
   doorLockCodeType?: string | null;
@@ -1159,18 +1165,9 @@ export class ClientService {
           await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
 
-        // Handle Parking Info (list of parking types + shared fee/spot count)
-        if (
-          listingPayload.parkingType !== undefined ||
-          listingPayload.parkingFee !== undefined ||
-          listingPayload.numberOfParkingSpots !== undefined
-        ) {
-          await this.handlePropertyParkingInfo(
-            propertyInfo,
-            Array.isArray(listingPayload.parkingType) ? listingPayload.parkingType : [],
-            listingPayload.parkingFee ?? null,
-            listingPayload.numberOfParkingSpots ?? null,
-          );
+        // Handle Parking Info (array of parking rows)
+        if (listingPayload.parking !== undefined) {
+          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
         }
 
         // Handle Bathroom Locations
@@ -1343,30 +1340,33 @@ export class ClientService {
     }
   }
 
-  private async handlePropertyParkingInfo(
-    propertyInfo: PropertyInfo,
-    parkingTypes: string[],
-    parkingFee: number | null,
-    numberOfParkingSpots: number | null,
-  ) {
-    // Fetch existing rows
+  private async handlePropertyParkingInfo(propertyInfo: PropertyInfo, parkingRows: any[]) {
     const existing = await this.propertyParkingInfoRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
-    const existingByType = new Map(existing.map(pi => [pi.parkingType as any, pi] as const));
+    const existingById = new Map(existing.map(r => [r.id, r] as const));
+    const existingByType = new Map(existing.map(r => [(r as any).parkingType, r] as const));
+    const incomingIds = new Set<number>();
 
-    // Determine which to delete
-    const incomingTypeSet = new Set(parkingTypes || []);
-    const toDelete = existing.filter(pi => !incomingTypeSet.has((pi as any).parkingType));
-    if (toDelete.length > 0) {
-      await this.propertyParkingInfoRepo.remove(toDelete);
+    // If array empty, clear all
+    if (Array.isArray(parkingRows) && parkingRows.length === 0) {
+      if (existing.length > 0) await this.propertyParkingInfoRepo.remove(existing);
+      return;
     }
 
-    // Upsert each type
-    for (const type of parkingTypes || []) {
-      const row = existingByType.get(type) ?? this.propertyParkingInfoRepo.create({ propertyId: propertyInfo });
-      (row as any).parkingType = type;
-      if (parkingFee !== undefined) row.parkingFee = parkingFee as any;
-      if (numberOfParkingSpots !== undefined) row.numberOfParkingSpots = numberOfParkingSpots as any;
-      await this.propertyParkingInfoRepo.save(row);
+    for (const p of parkingRows || []) {
+      let row = (p.id && existingById.has(p.id))
+        ? existingById.get(p.id)!
+        : (existingByType.get(p.parkingType) ?? this.propertyParkingInfoRepo.create({ propertyId: propertyInfo }));
+
+      (row as any).parkingType = p.parkingType;
+      if (p.parkingFee !== undefined) row.parkingFee = p.parkingFee ?? null as any;
+      if (p.numberOfParkingSpots !== undefined) row.numberOfParkingSpots = p.numberOfParkingSpots ?? null as any;
+      row = await this.propertyParkingInfoRepo.save(row);
+      incomingIds.add(row.id);
+    }
+
+    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    if (toDelete.length > 0) {
+      await this.propertyParkingInfoRepo.remove(toDelete);
     }
   }
 
@@ -1764,18 +1764,9 @@ export class ClientService {
           await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
 
-        // Handle Parking Info
-        if (
-          listingPayload.parkingType !== undefined ||
-          listingPayload.parkingFee !== undefined ||
-          listingPayload.numberOfParkingSpots !== undefined
-        ) {
-          await this.handlePropertyParkingInfo(
-            propertyInfo,
-            Array.isArray(listingPayload.parkingType) ? listingPayload.parkingType : [],
-            listingPayload.parkingFee ?? null,
-            listingPayload.numberOfParkingSpots ?? null,
-          );
+        // Handle Parking Info (array of parking rows)
+        if (listingPayload.parking !== undefined) {
+          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
         }
 
         // Handle Bathroom Locations
