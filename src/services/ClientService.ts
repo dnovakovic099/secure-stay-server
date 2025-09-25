@@ -46,6 +46,7 @@ interface Onboarding {
   sales: Sales;
   listing: Listing;
   photography: Photography;
+  financials?: Financials;
 }
 
 interface ServiceInfo {
@@ -212,6 +213,15 @@ interface Photography {
   | "No"
   | null;
   photographyNotes: string | null;
+}
+
+interface Financials {
+  minPrice?: number | null;
+  minNights?: number | null;
+  maxNights?: number | null;
+  propertyLicenseNumber?: string | null;
+  tax?: string | null;
+  financialNotes?: string | null;
 }
 
 
@@ -1218,6 +1228,7 @@ export class ClientService {
     if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
     if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
     if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
+    if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
     if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
     if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
 
@@ -1941,6 +1952,57 @@ export class ClientService {
     });
 
     return hasMissingValue ? "draft" : "ready";
+  }
+
+  async updateFinancialsInternalForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const financials = (property as any)?.onboarding?.financials as Financials | undefined;
+      if (financials) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        if (financials.minPrice !== undefined) propertyInfo.minPrice = financials.minPrice ?? null;
+        if (financials.minNights !== undefined) propertyInfo.minNights = financials.minNights ?? null;
+        if (financials.maxNights !== undefined) propertyInfo.maxNights = financials.maxNights ?? null;
+        if (financials.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = financials.propertyLicenseNumber ?? null;
+        if (financials.tax !== undefined) propertyInfo.tax = financials.tax ?? null;
+        if (financials.financialNotes !== undefined) propertyInfo.financialNotes = financials.financialNotes ?? null;
+
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    return { message: "Internal financials updated", updated };
   }
 
 

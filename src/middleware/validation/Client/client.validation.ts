@@ -564,6 +564,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
                         petRestrictionsNotes: Joi.string().optional().allow(null),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
                         otherHouseRules: Joi.string().optional().allow(null),
 
@@ -749,6 +750,34 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
     }
     next();
 };
+
+export const validateUpdateFinancialsInternalForm = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        clientId: Joi.string().required(),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                id: Joi.string().required(),
+                address: Joi.string().optional(), // if this is available then only update the address else ignore
+                onboarding: Joi.object({
+                    financials: Joi.object({
+                        minPrice: Joi.number().optional().allow(null),
+                        minNights: Joi.number().optional().allow(null),
+                        maxNights: Joi.number().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        tax: Joi.string().optional().allow(null),
+                        financialNotes: Joi.string().optional().allow(null),
+                    }).required()
+                }).required()
+            })
+        )
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+}
 
 
 
@@ -1042,6 +1071,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
                         petRestrictionsNotes: Joi.string().optional().allow(null),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
                         otherHouseRules: Joi.string().optional().allow(null),
 

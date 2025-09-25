@@ -219,4 +219,14 @@ export class ClientController {
     }
   }
 
+  async updateFinancialsInternalForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateFinancialsInternalForm(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
