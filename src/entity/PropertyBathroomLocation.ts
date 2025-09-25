@@ -10,7 +10,7 @@ export class PropertyBathroomLocation {
     floorLevel: number;
 
     @Column()
-    bathroomType: number;
+    bathroomType: string;
 
     @Column()
     bathroomNumber: number;
