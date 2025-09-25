@@ -388,6 +388,10 @@ export class ClientService {
     const query = this.clientRepo.createQueryBuilder("client")
       .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
       .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+      //fetch the onboarding, serviceInfo and propertyInfo of the property as well
+      .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
+      .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
       .where("client.deletedAt IS NULL");
 
     if (keyword) {
