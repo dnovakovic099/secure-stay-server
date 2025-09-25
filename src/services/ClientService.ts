@@ -1248,6 +1248,9 @@ export class ClientService {
     // Additional Services/Upsells
     if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
 
+    if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
+    if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
+    
     // Amenities
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
