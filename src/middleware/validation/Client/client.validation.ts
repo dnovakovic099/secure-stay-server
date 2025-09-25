@@ -652,7 +652,9 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 .valid(
                                     "Yes-Continue Current Cleaner",
                                     "Yes-Switch Different Cleaner",
-                                    "No-Find New Cleaner"
+                                    "No-Find New Cleaner",
+                                    "Yes",
+                                    "No"
                                 ),
                             cleaningFee: Joi.number().optional().allow(null),
                             cleanerName: Joi.string().optional().allow(null),
@@ -1129,7 +1131,9 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 .valid(
                                     "Yes-Continue Current Cleaner",
                                     "Yes-Switch Different Cleaner",
-                                    "No-Find New Cleaner"
+                                    "No-Find New Cleaner",
+                                    "Yes",
+                                    "No"
                                 ),
                             cleaningFee: Joi.number().optional().allow(null),
                             cleanerName: Joi.string().optional().allow(null),
