@@ -721,7 +721,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
 
                         //Financials
                         minPrice: Joi.number().optional().allow(null),
-                        maxPrice: Joi.number().optional().allow(null),
+                        minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
                         propertyLicenseNumber: Joi.string().optional().allow(null),
                         tax: Joi.string().optional().allow(null),
@@ -1200,7 +1200,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
 
                         //Financials
                         minPrice: Joi.number().optional().allow(null),
-                        maxPrice: Joi.number().optional().allow(null),
+                        minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
                         propertyLicenseNumber: Joi.string().optional().allow(null),
                         tax: Joi.string().optional().allow(null),

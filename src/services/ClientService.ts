@@ -1247,7 +1247,21 @@ export class ClientService {
 
     if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
     if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
-    
+
+    //Management
+    if (listingPayload.specialInstructions !== undefined) propertyInfo.specialInstructions = listingPayload.specialInstructions ?? null;
+    if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
+    if (listingPayload.bookingAcceptanceNotes !== undefined) propertyInfo.bookingAcceptanceNotes = listingPayload.bookingAcceptanceNotes ?? null;
+    if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+
+    //Financials
+    if (listingPayload.minPrice !== undefined) propertyInfo.minPrice = listingPayload.minPrice ?? null;
+    if (listingPayload.minNights !== undefined) propertyInfo.minNights = listingPayload.minNights ?? null;
+    if (listingPayload.maxNights !== undefined) propertyInfo.maxNights = listingPayload.maxNights ?? null;
+    if (listingPayload.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = listingPayload.propertyLicenseNumber ?? null;
+    if (listingPayload.tax !== undefined) propertyInfo.tax = listingPayload.tax ?? null;
+    if (listingPayload.financialNotes !== undefined) propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
+
     // Amenities
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
