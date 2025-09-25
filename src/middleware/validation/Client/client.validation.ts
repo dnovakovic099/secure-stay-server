@@ -702,7 +702,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 })
                             ),
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
-                            acknowledgeExpensesBilledToStatement: Joi.string().optional().allow(null),
+                            acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
                         //Management
@@ -1179,7 +1179,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 })
                             ),
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
-                            acknowledgeExpensesBilledToStatement: Joi.string().optional().allow(null),
+                            acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
                         //Management
