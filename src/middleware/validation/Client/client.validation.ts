@@ -738,6 +738,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         hotTubInstructions: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
+                        heatControlInstructions: Joi.string().optional().allow(null),
+                        locationOfThemostat: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
@@ -1244,6 +1246,10 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         locationOfModem: Joi.string().optional().allow(null),
                         swimmingPoolNotes: Joi.string().optional().allow(null),
                         hotTubInstructions: Joi.string().optional().allow(null),
+                        firePlaceNotes: Joi.string().optional().allow(null),
+                        firepitNotes: Joi.string().optional().allow(null),
+                        heatControlInstructions: Joi.string().optional().allow(null),
+                        locationOfThemostat: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
