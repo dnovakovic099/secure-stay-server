@@ -781,6 +781,203 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
     next();
 }
 
+export const validateUpdateManagementInternalForm = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        clientId: Joi.string().required(),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                id: Joi.string().required(),
+                address: Joi.string().optional(), // if this is available then only update the address else ignore
+                onboarding: Joi.object({
+                    listing: Joi.object({
+                        //calendar management
+                        canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
+                            "Yes, no restrictions. (Recommended)",
+                            "Yes, but please notify me of same day bookings and changes before accepting",
+                            "No, please confirm with me before accepting",
+                            "No, I strictly need days befor a reservation"
+                        ),
+                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
+                        leadTimeDays: Joi.number().optional().allow(null),
+                        calendarManagementNotes: Joi.string().optional().allow(null),
+
+                        // Reservation Management
+                        checkInTimeStart: Joi.number().optional().allow(null),
+                        checkInTimeEnd: Joi.number().optional().allow(null),
+                        checkOutTime: Joi.number().optional().allow(null),
+
+                        //parking
+                        parking: Joi.array().min(1).optional().allow(null).items(
+                            Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                parkingType: Joi.string().valid(
+                                    "Street Parking",
+                                    "Driveaway",
+                                    "Garage",
+                                    "In-building Facility",
+                                    "Valet Parking",
+                                    "No Parking Available"
+                                ).required(),
+                                parkingFee: Joi.number().optional().allow(null),
+                                numberOfParkingSpots: Joi.number().optional().allow(null),
+                            })
+                        ),
+                        parkingInstructions: Joi.string().optional().allow(null),
+
+                        //Property Access
+                        checkInProcess: Joi.array().min(1).optional().allow(null)
+                            .items(
+                                Joi.string()
+                                    .valid(
+                                        "24-hr checkin",
+                                        "In person Check-in",
+                                        "Doorman"
+                                    )
+                            ),
+                        doorLockType: Joi.array().min(1).optional().allow(null)
+                            .items(
+                                Joi.string()
+                                    .valid(
+                                        "Smart Lock (w/app)",
+                                        "Smart Lock (w/o app)",
+                                        "Lockbox",
+                                        "Deadbolt Lock",
+                                        "In-Person Check-in"
+                                    ),
+                            ),
+                        doorLockCodeType: Joi.string().optional().allow(null)
+                            .valid(
+                                "Unique",
+                                "Standard"
+                            ),
+                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
+                        responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
+                        doorLockAppName: Joi.string().optional().allow(null),
+                        doorLockAppUsername: Joi.string().optional().allow(null),
+                        doorLockAppPassword: Joi.string().optional().allow(null),
+                        lockboxLocation: Joi.string().optional().allow(null),
+                        lockboxCode: Joi.string().optional().allow(null),
+                        doorLockInstructions: Joi.string().optional().allow(null),
+
+
+                        //Waste Management
+                        wasteCollectionDays: Joi.string().optional().allow(null),
+                        wasteBinLocation: Joi.string().optional().allow(null),
+                        wasteManagementInstructions: Joi.string().optional().allow(null),
+
+                        //additional services/upsells
+                        propertyUpsells: Joi.array().min(1).optional().allow(null).items(
+                            Joi.object({
+                                id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                upsellName: Joi.string().optional(),
+                                allowUpsell: Joi.boolean().optional(),
+                                feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
+                                fee: Joi.number().optional().allow(null),
+                                maxAdditionalHours: Joi.number().optional().allow(null)
+                            })
+                        ),
+                        additionalServiceNotes: Joi.string().optional().allow(null),
+
+
+                        //Special Instructions for Guests
+                        checkInInstructions: Joi.string().optional().allow(null),
+                        checkOutInstructions: Joi.string().optional().allow(null),
+
+
+                        //house rules
+                        allowPartiesAndEvents: Joi.boolean().optional().allow(null),
+                        allowSmoking: Joi.boolean().optional().allow(null),
+                        allowPets: Joi.boolean().optional().allow(null),
+                        petFee: Joi.number().optional().allow(null),
+                        numberOfPetsAllowed: Joi.number().optional().allow(null),
+                        petRestrictionsNotes: Joi.string().optional().allow(null),
+                        allowChildreAndInfants: Joi.boolean().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
+                        allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
+                        otherHouseRules: Joi.string().optional().allow(null),
+
+
+
+                        //Contractors/Vendor Management
+                        vendorManagement: Joi.object({
+
+                            //Cleaner
+                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            cleanerManagedByReason: Joi.string().optional().allow(null),
+                            hasCurrentCleaner: Joi.string().optional().allow(null)
+                                .valid(
+                                    "Yes-Continue Current Cleaner",
+                                    "Yes-Switch Different Cleaner",
+                                    "No-Find New Cleaner",
+                                    "Yes",
+                                    "No"
+                                ),
+                            cleaningFee: Joi.number().optional().allow(null),
+                            cleanerName: Joi.string().optional().allow(null),
+                            cleanerPhone: Joi.string().optional().allow(null),
+                            cleanerEmail: Joi.string().optional().allow(null),
+
+                            acknowledgeCleanerResponsibility: Joi.boolean().optional().allow(null),
+                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null),
+                            ensureCleanersScheduled: Joi.boolean().optional().allow(null),
+                            ensureCleanersScheduledReason: Joi.string().optional().allow(null),
+                            propertyCleanedBeforeNextCheckIn: Joi.boolean().optional().allow(null),
+                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
+                            luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
+                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            cleaningTurnoverNotes: Joi.string().optional().allow(null),
+
+                            //Restocking Supplies
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
+                            luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
+                            luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
+                            suppliesToRestock: Joi.array().optional().allow(null).items(
+                                Joi.object({
+                                    id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                    supplyName: Joi.string().required(),
+                                    notes: Joi.string().optional().allow(null),
+                                })
+                            ),
+
+                            //Other Contractors/Vendors
+                            vendorInfo: Joi.array().optional().allow(null).items(
+                                Joi.object({
+                                    id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                    workCategory: Joi.string().required(),
+                                    managedBy: Joi.string().required().valid("Luxury Lodging", "Owner"),
+                                    name: Joi.string().required().allow(null),
+                                    contact: Joi.string().required().allow(null),
+                                    email: Joi.string().required().allow(null),
+                                    scheduleType: Joi.string().required().valid(
+                                        "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
+                                    ).allow(null),
+                                    intervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
+                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
+                                    weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
+                                    dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
+                                    notes: Joi.string().optional().allow(null),
+                                })
+                            ),
+                            addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
+                        }).optional().allow(null),
+
+                        //Management Notes
+                        managementNotes: Joi.string().optional().allow(null),
+                    }).required()
+                }).required()
+            })
+        )
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+}
+
 
 
 export const validateSaveOnboardingDetailsClientForm = (request: Request, response: Response, next: NextFunction) => {

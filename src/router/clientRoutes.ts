@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm } from "../middleware/validation/Client/client.validation";
+import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm, validateUpdateManagementInternalForm } from "../middleware/validation/Client/client.validation";
 
 const router = Router();
 const clientController = new ClientController();
@@ -26,6 +26,7 @@ router.route('/internal/service-info').post(verifySession, validateSaveServiceIn
 router.route('/internal/service-info').put(verifySession, validateUpdateServiceInfo, clientController.updateServiceInfo.bind(clientController));
 
 // router.route('/internal/listing-info').post(verifySession, validateSaveListingInfo, clientController.saveListingInfo.bind(clientController));
+router.route('/internal/management').put(verifySession, validateUpdateManagementInternalForm, clientController.updateManagementInternalForm.bind(clientController));
 router.route('/internal/listing-info').put(verifySession, validateUpdateListingInfo, clientController.updateListingInfo.bind(clientController));
 
 router.route('/internal/finacials').put(verifySession, validateUpdateFinancialsInternalForm, clientController.updateFinancialsInternalForm.bind(clientController));

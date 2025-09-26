@@ -109,6 +109,8 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     bookingAcceptanceNoticeNotes: string;
 
+    @Column({ type: "text", nullable: true })
+    calendarManagementNotes: string;
 
     //House Rules
     @Column({ type: "boolean", nullable: true })

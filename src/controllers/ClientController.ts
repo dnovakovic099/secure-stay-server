@@ -229,4 +229,14 @@ export class ClientController {
     }
   }
 
+  async updateManagementInternalForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateManagementInternalForm(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
