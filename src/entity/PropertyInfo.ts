@@ -26,6 +26,9 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     externalListingName: string;
 
+    @Column({ type: "text", nullable: true })
+    internalListingName: string;
+
     @Column({ nullable: true })
     address: string;
 

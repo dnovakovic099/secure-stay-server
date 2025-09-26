@@ -511,6 +511,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                 address: Joi.string().optional(),
                 onboarding: Joi.object({
                     listing: Joi.object({
+                        //Listing Name
+                        internalListingName: Joi.string().optional().allow(null),
+                        externalListingName: Joi.string().optional().allow(null),
+
                         //General
                         propertyTypeId: Joi.number().optional().allow(null),
                         noOfFloors: Joi.number().optional().allow(null),

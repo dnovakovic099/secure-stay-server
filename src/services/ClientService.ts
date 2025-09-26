@@ -1214,6 +1214,10 @@ export class ClientService {
   }
 
   private mapListingFieldsToPropertyInfo(propertyInfo: PropertyInfo, listingPayload: any) {
+    // Listing Name
+    if (listingPayload.internalListingName !== undefined) propertyInfo.internalListingName = listingPayload.internalListingName ?? null;
+    if (listingPayload.externalListingName !== undefined) propertyInfo.externalListingName = listingPayload.externalListingName ?? null;
+
     // General info
     if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
