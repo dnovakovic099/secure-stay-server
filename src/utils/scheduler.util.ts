@@ -33,9 +33,9 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
-  // schedule.scheduleJob("0 * * * *", syncReservation);
+  schedule.scheduleJob({ hour: 4, minute: 30, tz: "America/New_York" }, syncReservation);
 
-  schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
+  // schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
 
   schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
