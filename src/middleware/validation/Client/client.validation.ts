@@ -31,7 +31,8 @@ export const validateCreateClient = (request: Request, response: Response, next:
                 type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
             }),
         ).allow(null),
-        properties: Joi.array().items(Joi.number().required()).allow(null)
+        properties: Joi.array().items(Joi.number().required()).allow(null),
+        source: Joi.string().optional().valid("listingIntakePage", "clientsPage")
 
     });
 
@@ -90,7 +91,8 @@ export const validateGetClients = (request: Request, response: Response, next: N
         keyword: Joi.string().optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
         serviceType: Joi.array().items(Joi.string()).optional(),
-        status: Joi.array().items(Joi.string().valid("active", "atRisk", "offboarding", "offboarded")).optional(),
+        status: Joi.array().items(Joi.string().valid("onboarding", "active", "atRisk", "offboarding", "offboarded")).optional(),
+        source: Joi.string().valid("listingIntakePage", "clientsPage").optional()
     });
 
     const { error } = schema.validate(request.query);

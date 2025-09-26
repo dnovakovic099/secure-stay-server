@@ -56,6 +56,7 @@ export class ClientController {
         listingId: request.query.listingId ? (Array.isArray(request.query.listingId) ? request.query.listingId : [request.query.listingId]) as string[] : undefined,
         serviceType: request.query.serviceType ? (Array.isArray(request.query.serviceType) ? request.query.serviceType : [request.query.serviceType]) as string[] : undefined,
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
+        source: request.query.source as string | undefined,
       };
       const { total, data, satisfactionCounts } = await clientService.getClientList(filters, request.user.id);
 

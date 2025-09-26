@@ -27,6 +27,7 @@ interface ClientFilter {
   listingId?: string[];
   serviceType?: string[];
   status?: string[];
+  source?: string;
 }
 
 // types/propertyOnboarding.ts
@@ -266,6 +267,9 @@ export class ClientService {
           clientData.serviceType = null;
         }
       }
+      clientData.status = "active"; // if properties are associated, set status to Active
+    } else {
+      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
 
     const client = this.clientRepo.create({ ...clientData, createdBy: userId });
@@ -307,6 +311,9 @@ export class ClientService {
           clientData.serviceType = null;
         }
       }
+      clientData.status = "active";
+    } else {
+      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
     
     const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
@@ -414,6 +421,10 @@ export class ClientService {
 
     if (filter.status && filter.status.length > 0) {
       query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+    }
+
+    if (filter.source) {
+      query.andWhere("client.source = :source", { source: filter.source });
     }
 
     query.skip((page - 1) * limit).take(limit);
