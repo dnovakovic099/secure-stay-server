@@ -208,6 +208,37 @@ export function convertLocalHourToUTC(localHour: number, timeZoneName: string) {
   return utcHour;
 }
 
+export function getPeriodType(fromDate: string, toDate: string): "WEEKLY" | "BI_WEEKLY" | "MONTHLY" {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+
+  // Calculate difference in days
+  const diffInMs = to.getTime() - from.getTime();
+  const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+  // Standard day counts
+  const periods = {
+    WEEKLY: 7,
+    BI_WEEKLY: 14,
+    MONTHLY: 30,
+  };
+
+  // Find which period is closest
+  let closest: keyof typeof periods = "WEEKLY";
+  let minDiff = Math.abs(diffInDays - periods.WEEKLY);
+
+  (Object.keys(periods) as (keyof typeof periods)[]).forEach((key) => {
+    const distance = Math.abs(diffInDays - periods[key]);
+    if (distance < minDiff) {
+      closest = key;
+      minDiff = distance;
+    }
+  });
+
+  return closest;
+}
+
+
 
 
 

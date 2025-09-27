@@ -693,6 +693,47 @@ export class HostAwayClient {
     }
   }
 
+
+  public async getOwnerStatements() {
+    let url = `https://api.hostaway.com/v1/ownerStatements`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
+  public async getOwnerStatementById(statementId: number) {
+    let url = `https://api.hostaway.com/v1/ownerStatement/${statementId}`;
+
+    try {
+      const token = await this.getAccessToken(this.clientId, this.clientSecret);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-control": "no-cache",
+        },
+      });
+
+      return response.data.result;
+    } catch (error) {
+      logger.error(error);
+      return null;
+    }
+  }
+
 }
 
 

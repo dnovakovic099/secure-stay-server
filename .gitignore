@@ -40,3 +40,5 @@ next-env.d.ts
 /public
 
 logs
+
+service-account.json
