@@ -1503,7 +1503,7 @@ export class ClientService {
         if (v.email !== undefined) row.email = v.email ?? null;
         if (v.scheduleType !== undefined) row.scheduleType = v.scheduleType ?? null;
         if (v.intervalMonth !== undefined) row.intervalMonth = v.intervalMonth ?? null;
-        if (v.dayOfWeek !== undefined) row.dayOfWeek = v.dayOfWeek ?? null as any;
+        if (v.dayOfWeek !== undefined) row.dayOfWeek = JSON.stringify(v.dayOfWeek) ?? null as any;
         if (v.weekOfMonth !== undefined) row.weekOfMonth = v.weekOfMonth ?? null;
         if (v.dayOfMonth !== undefined) row.dayOfMonth = v.dayOfMonth ?? null;
         if (v.notes !== undefined) row.notes = v.notes ?? null;
