@@ -12,6 +12,9 @@ import {
 import { ClientPropertyEntity } from "./ClientProperty";
 import { PropertyBedTypes } from "./PropertyBedTypes";
 import { PropertyUpsells } from "./PropertyUpsells";
+import { PropertyVendorManagement } from "./PropertyVendorManagement";
+import { PropertyParkingInfo } from "./PropertyParkingInfo";
+import { PropertyBathroomLocation } from "./PropertyBathroomLocation";
 
 
 @Entity("property_info")
@@ -22,6 +25,9 @@ export class PropertyInfo {
     //required fields for HA
     @Column({ type: "text", nullable: true })
     externalListingName: string;
+
+    @Column({ type: "text", nullable: true })
+    internalListingName: string;
 
     @Column({ nullable: true })
     address: string;
@@ -80,6 +86,15 @@ export class PropertyInfo {
     @Column({ nullable: true })
     guestBathroomsNumber: number;    // Number of Half Baths
 
+    //bathroom location and types
+    @OneToMany(() => PropertyBathroomLocation, (bedType) => bedType.propertyId, {
+        cascade: true,
+        eager: false,
+        onDelete: "CASCADE"
+    })
+    propertyBathroomLocation: PropertyBathroomLocation[];
+
+    
 
     //Listing Information
     @Column({ type: "int", nullable: true })
@@ -97,6 +112,8 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     bookingAcceptanceNoticeNotes: string;
 
+    @Column({ type: "text", nullable: true })
+    calendarManagementNotes: string;
 
     //House Rules
     @Column({ type: "boolean", nullable: true })
@@ -123,19 +140,20 @@ export class PropertyInfo {
     @Column({ type: "boolean", nullable: true })
     allowChildreAndInfants: boolean;
 
+    @Column({ type: "text", nullable: true })
+    childrenInfantsRestrictionReason: string;
+
     @Column({ type: "boolean", nullable: true })
     allowLuggageDropoffBeforeCheckIn: boolean;
 
 
     //Parking
-    @Column({ type: "simple-array", nullable: true })
-    parkingTypes: string[];
-
-    @Column({ type: "decimal", nullable: true })
-    parkingFee: number;
-
-    @Column({ type: "int", nullable: true })
-    numberOfParkingSpots: number;
+    @OneToMany(() => PropertyParkingInfo, (parkingInfo) => parkingInfo.propertyId, {
+        cascade: true,
+        eager: false,
+        onDelete: "CASCADE"
+    })
+    propertyParkingInfo: PropertyParkingInfo[];
 
     @Column({ type: "text", nullable: true })
     parkingInstructions: string;
@@ -153,6 +171,9 @@ export class PropertyInfo {
 
     @Column({ nullable: true })
     codeResponsibleParty: string; // e.g. "Client", "Luxury Lodging"
+
+    @Column({ type: "boolean", nullable: true })
+    responsibilityToSetDoorCodes: boolean;
 
     @Column({ nullable: true })
     doorLockAppName: string;
@@ -195,6 +216,54 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     additionalServiceNotes: string;
 
+
+    //Special Instructions for guests
+    @Column({ type: "text", nullable: true })
+    checkInInstructions: string;
+
+    @Column({ type: "text", nullable: true })
+    checkOutInstructions: string;
+
+
+    //Contractors/Vendor Management
+    @OneToOne(() => PropertyVendorManagement, (vendorManagementInfo) => vendorManagementInfo.propertyInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
+    vendorManagementInfo: PropertyVendorManagement;
+
+
+    //Management
+    @Column({ nullable: true })
+    specialInstructions: string;
+
+    @Column({ type: 'int', nullable: true })
+    leadTimeDays: number;
+
+    @Column({ type: 'text', nullable: true })
+    bookingAcceptanceNotes: string;
+
+    @Column({ type: 'text', nullable: true })
+    managementNotes: string;
+
+
+    //Financials
+    @Column({ type: "float", nullable: true })
+    minPrice: number;
+
+    @Column({ nullable: true })
+    minNights: number;
+
+    @Column({ nullable: true })
+    maxNights: number;
+
+    @Column({ nullable: true })
+    propertyLicenseNumber: string;
+
+    @Column({ type: "text", nullable: true })
+    tax: string;
+
+    @Column({ type: "text", nullable: true })
+    financialNotes: string;
+
+
     //amenities
     @Column({ type: "simple-array", nullable: true })
     amenities: string[];
@@ -223,6 +292,11 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     hotTubInstructions: string;
 
+    @Column({ type: "text", nullable: true })
+    firePlaceNotes: string;
+
+    @Column({ type: "text", nullable: true })
+    firepitNotes: string;
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()

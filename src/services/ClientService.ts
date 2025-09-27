@@ -14,6 +14,11 @@ import { PropertyBedTypes } from "../entity/PropertyBedTypes";
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { PropertyUpsells } from "../entity/PropertyUpsells";
+import { PropertyParkingInfo } from "../entity/PropertyParkingInfo";
+import { PropertyBathroomLocation } from "../entity/PropertyBathroomLocation";
+import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
+import { SuppliesToRestock } from "../entity/SuppliesToRestock";
+import { VendorInfo } from "../entity/VendorInfo";
 
 interface ClientFilter {
   page: number;
@@ -22,6 +27,7 @@ interface ClientFilter {
   listingId?: string[];
   serviceType?: string[];
   status?: string[];
+  source?: string;
 }
 
 // types/propertyOnboarding.ts
@@ -41,6 +47,7 @@ interface Onboarding {
   sales: Sales;
   listing: Listing;
   photography: Photography;
+  financials?: Financials;
 }
 
 interface ServiceInfo {
@@ -81,7 +88,7 @@ interface Listing {
   roomType?: string | null;
   bedroomsNumber?: number | null;
   propertyBedTypes?: Array<{
-    floorLevel: string;
+    floorLevel: number;
     bedroomNumber: number;
     bedTypeId: number;
     quantity: number;
@@ -89,6 +96,13 @@ interface Listing {
   bathroomType?: string | null;
   bathroomsNumber?: number | null;
   guestBathroomsNumber?: number | null;
+  propertyBathroomLocation?: Array<{
+    id?: number;
+    floorLevel?: number | null;
+    bathroomType?: any;
+    bathroomNumber?: number | null;
+    ensuite?: number | null;
+  }> | null;
   checkInTimeStart?: number | null;
   checkOutTime?: number | null;
   canAnyoneBookAnytime?: string | null;
@@ -106,6 +120,12 @@ interface Listing {
   parkingFee?: number | null;
   numberOfParkingSpots?: number | null;
   parkingInstructions?: string | null;
+  parking?: Array<{
+    id?: number;
+    parkingType: string;
+    parkingFee?: number | null;
+    numberOfParkingSpots?: number | null;
+  }> | null;
   checkInProcess?: string[] | null;
   doorLockType?: string[] | null;
   doorLockCodeType?: string | null;
@@ -123,6 +143,7 @@ interface Listing {
     upsellName: string;
     allowUpsell: boolean;
     feeType: string;
+    fee?: number | null;
     maxAdditionalHours: number | null;
   }> | null;
   additionalServiceNotes?: string | null;
@@ -133,6 +154,57 @@ interface Listing {
   locationOfModem?: string | null;
   swimmingPoolNotes?: string | null;
   hotTubInstructions?: string | null;
+
+  // Vendor Management
+  vendorManagement?: {
+    // Cleaner
+    cleanerManagedBy?: string | null;
+    cleanerManagedByReason?: string | null;
+    hasCurrentCleaner?: string | null;
+    cleaningFee?: number | null;
+    cleanerName?: string | null;
+    cleanerPhone?: string | null;
+    cleanerEmail?: string | null;
+    acknowledgeCleanerResponsibility?: boolean | null;
+    acknowledgeCleanerResponsibilityReason?: string | null;
+    ensureCleanersScheduled?: boolean | null;
+    ensureCleanersScheduledReason?: string | null;
+    propertyCleanedBeforeNextCheckIn?: boolean | null;
+    propertyCleanedBeforeNextCheckInReason?: string | null;
+    luxuryLodgingReadyAssumption?: boolean | null;
+    luxuryLodgingReadyAssumptionReason?: string | null;
+    cleaningTurnoverNotes?: string | null;
+
+    // Restocking Supplies
+    restockingSuppliesManagedBy?: string | null;
+    restockingSuppliesManagedByReason?: string | null;
+    luxuryLodgingRestockWithoutApproval?: boolean | null;
+    luxuryLodgingConfirmBeforePurchase?: boolean | null;
+    suppliesToRestock?: Array<{
+      id?: number;
+      supplyName: string;
+      notes?: string | null;
+    }> | null;
+
+    // Other Contractors/Vendors
+    vendorInfo?: Array<{
+      id?: number;
+      workCategory: string;
+      managedBy: string;
+      name?: string | null;
+      contact?: string | null;
+      email?: string | null;
+      scheduleType?: string | null;
+      intervalMonth?: number | null;
+      dayOfWeek?: any;
+      weekOfMonth?: number | null;
+      dayOfMonth?: number | null;
+      notes?: string | null;
+    }> | null;
+
+    addtionalVendorManagementNotes?: string | null;
+    acknowledgeExpensesBilledToStatement?: any;
+  } | null;
 }
 
 interface Photography {
@@ -142,6 +214,15 @@ interface Photography {
   | "No"
   | null;
   photographyNotes: string | null;
+}
+
+interface Financials {
+  minPrice?: number | null;
+  minNights?: number | null;
+  maxNights?: number | null;
+  propertyLicenseNumber?: string | null;
+  tax?: string | null;
+  financialNotes?: string | null;
 }
 
 
@@ -156,12 +237,18 @@ export class ClientService {
   private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
   private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
   private propertyUpsellsRepo = appDatabase.getRepository(PropertyUpsells);
+  private propertyParkingInfoRepo = appDatabase.getRepository(PropertyParkingInfo);
+  private propertyBathroomLocationRepo = appDatabase.getRepository(PropertyBathroomLocation);
+  private propertyVendorManagementRepo = appDatabase.getRepository(PropertyVendorManagement);
+  private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
+  private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
 
   private hostawayClient = new HostAwayClient();
 
   async saveClient(
     clientData: Partial<ClientEntity>,
     userId: string,
+    source: string,
     secondaryContacts?: Partial<ClientSecondaryContact>[],
     clientProperties?: string[],
   ) {
@@ -181,9 +268,12 @@ export class ClientService {
           clientData.serviceType = null;
         }
       }
+      clientData.status = "active"; // if properties are associated, set status to Active
+    } else {
+      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
 
-    const client = this.clientRepo.create({ ...clientData, createdBy: userId });
+    const client = this.clientRepo.create({ ...clientData, createdBy: userId, source });
 
     if (secondaryContacts && secondaryContacts.length > 0) {
       client.secondaryContacts = secondaryContacts.map((contact) =>
@@ -222,6 +312,9 @@ export class ClientService {
           clientData.serviceType = null;
         }
       }
+      clientData.status = "active";
+    } else {
+      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
     
     const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
@@ -303,6 +396,10 @@ export class ClientService {
     const query = this.clientRepo.createQueryBuilder("client")
       .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
       .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+      //fetch the onboarding, serviceInfo and propertyInfo of the property as well
+      .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
+      .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
       .where("client.deletedAt IS NULL");
 
     if (keyword) {
@@ -325,6 +422,10 @@ export class ClientService {
 
     if (filter.status && filter.status.length > 0) {
       query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+    }
+
+    if (filter.source) {
+      query.andWhere("client.source = :source", { source: filter.source });
     }
 
     query.skip((page - 1) * limit).take(limit);
@@ -977,7 +1078,12 @@ export class ClientService {
         "properties.serviceInfo",
         "properties.propertyInfo",
         "properties.propertyInfo.propertyBedTypes",
+        "properties.propertyInfo.propertyBathroomLocation",
         "properties.propertyInfo.propertyUpsells",
+        "properties.propertyInfo.propertyParkingInfo",
+        "properties.propertyInfo.vendorManagementInfo",
+        "properties.propertyInfo.vendorManagementInfo.suppliesToRestock",
+        "properties.propertyInfo.vendorManagementInfo.vendorInfo",
       ],
     });
   }
@@ -1084,6 +1190,21 @@ export class ClientService {
         if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
           await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
+
+        // Handle Parking Info (array of parking rows)
+        if (listingPayload.parking !== undefined) {
+          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+        }
+
+        // Handle Bathroom Locations
+        if (listingPayload.propertyBathroomLocation !== undefined) {
+          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
+        }
+
+        // Handle Vendor Management
+        if (listingPayload.vendorManagement) {
+          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+        }
       }
 
       const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
@@ -1094,6 +1215,10 @@ export class ClientService {
   }
 
   private mapListingFieldsToPropertyInfo(propertyInfo: PropertyInfo, listingPayload: any) {
+    // Listing Name
+    if (listingPayload.internalListingName !== undefined) propertyInfo.internalListingName = listingPayload.internalListingName ?? null;
+    if (listingPayload.externalListingName !== undefined) propertyInfo.externalListingName = listingPayload.externalListingName ?? null;
+
     // General info
     if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
@@ -1123,13 +1248,11 @@ export class ClientService {
     if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
     if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
     if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
+    if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
     if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
     if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
 
-    // Parking
-    if (listingPayload.parkingType !== undefined) propertyInfo.parkingTypes = listingPayload.parkingType ?? null;
-    if (listingPayload.parkingFee !== undefined) propertyInfo.parkingFee = listingPayload.parkingFee ?? null;
-    if (listingPayload.numberOfParkingSpots !== undefined) propertyInfo.numberOfParkingSpots = listingPayload.numberOfParkingSpots ?? null;
+    // Parking (instructions only; types/fee/spots handled via PropertyParkingInfo)
     if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
 
     // Property Access
@@ -1137,6 +1260,7 @@ export class ClientService {
     if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
     if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
     if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
+    if (listingPayload.responsibilityToSetDoorCodes !== undefined) propertyInfo.responsibilityToSetDoorCodes = listingPayload.responsibilityToSetDoorCodes ?? null;
     if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
     if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
     if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
@@ -1152,6 +1276,23 @@ export class ClientService {
     // Additional Services/Upsells
     if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
 
+    if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
+    if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
+
+    //Management
+    if (listingPayload.specialInstructions !== undefined) propertyInfo.specialInstructions = listingPayload.specialInstructions ?? null;
+    if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
+    if (listingPayload.bookingAcceptanceNotes !== undefined) propertyInfo.bookingAcceptanceNotes = listingPayload.bookingAcceptanceNotes ?? null;
+    if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+
+    //Financials
+    if (listingPayload.minPrice !== undefined) propertyInfo.minPrice = listingPayload.minPrice ?? null;
+    if (listingPayload.minNights !== undefined) propertyInfo.minNights = listingPayload.minNights ?? null;
+    if (listingPayload.maxNights !== undefined) propertyInfo.maxNights = listingPayload.maxNights ?? null;
+    if (listingPayload.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = listingPayload.propertyLicenseNumber ?? null;
+    if (listingPayload.tax !== undefined) propertyInfo.tax = listingPayload.tax ?? null;
+    if (listingPayload.financialNotes !== undefined) propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
+
     // Amenities
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
@@ -1160,6 +1301,10 @@ export class ClientService {
     if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
     if (listingPayload.swimmingPoolNotes !== undefined) propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
     if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
+    if (listingPayload.firePlaceNotes !== undefined) propertyInfo.firePlaceNotes = listingPayload.firePlaceNotes ?? null;
+    if (listingPayload.firepitNotes !== undefined) propertyInfo.firepitNotes = listingPayload.firepitNotes ?? null;
+    if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
+    if (listingPayload.locationOfThemostat !== undefined) propertyInfo.locationOfThemostat = listingPayload.locationOfThemostat ?? null;
   }
 
   private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
@@ -1241,6 +1386,158 @@ export class ClientService {
         });
         await this.propertyUpsellsRepo.save(newUpsell);
       }
+    }
+  }
+
+  private async handlePropertyParkingInfo(propertyInfo: PropertyInfo, parkingRows: any[]) {
+    const existing = await this.propertyParkingInfoRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
+    const existingById = new Map(existing.map(r => [r.id, r] as const));
+    const existingByType = new Map(existing.map(r => [(r as any).parkingType, r] as const));
+    const incomingIds = new Set<number>();
+
+    // If array empty, clear all
+    if (Array.isArray(parkingRows) && parkingRows.length === 0) {
+      if (existing.length > 0) await this.propertyParkingInfoRepo.remove(existing);
+      return;
+    }
+
+    for (const p of parkingRows || []) {
+      let row = (p.id && existingById.has(p.id))
+        ? existingById.get(p.id)!
+        : (existingByType.get(p.parkingType) ?? this.propertyParkingInfoRepo.create({ propertyId: propertyInfo }));
+
+      (row as any).parkingType = p.parkingType;
+      if (p.parkingFee !== undefined) row.parkingFee = p.parkingFee ?? null as any;
+      if (p.numberOfParkingSpots !== undefined) row.numberOfParkingSpots = p.numberOfParkingSpots ?? null as any;
+      row = await this.propertyParkingInfoRepo.save(row);
+      incomingIds.add(row.id);
+    }
+
+    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    if (toDelete.length > 0) {
+      await this.propertyParkingInfoRepo.remove(toDelete);
+    }
+  }
+
+  private async handleVendorManagementInfo(propertyInfo: PropertyInfo, vendorPayload: any) {
+    // Load existing VM with children
+    let vm = await this.propertyVendorManagementRepo.findOne({ where: { propertyInfo: { id: propertyInfo.id } }, relations: ["suppliesToRestock", "vendorInfo"] });
+    if (!vm) {
+      vm = this.propertyVendorManagementRepo.create({ propertyInfo });
+    }
+
+    // Cleaner
+    if (vendorPayload.cleanerManagedBy !== undefined) vm.cleanerManagedBy = vendorPayload.cleanerManagedBy ?? null;
+    if (vendorPayload.cleanerManagedByReason !== undefined) vm.cleanerManagedByReason = vendorPayload.cleanerManagedByReason ?? null;
+    if (vendorPayload.hasCurrentCleaner !== undefined) vm.hasCurrentCleaner = vendorPayload.hasCurrentCleaner ?? null;
+    if (vendorPayload.cleaningFee !== undefined) vm.cleaningFee = vendorPayload.cleaningFee ?? null;
+    if (vendorPayload.cleanerName !== undefined) vm.cleanerName = vendorPayload.cleanerName ?? null;
+    if (vendorPayload.cleanerPhone !== undefined) vm.cleanerPhone = vendorPayload.cleanerPhone ?? null;
+    if (vendorPayload.cleanerEmail !== undefined) vm.cleanerEmail = vendorPayload.cleanerEmail ?? null;
+    if (vendorPayload.acknowledgeCleanerResponsibility !== undefined) vm.acknowledgeCleanerResponsibility = vendorPayload.acknowledgeCleanerResponsibility ?? null;
+    if (vendorPayload.acknowledgeCleanerResponsibilityReason !== undefined) vm.acknowledgeCleanerResponsibilityReason = vendorPayload.acknowledgeCleanerResponsibilityReason ?? null;
+    if (vendorPayload.ensureCleanersScheduled !== undefined) vm.ensureCleanersScheduled = vendorPayload.ensureCleanersScheduled ?? null;
+    if (vendorPayload.ensureCleanersScheduledReason !== undefined) vm.ensureCleanersScheduledReason = vendorPayload.ensureCleanersScheduledReason ?? null;
+    if (vendorPayload.propertyCleanedBeforeNextCheckIn !== undefined) vm.propertyCleanedBeforeNextCheckIn = vendorPayload.propertyCleanedBeforeNextCheckIn ?? null;
+    if (vendorPayload.propertyCleanedBeforeNextCheckInReason !== undefined) vm.propertyCleanedBeforeNextCheckInReason = vendorPayload.propertyCleanedBeforeNextCheckInReason ?? null;
+    if (vendorPayload.luxuryLodgingReadyAssumption !== undefined) vm.luxuryLodgingReadyAssumption = vendorPayload.luxuryLodgingReadyAssumption ?? null;
+    if (vendorPayload.luxuryLodgingReadyAssumptionReason !== undefined) vm.luxuryLodgingReadyAssumptionReason = vendorPayload.luxuryLodgingReadyAssumptionReason ?? null;
+    if (vendorPayload.cleaningTurnoverNotes !== undefined) vm.cleaningTurnoverNotes = vendorPayload.cleaningTurnoverNotes ?? null;
+
+    // Restocking supplies policy
+    if (vendorPayload.restockingSuppliesManagedBy !== undefined) vm.restockingSuppliesManagedBy = vendorPayload.restockingSuppliesManagedBy ?? null;
+    if (vendorPayload.restockingSuppliesManagedByReason !== undefined) vm.restockingSuppliesManagedByReason = vendorPayload.restockingSuppliesManagedByReason ?? null;
+    if (vendorPayload.luxuryLodgingRestockWithoutApproval !== undefined) vm.luxuryLodgingRestockWithoutApproval = vendorPayload.luxuryLodgingRestockWithoutApproval ?? null;
+    if (vendorPayload.luxuryLodgingConfirmBeforePurchase !== undefined) vm.luxuryLodgingConfirmBeforePurchase = vendorPayload.luxuryLodgingConfirmBeforePurchase ?? null;
+
+    // Other
+    if (vendorPayload.addtionalVendorManagementNotes !== undefined) vm.addtionalVendorManagementNotes = vendorPayload.addtionalVendorManagementNotes ?? null;
+    if (vendorPayload.acknowledgeExpensesBilledToStatement !== undefined) vm.acknowledgeExpensesBilledToStatement = vendorPayload.acknowledgeExpensesBilledToStatement as any;
+
+    // Save base VM first
+    vm = await this.propertyVendorManagementRepo.save(vm);
+
+    // Supplies To Restock
+    if (Array.isArray(vendorPayload.suppliesToRestock)) {
+      const existing = await this.suppliesToRestockRepo.find({ where: { propertyVendorManagementId: { id: vm.id } } });
+      const existingById = new Map(existing.map(s => [s.id, s] as const));
+      const incomingIds = new Set<number>();
+
+      for (const s of vendorPayload.suppliesToRestock) {
+        let row: SuppliesToRestock;
+        if (s.id && existingById.has(s.id)) {
+          row = existingById.get(s.id)!;
+        } else {
+          row = this.suppliesToRestockRepo.create({ propertyVendorManagementId: vm });
+        }
+        if (s.supplyName !== undefined) row.supplyName = s.supplyName;
+        if (s.notes !== undefined) row.notes = s.notes ?? null;
+        row = await this.suppliesToRestockRepo.save(row);
+        incomingIds.add(row.id);
+      }
+
+      // delete removed
+      const toDelete = existing.filter(e => !incomingIds.has(e.id));
+      if (toDelete.length > 0) {
+        await this.suppliesToRestockRepo.remove(toDelete);
+      }
+    }
+
+    // Vendor Info
+    if (Array.isArray(vendorPayload.vendorInfo)) {
+      const existing = await this.vendorInfoRepo.find({ where: { propertyVendorManagementId: { id: vm.id } } });
+      const existingById = new Map(existing.map(v => [v.id, v] as const));
+      const incomingIds = new Set<number>();
+
+      for (const v of vendorPayload.vendorInfo) {
+        let row: VendorInfo;
+        if (v.id && existingById.has(v.id)) {
+          row = existingById.get(v.id)!;
+        } else {
+          row = this.vendorInfoRepo.create({ propertyVendorManagementId: vm });
+        }
+        if (v.workCategory !== undefined) row.workCategory = v.workCategory ?? null;
+        if (v.managedBy !== undefined) row.managedBy = v.managedBy ?? null;
+        if (v.name !== undefined) row.name = v.name ?? null;
+        if (v.contact !== undefined) row.contact = v.contact ?? null;
+        if (v.email !== undefined) row.email = v.email ?? null;
+        if (v.scheduleType !== undefined) row.scheduleType = v.scheduleType ?? null;
+        if (v.intervalMonth !== undefined) row.intervalMonth = v.intervalMonth ?? null;
+        if (v.dayOfWeek !== undefined) row.dayOfWeek = JSON.stringify(v.dayOfWeek) ?? null as any;
+        if (v.weekOfMonth !== undefined) row.weekOfMonth = v.weekOfMonth ?? null;
+        if (v.dayOfMonth !== undefined) row.dayOfMonth = v.dayOfMonth ?? null;
+        if (v.notes !== undefined) row.notes = v.notes ?? null;
+        row = await this.vendorInfoRepo.save(row);
+        incomingIds.add(row.id);
+      }
+
+      const toDelete = existing.filter(e => !incomingIds.has(e.id));
+      if (toDelete.length > 0) {
+        await this.vendorInfoRepo.remove(toDelete);
+      }
+    }
+  }
+
+  private async handlePropertyBathroomLocation(propertyInfo: PropertyInfo, bathroomsData: any[]) {
+    // Fetch existing
+    const existing = await this.propertyBathroomLocationRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
+    const existingById = new Map(existing.map(b => [b.id, b] as const));
+    const incomingIds = new Set<number>();
+
+    for (const b of bathroomsData || []) {
+      let row = b.id && existingById.has(b.id) ? existingById.get(b.id)! : this.propertyBathroomLocationRepo.create({ propertyId: propertyInfo });
+      if (b.floorLevel !== undefined) row.floorLevel = b.floorLevel ?? null;
+      if (b.bathroomType !== undefined) row.bathroomType = b.bathroomType ?? null;
+      if (b.bathroomNumber !== undefined) row.bathroomNumber = b.bathroomNumber ?? null;
+      if (b.ensuite !== undefined) row.ensuite = b.ensuite ?? null;
+      row = await this.propertyBathroomLocationRepo.save(row);
+      incomingIds.add(row.id);
+    }
+
+    // delete removed
+    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    if (toDelete.length > 0) {
+      await this.propertyBathroomLocationRepo.remove(toDelete);
     }
   }
 
@@ -1515,6 +1812,21 @@ export class ClientService {
         if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
           await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
         }
+
+        // Handle Parking Info (array of parking rows)
+        if (listingPayload.parking !== undefined) {
+          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+        }
+
+        // Handle Bathroom Locations
+        if (listingPayload.propertyBathroomLocation !== undefined) {
+          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
+        }
+
+        // Handle Vendor Management
+        if (listingPayload.vendorManagement) {
+          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+        }
       }
 
       const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo"] });
@@ -1664,6 +1976,165 @@ export class ClientService {
     });
 
     return hasMissingValue ? "draft" : "ready";
+  }
+
+  async updateFinancialsInternalForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const financials = (property as any)?.onboarding?.financials as Financials | undefined;
+      if (financials) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        if (financials.minPrice !== undefined) propertyInfo.minPrice = financials.minPrice ?? null;
+        if (financials.minNights !== undefined) propertyInfo.minNights = financials.minNights ?? null;
+        if (financials.maxNights !== undefined) propertyInfo.maxNights = financials.maxNights ?? null;
+        if (financials.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = financials.propertyLicenseNumber ?? null;
+        if (financials.tax !== undefined) propertyInfo.tax = financials.tax ?? null;
+        if (financials.financialNotes !== undefined) propertyInfo.financialNotes = financials.financialNotes ?? null;
+
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    return { message: "Internal financials updated", updated };
+  }
+
+  async updateManagementInternalForm(body: any, userId: string) {
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+
+    for (const property of clientProperties) {
+      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      if (!clientProperty) {
+        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+      }
+      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      }
+
+      if ((property as any).address !== undefined) {
+        clientProperty.address = property.address;
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      }
+
+      const listingPayload = (property as any)?.onboarding?.listing;
+      if (listingPayload) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        }
+
+        // Calendar Management
+        if (listingPayload.canAnyoneBookAnytime !== undefined) propertyInfo.canAnyoneBookAnytime = listingPayload.canAnyoneBookAnytime ?? null;
+        if (listingPayload.bookingAcceptanceNoticeNotes !== undefined) propertyInfo.bookingAcceptanceNoticeNotes = listingPayload.bookingAcceptanceNoticeNotes ?? null;
+        if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
+        if (listingPayload.calendarManagementNotes !== undefined) propertyInfo.calendarManagementNotes = listingPayload.calendarManagementNotes ?? null;
+
+        // Reservation Management
+        if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
+        if (listingPayload.checkInTimeEnd !== undefined) propertyInfo.checkInTimeEnd = listingPayload.checkInTimeEnd ?? null;
+        if (listingPayload.checkOutTime !== undefined) propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
+
+        // Parking
+        if (listingPayload.parking !== undefined) {
+          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+        }
+        if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
+
+        // Property Access
+        if (listingPayload.checkInProcess !== undefined) propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
+        if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
+        if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
+        if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
+        if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
+        if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
+        if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
+        if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
+        if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
+        if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+
+        // Waste Management
+        if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
+        if (listingPayload.wasteBinLocation !== undefined) propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
+        if (listingPayload.wasteManagementInstructions !== undefined) propertyInfo.wasteManagementInstructions = listingPayload.wasteManagementInstructions ?? null;
+
+        // Property Upsells
+        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
+          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        }
+        if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
+
+        // Special Instructions for Guests
+        if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
+        if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
+
+        // House Rules
+        if (listingPayload.allowPartiesAndEvents !== undefined) propertyInfo.allowPartiesAndEvents = listingPayload.allowPartiesAndEvents ?? null;
+        if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
+        if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
+        if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
+        if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
+        if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
+        if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
+        if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
+        if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
+        if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+
+        // Vendor Management
+        if (listingPayload.vendorManagement) {
+          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+        }
+
+        // Management Notes
+        if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+
+        propertyInfo.updatedBy = userId;
+        await this.propertyInfoRepo.save(propertyInfo);
+      }
+
+      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    return { message: "Internal management updated", updated };
   }
 
 
