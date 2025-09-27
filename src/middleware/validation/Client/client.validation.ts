@@ -478,7 +478,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
 
 
                         //amenities
-                        amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
+                        amenities: Joi.array().items(Joi.number()).min(1).required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
@@ -735,7 +735,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         financialNotes: Joi.string().optional().allow(null),
 
                         //amenities
-                        amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        amenities: Joi.array().items(Joi.number()).min(1).optional().allow(null),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),
                         wifiSpeed: Joi.string().optional().allow(null),
@@ -1182,7 +1182,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
 
                         //amenities
-                        amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
+                        amenities: Joi.array().items(Joi.number()).min(1).required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
