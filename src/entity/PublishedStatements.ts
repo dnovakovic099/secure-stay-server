@@ -33,7 +33,7 @@ export class PublishedStatementEntity {
     @Column({ nullable: true })
     durationType: string;   // weekly/bi-weekly/monthly
 
-    @Column({ nullable: true })
+    @Column({ type: "float", nullable: true })
     grandTotal: number;
 
     @Column({ nullable: true })
