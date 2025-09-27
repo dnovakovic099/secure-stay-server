@@ -55,7 +55,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
             phone: Joi.string().required().allow(null, ''),
             timezone: Joi.string().required(),
             companyName: Joi.string().required().allow(null, ''),
-            status: Joi.string().required().valid("active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+            status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
         }),
         secondaryContacts: Joi.array().items(
@@ -69,7 +69,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
                 phone: Joi.string().required().allow(null, ''),
                 timezone: Joi.string().required(),
                 companyName: Joi.string().required().allow(null, ''),
-                status: Joi.string().required().valid("active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+                status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
                 notes: Joi.string().required().allow(null, ''),
                 type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
             }),
