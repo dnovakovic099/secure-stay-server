@@ -7,6 +7,7 @@ import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { setSelectedSlackUsers } from "../helpers/helpers";
+import { format } from "date-fns";
 
 interface LatestUpdates {
     id?: number;
@@ -84,7 +85,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
-            clientSatisfaction: body.clientSatisfaction
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
         if (body.category.includes("Other") && mentions && mentions.length > 0) {
             setSelectedSlackUsers(mentions);
@@ -220,7 +225,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
-            clientSatisfaction: body.clientSatisfaction
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
 
         const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
@@ -231,7 +240,7 @@ export class ClientTicketService {
         Object.assign(clientTicket, ticketData, {
             updatedBy: userId,
             updatedAt: new Date(),
-            ...(ticketData.status == "Completed" && {
+            ...(clientTicket.status !== "Completed" && ticketData.status == "Completed" && {
                 completedOn: new Date(),
                 completedBy: userId
             })
@@ -267,6 +276,9 @@ export class ClientTicketService {
         if (status === "Completed") {
             clientTicket.completedOn = new Date().toISOString();;
             clientTicket.completedBy = userId;
+        } else {
+            clientTicket.completedOn = null;
+            clientTicket.completedBy = null;
         }
 
         await this.clientTicketRepo.save(clientTicket);

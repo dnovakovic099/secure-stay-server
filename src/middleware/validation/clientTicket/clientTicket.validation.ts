@@ -20,6 +20,9 @@ export const validateCreateClientTicket = (request: Request, response: Response,
         ).min(1).required().allow(null),
         mentions: Joi.array().items(Joi.string().optional()).optional(),
         clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);
@@ -50,6 +53,9 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
             }).required()
         ).min(1).required().allow(null),
         clientSatisfaction: Joi.number().integer().min(1).max(5).required().allow(null),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);

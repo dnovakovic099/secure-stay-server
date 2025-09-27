@@ -97,3 +97,17 @@ export const validateUpdateMobileUser = (request: Request, response: Response, n
 
     next();
 };
+
+export const validateFetchPaginatedUserList = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};

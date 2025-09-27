@@ -14,6 +14,7 @@ import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { ListingService } from "./ListingService";
+import { format } from "date-fns";
 
 interface ActionItemFilter {
     category?: string;
@@ -155,7 +156,7 @@ export class ActionItemsService {
 
 
     async createActionItem(actionItem: ActionItems, userId: string) {
-        const { listingName, guestName, item, category, status, listingId, reservationId } = actionItem;
+        const { listingName, guestName, item, category, status, listingId, reservationId, assignee, urgency, mistake } = actionItem;
 
         const newActionItem = new ActionItems();
         newActionItem.listingName = listingName;
@@ -166,6 +167,10 @@ export class ActionItemsService {
         newActionItem.category = category;
         newActionItem.status = status;
         newActionItem.createdBy = userId;
+        newActionItem.assignee = assignee || null;
+        newActionItem.urgency = urgency || null;
+        newActionItem.mistake = mistake || null;
+        newActionItem.mistakeResolvedOn = mistake === "Resolved" ? format(new Date(), 'yyyy-MM-dd') : null;
 
         return await this.actionItemsRepo.save(newActionItem);
     }
@@ -184,6 +189,16 @@ export class ActionItemsService {
         existingActionItem.listingId = actionItem.listingId;
         existingActionItem.reservationId = actionItem.reservationId;
         existingActionItem.updatedBy = userId;
+        existingActionItem.assignee = actionItem.assignee || null;
+        existingActionItem.urgency = actionItem.urgency || null;
+        existingActionItem.mistake = actionItem.mistake || null;
+        existingActionItem.mistakeResolvedOn = actionItem.mistake === "Resolved" ? format(new Date(), 'yyyy-MM-dd') : null;
+
+        if (existingActionItem.status !== "completed" && actionItem.status === 'completed') {
+            existingActionItem.completedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            existingActionItem.completedOn = null;
+        }
 
         return await this.actionItemsRepo.save(existingActionItem);
     }
@@ -364,6 +379,11 @@ export class ActionItemsService {
                 }
                 if (updateData.status !== undefined) {
                     actionItem.status = updateData.status;
+                    if (updateData.status === 'completed') {
+                        actionItem.completedOn = format(new Date(), 'yyyy-MM-dd');
+                    } else {
+                        actionItem.completedOn = null;
+                    }
                 }
                 if (updateData.listingId !== undefined) {
                     actionItem.listingId = updateData.listingId;

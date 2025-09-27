@@ -15,6 +15,7 @@ import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { FileInfo } from "../entity/FileInfo";
 import path from "path";
 import logger from "../utils/logger.utils";
+import { format } from "date-fns";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -40,6 +41,10 @@ export class IssuesService {
         } else {
             data.completed_at = null;
             data.completed_by = null;
+        }
+
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
         const newIssue = this.issueRepo.create({
@@ -162,12 +167,16 @@ export class IssuesService {
             throw new Error('Issue not found');
         }
 
-        if (data.status === 'Completed') {
+        if (issue.status !== "Completed" && data.status === 'Completed') {
             data.completed_at = new Date();
             data.completed_by = userId;
         } else {
             data.completed_at = null;
             data.completed_by = null;
+        }
+
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
         let listing_name = '';
