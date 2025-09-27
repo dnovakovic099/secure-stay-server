@@ -248,6 +248,7 @@ export class ClientService {
   async saveClient(
     clientData: Partial<ClientEntity>,
     userId: string,
+    source: string,
     secondaryContacts?: Partial<ClientSecondaryContact>[],
     clientProperties?: string[],
   ) {
@@ -272,7 +273,7 @@ export class ClientService {
       clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
 
-    const client = this.clientRepo.create({ ...clientData, createdBy: userId });
+    const client = this.clientRepo.create({ ...clientData, createdBy: userId, source });
 
     if (secondaryContacts && secondaryContacts.length > 0) {
       client.secondaryContacts = secondaryContacts.map((contact) =>

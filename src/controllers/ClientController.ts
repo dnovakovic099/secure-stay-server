@@ -9,9 +9,9 @@ export class ClientController {
   async createClient(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
-      const { primaryContact, secondaryContacts, properties } = request.body;
+      const { primaryContact, secondaryContacts, properties, source } = request.body;
       const userId = request.user.id;
-      const createdClient = await clientService.saveClient(primaryContact, userId, secondaryContacts, properties);
+      const createdClient = await clientService.saveClient(primaryContact, userId, source, secondaryContacts, properties,);
       return response.status(201).json(createdClient);
     } catch (error) {
       next(error);
