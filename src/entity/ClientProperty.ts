@@ -26,7 +26,7 @@ export class ClientPropertyEntity {
     listingId: string;             // HA listing id
 
     @Column({ nullable: true })
-    status: string;
+    status: string;  // draft, ready, published
 
     @ManyToOne(() => ClientEntity, (client) => client.properties, { onDelete: "CASCADE" })
     client: ClientEntity;
