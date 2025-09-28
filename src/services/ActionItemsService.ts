@@ -148,7 +148,8 @@ export class ActionItemsService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy
                 })),
-                assigneeName: userMap.get(actionItem.assignee) || actionItem.assignee
+                assigneeName: userMap.get(actionItem.assignee) || actionItem.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 

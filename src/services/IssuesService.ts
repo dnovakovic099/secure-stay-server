@@ -465,7 +465,8 @@ export class IssuesService {
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
                 fileInfo: fileInfoList.filter(file => file.entityId === issue.id),
-                assigneeName: userMap.get(issue.assignee) || issue.assignee
+                assigneeName: userMap.get(issue.assignee) || issue.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 

@@ -152,7 +152,8 @@ export class ClientTicketService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
-                assigneeName: userMap.get(ticket.assignee) || ticket.assignee
+                assigneeName: userMap.get(ticket.assignee) || ticket.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
