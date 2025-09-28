@@ -641,7 +641,9 @@ export class UsersService {
 
         const transformedClientTickets = clientTickets.map(ticket => {
             return {
+                id: ticket.id,
                 status: ticket.status,
+                assignee: ticket.assignee,
                 assigneeName: userMap.get(ticket.assignee) || ticket.assignee,
                 area: "Client Ticket",
                 property: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName || ticket.listingId,
@@ -657,7 +659,9 @@ export class UsersService {
 
         const transformedActionItems = actionItems.map(item => {
             return {
+                id: item.id,
                 status: item.status,
+                assignee: item.assignee,
                 assigneeName: userMap.get(item.assignee) || item.assignee,
                 area: "Action Item",
                 property: listings.find((listing) => listing.id == Number(item.listingId))?.internalListingName || item.listingId,
@@ -673,7 +677,9 @@ export class UsersService {
 
         const transformedIssues = issues.map(issue => {
             return {
+                id: issue.id,
                 status: issue.status,
+                assignee: issue.assignee,
                 assigneeName: userMap.get(issue.assignee) || issue.assignee,
                 area: "Issues",
                 property: issue.listing_name || issue.listing_id,

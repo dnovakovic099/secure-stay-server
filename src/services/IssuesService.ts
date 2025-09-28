@@ -464,7 +464,8 @@ export class IssuesService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
-                fileInfo: fileInfoList.filter(file => file.entityId === issue.id)
+                fileInfo: fileInfoList.filter(file => file.entityId === issue.id),
+                assigneeName: userMap.get(issue.assignee) || issue.assignee
             };
         });
 
@@ -610,5 +611,40 @@ export class IssuesService {
                 logger.error(`Error migrating files for issue ID ${issue.id}: ${error.message}`);
             }
         }
+    }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.assignee = assignee;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.urgency = urgency;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.mistake = mistake;
+        if (mistake === "Resolved") {
+            issue.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            issue.mistakeResolvedOn = null;
+        }
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
     }
 } 

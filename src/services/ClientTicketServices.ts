@@ -152,6 +152,7 @@ export class ClientTicketService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
+                assigneeName: userMap.get(ticket.assignee) || ticket.assignee
             };
         });
 
@@ -388,5 +389,41 @@ export class ClientTicketService {
             throw error;
         }
     }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.assignee = assignee;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.urgency = urgency;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.mistake = mistake;
+        if (mistake === "Resolved") {
+            clientTicket.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            clientTicket.mistakeResolvedOn = null;
+        }
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
 
 }

@@ -148,6 +148,7 @@ export class ActionItemsService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy
                 })),
+                assigneeName: userMap.get(actionItem.assignee) || actionItem.assignee
             };
         });
 
@@ -409,6 +410,41 @@ export class ActionItemsService {
             logger.error(`[bulkUpdateActionItems] Error updating action items: ${error.message}`);
             throw error;
         }
+    }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.assignee = assignee;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.urgency = urgency;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.mistake = mistake;
+        if (mistake === "Resolved") {
+            actionItem.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            actionItem.mistakeResolvedOn = null;
+        }
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
     }
 
 }

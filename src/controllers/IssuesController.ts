@@ -327,4 +327,55 @@ export class IssuesController {
             next(error);
         }
     }
+
+    async updateAssignee(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, assignee } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateAssignee(id, assignee, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateUrgency(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, urgency } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateUrgency(id, urgency, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateMistake(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, mistake } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateMistake(id, mistake, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 } 
