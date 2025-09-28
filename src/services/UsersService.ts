@@ -696,20 +696,20 @@ export class UsersService {
         const data = [...transformedActionItems, ...transformedClientTickets, ...transformedIssues].sort((a, b) => b.urgency - a.urgency || (b.createdAt.getTime() - a.createdAt.getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0));
 
         const taggedDataCount = {
-            active: data.filter(item => item.status.toLowerCase() !== "completed").length,
-            new: data.filter(item => item.status.toLowerCase() === "new").length,
-            inProgress: data.filter(item => item.status.toLowerCase() === "in progress").length,
-            needHelp: data.filter(item => item.status.toLowerCase() === "need help").length,
+            active: data.filter(item => item.status && item.status.toLowerCase() !== "completed").length,
+            new: data.filter(item => item.status && item.status.toLowerCase() === "new").length,
+            inProgress: data.filter(item => item.status && item.status.toLowerCase() === "in progress").length,
+            needHelp: data.filter(item => item.status && item.status.toLowerCase() === "need help").length,
             completedToday: data.filter(item => item.completedOn && format(new Date(item.completedOn), "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")).length,
         };
 
 
         const mistakeCount = {
-            total: data.filter(item => item.mistake).length,
-            new: data.filter(item => item.mistake.toLowerCase() === "yes").length,
-            inProgress: data.filter(item => item.mistake.toLowerCase() === "in progress").length,
-            needHelp: data.filter(item => item.mistake.toLowerCase() === "need help").length,
-            completedToday: data.filter(item => item.mistake.toLowerCase() === "resolved" && item.mistakeResolvedOn === format(new Date(), "yyyy-MM-dd")).length,
+            total: data.filter(item => item.mistake).length || 0,
+            new: data.filter(item => item.mistake && item.mistake.toLowerCase() === "yes").length,
+            inProgress: data.filter(item => item.mistake && item.mistake.toLowerCase() === "in progress").length,
+            needHelp: data.filter(item => item.mistake && item.mistake.toLowerCase() === "need help").length,
+            completedToday: data.filter(item => item.mistake && item.mistake.toLowerCase() === "resolved" && item.mistakeResolvedOn === format(new Date(), "yyyy-MM-dd")).length,
         };
 
         return { data, taggedDataCount, mistakeCount };
