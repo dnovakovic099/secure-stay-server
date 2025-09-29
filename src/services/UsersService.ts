@@ -648,7 +648,7 @@ export class UsersService {
                 area: "Client Ticket",
                 property: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName || ticket.listingId,
                 description: ticket.description,
-                latestUpdate: ticket.clientTicketUpdates.sort((a, b) => b.id - a.id)[ticket.clientTicketUpdates.length - 1]?.updates || '',
+                latestUpdate: ticket.clientTicketUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
                 urgency: ticket.urgency,
                 mistake: ticket.mistake,
                 mistakeResolvedOn: ticket.mistakeResolvedOn,
@@ -666,7 +666,7 @@ export class UsersService {
                 area: "Action Item",
                 property: listings.find((listing) => listing.id == Number(item.listingId))?.internalListingName || item.listingId,
                 description: item.item,
-                latestUpdate: item.actionItemsUpdates.sort((a, b) => b.id - a.id)[item.actionItemsUpdates.length - 1]?.updates || '',
+                latestUpdate: item.actionItemsUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
                 urgency: item.urgency,
                 mistake: item.mistake,
                 mistakeResolvedOn: item.mistakeResolvedOn,
@@ -684,7 +684,7 @@ export class UsersService {
                 area: "Issues",
                 property: issue.listing_name || issue.listing_id,
                 description: issue.issue_description,
-                latestUpdate: issue.issueUpdates.sort((a, b) => b.id - a.id)[issue.issueUpdates.length - 1]?.updates || '',
+                latestUpdate: issue.issueUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
                 urgency: issue.urgency,
                 mistake: issue.mistake,
                 mistakeResolvedOn: issue.mistakeResolvedOn,
@@ -705,11 +705,12 @@ export class UsersService {
 
 
         const mistakeCount = {
-            total: data.filter(item => item.mistake).length || 0,
+            total: data.filter(item => item.mistake && item.mistake.toLowerCase() !== "resolved").length || 0,
             new: data.filter(item => item.mistake && item.mistake.toLowerCase() === "yes").length,
             inProgress: data.filter(item => item.mistake && item.mistake.toLowerCase() === "in progress").length,
             needHelp: data.filter(item => item.mistake && item.mistake.toLowerCase() === "need help").length,
             completedToday: data.filter(item => item.mistake && item.mistake.toLowerCase() === "resolved" && item.mistakeResolvedOn === format(new Date(), "yyyy-MM-dd")).length,
+            overall: data.filter(item => item.mistake).length
         };
 
         return { data, taggedDataCount, mistakeCount };
