@@ -10,6 +10,12 @@ import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "../utils/supabase";
+import { Issue } from "../entity/Issue";
+import { ActionItems } from "../entity/ActionItems";
+import { ClientTicket } from "../entity/ClientTicket";
+import { tagIds } from "../constant";
+import { ListingService } from "./ListingService";
+import { format } from "date-fns";
 
 
 interface ApiKey {
@@ -23,6 +29,10 @@ export class UsersService {
     private hostAwayClient = new HostAwayClient();
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUser = appDatabase.getRepository(MobileUsersEntity)
+
+    private issuesRepository = appDatabase.getRepository(Issue);
+    private actionItemsRepo = appDatabase.getRepository(ActionItems);
+    private clientTicketRepo = appDatabase.getRepository(ClientTicket);
 
 
     async createUser(request: Request, response: Response) {
@@ -564,6 +574,148 @@ export class UsersService {
             message: "Failed to update user!!!",
         };
     }
+
+    async fetchUserList() {
+        return await this.usersRepository
+            .createQueryBuilder("user")
+            .select("user.uid", "uid")
+            .addSelect("CONCAT(user.firstName, ' ', user.lastName)", "name")
+            .getRawMany();
+    }
+
+    async fetchPaginatedUserList(filter: any) {
+        const { page, limit } = filter;
+        const offset = (page - 1) * limit;
+
+        const [data, total] = await this.usersRepository.findAndCount({
+            where: { deletedAt: null },
+            order: { createdAt: "DESC" },
+            skip: offset,
+            take: limit,
+        });
+
+        return { data, total };
+    }
+
+    async removeUser(uid: string, userId: string) {
+        await supabaseAdmin.auth.admin.deleteUser(uid, true);
+        const connectedAccountService = new ConnectedAccountService();
+        await connectedAccountService.deleteConnectedAccount(uid);
+        return await this.usersRepository.update({ uid }, { deletedAt: new Date(), deletedBy: userId });
+    }
+
+
+    async getAssignedTaskInfo(userId: string) {
+        //Issues
+        const issues = await this.issuesRepository.find({
+            where: {
+                assignee: userId
+            },
+            relations: ["issueUpdates"],
+            order: { urgency: "DESC" }
+        });
+
+        //Action Items
+        const actionItems = await this.actionItemsRepo.find({
+            where: {
+                assignee: userId
+            },
+            relations: ["actionItemsUpdates"],
+            order: { urgency: "DESC" }
+        });
+
+        //Client Tickets
+        const clientTickets = await this.clientTicketRepo.find({
+            where: {
+                assignee: userId
+            },
+            relations: ["clientTicketUpdates"],
+            order: { urgency: "DESC" },
+        });
+
+        const users = await this.usersRepository.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user?.firstName}`]));
+
+        const listingService = new ListingService();
+        const listings = await listingService.getListingNames(userId);
+
+        const transformedClientTickets = clientTickets.map(ticket => {
+            return {
+                id: ticket.id,
+                status: ticket.status,
+                assignee: ticket.assignee,
+                assigneeName: userMap.get(ticket.assignee) || ticket.assignee,
+                area: "Client Ticket",
+                property: listings.find((listing) => listing.id == Number(ticket.listingId))?.internalListingName || ticket.listingId,
+                description: ticket.description,
+                latestUpdate: ticket.clientTicketUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
+                urgency: ticket.urgency,
+                mistake: ticket.mistake,
+                mistakeResolvedOn: ticket.mistakeResolvedOn,
+                createdAt: ticket.createdAt,
+                completedOn: ticket.completedOn
+            };
+        });
+
+        const transformedActionItems = actionItems.map(item => {
+            return {
+                id: item.id,
+                status: item.status,
+                assignee: item.assignee,
+                assigneeName: userMap.get(item.assignee) || item.assignee,
+                area: "Action Item",
+                property: listings.find((listing) => listing.id == Number(item.listingId))?.internalListingName || item.listingId,
+                description: item.item,
+                latestUpdate: item.actionItemsUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
+                urgency: item.urgency,
+                mistake: item.mistake,
+                mistakeResolvedOn: item.mistakeResolvedOn,
+                createdAt: item.createdAt,
+                completedOn: item.completedOn
+            };
+        });
+
+        const transformedIssues = issues.map(issue => {
+            return {
+                id: issue.id,
+                status: issue.status,
+                assignee: issue.assignee,
+                assigneeName: userMap.get(issue.assignee) || issue.assignee,
+                area: "Issues",
+                property: issue.listing_name || issue.listing_id,
+                description: issue.issue_description,
+                latestUpdate: issue.issueUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
+                urgency: issue.urgency,
+                mistake: issue.mistake,
+                mistakeResolvedOn: issue.mistakeResolvedOn,
+                createdAt: issue.created_at,
+                completedOn: issue.completed_at
+            };
+        });
+
+        const data = [...transformedActionItems, ...transformedClientTickets, ...transformedIssues].sort((a, b) => b.urgency - a.urgency || (b.createdAt.getTime() - a.createdAt.getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0));
+
+        const taggedDataCount = {
+            active: data.filter(item => item.status && item.status.toLowerCase() !== "completed").length,
+            new: data.filter(item => item.status && item.status.toLowerCase() === "new").length,
+            inProgress: data.filter(item => item.status && item.status.toLowerCase() === "in progress").length,
+            needHelp: data.filter(item => item.status && item.status.toLowerCase() === "need help").length,
+            completedToday: data.filter(item => item.completedOn && format(new Date(item.completedOn), "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")).length,
+        };
+
+
+        const mistakeCount = {
+            total: data.filter(item => item.mistake && item.mistake.toLowerCase() !== "resolved").length || 0,
+            new: data.filter(item => item.mistake && item.mistake.toLowerCase() === "yes").length,
+            inProgress: data.filter(item => item.mistake && item.mistake.toLowerCase() === "in progress").length,
+            needHelp: data.filter(item => item.mistake && item.mistake.toLowerCase() === "need help").length,
+            completedToday: data.filter(item => item.mistake && item.mistake.toLowerCase() === "resolved" && item.mistakeResolvedOn === format(new Date(), "yyyy-MM-dd")).length,
+            overall: data.filter(item => item.mistake).length
+        };
+
+        return { data, taggedDataCount, mistakeCount };
+    }
+
 
 }
 

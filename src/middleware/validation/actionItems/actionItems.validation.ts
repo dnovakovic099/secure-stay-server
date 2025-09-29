@@ -11,6 +11,9 @@ export const validateCreateActionItems = (request: Request, response: Response, 
         status: Joi.string().valid('incomplete', 'completed', 'expired','in progress').required(),
         listingName: Joi.string().required(),
         reservationId: Joi.string().required(),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);
@@ -31,6 +34,9 @@ export const validateUpdateActionItems = (request: Request, response: Response, 
         status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
         listingName: Joi.string().required(),
         reservationId: Joi.string().required(),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);
@@ -134,4 +140,58 @@ export const validateBulkUpdateActionItems = (request: Request, response: Respon
     }
     next();
 }
+
+export const validateUpdateAssignee = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        assignee: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateUrgency = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        urgency: Joi.number().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
+export const validateUpdateMistake = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        mistake: Joi.string().required().valid('Yes', 'In Progress', 'Need Help', 'Resolved'),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid('incomplete', 'completed', 'expired', 'in progress'),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
 

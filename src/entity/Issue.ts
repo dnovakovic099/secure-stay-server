@@ -138,4 +138,16 @@ export class Issue {
 
     @Column({ type: "text", nullable: true })
     resolution: string;
+
+    @Column({ nullable: true })
+    assignee: string;
+
+    @Column({ nullable: true })
+    urgency: number;
+
+    @Column({ nullable: true })
+    mistake: string;
+
+    @Column({ nullable: true })
+    mistakeResolvedOn: string;
 }

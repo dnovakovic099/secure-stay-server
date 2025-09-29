@@ -47,4 +47,19 @@ export class ActionItems {
 
     @OneToMany(() => ActionItemsUpdates, actionItems => actionItems.actionItems)
     actionItemsUpdates: ActionItemsUpdates[];
+
+    @Column({ nullable: true })
+    completedOn: string;
+
+    @Column({ nullable: true })
+    assignee: string;
+
+    @Column({ nullable: true })
+    urgency: number;
+
+    @Column({ nullable: true })
+    mistake: string;
+
+    @Column({ nullable: true })
+    mistakeResolvedOn: string;
 }

@@ -15,6 +15,7 @@ import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { FileInfo } from "../entity/FileInfo";
 import path from "path";
 import logger from "../utils/logger.utils";
+import { format } from "date-fns";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -40,6 +41,10 @@ export class IssuesService {
         } else {
             data.completed_at = null;
             data.completed_by = null;
+        }
+
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
         const newIssue = this.issueRepo.create({
@@ -162,12 +167,16 @@ export class IssuesService {
             throw new Error('Issue not found');
         }
 
-        if (data.status === 'Completed') {
+        if (issue.status !== "Completed" && data.status === 'Completed') {
             data.completed_at = new Date();
             data.completed_by = userId;
         } else {
             data.completed_at = null;
             data.completed_by = null;
+        }
+
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
         let listing_name = '';
@@ -455,7 +464,9 @@ export class IssuesService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
-                fileInfo: fileInfoList.filter(file => file.entityId === issue.id)
+                fileInfo: fileInfoList.filter(file => file.entityId === issue.id),
+                assigneeName: userMap.get(issue.assignee) || issue.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
@@ -601,5 +612,50 @@ export class IssuesService {
                 logger.error(`Error migrating files for issue ID ${issue.id}: ${error.message}`);
             }
         }
+    }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.assignee = assignee;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.urgency = urgency;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.mistake = mistake;
+        if (mistake === "Resolved") {
+            issue.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            issue.mistakeResolvedOn = null;
+        }
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateStatus(id: number, status: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.status = status;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
     }
 } 
