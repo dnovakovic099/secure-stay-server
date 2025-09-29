@@ -181,3 +181,17 @@ export const validateUpdateMistake = (request: Request, response: Response, next
     next();
 };
 
+export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid('incomplete', 'completed', 'expired', 'in progress'),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+

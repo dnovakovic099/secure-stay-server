@@ -648,4 +648,14 @@ export class IssuesService {
         issue.updated_by = userId;
         return await this.issueRepo.save(issue);
     }
+
+    async updateStatus(id: number, status: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.status = status;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
 } 

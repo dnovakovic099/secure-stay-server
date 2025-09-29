@@ -448,4 +448,15 @@ export class ActionItemsService {
         return await this.actionItemsRepo.save(actionItem);
     }
 
+    async updateStatus(id: number, status: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.status = status;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+
 }
