@@ -9,9 +9,9 @@ export class ClientController {
   async createClient(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
-      const { primaryContact, secondaryContacts, properties } = request.body;
+      const { primaryContact, secondaryContacts, properties, source } = request.body;
       const userId = request.user.id;
-      const createdClient = await clientService.saveClient(primaryContact, userId, secondaryContacts, properties);
+      const createdClient = await clientService.saveClient(primaryContact, userId, source, secondaryContacts, properties,);
       return response.status(201).json(createdClient);
     } catch (error) {
       next(error);
@@ -56,6 +56,7 @@ export class ClientController {
         listingId: request.query.listingId ? (Array.isArray(request.query.listingId) ? request.query.listingId : [request.query.listingId]) as string[] : undefined,
         serviceType: request.query.serviceType ? (Array.isArray(request.query.serviceType) ? request.query.serviceType : [request.query.serviceType]) as string[] : undefined,
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
+        source: request.query.source as string | undefined,
       };
       const { total, data, satisfactionCounts } = await clientService.getClientList(filters, request.user.id);
 
@@ -67,5 +68,176 @@ export class ClientController {
     }
   }
 
+  async savePropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.savePropertyPreOnboardingInfo(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { clientId } = request.params as { clientId: string; };
+      const result = await clientService.getPropertyPreOnboardingInfo(clientId);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getSalesRepresentativeList(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getSalesRepresentativeList();
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updatePropertyPreOnboardingInfo(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
+  async saveOnboardingDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveOnboardingDetails(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatedOnboardingDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updatedOnboardingDetails(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveServiceInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveServiceInfo(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateServiceInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateServiceInfo(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getClientDetails(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getClientDetails(request.params.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveListingInfo(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingInfo(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveOnboardingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveOnboardingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateOnboardingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateOnboardingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveListingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.saveListingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingDetailsClientForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingDetailsClientForm(request.body, request.user.id);
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateFinancialsInternalForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateFinancialsInternalForm(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateManagementInternalForm(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateManagementInternalForm(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 
 }

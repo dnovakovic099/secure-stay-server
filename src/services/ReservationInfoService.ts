@@ -41,19 +41,19 @@ export class ReservationInfoService {
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
 
-  async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
+  async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
     const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
     if (isExist) {
-      return await this.updateReservationInfo(reservation.id, reservation);
+      return await this.updateReservationInfo(reservation.id, reservation, source);
     }
 
     const validReservationStatuses = ["new", "modified", "ownerStay"];
     const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
-    if (isValidReservationStatus) {
+    if (isValidReservationStatus && source == "webhook") {
       runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
     }
 
-    if (reservation.status == "inquiry" && reservation.channelId == 2018) {
+    if (reservation.status == "inquiry" && reservation.channelId == 2018 && source == "webhook") {
       setTimeout(() => {
         runAsync(this.notifyNewInquiryReservation(reservation), "notifyNewInquiryReservation");
       }, 5 * 60 * 1000);  //delay the notification by 5 min 
@@ -68,7 +68,7 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.save(newReservation);
   }
 
-  async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>) {
+  async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>, source: string) {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
@@ -79,12 +79,12 @@ export class ReservationInfoService {
     const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
     const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
 
-    if (!isCurrentStatusValid && isUpdatedStatusValid) {
+    if (!isCurrentStatusValid && isUpdatedStatusValid && source == "webhook") {
       // send Notification
       runAsync(this.notifyMobileUser(updateData), "notifyMobileUser");
     }
 
-    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
+    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018 && source == "webhook") {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
     
@@ -641,7 +641,7 @@ export class ReservationInfoService {
     const reservations = await this.hostAwayClient.syncReservations(startingDate);
     for (const reservation of reservations) {
       // logger.info(`ReservationID: ${reservation.id}`);
-      await this.saveReservationInfo(reservation);
+      await this.saveReservationInfo(reservation, "internal");
     }
     return {
       success: true,
@@ -673,7 +673,7 @@ export class ReservationInfoService {
     logger.info(`[syncCurrentlyStayingReservations] Syncing reservations from HostAway...`);
     for (const reservation of reservations) {
       if (reservationIds.includes(reservation.id)) {
-        await this.saveReservationInfo(reservation);
+        await this.saveReservationInfo(reservation, "internal");
       }
     }
     logger.info(`[syncCurrentlyStayingReservations] Successfully synced currently staying reservations.`);
@@ -1168,7 +1168,7 @@ export class ReservationInfoService {
     if (!reservation) {
       throw new Error(`Reservation not found with ID: ${reservationId}`);
     }
-    return await this.saveReservationInfo(reservation);
+    return await this.saveReservationInfo(reservation, "internal");
   }
 
   async getReservationGenericReport(body: {

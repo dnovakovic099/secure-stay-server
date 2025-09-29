@@ -28,11 +28,11 @@ export class UnifiedWebhookController {
 
             switch (body.event) {
                 case "reservation.created":
-                    await reservationInfoService.saveReservationInfo(body.data);
+                    await reservationInfoService.saveReservationInfo(body.data, "webhook");
                     // await reservationInfoService.notifyMobileUser(body.data);
                     break;
                 case "reservation.updated":
-                    await reservationInfoService.updateReservationInfo(body.data.id, body.data);
+                    await reservationInfoService.updateReservationInfo(body.data.id, body.data, "webhook");
                     // runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
                     break;
                 case "message.received":

@@ -40,7 +40,7 @@ export class ClientEntity {
   companyName: string;
 
   @Column({ nullable: true })
-  status: string;
+  status: string;   // Onboarding, Active, At Risk, Offboarding, Offboarded
 
   @Column({ type: "text", nullable: true })
   notes: string;
@@ -53,6 +53,9 @@ export class ClientEntity {
 
   @OneToMany(() => ClientSecondaryContact, (contact) => contact.client, { cascade: true, eager: false })
   secondaryContacts: ClientSecondaryContact[];
+
+  @Column({ nullable: true })
+  source: string;
 
   @CreateDateColumn({ type: "timestamp" })
   createdAt: Date;
