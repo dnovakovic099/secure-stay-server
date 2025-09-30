@@ -47,6 +47,10 @@ export class IssuesService {
             data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
+        if (!data.nextUpdateDate) {
+            data.nextUpdateDate = format(new Date(), 'yyyy-MM-dd');
+        }
+
         const newIssue = this.issueRepo.create({
             ...data,
             listing_name: listing_name,
@@ -182,6 +186,10 @@ export class IssuesService {
         let listing_name = '';
         if (data.listing_id) {
             listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || "";
+        }
+
+        if (!data.nextUpdateDate) {
+            data.nextUpdateDate = format(new Date(), 'yyyy-MM-dd');
         }
 
         Object.assign(issue, {
@@ -420,17 +428,26 @@ export class IssuesService {
             listingIds = listingId;
         }
 
+        let issueStatus = status;
+        let currentDate = format(new Date(), 'yyyy-MM-dd');
+        let isOverdue = false;
+        if (issueStatus && issueStatus.length == 1 && issueStatus[0] === "Overdue") {
+            issueStatus = ["New", "In Progress", "Need Help", "Scheduled", "Overdue"];
+            isOverdue = true;
+        }
+
         const [issues, total] = await this.issueRepo.findAndCount({
             where: {
                 ...(category && category.length > 0 && { category: In(category) }),
                 ...(listingIds && listingIds.length > 0 && { listing_id: In(listingIds) }),
-                ...(status && status.length > 0 && { status: In(status) }),
+                ...(issueStatus && issueStatus.length > 0 && { status: In(issueStatus) }),
                 ...(fromDate && toDate && { created_at: Between(fromDate, toDate) }),
                 ...(guestName && { guest_name: guestName }),
                 ...(issueId && issueId.length > 0 && { id: In(issueId) }),
                 ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
                 ...(keyword && { issue_description: Like(`%${keyword}%`) }),
                 ...(channel && channel.length > 0 && { channel: In(channel) }),
+                ...(isOverdue && { nextUpdateDate: LessThan(currentDate) })
             },
             relations: ["issueUpdates"],
             take: limit,

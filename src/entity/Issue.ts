@@ -150,4 +150,7 @@ export class Issue {
 
     @Column({ nullable: true })
     mistakeResolvedOn: string;
+
+    @Column({ nullable: true })
+    nextUpdateDate: string;
 }
