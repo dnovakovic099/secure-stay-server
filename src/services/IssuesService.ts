@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { Issue } from "../entity/Issue";
-import { Between, Not, LessThan, In, MoreThan, Like } from "typeorm";
+import { Between, Not, LessThan, In, MoreThan, Like, LessThanOrEqual } from "typeorm";
 import * as XLSX from 'xlsx';
 import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
@@ -447,13 +447,14 @@ export class IssuesService {
                 ...(reservationId && reservationId.length > 0 && { reservation_id: In(reservationId) }),
                 ...(keyword && { issue_description: Like(`%${keyword}%`) }),
                 ...(channel && channel.length > 0 && { channel: In(channel) }),
-                ...(isOverdue && { nextUpdateDate: LessThan(currentDate) })
+                ...(isOverdue && { nextUpdateDate: LessThanOrEqual(currentDate) })
             },
             relations: ["issueUpdates"],
             take: limit,
             skip: (Number(page) - 1) * Number(limit),
             order: {
-                id: "DESC"
+                ...(!isOverdue && { id: "DESC" }),
+                ...(isOverdue && { urgency: "DESC" })
             }
         });
 
