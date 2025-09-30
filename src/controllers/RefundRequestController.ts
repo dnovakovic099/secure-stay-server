@@ -10,12 +10,20 @@ export class RefundRequestController {
         try {
             const refundRequestService = new RefundRequestService();
             const userId = request.user.id;
-            let fileNames: string[] = [];
-            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
-            }
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
 
-            return response.send(await refundRequestService.saveRefundRequest(request.body, userId, fileNames));
+            if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
+            }
+            return response.send(await refundRequestService.saveRefundRequest(request.body, userId, fileInfo));
         } catch (error) {
             return next(error);
         }
@@ -26,9 +34,18 @@ export class RefundRequestController {
             const refundRequestService = new RefundRequestService();
             const userId = request.user.id;
 
-            let attachments: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                attachments = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
             const refundRequest = await refundRequestService.getRefundRequestById(request.body.id);
@@ -36,7 +53,7 @@ export class RefundRequestController {
                 return response.status(404).json({ status: false, message: 'Refund request not found.' });
             }
 
-            return response.send(await refundRequestService.saveRefundRequest(request.body, userId, attachments, refundRequest));
+            return response.send(await refundRequestService.saveRefundRequest(request.body, userId, fileInfo, refundRequest));
         } catch (error) {
             return next(error);
         }

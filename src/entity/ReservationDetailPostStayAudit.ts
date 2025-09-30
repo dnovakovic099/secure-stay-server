@@ -189,4 +189,10 @@ export class ReservationDetailPostStayAudit {
 
     @Column({ nullable: true, type: 'text' })
     approvedUpsells: string;
+
+    @Column({ type: "text", nullable: true })
+    reasonForMissingIssue: string;
+
+    @Column({ type: "text", nullable: true })
+    improvementSuggestion: string;
 } 

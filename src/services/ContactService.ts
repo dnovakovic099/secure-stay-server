@@ -300,4 +300,119 @@ export class ContactService {
         return await this.contactUpdatesRepo.save(existingContactUpdate);
     }
 
+    async bulkUpdateContacts(ids: number[], updateData: Partial<Contact>, userId: string) {
+        try {
+            // Validate that all contacts exist
+            const existingContacts = await this.contactRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingContacts.length !== ids.length) {
+                const foundIds = existingContacts.map(contact => contact.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Contacts with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all contacts with the provided data
+            const updatePromises = existingContacts.map(contact => {
+                // Only update fields that are provided in updateData
+                if (updateData.name !== undefined) {
+                    contact.name = updateData.name;
+                }
+                if (updateData.contact !== undefined) {
+                    contact.contact = updateData.contact;
+                }
+                if (updateData.email !== undefined) {
+                    contact.email = updateData.email;
+                }
+                if (updateData.website_name !== undefined) {
+                    contact.website_name = updateData.website_name;
+                }
+                if (updateData.website_link !== undefined) {
+                    contact.website_link = updateData.website_link;
+                }
+                if (updateData.rate !== undefined) {
+                    contact.rate = updateData.rate;
+                }
+                if (updateData.paymentMethod !== undefined) {
+                    contact.paymentMethod = updateData.paymentMethod;
+                }
+                if (updateData.isAutoPay !== undefined) {
+                    contact.isAutoPay = updateData.isAutoPay;
+                }
+                if (updateData.source !== undefined) {
+                    contact.source = updateData.source;
+                }
+                if (updateData.status !== undefined) {
+                    contact.status = updateData.status;
+                }
+                if (updateData.role !== undefined) {
+                    contact.role = updateData.role;
+                }
+                if (updateData.listingId !== undefined) {
+                    contact.listingId = updateData.listingId;
+                }
+                if (updateData.notes !== undefined) {
+                    contact.notes = updateData.notes;
+                }
+                if (updateData.paymentDayOfWeek !== undefined) {
+                    contact.paymentDayOfWeek = updateData.paymentDayOfWeek ? JSON.stringify(updateData.paymentDayOfWeek) : null;
+                }
+                if (updateData.paymentScheduleType !== undefined) {
+                    contact.paymentScheduleType = updateData.paymentScheduleType;
+                }
+                if (updateData.paymentIntervalMonth !== undefined) {
+                    contact.paymentIntervalMonth = updateData.paymentIntervalMonth;
+                }
+                if (updateData.paymentWeekOfMonth !== undefined) {
+                    contact.paymentWeekOfMonth = updateData.paymentWeekOfMonth;
+                }
+                if (updateData.paymentDayOfMonth !== undefined) {
+                    contact.paymentDayOfMonth = updateData.paymentDayOfMonth;
+                }
+                if (updateData.costRating !== undefined) {
+                    contact.costRating = updateData.costRating;
+                }
+                if (updateData.trustLevel !== undefined) {
+                    contact.trustLevel = updateData.trustLevel;
+                }
+                if (updateData.speed !== undefined) {
+                    contact.speed = updateData.speed;
+                }
+                
+                contact.updatedBy = userId;
+                return this.contactRepo.save(contact);
+            });
+
+            const updatedContacts = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedContacts.length,
+                message: `Successfully updated ${updatedContacts.length} contacts`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+
+    async getContactList(keyword: string) {
+        const contacts = await this.contactRepo
+            .createQueryBuilder("contact")
+            .select([
+                "MIN(contact.id) as id",
+                "contact.name as name",
+                "contact.contact as contact",
+                "contact.email as email"
+            ])
+            .where("contact.name LIKE :keyword", { keyword: `${keyword}%` })
+            .groupBy("contact.contact") // distinct on contact
+            .orderBy("name", "DESC")
+            .getRawMany();
+
+        return contacts;
+    }
+
+
 }

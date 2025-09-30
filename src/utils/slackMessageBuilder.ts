@@ -234,7 +234,7 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New Client Ticket: 🏠 ${listingName}* *<https://securestay.ai/client-tickets?id=${ticket.id}|View>*`
+                    text: `*New Client Ticket: 🏠 ${listingName}* *<https://securestay.ai/client/client-tickets?id=${ticket.id}|View>*`
                 }
             },
             {

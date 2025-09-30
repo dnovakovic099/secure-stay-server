@@ -9,7 +9,7 @@ import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
-import { ownerDetails } from "../constant";
+import { ownerDetails, tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingTags } from "../entity/ListingTags";
 import logger from "../utils/logger.utils";
@@ -428,6 +428,68 @@ export class ListingService {
       .getRawMany();
 
     return cities;
+  }
+
+  public async getPropertyTypes() {
+    const propertyTypes = await this.hostAwayClient.getPropertyTypes();
+    return propertyTypes;
+  }
+
+  public async getCountries() {
+    const countries = await this.hostAwayClient.getCountries();
+    return countries;
+  }
+
+  public async getAmenities() {
+    const amenities = await this.hostAwayClient.getAmenities();
+    return amenities;
+  }
+
+  public async getBedTypes() {
+    const bedTypes = await this.hostAwayClient.getBedTypes();
+    return bedTypes;
+  }
+
+  public async getCurrencies() {
+    const currencies = await this.hostAwayClient.getCurrencies();
+    return currencies;
+  }
+
+  public async getCancellationPolicies(channel?: string) {
+    const cancellationPolicies = await this.hostAwayClient.getCancellationPolicies(channel);
+    return cancellationPolicies;
+  }
+
+  public async getTimezones() {
+    const timeZones = await this.hostAwayClient.getTimeZones();
+    return timeZones;
+  }
+
+  async getListingIdsForEachServiceType(userId: string) {
+    const listingService = new ListingService();
+
+    // Map each service type to its tag
+    const serviceTags = {
+      FULL_SERVICE: tagIds.FULL_SERVICE,
+      LAUNCH_SERVICE: tagIds.LAUNCH_SERVICE,
+      PRO_SERVICE: tagIds.PRO_SERVICE,
+    } as const;
+
+    // Run requests in parallel
+    const entries = await Promise.all(
+      (Object.keys(serviceTags) as (keyof typeof serviceTags)[]).map(async (key) => {
+        const tagId = serviceTags[key];
+        const listings = await listingService.getListingsByTagIds([tagId], userId);
+        return [key, listings.map((l) => l.id)] as const;
+      })
+    );
+
+    // Explicitly return each service type with its IDs
+    return {
+      FULL_SERVICE: entries.find(([key]) => key === "FULL_SERVICE")?.[1] ?? [],
+      LAUNCH_SERVICE: entries.find(([key]) => key === "LAUNCH_SERVICE")?.[1] ?? [],
+      PRO_SERVICE: entries.find(([key]) => key === "PRO_SERVICE")?.[1] ?? [],
+    };
   }
 
 

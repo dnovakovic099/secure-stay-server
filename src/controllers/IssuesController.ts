@@ -62,12 +62,21 @@ export class IssuesController {
         try {
             const userId = request.user.id;
 
-            let fileNames: string[] = [];
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                fileNames = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
 
-            const result = await issuesService.createIssue(request.body, userId, fileNames);
+            const result = await issuesService.createIssue(request.body, userId, fileInfo);
             return response.status(201).json({
                 status: true,
                 data: result
@@ -107,17 +116,27 @@ export class IssuesController {
             const updatedFiles = currentFiles.filter(file => !deletedFiles.includes(file));
             
             // Add new files if they exist
-            let newFiles: string[] = [];
+
+            let fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null;
+
             if (Array.isArray(request.files['attachments']) && request.files['attachments'].length > 0) {
-                newFiles = (request.files['attachments'] as Express.Multer.File[]).map(file => file.filename);
+                fileInfo = (request.files['attachments'] as Express.Multer.File[]).map(file => {
+                    return {
+                        fileName: file.filename,
+                        filePath: file.path,
+                        mimeType: file.mimetype,
+                        originalName: file.originalname
+                    };
+                }
+                );
             }
             // Combine existing and new files
-            const finalFileNames = [...updatedFiles, ...newFiles];
+            const finalFileNames = [...updatedFiles, ...(fileInfo ? fileInfo.map(file => file.fileName) : [])];
             // Update issue data with new file list
             const result = await issuesService.updateIssue(id, {
                 ...request.body,
                 fileNames: JSON.stringify(finalFileNames)
-            }, userId, newFiles);
+            }, userId, fileInfo);
 
             return response.status(200).json({
                 status: true,
@@ -286,6 +305,87 @@ export class IssuesController {
 
             const issuesService = new IssuesService();
             const result = await issuesService.bulkUpdateIssues(ids, updateData, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async migrateFilesToDrive(request: any, response: Response, next: NextFunction) {
+        try {
+            const issuesService = new IssuesService();
+            const result = await issuesService.migrateFilesToDrive();
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateAssignee(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, assignee } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateAssignee(id, assignee, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateUrgency(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, urgency } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateUrgency(id, urgency, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateMistake(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, mistake } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateMistake(id, mistake, userId);
+
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateStatus(request: any, response: Response, next: NextFunction) {
+        try {
+            const { id, status } = request.body;
+            const userId = request.user.id;
+
+            const issuesService = new IssuesService();
+            const result = await issuesService.updateStatus(id, status, userId);
 
             return response.status(200).json({
                 status: true,

@@ -10,10 +10,13 @@ import { addDays, format } from "date-fns";
 import { buildClaimReminderMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
+import { FileInfo } from "../entity/FileInfo";
+import logger from "../utils/logger.utils";
 
 export class ClaimsService {
     private claimRepo = appDatabase.getRepository(Claim);
     private usersRepo = appDatabase.getRepository(UsersEntity); 
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -22,16 +25,30 @@ export class ClaimsService {
         return `${year}-${month}-${day}`;
     }
 
-    async createClaim(data: Partial<Claim>, userId: string, fileNames?: string[]) {
+    async createClaim(data: Partial<Claim>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
+
         const newClaim = this.claimRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : "",
-            created_by: userId
+            fileNames: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
+            created_by: userId,
         });
 
         const savedClaim = await this.claimRepo.save(newClaim);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'claims';
+                fileRecord.entityId = savedClaim.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return savedClaim;
     }
 
@@ -113,12 +130,15 @@ export class ClaimsService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));     
 
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'claims' } });
+
         const [claims, total] = await this.claimRepo.findAndCount(queryOptions);
 
         const transformedData = claims.map(claim => {
             return {
                 ...claim,
                 updated_by: userMap.get(claim.updated_by) || claim.updated_by,
+                fileInfo: fileInfoList.filter(file => file.entityId === claim.id)
             };
         })
 
@@ -133,7 +153,7 @@ export class ClaimsService {
         };
     }
 
-    async updateClaim(id: number, data: Partial<Claim>, userId: string, fileNames?: string[]) {
+    async updateClaim(id: number, data: Partial<Claim>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const claim = await this.claimRepo.findOne({ 
             where: { id }
         });
@@ -155,7 +175,22 @@ export class ClaimsService {
             updated_by: userId,
         });
 
-        return await this.claimRepo.save(claim);
+        const updatedData = await this.claimRepo.save(claim);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'claims';
+                fileRecord.entityId = updatedData.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+
+        return updatedData;
     }
 
     async deleteClaim(id: number, userId: string) {
@@ -281,6 +316,154 @@ export class ClaimsService {
             throw new Error('Claim not found');
         }
         return claim;
+    }
+
+    async bulkUpdateClaims(ids: number[], updateData: Partial<Claim>, userId: string) {
+        try {
+            // Validate that all claims exist
+            const existingClaims = await this.claimRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingClaims.length !== ids.length) {
+                const foundIds = existingClaims.map(claim => claim.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw new Error(`Claims with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all claims with the provided data
+            const updatePromises = existingClaims.map(claim => {
+                // Only update fields that are provided in updateData
+                if (updateData.status !== undefined) {
+                    claim.status = updateData.status;
+                }
+                if (updateData.listing_id !== undefined) {
+                    claim.listing_id = updateData.listing_id;
+                }
+                if (updateData.listing_name !== undefined) {
+                    claim.listing_name = updateData.listing_name;
+                }
+                if (updateData.description !== undefined) {
+                    claim.description = updateData.description;
+                }
+                if (updateData.reservation_id !== undefined) {
+                    claim.reservation_id = updateData.reservation_id;
+                }
+                if (updateData.reservation_amount !== undefined) {
+                    claim.reservation_amount = updateData.reservation_amount;
+                }
+                if (updateData.channel !== undefined) {
+                    claim.channel = updateData.channel;
+                }
+                if (updateData.guest_name !== undefined) {
+                    claim.guest_name = updateData.guest_name;
+                }
+                if (updateData.guest_contact_number !== undefined) {
+                    claim.guest_contact_number = updateData.guest_contact_number;
+                }
+                if (updateData.quote_1 !== undefined) {
+                    claim.quote_1 = updateData.quote_1;
+                }
+                if (updateData.quote_2 !== undefined) {
+                    claim.quote_2 = updateData.quote_2;
+                }
+                if (updateData.quote_3 !== undefined) {
+                    claim.quote_3 = updateData.quote_3;
+                }
+                if (updateData.estimated_reasonable_price !== undefined) {
+                    claim.estimated_reasonable_price = updateData.estimated_reasonable_price;
+                }
+                if (updateData.final_price !== undefined) {
+                    claim.final_price = updateData.final_price;
+                }
+                if (updateData.client_paid_amount !== undefined) {
+                    claim.client_paid_amount = updateData.client_paid_amount;
+                }
+                if (updateData.claim_resolution_amount !== undefined) {
+                    claim.claim_resolution_amount = updateData.claim_resolution_amount;
+                }
+                if (updateData.payment_information !== undefined) {
+                    claim.payment_information = updateData.payment_information;
+                }
+                if (updateData.reporter !== undefined) {
+                    claim.reporter = updateData.reporter;
+                }
+                if (updateData.reservation_link !== undefined) {
+                    claim.reservation_link = updateData.reservation_link;
+                }
+                if (updateData.client_requested_amount !== undefined) {
+                    claim.client_requested_amount = updateData.client_requested_amount;
+                }
+                if (updateData.airbnb_filing_amount !== undefined) {
+                    claim.airbnb_filing_amount = updateData.airbnb_filing_amount;
+                }
+                if (updateData.airbnb_resolution !== undefined) {
+                    claim.airbnb_resolution = updateData.airbnb_resolution;
+                }
+                if (updateData.airbnb_resolution_won_amount !== undefined) {
+                    claim.airbnb_resolution_won_amount = updateData.airbnb_resolution_won_amount;
+                }
+                if (updateData.payee !== undefined) {
+                    claim.payee = updateData.payee;
+                }
+                if (updateData.payment_status !== undefined) {
+                    claim.payment_status = updateData.payment_status;
+                }
+                if (updateData.due_date !== undefined) {
+                    claim.due_date = updateData.due_date;
+                }
+                if (updateData.claim_type !== undefined) {
+                    claim.claim_type = updateData.claim_type;
+                }
+                if (updateData.reservation_code !== undefined) {
+                    claim.reservation_code = updateData.reservation_code;
+                }
+                
+                claim.updated_by = userId;
+                return this.claimRepo.save(claim);
+            });
+
+            const updatedClaims = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedClaims.length,
+                message: `Successfully updated ${updatedClaims.length} claims`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async migrateFilesToDrive() {
+        //get all claims
+        const claims = await this.claimRepo.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'claims' } });
+
+        for (const claim of claims) {
+            try {
+                if (claim.fileNames) {
+                    const fileNames = JSON.parse(claim.fileNames) as string[];
+                    const filesForClaim = fileInfo.filter(file => file.entityId === claim.id);
+                    for (const file of fileNames) {
+                        const fileExists = filesForClaim.find(f => f.fileName === file);
+                        if (!fileExists) {
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'claims';
+                            fileRecord.entityId = claim.id;
+                            fileRecord.fileName = file;
+                            fileRecord.createdBy = claim.created_by;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/claims/${file}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for claim ID ${claim.id}: ${error.message}`);
+            }
+        }
     }
 
 } 

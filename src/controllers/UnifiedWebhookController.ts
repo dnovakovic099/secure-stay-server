@@ -10,12 +10,6 @@ import { IssuesService } from "../services/IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
-import { appDatabase } from "../utils/database.util";
-import { SlackMessageEntity } from "../entity/SlackMessageInfo";
-import { buildActionItemsSlackMessage, buildActionItemStatusUpdateMessage } from "../utils/slackMessageBuilder";
-import sendSlackMessage from "../utils/sendSlackMsg";
-import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import updateSlackMessage from "../utils/updateSlackMsg";
 
 export class UnifiedWebhookController {
 
@@ -34,12 +28,12 @@ export class UnifiedWebhookController {
 
             switch (body.event) {
                 case "reservation.created":
-                    await reservationInfoService.saveReservationInfo(body.data);
+                    await reservationInfoService.saveReservationInfo(body.data, "webhook");
                     // await reservationInfoService.notifyMobileUser(body.data);
                     break;
                 case "reservation.updated":
-                    await reservationInfoService.updateReservationInfo(body.data.id, body.data);
-                    runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
+                    await reservationInfoService.updateReservationInfo(body.data.id, body.data, "webhook");
+                    // runAsync(reservationInfoService.handleAirbnbClosedResolution(body.data), "handleAirbnbClosedResolution");
                     break;
                 case "message.received":
                     // this.handleReservationCancelled(body);
@@ -183,6 +177,10 @@ export class UnifiedWebhookController {
             for (let item of body.action_items) {
                 logger.info(`[handleHostBuddyWebhook]Processing action item: ${JSON.stringify(item)}`);
                 switch (item.category) {
+                    case "POOL AND SPA":
+                    case "PEST CONTROL":
+                    case "LANDSCAPING":
+                    case "HVAC":
                     case "MAINTENANCE":
                     case "CLEANLINESS": {
                         logger.info(`[handleHostBuddyWebhook]Creating issue for action item: ${JSON.stringify(item)}`);
@@ -192,6 +190,8 @@ export class UnifiedWebhookController {
                     case "RESERVATION CHANGES":
                     case "GUEST REQUESTS":
                     case "KNOWLEDGE BASE SUGGESTIONS":
+                    case "PROPERTY ACCESS":
+                    case "HB NOT RESPONDING":
                     case "OTHER": {
                         logger.info(`[handleHostBuddyWebhook]Creating action item: ${JSON.stringify(item)}`);
                         const actionItemsService = new ActionItemsService();
@@ -247,7 +247,8 @@ export class UnifiedWebhookController {
             claim_resolution_status: "N/A",
             estimated_reasonable_price: 0,
             final_price: 0,
-            claim_resolution_amount: 0
+            claim_resolution_amount: 0,
+            category: item.category
         };
         try {
             const issueService = new IssuesService();

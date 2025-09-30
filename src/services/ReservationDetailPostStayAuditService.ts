@@ -1,6 +1,8 @@
-import { Repository } from "typeorm";
+import { Between, Repository } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue, DamageReport, MissingItems, UtilityIssues, KeysAndLocks, GuestBookCheck, SecurityDepositStatus } from "../entity/ReservationDetailPostStayAudit";
+import { FileInfo } from "../entity/FileInfo";
+import logger from "../utils/logger.utils";
 
 interface ReservationDetailPostStayAuditDTO {
     reservationId: number;
@@ -21,6 +23,8 @@ interface ReservationDetailPostStayAuditDTO {
     guestBookCheck?: GuestBookCheck;
     securityDepositStatus?: SecurityDepositStatus;
     approvedUpsells?: string;
+    reasonForMissingIssue?: string;
+    improvementSuggestion?: string;
 }
 
 interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostStayAuditDTO {
@@ -31,13 +35,17 @@ interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostS
 
 export class ReservationDetailPostStayAuditService {
     private postStayAuditRepository: Repository<ReservationDetailPostStayAudit>;
+    private fileInfoRepo: Repository<FileInfo> = appDatabase.getRepository(FileInfo);
 
     constructor() {
         this.postStayAuditRepository = appDatabase.getRepository(ReservationDetailPostStayAudit);
     }
 
-    async fetchAuditByReservationId(reservationId: number): Promise<ReservationDetailPostStayAudit | null> {
-        return await this.postStayAuditRepository.findOne({ where: { reservationId } });
+    async fetchAuditByReservationId(reservationId: number): Promise<(ReservationDetailPostStayAudit & { fileInfo: FileInfo[]; }) | null> {
+
+        const data = await this.postStayAuditRepository.findOne({ where: { reservationId } });
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'post-stay-audit', entityId: reservationId } });
+        return data ? { ...data, fileInfo } : null;
     }
 
     async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
@@ -45,7 +53,7 @@ export class ReservationDetailPostStayAuditService {
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
 
-    async createAudit(dto: ReservationDetailPostStayAuditDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
+    async createAudit(dto: ReservationDetailPostStayAuditDTO, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]): Promise<ReservationDetailPostStayAudit> {
         const audit = this.postStayAuditRepository.create({
             reservationId: dto.reservationId,
             maintenanceIssues: dto.maintenanceIssues,
@@ -69,10 +77,26 @@ export class ReservationDetailPostStayAuditService {
             approvedUpsells: dto.approvedUpsells,
         });
 
-        return await this.postStayAuditRepository.save(audit);
+        const savedData = await this.postStayAuditRepository.save(audit);
+
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'post-stay-audit';
+                fileRecord.entityId = savedData.reservationId;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+
+        return savedData;
     }
 
-    async updateAudit(dto: ReservationDetailPostStayAuditUpdateDTO, userId: string): Promise<ReservationDetailPostStayAudit> {
+    async updateAudit(dto: ReservationDetailPostStayAuditUpdateDTO, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]): Promise<ReservationDetailPostStayAudit> {
         const audit = await this.fetchAuditByReservationId(dto.reservationId);
 
         if (!audit) {
@@ -80,14 +104,14 @@ export class ReservationDetailPostStayAuditService {
         }
 
         const deletedAttachments = dto.deletedAttachments ? JSON.parse(dto.deletedAttachments) : [];
-        const updatedAttachments = JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment));
-        const finalAttachments = [...updatedAttachments, ...JSON.parse(dto.newAttachments)];
+        const updatedAttachments = audit.attachments ? JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment)) : [];
+        const finalAttachments = dto.newAttachments ? [...updatedAttachments, ...JSON.parse(dto.newAttachments)] : null;
 
         audit.maintenanceIssues = dto.maintenanceIssues ?? audit.maintenanceIssues;
         audit.cleaningIssues = dto.cleaningIssues ?? audit.cleaningIssues;
         audit.cleaningSupplies = dto.cleaningSupplies ?? audit.cleaningSupplies;
         audit.refundForReview = dto.refundForReview ?? audit.refundForReview;
-        audit.attachments = JSON.stringify(finalAttachments) ?? '';
+        audit.attachments = finalAttachments ? JSON.stringify(finalAttachments) : audit.attachments;
         audit.airbnbReimbursement = dto.airbnbReimbursement ?? audit.airbnbReimbursement;
         audit.luxuryLodgingReimbursement = dto.luxuryLodgingReimbursement ?? audit.luxuryLodgingReimbursement;
         audit.potentialReviewIssue = dto.potentialReviewIssue ?? audit.potentialReviewIssue;
@@ -103,8 +127,24 @@ export class ReservationDetailPostStayAuditService {
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
         audit.approvedUpsells = dto.approvedUpsells ?? audit.approvedUpsells;
+        audit.reasonForMissingIssue = dto.reasonForMissingIssue ?? audit.reasonForMissingIssue;
+        audit.improvementSuggestion = dto.improvementSuggestion ?? audit.improvementSuggestion;
 
-        return await this.postStayAuditRepository.save(audit);
+        const updatedData = await this.postStayAuditRepository.save(audit);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'post-stay-audit';
+                fileRecord.entityId = updatedData.reservationId;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+        return updatedData;
     }
 
     private determineCompletionStatus(audit: Partial<ReservationDetailPostStayAuditDTO | ReservationDetailPostStayAuditUpdateDTO>): CompletionStatus {
@@ -164,5 +204,42 @@ export class ReservationDetailPostStayAuditService {
         if (hasValues) return CompletionStatus.COMPLETED;
         if (hasAnyValue) return CompletionStatus.IN_PROGRESS;
         return CompletionStatus.NOT_STARTED;
+    }
+
+
+    async migrateFilesToDrive(fromDate: string, toDate: string) {
+        const audits = await this.postStayAuditRepository.find({
+            where: {
+                createdAt: Between(new Date(fromDate), new Date(toDate))
+            }
+        });
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'post-stay-audit' } });
+        for (const audit of audits) {
+            try {
+                if (audit.attachments) {
+                    const attachments = JSON.parse(audit.attachments);
+                    const filesForAudit = fileInfo.filter(file => file.entityId == audit.reservationId);
+                    logger.info(JSON.stringify(filesForAudit));
+                    for (const attachment of attachments) {
+                        const fileExists = filesForAudit.find(f => f.fileName === attachment);
+                        logger.info(JSON.stringify(fileExists));
+                        if (!fileExists) {
+                            logger.info(`Migrating file for reservationId ${audit.reservationId}: ${attachment}`);
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'post-stay-audit';
+                            fileRecord.entityId = audit.reservationId;
+                            fileRecord.fileName = attachment;
+                            fileRecord.createdBy = audit.createdBy;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/post-stay-audit/${attachment}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for reservationId ${audit.reservationId}: ${error.message}`);
+            }
+        }
     }
 } 

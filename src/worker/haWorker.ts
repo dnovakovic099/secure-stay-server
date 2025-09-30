@@ -10,6 +10,9 @@ import { categoryIds } from "../constant";
 import { format } from "date-fns/format";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Resolution } from "../entity/Resolution";
+import { FileInfo } from "../entity/FileInfo";
+import { initRootFolder, getOrCreateFolder, drive, uploadToDrive } from "../utils/drive";
+import fs from "fs";
 
 (async () => {
     if (!appDatabase.isInitialized) {
@@ -44,7 +47,7 @@ import { Resolution } from "../entity/Resolution";
             const obj = {
                 listingMapId: String(resolution.listingMapId),
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: `Airbnb Resolution: ${resolution.guestName}`,
+                concept: `${resolution.description ? `Airbnb ${resolution.description}`: `${resolution.category}`}: ${resolution.guestName}`,
                 amount: resolution.amount,
                 categories: JSON.parse(categories),
                 reservationId: resolution.reservationId
@@ -89,7 +92,7 @@ import { Resolution } from "../entity/Resolution";
             const obj = {
                 listingMapId: String(resolution.listingMapId),
                 expenseDate: expense?.expenseDate,
-                concept: `Airbnb Resolution: ${resolution.guestName}`,
+                concept: `${resolution.description ? `Airbnb ${resolution.description}` : `${resolution.category}`}: ${resolution.guestName}`,
                 amount: amount,
                 categories: JSON.parse(categories),
                 reservationId: resolution.reservationId
@@ -132,6 +135,79 @@ import { Resolution } from "../entity/Resolution";
         connection
     });
 
+    // 🔧 Worker 4: google-drive-file-upload
+    const googleDriveFileUploadWorker = new Worker(
+        "google-drive-file-upload",
+        async job => {
+            try {
+                const fileInfo: FileInfo = job.data.entity;
+                const fileRepo = appDatabase.getRepository(FileInfo);
+
+                // 🔹 Check if local file exists first
+                if (!fs.existsSync(fileInfo.localPath)) {
+                    logger.warn(
+                        `Local file not found for entityId ${fileInfo.entityId}: ${fileInfo.localPath}`
+                    );
+
+                    // mark record as missing instead of retrying forever
+                    fileInfo.status = "failed";
+                    await fileRepo.save(fileInfo);
+
+                    return; // exit gracefully
+                }
+
+                const ROOT_FOLDER_ID = await initRootFolder();
+                const SUB_FOLDER_ID = await getOrCreateFolder(
+                    drive,
+                    fileInfo.entityType,
+                    ROOT_FOLDER_ID
+                );
+
+                const response = await uploadToDrive(
+                    fileInfo.localPath,
+                    fileInfo.fileName,
+                    fileInfo.mimetype,
+                    SUB_FOLDER_ID,
+                    ROOT_FOLDER_ID
+                );
+
+                if (response && response.id) {
+                    fileInfo.driveFileId = response.id;
+                    fileInfo.webViewLink = response.webViewLink || "";
+                    fileInfo.webContentLink = response.webContentLink || "";
+                    fileInfo.status = "uploaded";
+                    await fileRepo.save(fileInfo);
+
+                    logger.info(`File uploaded successfully: ${JSON.stringify(fileInfo)}`);
+
+                    // delete local file after upload
+                    try {
+                        fs.unlinkSync(fileInfo.localPath);
+                        logger.info(`Deleted local file: ${fileInfo.localPath}`);
+                    } catch (unlinkErr) {
+                        logger.error(
+                            `Failed to delete local file ${fileInfo.localPath}: ${unlinkErr.message}`
+                        );
+                    }
+                } else {
+                    logger.error(
+                        `Failed to upload file to Google Drive for ${JSON.stringify(fileInfo)}`
+                    );
+                    fileInfo.status = "failed";
+                    await fileRepo.save(fileInfo);
+                }
+            } catch (error) {
+                logger.error(`Error uploading file ${job.id}:`, error);
+                throw error; // job may retry depending on queue config
+            }
+        },
+        {
+            connection
+        }
+    );
+
+
+
 
     // Listeners for both workers
     expenseWorker.on('completed', job => {
@@ -165,6 +241,14 @@ import { Resolution } from "../entity/Resolution";
 
     deleteResolutionWorker.on('failed', (job, err) => {
         logger.error(`❌ Resolution Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    googleDriveFileUploadWorker.on('completed', job => {
+        logger.info(`✅ File upload Job ${job.id} completed for fileId ${job.data.entity.id}`);
+    });
+
+    googleDriveFileUploadWorker.on('failed', (job, err) => {
+        logger.error(`❌ File upload Job ${job.id} failed for fileId ${job.data.entity.id}: ${err.message}`);
     });
 
 })();

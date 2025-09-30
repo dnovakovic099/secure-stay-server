@@ -161,4 +161,65 @@ export class TasksService {
 
         return await this.taskRepo.save(task);
     }
+
+    async bulkUpdateTasks(ids: number[], updateData: Partial<Task>, userId: string) {
+        try {
+            const existingTasks = await this.taskRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingTasks.length !== ids.length) {
+                const foundIds = existingTasks.map(t => t.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Tasks with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            const updatePromises = existingTasks.map(async (task) => {
+                // Handle status transition and completion fields coherently per task
+                if (updateData.status !== undefined) {
+                    const targetStatus = updateData.status;
+                    const wasCompleted = task.status === 'Completed';
+                    const willBeCompleted = targetStatus === 'Completed';
+
+                    if (!wasCompleted && willBeCompleted) {
+                        task.completed_at = new Date();
+                        task.completed_by = userId;
+                    } else if (wasCompleted && !willBeCompleted) {
+                        task.completed_at = null;
+                        task.completed_by = null;
+                    }
+
+                    task.status = targetStatus;
+                }
+
+                if (updateData.listing_id !== undefined) {
+                    task.listing_id = updateData.listing_id as string;
+                }
+
+                if (updateData.assignee_id !== undefined) {
+                    task.assignee_id = updateData.assignee_id as string;
+                }
+
+                if (updateData.task !== undefined) {
+                    task.task = updateData.task as string;
+                }
+
+                if (updateData.add_to_post_stay !== undefined) {
+                    task.add_to_post_stay = !!updateData.add_to_post_stay;
+                }
+
+                task.updated_by = userId;
+                return this.taskRepo.save(task);
+            });
+
+            const updatedTasks = await Promise.all(updatePromises);
+            return {
+                success: true,
+                updatedCount: updatedTasks.length,
+                message: `Successfully updated ${updatedTasks.length} tasks`
+            };
+        } catch (error: any) {
+            throw error;
+        }
+    }
 } 

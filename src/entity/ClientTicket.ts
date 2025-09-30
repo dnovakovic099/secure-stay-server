@@ -48,4 +48,19 @@ export class ClientTicket {
     
     @OneToMany(() => ClientTicketUpdates, clientTicket => clientTicket.clientTicket)
     clientTicketUpdates: ClientTicketUpdates[];
+
+    @Column({ nullable: true })
+    clientSatisfaction: number;
+
+    @Column({ nullable: true })
+    assignee: string;
+
+    @Column({ nullable: true })
+    urgency: number;
+
+    @Column({ nullable: true })
+    mistake: string;
+
+    @Column({ nullable: true })
+    mistakeResolvedOn: string;
 }

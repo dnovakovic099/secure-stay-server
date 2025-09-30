@@ -9,6 +9,12 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
+  // Prevent double response
+  if (res.headersSent) {
+    logger.warn("Headers already sent, passing to next error handler.");
+    return next(err);
+  }
+
   // default error
   let statusCode = 500;
   let data: { message: string; originalMessage?: string } = {

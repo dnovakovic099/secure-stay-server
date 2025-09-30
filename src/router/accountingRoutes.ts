@@ -11,7 +11,8 @@ import verifyMobileSession from "../middleware/verifyMobileSession";
 import { ContractorInfoController } from "../controllers/ContractorController";
 import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 import { ResolutionController } from "../controllers/ResolutionController";
-import { validateCreateResolution, validateGetResolutions, validateUpdateResolution } from '../middleware/validation/accounting/resolution.validation';
+import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
+import { PublishedStatementController } from "../controllers/PublishedStatementController";
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -19,6 +20,7 @@ const incomeController = new IncomeController();
 const accountingController = new AccountingReportController();
 const contractorInfoController = new ContractorInfoController();
 const resolutionController = new ResolutionController();
+const publishedStatementController = new PublishedStatementController();
 
 router.route('/createexpense')
     .post(
@@ -49,6 +51,8 @@ router.route('/getexpense/:expenseId').get(verifySession, expenseController.getE
 router.route('/deleteexpense/:expenseId').delete(verifySession, expenseController.deleteExpense);
 
 router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
+
+router.route('/expense/migratefilestodrive').get(verifySession, expenseController.migrateFilesToDrive);
 
 router.route('/getincomestatement').post(verifySession, validateGetIncomeStatement, incomeController.generateIncomeStatement);
 
@@ -132,6 +136,13 @@ router.route('/deleteresolution/:resolutionId')
         resolutionController.deleteResolution
     );
 
+router.route('/bulkupdateresolutions')
+    .put(
+        verifySession,
+        validateBulkUpdateResolutions,
+        resolutionController.bulkUpdateResolutions
+    );
+
 router.route('/migrateexpensecategories')
 .post(
     verifySession,
@@ -143,5 +154,24 @@ router.route('/fixpositiveexpensesandsync')
         verifySession,
         expenseController.fixPositiveExpensesAndSync
     );
+
+router.route('/resolution/upload-csv')
+    .post(
+        verifySession,
+        fileUpload("resolution").single("file"),
+        resolutionController.processCSVForResolution
+    )
+
+router.route('/save-published-ha-statements')
+    .get(
+        verifySession,
+        publishedStatementController.savePublishedStatementFromHA
+    );
+
+router.route('/get-published-ha-statements')
+    .get(
+        verifySession,
+        publishedStatementController.getPublishedStatements
+    )
 
 export default router;

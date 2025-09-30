@@ -14,6 +14,7 @@ import { Claim } from "../entity/Claim";
 import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
+import { format } from "date-fns";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -26,6 +27,20 @@ interface CreateReview {
     rating: number;
     publicReview: string;
     status: string;
+}
+
+interface Filter {
+    listingMapId?: string[];
+    guestName?: string;
+    page?: number;
+    limit?: number;
+    userId?: string;
+    actionItemsStatus?: string[] | null | undefined;
+    issuesStatus?: string[] | null | undefined;
+    channel?: string[] | null | undefined;
+    payment?: string[] | null | undefined;
+    keyword?: string | undefined;
+    todayDate?: string | undefined;
 }
 
 export class ReviewService {
@@ -46,7 +61,9 @@ export class ReviewService {
         status,
         isClaimOnly,
         keyword,
-        propertyType
+        propertyType,
+        dateType,
+        channel
     }) {
         try {
             let listingIds: number[] = [];
@@ -73,10 +90,13 @@ export class ReviewService {
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
                 ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
                 ...(keyword && { publicReview: ILike(`%${keyword}%`) }),
+                ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
 
-            if (fromDate !== undefined && toDate !== undefined) {
-                condition.submittedAt = Between(fromDate, toDate);
+            const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
+
+            if (fromDate !== undefined && toDate !== undefined && dateType && allowedDateTypes.includes(dateType)) {
+                condition[dateType] = Between(fromDate, toDate);
             }
 
             const reviewDetailCondition: Record<string, any> = {};
@@ -98,7 +118,8 @@ export class ReviewService {
 
             if (Object.keys(order).length === 0) {
                 order.rating = 'ASC';
-                order.submittedAt = 'DESC';
+                const dateColumn = (dateType && allowedDateTypes.includes(dateType)) ? dateType : "submittedAt";
+                order[dateColumn] = 'DESC';
             }
 
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
@@ -419,6 +440,42 @@ export class ReviewService {
             return null;
         }
 
+    }
+
+    async getReviewsForCheckout(filters: Filter, userId: string) {
+        const { listingMapId, guestName, page, limit, actionItemsStatus, issuesStatus, channel, keyword, todayDate } = filters;
+
+        const today = new Date(todayDate);
+        const fourteenDaysAgo = new Date(today);
+        fourteenDaysAgo.setDate(today.getDate() - 14);
+        const fromDate = format(fourteenDaysAgo, 'yyyy-MM-dd');
+        const toDate = format(today, 'yyyy-MM-dd');
+
+        const reservationInfoService = new ReservationInfoService();
+        const { result, count } = await reservationInfoService.getReservationByDateRange(null, null, fromDate, toDate, listingMapId, guestName, page, limit, userId, actionItemsStatus, issuesStatus, channel, null, keyword);
+
+        // append reviews for each reservations
+        const reservationIds = result.map(reservation => reservation.id);
+        const reviews = await this.reviewRepository.find({
+            where: {
+                reservationId: In(reservationIds),
+                isHidden: 0,
+            },
+            relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
+            order: {
+                createdAt: 'DESC',
+            },
+        });
+
+        const transformedData = result.map(reservation => {
+            const review = reviews.find(r => r.reservationId == reservation.id);
+            return {
+                ...reservation,
+                review: review ? review : null,
+            };
+        });
+
+        return { result: transformedData, total: count };
     }
 
 }

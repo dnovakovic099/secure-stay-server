@@ -14,6 +14,7 @@ import { Issue } from "../entity/Issue";
 import { IssuesService } from "./IssuesService";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { ListingService } from "./ListingService";
+import { format } from "date-fns";
 
 interface ActionItemFilter {
     category?: string;
@@ -54,7 +55,14 @@ export class ActionItemsService {
             logger.error(`Listing with name ${property_name} not found`);
         }
 
-        const reservation = await this.reservationInfoRepo.findOne({ where: { guestName: guest_name } });
+        const reservation = await this.reservationInfoRepo.findOne({
+            where: {
+                guestName: guest_name,
+                listingMapId: listing ? listing.id : -1
+            },
+            order: { arrivalDate: 'DESC' }
+        });
+        
         if (!reservation) {
             logger.error(`Reservation for guest ${guest_name} not found`);
         }
@@ -140,6 +148,8 @@ export class ActionItemsService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy
                 })),
+                assigneeName: userMap.get(actionItem.assignee) || actionItem.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
@@ -148,7 +158,7 @@ export class ActionItemsService {
 
 
     async createActionItem(actionItem: ActionItems, userId: string) {
-        const { listingName, guestName, item, category, status, listingId, reservationId } = actionItem;
+        const { listingName, guestName, item, category, status, listingId, reservationId, assignee, urgency, mistake } = actionItem;
 
         const newActionItem = new ActionItems();
         newActionItem.listingName = listingName;
@@ -159,6 +169,10 @@ export class ActionItemsService {
         newActionItem.category = category;
         newActionItem.status = status;
         newActionItem.createdBy = userId;
+        newActionItem.assignee = assignee || null;
+        newActionItem.urgency = urgency || null;
+        newActionItem.mistake = mistake || null;
+        newActionItem.mistakeResolvedOn = mistake === "Resolved" ? format(new Date(), 'yyyy-MM-dd') : null;
 
         return await this.actionItemsRepo.save(newActionItem);
     }
@@ -177,6 +191,16 @@ export class ActionItemsService {
         existingActionItem.listingId = actionItem.listingId;
         existingActionItem.reservationId = actionItem.reservationId;
         existingActionItem.updatedBy = userId;
+        existingActionItem.assignee = actionItem.assignee || null;
+        existingActionItem.urgency = actionItem.urgency || null;
+        existingActionItem.mistake = actionItem.mistake || null;
+        existingActionItem.mistakeResolvedOn = actionItem.mistake === "Resolved" ? format(new Date(), 'yyyy-MM-dd') : null;
+
+        if (existingActionItem.status !== "completed" && actionItem.status === 'completed') {
+            existingActionItem.completedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            existingActionItem.completedOn = null;
+        }
 
         return await this.actionItemsRepo.save(existingActionItem);
     }
@@ -357,6 +381,11 @@ export class ActionItemsService {
                 }
                 if (updateData.status !== undefined) {
                     actionItem.status = updateData.status;
+                    if (updateData.status === 'completed') {
+                        actionItem.completedOn = format(new Date(), 'yyyy-MM-dd');
+                    } else {
+                        actionItem.completedOn = null;
+                    }
                 }
                 if (updateData.listingId !== undefined) {
                     actionItem.listingId = updateData.listingId;
@@ -383,5 +412,51 @@ export class ActionItemsService {
             throw error;
         }
     }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.assignee = assignee;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.urgency = urgency;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.mistake = mistake;
+        if (mistake === "Resolved") {
+            actionItem.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            actionItem.mistakeResolvedOn = null;
+        }
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
+    async updateStatus(id: number, status: string, userId: string) {
+        const actionItem = await this.actionItemsRepo.findOne({ where: { id } });
+        if (!actionItem) {
+            throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
+        }
+        actionItem.status = status;
+        actionItem.updatedBy = userId;
+        return await this.actionItemsRepo.save(actionItem);
+    }
+
 
 }

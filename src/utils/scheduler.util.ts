@@ -11,6 +11,8 @@ import { ListingService } from "../services/ListingService";
 import { UpsellOrderService } from "../services/UpsellOrderService";
 import { format } from "date-fns";
 import { ClaimsService } from "../services/ClaimsService";
+import { MaintenanceService } from "../services/MaintenanceService";
+import { PublishedStatementService } from "../services/PublishedStatementService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -32,9 +34,9 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
-  // schedule.scheduleJob("0 * * * *", syncReservation);
+  schedule.scheduleJob({ hour: 4, minute: 30, tz: "America/New_York" }, syncReservation);
 
-  schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
+  // schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
 
   schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
@@ -126,4 +128,28 @@ export function scheduleGetReservation() {
         logger.error("Error sending reminder message for pending claims", error);
       }
     });
+
+  schedule.scheduleJob(
+    { hour: 2, minute: 0, tz: "America/New_York" },  // Daily at 2 AM EST
+    async () => {
+      try {
+        logger.info('Processing maintenance log creation...');
+        const maintenanceService = new MaintenanceService();
+        await maintenanceService.automateMaintenanceLogs();
+        logger.info('Processed maintenance log creation successfully.');
+      } catch (error) {
+        logger.error("Error processing maintenance log creation:", error);
+      }
+    });
+
+  schedule.scheduleJob("0 * * * *", async () => {
+    try {
+      logger.info('Checking for new published statements from HostAway...');
+      const publishedStatementService = new PublishedStatementService();
+      await publishedStatementService.savePublishedStatement();
+      logger.info('Checked for new published statements from HostAway successfully.');
+    } catch (error) {
+      logger.error("Error checking for new published statements from HostAway:", error);
+    }
+  });
 }

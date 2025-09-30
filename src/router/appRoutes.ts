@@ -29,6 +29,9 @@ import clientTicketRoutes from "./clientTicketRoutes";
 import actionItemsRoutes from "./actionItemsRoutes";
 import contactRoutes from "./contactRoutes";
 import listingScheduleRoutes from "./ListingScheduleRoutes";
+import maintenaceRoutes from "./maintenanceRoutes";
+import listingIntakeRoutes from "./listingIntakeRoutes";
+import clientRoutes from "./clientRoutes";
 
 const router = Router();
 
@@ -62,5 +65,8 @@ router.use('/client-ticket', clientTicketRoutes);
 router.use('/action-items', actionItemsRoutes);
 router.use('/contact', contactRoutes);
 router.use('/schedule', listingScheduleRoutes);
+router.use('/maintenance', maintenaceRoutes);
+router.use('/listing-intake', listingIntakeRoutes)
+router.use('/clients', clientRoutes);
 
 export default router;

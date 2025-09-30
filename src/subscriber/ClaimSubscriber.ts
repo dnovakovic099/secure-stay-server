@@ -34,6 +34,11 @@ export class ClientTicketSubscriber
     async afterInsert(event: InsertEvent<Claim>) {
         const { entity, manager } = event;
         await this.sendSlackMessage(entity, entity.created_by).then((slackResponse) => {
+            if (!slackResponse) {
+                logger.error("Slack response is undefined, cannot upload files.");
+                return;
+            }
+
             const fileNames = JSON.parse(entity.fileNames);
             if (fileNames && fileNames.length > 0) {
                 const moduleFolder = "claims";
@@ -60,6 +65,7 @@ export class ClientTicketSubscriber
 
             const slackMessageService = new SlackMessageService();
             const slackMessage = buildClaimSlackMessage(claim, user);
+            console.log("Slack Message:", slackMessage);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({

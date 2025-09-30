@@ -120,6 +120,22 @@ export const issueCategoryEmoji = (category: string) => {
             emoji = "🧹";
             break;
         }
+        case "POOL AND SPA": {
+            emoji = "🏊"; 
+            break;
+        }
+        case "PEST CONTROL": {
+            emoji = "🐜"; 
+            break;
+        }
+        case "LANDSCAPING": {
+            emoji = "🌳"; 
+            break;
+        }
+        case "HVAC": {
+            emoji = "❄️"; 
+            break;
+        }
         default: {
             emoji = "";
         }
@@ -261,6 +277,7 @@ const slackUsers = {
     IAN: "U0962L2EG4S",
     CARYL: "U0977E4NNLX",
     YSA: "U097P8RNXS6",
+    ABHEY: "U08CL60E6U8"
 };
 
 let selectedSlackUsers = [];
@@ -277,23 +294,23 @@ export const clientTicketMentions = (category: string) => {
     let mentions = [];
     switch (category) {
         case "Pricing": {
-            mentions = [slackUsers.FERDY];
+            mentions = [slackUsers.GABBY, slackUsers.FERDY];
             break;
         }
         case "Statement": {
-            mentions = [slackUsers.FERDY];
+            mentions = [slackUsers.GABBY, slackUsers.FERDY, slackUsers.ABHEY];
             break;
         }
         case "Reservation": {
-            mentions = [slackUsers.GABBY, slackUsers.JADE, slackUsers.KAJ, slackUsers.ANGELICA];
+            mentions = [slackUsers.GABBY];
             break;
         }
         case "Listing": {
-            mentions = [slackUsers.JULIUS, slackUsers.JAZZ, slackUsers.JOREL, slackUsers.JUSTINE, slackUsers.ALDRIN];
+            mentions = [slackUsers.GABBY];
             break;
         }
         case "Maintenance": {
-            mentions = [slackUsers.RAIN, slackUsers.CHRIS, slackUsers.ANGELICA];
+            mentions = [slackUsers.GABBY];
             break;
         }
         case "Other": {
@@ -301,7 +318,7 @@ export const clientTicketMentions = (category: string) => {
             break;
         }
         case "Onboarding": {
-            mentions = [slackUsers.IAN, slackUsers.JULIUS, slackUsers.ALDRIN, slackUsers.JAZZ, slackUsers.JOREL, slackUsers.JUSTINE, slackUsers.CARYL, slackUsers.YSA];
+            mentions = [slackUsers.GABBY];
             break;
         }
         default: {

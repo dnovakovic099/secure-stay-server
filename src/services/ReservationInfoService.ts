@@ -41,19 +41,19 @@ export class ReservationInfoService {
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
 
-  async saveReservationInfo(reservation: Partial<ReservationInfoEntity>) {
+  async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
     const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
     if (isExist) {
-      return await this.updateReservationInfo(reservation.id, reservation);
+      return await this.updateReservationInfo(reservation.id, reservation, source);
     }
 
     const validReservationStatuses = ["new", "modified", "ownerStay"];
     const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
-    if (isValidReservationStatus) {
+    if (isValidReservationStatus && source == "webhook") {
       runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
     }
 
-    if (reservation.status == "inquiry" && reservation.channelId == 2018) {
+    if (reservation.status == "inquiry" && reservation.channelId == 2018 && source == "webhook") {
       setTimeout(() => {
         runAsync(this.notifyNewInquiryReservation(reservation), "notifyNewInquiryReservation");
       }, 5 * 60 * 1000);  //delay the notification by 5 min 
@@ -68,7 +68,7 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.save(newReservation);
   }
 
-  async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>) {
+  async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>, source: string) {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id } });
     if (!reservation) {
       return null;
@@ -79,12 +79,12 @@ export class ReservationInfoService {
     const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
     const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
 
-    if (!isCurrentStatusValid && isUpdatedStatusValid) {
+    if (!isCurrentStatusValid && isUpdatedStatusValid && source == "webhook") {
       // send Notification
       runAsync(this.notifyMobileUser(updateData), "notifyMobileUser");
     }
 
-    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018) {
+    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018 && source == "webhook") {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
     
@@ -301,14 +301,18 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -336,7 +340,7 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  private async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+  public async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
     const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
@@ -378,14 +382,18 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
 
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -492,13 +500,17 @@ export class ReservationInfoService {
       const issueServices = new IssuesService();
       const actionItemServices = new ActionItemsService();
       const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
+      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
+      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
       const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
       const reservationWithAuditStatus = {
         ...reservation,
         preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus,
+        postStayAuditStatus: postStayStatus=="Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus): postStayStatus,
         upsells: upsells,
         issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
         actionItems
       };
       Object.assign(reservation, reservationWithAuditStatus);
@@ -629,7 +641,7 @@ export class ReservationInfoService {
     const reservations = await this.hostAwayClient.syncReservations(startingDate);
     for (const reservation of reservations) {
       // logger.info(`ReservationID: ${reservation.id}`);
-      await this.saveReservationInfo(reservation);
+      await this.saveReservationInfo(reservation, "internal");
     }
     return {
       success: true,
@@ -661,7 +673,7 @@ export class ReservationInfoService {
     logger.info(`[syncCurrentlyStayingReservations] Syncing reservations from HostAway...`);
     for (const reservation of reservations) {
       if (reservationIds.includes(reservation.id)) {
-        await this.saveReservationInfo(reservation);
+        await this.saveReservationInfo(reservation, "internal");
       }
     }
     logger.info(`[syncCurrentlyStayingReservations] Successfully synced currently staying reservations.`);
@@ -679,6 +691,16 @@ export class ReservationInfoService {
     }
 
     reservation.isProcessedInStatement = isProcessedInStatement;
+    return await this.reservationInfoRepository.save(reservation);
+  }
+
+  async updateReservationRiskStatus(id: number, atRisk: boolean) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id}`);
+    }
+
+    reservation.atRisk = atRisk;
     return await this.reservationInfoRepository.save(reservation);
   }
 
@@ -1146,7 +1168,7 @@ export class ReservationInfoService {
     if (!reservation) {
       throw new Error(`Reservation not found with ID: ${reservationId}`);
     }
-    return await this.saveReservationInfo(reservation);
+    return await this.saveReservationInfo(reservation, "internal");
   }
 
   async getReservationGenericReport(body: {
@@ -1340,6 +1362,21 @@ export class ReservationInfoService {
     await this.generateReservationStatusReportFromHA(currentYear);
 
     logger.info(`Reservation status report for ${currentYear} refreshed successfully.`);
+  }
+
+  async getNextReservation(id: number, listingMapId: number) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id, listingMapId } });
+    if (!reservation) {
+      throw new Error(`Reservation not found with ID: ${id} and ListingMapId: ${listingMapId}`);
+    }
+
+    const nextReservation = await this.reservationInfoRepository.createQueryBuilder("reservation")
+      .where("reservation.listingMapId = :listingMapId", { listingMapId })
+      .andWhere("reservation.arrivalDate > :arrivalDate", { arrivalDate: reservation.arrivalDate })
+      .orderBy("reservation.arrivalDate", "ASC")
+      .getOne();
+
+    return nextReservation;
   }
 
 

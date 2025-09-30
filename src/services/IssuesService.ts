@@ -12,6 +12,10 @@ import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
+import { FileInfo } from "../entity/FileInfo";
+import path from "path";
+import logger from "../utils/logger.utils";
+import { format } from "date-fns";
 
 export class IssuesService {
     private issueRepo = appDatabase.getRepository(Issue);
@@ -19,6 +23,7 @@ export class IssuesService {
     private actionItemUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
     private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private formatDate(date: Date): string {
         const year = date.getFullYear();
@@ -27,7 +32,7 @@ export class IssuesService {
         return `${year}-${month}-${day}`;
     }
 
-    async createIssue(data: Partial<Issue>, userId: string, fileNames?: string[]) {
+    async createIssue(data: Partial<Issue>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const listing_name = (await appDatabase.getRepository(Listing).findOne({ where: { id: Number(data.listing_id) } }))?.internalListingName || ""
 
         if (data.status === 'Completed') {
@@ -38,13 +43,31 @@ export class IssuesService {
             data.completed_by = null;
         }
 
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        }
+
         const newIssue = this.issueRepo.create({
             ...data,
             listing_name: listing_name,
-            fileNames: fileNames ? JSON.stringify(fileNames) : ""
+            fileNames: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : ""
         });
 
         const savedIssue = await this.issueRepo.save(newIssue);
+
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'issues';
+                fileRecord.entityId = savedIssue.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return savedIssue;
     }
 
@@ -135,7 +158,7 @@ export class IssuesService {
         };
     }
 
-    async updateIssue(id: number, data: Partial<Issue>, userId: string, fileNames?: string[]) {
+    async updateIssue(id: number, data: Partial<Issue>, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const issue = await this.issueRepo.findOne({ 
             where: { id }
         });
@@ -144,12 +167,16 @@ export class IssuesService {
             throw new Error('Issue not found');
         }
 
-        if (data.status === 'Completed') {
+        if (issue.status !== "Completed" && data.status === 'Completed') {
             data.completed_at = new Date();
             data.completed_by = userId;
         } else {
             data.completed_at = null;
             data.completed_by = null;
+        }
+
+        if (data.mistake && data.mistake === "Resolved") {
+            data.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
         }
 
         let listing_name = '';
@@ -163,7 +190,21 @@ export class IssuesService {
             updated_by: userId,
         });
 
-        return await this.issueRepo.save(issue);
+        const updatedData = await this.issueRepo.save(issue);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'issues';
+                fileRecord.entityId = updatedData.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
+        return updatedData;
     }
 
     async deleteIssue(id: number, userId: string) {
@@ -411,6 +452,7 @@ export class IssuesService {
 
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'issues' } });
 
         const transformedIssues = issues.map(issue => {
             return {
@@ -422,6 +464,9 @@ export class IssuesService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
+                fileInfo: fileInfoList.filter(file => file.entityId === issue.id),
+                assigneeName: userMap.get(issue.assignee) || issue.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
@@ -536,5 +581,81 @@ export class IssuesService {
         } catch (error) {
             throw error;
         }
+    }
+
+    async migrateFilesToDrive() {
+        //get all issues
+        const issues = await this.issueRepo.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'issues' } });
+
+        for (const issue of issues) {
+            try {
+                if (issue.fileNames) {
+                    const fileNames = JSON.parse(issue.fileNames) as string[];
+                    const filesForIssue = fileInfo.filter(file => file.entityId === issue.id);
+                    for (const file of fileNames) {
+                        const fileExists = filesForIssue.find(f => f.fileName === file);
+                        if (!fileExists) {
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'issues';
+                            fileRecord.entityId = issue.id;
+                            fileRecord.fileName = file;
+                            fileRecord.createdBy = issue.created_by;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/issues/${file}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for issue ID ${issue.id}: ${error.message}`);
+            }
+        }
+    }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.assignee = assignee;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.urgency = urgency;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.mistake = mistake;
+        if (mistake === "Resolved") {
+            issue.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            issue.mistakeResolvedOn = null;
+        }
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
+    }
+
+    async updateStatus(id: number, status: string, userId: string) {
+        const issue = await this.issueRepo.findOne({ where: { id } });
+        if (!issue) {
+            throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+        }
+        issue.status = status;
+        issue.updated_by = userId;
+        return await this.issueRepo.save(issue);
     }
 } 

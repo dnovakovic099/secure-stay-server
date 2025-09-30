@@ -2,7 +2,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ActionItemsController } from "../controllers/ActionItemsController";
-import { getActionItemsValidation, validateActionItemMigrationToIssue, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate, validateBulkUpdateActionItems } from "../middleware/validation/actionItems/actionItems.validation";
+import { getActionItemsValidation, validateActionItemMigrationToIssue, validateCreateActionItems, validateCreateLatestUpdate, validateUpdateActionItems, validateUpdateLatestUpdate, validateBulkUpdateActionItems, validateUpdateAssignee, validateUpdateMistake, validateUpdateUrgency, validateUpdateStatus } from "../middleware/validation/actionItems/actionItems.validation";
 
 const router = Router();
 const categoryController = new ActionItemsController();
@@ -37,5 +37,10 @@ router
 router
     .route('/migrate-action-items-to-issues/:actionItemId')
     .post(verifySession, validateActionItemMigrationToIssue, categoryController.migrateActionItemsToIssues);
+
+router.route('/update-assignee').put(verifySession, validateUpdateAssignee, categoryController.updateAssignee);
+router.route('/update-urgency').put(verifySession, validateUpdateUrgency, categoryController.updateUrgency);
+router.route('/update-mistake').put(verifySession, validateUpdateMistake, categoryController.updateMistake);
+router.route('/update-status').put(verifySession, validateUpdateStatus, categoryController.updateStatus)
 
 export default router;

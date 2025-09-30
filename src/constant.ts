@@ -77,7 +77,10 @@ export const slackInteractivityEventNames={
 export const tagIds = {
     PM: 62778,
     ARB: 62779,
-    OWN: 62776
+    OWN: 62776,
+    LAUNCH_SERVICE: 74793,
+    FULL_SERVICE: 74792,
+    PRO_SERVICE: 74794
 };
 
 export const categoryIds={

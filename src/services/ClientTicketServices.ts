@@ -7,6 +7,7 @@ import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { setSelectedSlackUsers } from "../helpers/helpers";
+import { format } from "date-fns";
 
 interface LatestUpdates {
     id?: number;
@@ -84,6 +85,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
         if (body.category.includes("Other") && mentions && mentions.length > 0) {
             setSelectedSlackUsers(mentions);
@@ -146,6 +152,8 @@ export class ClientTicketService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
+                assigneeName: userMap.get(ticket.assignee) || ticket.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
@@ -219,6 +227,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
 
         const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
@@ -229,7 +242,7 @@ export class ClientTicketService {
         Object.assign(clientTicket, ticketData, {
             updatedBy: userId,
             updatedAt: new Date(),
-            ...(ticketData.status == "Completed" && {
+            ...(clientTicket.status !== "Completed" && ticketData.status == "Completed" && {
                 completedOn: new Date(),
                 completedBy: userId
             })
@@ -265,6 +278,9 @@ export class ClientTicketService {
         if (status === "Completed") {
             clientTicket.completedOn = new Date().toISOString();;
             clientTicket.completedBy = userId;
+        } else {
+            clientTicket.completedOn = null;
+            clientTicket.completedBy = null;
         }
 
         await this.clientTicketRepo.save(clientTicket);
@@ -311,5 +327,104 @@ export class ClientTicketService {
 
         return { message: `Client ticket update with ID ${id} deleted successfully.` };
     }
+
+    public async bulkUpdateClientTickets(ids: number[], updateData: Partial<ClientTicket>, userId: string) {
+        try {
+            // Validate that all client tickets exist
+            const existingClientTickets = await this.clientTicketRepo.find({
+                where: { id: In(ids) }
+            });
+
+            if (existingClientTickets.length !== ids.length) {
+                const foundIds = existingClientTickets.map(ticket => ticket.id);
+                const missingIds = ids.filter(id => !foundIds.includes(id));
+                throw CustomErrorHandler.notFound(`Client tickets with IDs ${missingIds.join(', ')} not found`);
+            }
+
+            // Update all client tickets with the provided data
+            const updatePromises = existingClientTickets.map(async (clientTicket) => {
+                // Only update fields that are provided in updateData
+                if (updateData.status !== undefined) {
+                    clientTicket.status = updateData.status;
+                    
+                    // Handle completedOn and completedBy logic for status changes
+                    if (updateData.status === 'Completed' && clientTicket.status !== 'Completed') {
+                        clientTicket.completedOn = new Date().toISOString();
+                        clientTicket.completedBy = userId;
+                    } else if (updateData.status !== 'Completed' && clientTicket.status === 'Completed') {
+                        clientTicket.completedOn = null;
+                        clientTicket.completedBy = null;
+                    }
+                }
+                if (updateData.listingId !== undefined) {
+                    clientTicket.listingId = updateData.listingId;
+                }
+                if (updateData.category !== undefined) {
+                    clientTicket.category = typeof updateData.category === 'string' 
+                        ? updateData.category 
+                        : JSON.stringify(updateData.category);
+                }
+                if (updateData.description !== undefined) {
+                    clientTicket.description = updateData.description;
+                }
+                if (updateData.resolution !== undefined) {
+                    clientTicket.resolution = updateData.resolution;
+                }
+                if (updateData.clientSatisfaction !== undefined) {
+                    clientTicket.clientSatisfaction = updateData.clientSatisfaction;
+                }
+                
+                clientTicket.updatedBy = userId;
+                clientTicket.updatedAt = new Date();
+                return this.clientTicketRepo.save(clientTicket);
+            });
+
+            const updatedClientTickets = await Promise.all(updatePromises);
+            
+            return {
+                success: true,
+                updatedCount: updatedClientTickets.length,
+                message: `Successfully updated ${updatedClientTickets.length} client tickets`
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.assignee = assignee;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.urgency = urgency;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.mistake = mistake;
+        if (mistake === "Resolved") {
+            clientTicket.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            clientTicket.mistakeResolvedOn = null;
+        }
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
 
 }

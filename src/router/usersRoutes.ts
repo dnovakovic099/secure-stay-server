@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { validateCreateMobileUser, validateEmailForForgetPassword, validateGetMobileUsersList, validateUserForGoogleLogin, validationForGoogleSignUp, validateUpdateMobileUser } from '../middleware/validation/user/user.validation';
+import { validateCreateMobileUser, validateEmailForForgetPassword, validateGetMobileUsersList, validateUserForGoogleLogin, validationForGoogleSignUp, validateUpdateMobileUser, validateFetchPaginatedUserList } from '../middleware/validation/user/user.validation';
 import { UsersController } from '../controllers/UsersController';
 import verifySession from '../middleware/verifySession';
 
@@ -65,6 +65,12 @@ router
         validateUpdateMobileUser,
         usersController.updateMobileUser
     );
+
+
+router.route('/fetchuserlist').get(verifySession, usersController.fetchUserList);
+router.route('/fetchpaginateduserlist').get(verifySession, validateFetchPaginatedUserList, usersController.fetchPaginatedUserList);
+router.route('/deleteuser/:id').delete(verifySession, usersController.removeUser);
+router.route('/assignedtaskinfo').get(verifySession, usersController.getAssignedTaskInfo);
 
 export default router
 

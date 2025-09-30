@@ -1,7 +1,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { ClientTicketController } from "../controllers/ClientTicketController";
-import { validateCreateClientTicket, validateCreateLatestUpdates, validateGetClientTicket, validateUpdateClientTicket, validateUpdateLatestUpdates, validateUpdateStatus } from "../middleware/validation/clientTicket/clientTicket.validation";
+import { validateCreateClientTicket, validateCreateLatestUpdates, validateGetClientTicket, validateUpdateClientTicket, validateUpdateLatestUpdates, validateUpdateStatus, validateBulkUpdateClientTicket, validateUpdateAssignee, validateUpdateMistake, validateUpdateUrgency } from "../middleware/validation/clientTicket/clientTicket.validation";
 
 const router = Router();
 const clientTicketController = new ClientTicketController;
@@ -41,5 +41,13 @@ router
 router
     .route('/latestupdates/delete/:id')
     .delete(verifySession, clientTicketController.deleteClientTicketUpdate);
+
+router
+    .route('/bulk-update')
+    .put(verifySession, validateBulkUpdateClientTicket, clientTicketController.bulkUpdateClientTickets);
+
+router.route('/update-assignee').put(verifySession, validateUpdateAssignee, clientTicketController.updateAssignee);
+router.route('/update-urgency').put(verifySession, validateUpdateUrgency, clientTicketController.updateUrgency);
+router.route('/update-mistake').put(verifySession, validateUpdateMistake, clientTicketController.updateMistake);
 
 export default router;

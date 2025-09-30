@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { IssuesController } from "../controllers/IssuesController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates, validateBulkUpdateIssues } from "../middleware/validation/issues/issues.validation";
+import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates, validateBulkUpdateIssues, validateUpdateAssignee, validateUpdateMistake, validateUpdateUrgency, validateUpdateStatus } from "../middleware/validation/issues/issues.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -28,6 +28,12 @@ router.route('/bulk-update')
         validateBulkUpdateIssues,
         issuesController.bulkUpdateIssues
     );
+
+router.route('/update-assignee').put(verifySession, validateUpdateAssignee, issuesController.updateAssignee);
+router.route('/update-urgency').put(verifySession, validateUpdateUrgency, issuesController.updateUrgency);
+router.route('/update-mistake').put(verifySession, validateUpdateMistake, issuesController.updateMistake);
+router.route('/update-status').put(verifySession, validateUpdateStatus, issuesController.updateStatus)
+
 
 router.route('/:id')
     .put(
@@ -80,6 +86,8 @@ router
         issuesController.deleteIssueUpdates
     );
 
+
+router.route('/migratefilestodrive').get(verifySession, issuesController.migrateFilesToDrive)
 
 
 export default router;

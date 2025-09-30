@@ -15,6 +15,8 @@ import { ListingService } from "./ListingService";
 import { CategoryEntity } from "../entity/Category";
 import logger from "../utils/logger.utils";
 import { haExpenseUpdateQueue } from "../queue/haQueue";
+import { FileInfo } from "../entity/FileInfo";
+import { IssuesService } from "./IssuesService";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -26,6 +28,10 @@ interface ExpenseBulkUpdateObject {
     listingMapId: number;
     amount: number;
     expenseId: number[];
+    contractorName?: string;
+    contractorNumber?: string;
+    findings?: string;
+    datePaid?: string;
 }
 
 export class ExpenseService {
@@ -35,10 +41,10 @@ export class ExpenseService {
     private connectedAccountServices = new ConnectedAccountService();
     private mobileUserRepository = appDatabase.getRepository(MobileUsersEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
-    private listingDetailRepository = appDatabase.getRepository(ListingDetail);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
 
-    async createExpense(request: any, userId: string, fileNames?: string[]) {
+    async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
             listingMapId,
             expenseDate,
@@ -51,7 +57,8 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
-            datePaid
+            datePaid,
+            issues
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -68,11 +75,12 @@ export class ExpenseService {
         newExpense.contractorNumber = contractorNumber;
         newExpense.findings = findings;
         newExpense.userId = userId;
-        newExpense.fileNames = fileNames ? JSON.stringify(fileNames) : "";
+        newExpense.fileNames = fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "";
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
+        newExpense.issues = issues ? issues : null;
 
         const hostawayExpense = await this.createHostawayExpense({
             listingMapId,
@@ -88,6 +96,19 @@ export class ExpenseService {
 
         newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'expense';
+                fileRecord.entityId = expense.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return expense;
     }
 
@@ -129,19 +150,25 @@ export class ExpenseService {
             paymentMethod,
             tags,
             propertyType,
-            keyword
+            keyword, 
+            expenseId
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
-        const skip = (page - 1) * limit;        
+        const skip = (page - 1) * limit;
         const categoriesFilter = categoryIds ? String(categoryIds).split(',').map(Number) : [];
 
-        //fetch all the listingIds assciated with the tags
+        // expenseId filter
+        const expenseIds = expenseId
+            ? (Array.isArray(expenseId) ? expenseId.map(String) : String(expenseId).split(','))
+            : [];
+
+        // fetch all the listingIds associated with the tags
         const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
 
         let listingIds = [];
         const listingService = new ListingService();
-        
+
         if (propertyType && Array.isArray(propertyType)) {
             listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
         } else {
@@ -156,36 +183,36 @@ export class ExpenseService {
 
         const [expenses, total] = await this.expenseRepo.findAndCount({
             where: keyword
-            ? [
-                { contractorNumber: ILike(`%${keyword}%`) },
-                { contractorName: ILike(`%${keyword}%`) },
-                { paymentMethod: ILike(`%${keyword}%`) },
-                { concept: ILike(`%${keyword}%`) },
-            ]
-            : 
-            {
-                // userId,
-                ...(effectiveListingIds.length > 0 && {
-                    listingMapId: In(effectiveListingIds),
-                }),
-                ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
-                [`${dateType}`]: Between(String(fromDate), String(toDate)),
-               ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1}),
-                ...(Array.isArray(status) && status.length > 0 && {
-                    status: In(status),
-                }),
-                ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
-                    paymentMethod: In(paymentMethod),
-                }),
-                expenseId: Raw(alias => `${alias} IS NOT NULL`),
-                ...(Array.isArray(contractorName) && contractorName.length > 0 && {
-                    contractorName: In(contractorName),
-                }),
-                // ...(dateOfWork && { dateOfWork: String(dateOfWork) }),
-                ...(categoriesFilter.length > 0 && {
-                    categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
-                }),
-            },
+                ? [
+                    { contractorNumber: ILike(`%${keyword}%`) },
+                    { contractorName: ILike(`%${keyword}%`) },
+                    { paymentMethod: ILike(`%${keyword}%`) },
+                    { concept: ILike(`%${keyword}%`) },
+                ]
+                :
+                {
+                    ...(effectiveListingIds.length > 0 && {
+                        listingMapId: In(effectiveListingIds),
+                    }),
+                    ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
+                    ...(fromDate && toDate && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
+                    ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
+                    ...(Array.isArray(status) && status.length > 0 && {
+                        status: In(status),
+                    }),
+                    ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
+                        paymentMethod: In(paymentMethod),
+                    }),
+                    ...(expenseIds.length > 0
+                        ? { expenseId: In(expenseIds) }
+                        : { expenseId: Raw(alias => `${alias} IS NOT NULL`) }),
+                    ...(Array.isArray(contractorName) && contractorName.length > 0 && {
+                        contractorName: In(contractorName),
+                    }),
+                    ...(categoriesFilter.length > 0 && {
+                        categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
+                    }),
+                },
             order: { id: "DESC" },
             skip,
             take: limit,
@@ -202,58 +229,85 @@ export class ExpenseService {
         const listingNameMap = listings.reduce((acc, listing) => {
             acc[listing.id] = listing.internalListingName;
             return acc;
-        }, {});
+        }, {} as Record<number, string>);
 
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
         const users = await this.usersRepository.find();
+        const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
 
-        const data = expenses.map((expense) => {
-            const fileLinks = expense.fileNames
-                ? expense.fileNames.split(',').map(fileName => {
-                    const cleanFileName = fileName.replace(/[\[\]"]/g, '');
-                    return `${cleanFileName}`;
-                }).join(', ')
-                : '';
+        const issueService = new IssuesService();
 
-            const categoryNames = expense.categories
-                ? expense.categories.split(',').map(id => {
-                    const cleanId = id.replace(/[\[\]"]/g, '');
-                    const category = categories.find(category => category.id === Number(cleanId));
-                    return category ? category.categoryName : 'Unknown Category';
-                }).join(', ')
-                : '';
+        const data = await Promise.all(
+            expenses.map(async (expense) => {
+                const fileLinks = expense.fileNames
+                    ? expense.fileNames.split(',').map(fileName => {
+                        const cleanFileName = fileName.replace(/[\[\]"]/g, '');
+                        return `${cleanFileName}`;
+                    }).join(', ')
+                    : '';
 
-            const user = users.find(user => user.uid == expense.updatedBy);
+                const categoryNames = expense.categories
+                    ? expense.categories.split(',').map(id => {
+                        const cleanId = id.replace(/[\[\]"]/g, '');
+                        const category = categories.find(category => category.id === Number(cleanId));
+                        return category ? category.categoryName : 'Unknown Category';
+                    }).join(', ')
+                    : '';
 
-            return {
-                expenseId: expense.expenseId,
-                status: expense.status,
-                amount: Math.abs(expense.amount),
-                listing: listingNameMap[expense.listingMapId] || 'N/A',
-                dateAdded: expense.expenseDate,
-                dateOfWork: expense.dateOfWork,
-                datePaid: expense.datePaid,
-                description: expense.concept,
-                categories: categoryNames,
-                contractorName: expense.contractorName,
-                contractorNumber: expense.contractorNumber,
-                findings: expense.findings,
-                paymentMethod: expense.paymentMethod,
-                createdAt: format(expense.createdAt, "yyyy-MM-dd"),
-                updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
-                updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
-                attachments: fileLinks,
-            };
-        });
+                const user = users.find(user => user.uid == expense.updatedBy);
 
-        //calculate total expense filter values in given period of time without limit and page.
+                const issueIds = expense.issues ? JSON.parse(expense.issues) : [];
+                let issueList = [];
+                if (issueIds.length > 0) {
+                    const { issues } = await issueService.getGuestIssues(
+                        { issueId: issueIds, page: 1, limit: 50 },
+                        userId
+                    );
+                    issueList = issues;
+                }
+
+                return {
+                    expenseId: expense.expenseId,
+                    status: expense.status,
+                    amount: Math.abs(expense.amount),
+                    listing: listingNameMap[expense.listingMapId] || 'N/A',
+                    dateAdded: expense.expenseDate,
+                    dateOfWork: expense.dateOfWork,
+                    datePaid: expense.datePaid,
+                    description: expense.concept,
+                    categories: categoryNames,
+                    contractorName: expense.contractorName,
+                    contractorNumber: expense.contractorNumber,
+                    findings: expense.findings,
+                    paymentMethod: expense.paymentMethod,
+                    createdAt: format(expense.createdAt, "yyyy-MM-dd"),
+                    updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
+                    updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
+                    attachments: fileLinks,
+                    fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
+                    issues: issueIds,
+                    issuesList: issueList,
+                };
+            })
+        );
+
+        // calculate total expense filter values in given period of time without limit and page
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
             .select('SUM(ABS(expense.amount))', 'totalExpense')
-            .where(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
-            .andWhere('expense.expenseId IS NOT NULL');
+
+        if (fromDate && toDate) {
+            qb.andWhere(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+        }
+        
+        if (expenseIds.length > 0) {
+            qb.andWhere('expense.expenseId IN (:...expenseIds)', { expenseIds });
+        } else {
+            qb.andWhere('expense.expenseId IS NOT NULL');
+        }
+
 
         if (effectiveListingIds.length > 0) {
             qb.andWhere('expense.listingMapId IN (:...listingIds)', { listingIds: effectiveListingIds });
@@ -277,12 +331,11 @@ export class ExpenseService {
 
         const { totalExpense } = await qb.getRawOne();
 
-
         return {
             data,
             totalExpense,
             total
-        }
+        };
     }
 
     async getExpenseById(expenseId: number, userId: string) {
@@ -306,7 +359,7 @@ export class ExpenseService {
         return expense;
     }
 
-    async updateExpense(request: any, userId: string, fileNames?: string[]) {
+    async updateExpense(request: any, userId: string, fileNames?: string[], fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
             expenseId,
             listingMapId,
@@ -320,7 +373,8 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
-            datePaid
+            datePaid,
+            issues
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -344,6 +398,7 @@ export class ExpenseService {
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
+        expense.issues = issues ? issues : null;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -362,6 +417,19 @@ export class ExpenseService {
         }
 
         await this.expenseRepo.save(expense);
+        if (fileInfo) {
+            for (const file of fileInfo) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = 'expense';
+                fileRecord.entityId = expense.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
+        }
         return expense;
     }
 
@@ -576,6 +644,10 @@ export class ExpenseService {
             concept,
             listingMapId,
             amount,
+            contractorName,
+            contractorNumber,
+            findings,
+            datePaid,
         } = body;
 
         const failedExpenseUpdate: number[] = [];
@@ -599,6 +671,10 @@ export class ExpenseService {
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
             if (amount !== undefined && amount !== null) expense.amount = amount * -1;
+            if (contractorName !== undefined && contractorName !==null) expense.contractorName = contractorName;
+            if (contractorNumber !== undefined && contractorNumber !==null) expense.contractorNumber = contractorNumber;
+            if (findings !== undefined && findings !==null) expense.findings = findings;
+            if (datePaid !== undefined && datePaid !==null) expense.datePaid = datePaid;
 
             expense.updatedBy = userId;
             expense.updatedAt = new Date();
@@ -631,6 +707,37 @@ export class ExpenseService {
             failedExpenseUpdate,
             failedHostawayExpenseUpdate,
         };
+    }
+
+    async migrateFilesToDrive() {
+        //get all expenses
+        const expenses = await this.expenseRepo.find();
+        const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
+
+        for (const expense of expenses) {
+            try {
+                if (expense.fileNames) {
+                    const fileNames = JSON.parse(expense.fileNames) as string[];
+                    const fileForExpense = fileInfo.filter(file => file.entityId === expense.id);
+                    for (const file of fileNames) {
+                        const fileExists = fileForExpense.find(f => f.fileName === file);
+                        if (!fileExists) {
+                            const fileRecord = new FileInfo();
+                            fileRecord.entityType = 'expense';
+                            fileRecord.entityId = expense.id;
+                            fileRecord.fileName = file;
+                            fileRecord.createdBy = expense.createdBy;
+                            fileRecord.localPath = `${process.cwd()}/dist/public/expense/${file}`;
+                            fileRecord.mimetype = null;
+                            fileRecord.originalName = null;
+                            await this.fileInfoRepo.save(fileRecord);
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error(`Error migrating files for expense ID ${expense.id}: ${error.message}`);
+            }
+        }
     }
 
 

@@ -41,8 +41,11 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null, ""),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null, ""),
         resolution: Joi.string().optional().allow(null),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);
@@ -90,8 +93,12 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         deletedFiles: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").allow(null,""),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
         resolution: Joi.string().optional().allow(null),
+        fileInfo: Joi.any().optional(),
+        assignee: Joi.string().optional().allow(null),
+        urgency: Joi.number().optional().allow(null).min(1).max(5),
+        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
     });
 
     const { error } = schema.validate(request.body);
@@ -106,7 +113,7 @@ export const validateIssueMigrationToActionItem = (request: Request, response: R
     const schema = Joi.object({
         id: Joi.number().required(),
         status: Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required(),
-        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER").required(),
+        category: Joi.string().valid("RESERVATION CHANGES", "GUEST REQUESTS", "KNOWLEDGE BASE SUGGESTIONS", "OTHER", "PROPERTY ACCESS", "HB NOT RESPONDING").required(),
     });
 
     const { error } = schema.validate(request.body);
@@ -145,7 +152,7 @@ export const validateUpdateLatestUpdates = (request: Request, response: Response
 
 export const validateGetIssues = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        category: Joi.array().items(Joi.string()).min(1).optional(),
+        category: Joi.array().items(Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA")).min(1).optional(),
         listingId: Joi.array().items(Joi.number()).min(1).optional(),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
@@ -176,7 +183,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
         ids: Joi.array().items(Joi.number().required()).min(1).required(),
         updateData: Joi.object({
             status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled").optional(),
-            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS").optional(),
+            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").optional(),
             issue_description: Joi.string().optional(),
             claim_resolution_status: Joi.string().valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved').optional(),
             claim_resolution_amount: Joi.number().precision(2).optional(),
@@ -205,3 +212,59 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
     }
     next();
 };
+
+
+export const validateUpdateAssignee = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        assignee: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateUrgency = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        urgency: Joi.number().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
+export const validateUpdateMistake = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        mistake: Joi.string().required().valid('Yes', 'In Progress', 'Need Help', 'Resolved'),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+
