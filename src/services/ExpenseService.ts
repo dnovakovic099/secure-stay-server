@@ -272,6 +272,7 @@ export class ExpenseService {
                     status: expense.status,
                     amount: Math.abs(expense.amount),
                     listing: listingNameMap[expense.listingMapId] || 'N/A',
+                    listingMapId: expense.listingMapId,
                     dateAdded: expense.expenseDate,
                     dateOfWork: expense.dateOfWork,
                     datePaid: expense.datePaid,
