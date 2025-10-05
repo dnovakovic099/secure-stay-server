@@ -460,11 +460,11 @@ export class ResolutionService {
                 cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
             }
 
-            // const resolution = await this.createResolution(resolutionData, userId);
+            const resolution = await this.createResolution(resolutionData, userId);
             successfullyProcessedData.push(row);
             if (cancellationFeeInfo && cancellationFeeInfo?.length == 1) {
                 // send email notification
-                // this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
+                this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
                 logger.info(`Cancellation Fee Refund processed for reservation ID ${reservation.id} with existing Cancellation Fee.`);
             }
         }

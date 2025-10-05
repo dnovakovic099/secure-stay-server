@@ -89,4 +89,8 @@ export class ConnectedAccountService {
         const { clientId, clientSecret } = await this.connectedAccountInfoRepo.findOne({ where: { account: 'pm', userId } });
         return { clientId, clientSecret };
     }
+
+    async deleteConnectedAccount(userId: string) {
+        return await this.connectedAccountInfoRepo.delete({ userId });
+    }
 }

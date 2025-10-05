@@ -51,4 +51,16 @@ export class ClientTicket {
 
     @Column({ nullable: true })
     clientSatisfaction: number;
+
+    @Column({ nullable: true })
+    assignee: string;
+
+    @Column({ nullable: true })
+    urgency: number;
+
+    @Column({ nullable: true })
+    mistake: string;
+
+    @Column({ nullable: true })
+    mistakeResolvedOn: string;
 }

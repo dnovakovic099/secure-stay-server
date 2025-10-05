@@ -95,7 +95,7 @@ export class PublishedStatementService {
 
   async savePublishedStatement() {
     const publishedStatements = await this.fetchPublishedStatementFromHA();
-    const existingStatements = await this.getPublishedStatements();
+    const existingStatements = await this.publishedStatementRepo.find();
     const existingStatementIds = existingStatements.map(
       (statement) => statement.statementId
     );
