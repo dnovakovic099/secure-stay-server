@@ -256,6 +256,9 @@ export class ExpenseService {
                     : '';
 
                 const user = users.find(user => user.uid == expense.updatedBy);
+                const updatedBy = user ? `${user.firstName} ${user.lastName}` : "";
+                const createdByUser = users.find(user => user.uid == expense.createdBy);
+                const createdBy = createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : "";
 
                 const issueIds = expense.issues ? JSON.parse(expense.issues) : [];
                 let issueList = [];
@@ -289,6 +292,7 @@ export class ExpenseService {
                     fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
                     issues: issueIds,
                     issuesList: issueList,
+                    createdBy: createdBy
                 };
             })
         );
