@@ -1234,10 +1234,10 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
-                                floorLevel: Joi.number().optional(),
-                                bedroomNumber: Joi.number().optional(),
-                                bedTypeId: Joi.number().optional(),
-                                quantity: Joi.number().optional()
+                                floorLevel: Joi.number().optional().allow(null),
+                                bedroomNumber: Joi.number().optional().allow(null),
+                                bedTypeId: Joi.number().optional().allow(null),
+                                quantity: Joi.number().optional().allow(null)
                             })
                         ),
 
@@ -1251,8 +1251,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
-                                bathroomType: Joi.number().optional().valid("Full", "Half"),
-                                bathroomNumber: Joi.number().optional(),
+                                bathroomType: Joi.number().optional().valid("Full", "Half").allow(null),
+                                bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
                             })
                         ),
@@ -1292,7 +1292,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                     "In-building Facility",
                                     "Valet Parking",
                                     "No Parking Available"
-                                ).required(),
+                                ).required().allow(null),
                                 parkingFee: Joi.number().optional().allow(null),
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
@@ -1344,9 +1344,9 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
-                                upsellName: Joi.string().optional(),
-                                allowUpsell: Joi.boolean().optional(),
-                                feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
+                                upsellName: Joi.string().optional().allow(null),
+                                allowUpsell: Joi.boolean().optional().allow(null),
+                                feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)").allow(null),
                                 fee: Joi.number().optional().allow(null),
                                 maxAdditionalHours: Joi.number().optional().allow(null)
                             })
