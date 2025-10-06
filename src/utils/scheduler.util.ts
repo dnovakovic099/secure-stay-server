@@ -152,4 +152,15 @@ export function scheduleGetReservation() {
       logger.error("Error checking for new published statements from HostAway:", error);
     }
   });
+
+  schedule.scheduleJob({ hour: 5, minute: 18, tz: "America/New_York" },  async () => {
+    try {
+      logger.info('Syncing published statements from HostAway...');
+      const publishedStatementService = new PublishedStatementService();
+      await publishedStatementService.syncPublishedStatements();
+      logger.info('Synced published statements from HostAway successfully.');
+    } catch (error) {
+      logger.error("Error syncing published statements from HostAway", error);
+    }
+  });
 }

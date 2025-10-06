@@ -1,3 +1,4 @@
+import { MoreThanOrEqual } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { PublishedStatementEntity } from "../entity/PublishedStatements";
 import { getPeriodType } from "../helpers/date";
@@ -148,5 +149,51 @@ export class PublishedStatementService {
       }
     }
     return;
+  }
+
+  async syncPublishedStatements() {
+    try {
+      logger.info("Starting published statements synchronization...");
+
+      const now = new Date();
+      const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+
+      const firstDayString = firstDayOfLastMonth.toISOString().split("T")[0];
+
+      const publishedStatements = await this.publishedStatementRepo.find({
+        where: {
+          toDate: MoreThanOrEqual(firstDayString),
+        },
+        order: { toDate: "ASC" },
+      });
+
+      logger.info(
+        `Fetched ${publishedStatements.length} published statements from ${firstDayString} onwards.`
+      );
+
+      // TODO: Add sync logic here
+      for (const statement of publishedStatements) {
+        logger.info(`Synchronizing statement ID ${statement.statementId}...`);
+        // Example: Fetch latest details from HostAway and update local record
+        const latestDetails = await this.fetchPublishedStatementByIdFromHA(
+          statement.statementId
+        );
+        if (latestDetails) {
+          statement.grandTotal = latestDetails.grandTotalAmount;
+          statement.updatedAt = new Date();
+          statement.updatedBy = "system";
+          await this.publishedStatementRepo.save(statement);
+          logger.info(`Statement ID ${statement.statementId} synchronized.`);
+        } else {
+          logger.warn(
+            `Could not fetch latest details for statement ID ${statement.statementId}. Skipping update.`
+          );
+        }
+      }
+      logger.info("Published statements synchronization completed successfully.");
+    } catch (error) {
+      logger.error("Error during published statements synchronization:", error);
+    }
   }
 }
