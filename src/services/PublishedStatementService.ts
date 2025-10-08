@@ -139,7 +139,7 @@ export class PublishedStatementService {
           grandTotal: statementInfo.grandTotalAmount,
           propertyOwnerName: statementInfo.propertyOwnerName,
           propertyOwnerPhone: statementInfo.propertyOwnerPhone,
-          managementFee: managementFee,
+          managementFee: Math.abs(managementFee),
           createdBy: "system",
         };
 
