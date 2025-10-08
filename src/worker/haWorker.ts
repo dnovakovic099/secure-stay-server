@@ -47,7 +47,7 @@ import fs from "fs";
             const obj = {
                 listingMapId: String(resolution.listingMapId),
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
-                concept: `${resolution.description ? `Airbnb ${resolution.description}`: `${resolution.category}`}: ${resolution.guestName}`,
+                concept: `${resolution.creationSource && resolution.creationSource == "csv_upload" ? `Airbnb ${resolution.type}` : `${resolution.category}`}: ${resolution.guestName}`,
                 amount: resolution.amount,
                 categories: JSON.parse(categories),
                 reservationId: resolution.reservationId

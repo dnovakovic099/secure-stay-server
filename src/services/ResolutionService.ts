@@ -24,6 +24,8 @@ interface ResolutionData {
     amount: number;
     arrivalDate: string;
     departureDate: string;
+    creationSource?: string;
+    type?: string;
 }
 
 enum CategoryKey {
@@ -77,6 +79,8 @@ export class ResolutionService {
         resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
+        resolution.creationSource = data.creationSource ? data.creationSource : "manual";
+        resolution.type = data.type || null;
 
         await this.resolutionRepo.save(resolution);
 
@@ -437,7 +441,7 @@ export class ResolutionService {
 
             const resolutionData: ResolutionData = {
                 category: categoriesList[CategoryKey.RESOLUTION],
-                description: row.Type,
+                type: row.Type,
                 listingMapId: reservation.listingMapId, 
                 reservationId: reservation.id, 
                 guestName: reservation.guestName,
@@ -445,6 +449,7 @@ export class ResolutionService {
                 amount: Number(row.Amount), 
                 arrivalDate: arrivalDate,
                 departureDate: String(reservation.departureDate),
+                creationSource: "csv_upload"
             };
 
             let cancellationFeeInfo = null;

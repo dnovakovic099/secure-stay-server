@@ -38,6 +38,12 @@ export class Resolution {
     @Column({ nullable: true })
     ha_id: string;
 
+    @Column({ nullable: true })
+    creationSource: string;
+
+    @Column({ nullable: true })
+    type: string;
+
     @CreateDateColumn()
     createdAt: Date;
 
