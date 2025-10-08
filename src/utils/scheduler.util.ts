@@ -163,4 +163,17 @@ export function scheduleGetReservation() {
       logger.error("Error syncing published statements from HostAway", error);
     }
   });
+
+  schedule.scheduleJob(
+    { hour: 6, minute: 0, tz: "America/New_York" }, // 1st day of the month at 1 AM EST
+    async () => {
+      try {
+        logger.info('Scheduled task for deleting reservation logs older than last month ran...');
+        const reservationInfoService = new ReservationInfoService();
+        await reservationInfoService.deleteReservationLogsOlderThanlastMonth();
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
 }

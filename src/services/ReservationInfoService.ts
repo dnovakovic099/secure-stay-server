@@ -1379,5 +1379,20 @@ export class ReservationInfoService {
     return nextReservation;
   }
 
+  async deleteReservationLogsOlderThanlastMonth() {
+    const now = new Date();
+    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const firstDayString = firstDayOfLastMonth.toISOString().split("T")[0];
+
+    logger.info(`[deleteReservationLogsOlderThanlastMonth] Deleting reservation logs older than ${firstDayString}`);
+    const deleteResult = await this.reservationInfoLogsRepo.createQueryBuilder()
+      .delete()
+      .where("changedAt < :lastMonthDate", { lastMonthDate: firstDayString })
+      .execute();
+
+    logger.info(`[deleteReservationLogsOlderThanlastMonth] Deleted ${deleteResult.affected} reservation logs older than ${firstDayString}`);
+    return deleteResult;
+  }
+
 
 }
