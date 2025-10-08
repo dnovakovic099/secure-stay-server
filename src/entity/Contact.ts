@@ -92,4 +92,7 @@ export class Contact {
 
     @OneToMany(() => ContactUpdates, contact => contact.contact)
     contactUpdates: ContactUpdates[];
+
+    @Column({ nullable: true })
+    paidBy: string;
 }
