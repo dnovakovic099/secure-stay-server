@@ -176,6 +176,9 @@ export class PropertyInfo {
     responsibilityToSetDoorCodes: boolean;
 
     @Column({ nullable: true })
+    standardDoorCode: string;
+
+    @Column({ nullable: true })
     doorLockAppName: string;
 
     @Column({ nullable: true })

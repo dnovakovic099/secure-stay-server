@@ -9,13 +9,13 @@ export class PropertyBedTypes {
     @Column({ nullable: true })
     floorLevel: number;
 
-    @Column()
+    @Column({ nullable: true })
     bedTypeId: number;
 
-    @Column()
+    @Column({ nullable: true })
     quantity: number;
 
-    @Column()
+    @Column({ nullable: true })
     bedroomNumber: number;
 
     @ManyToOne(() => PropertyInfo, (listing) => listing.propertyBedTypes, {

@@ -9,10 +9,10 @@ export class PropertyBathroomLocation {
     @Column({ nullable: true })
     floorLevel: number;
 
-    @Column()
+    @Column({ nullable: true })
     bathroomType: string;
 
-    @Column()
+    @Column({ nullable: true })
     bathroomNumber: number;
 
     @Column({ nullable: true })

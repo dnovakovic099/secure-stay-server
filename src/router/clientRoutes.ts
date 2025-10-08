@@ -41,4 +41,6 @@ router.route('/client-facing/listing-info').put(verifySession, validateUpdateLis
 
 router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 
+router.route('/publish-property/:propertyId').get(verifySession, clientController.publishPropertyToHostaway.bind(clientController));
+
 export default router;

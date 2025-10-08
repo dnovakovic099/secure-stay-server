@@ -1261,6 +1261,7 @@ export class ClientService {
     if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
     if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
     if (listingPayload.responsibilityToSetDoorCodes !== undefined) propertyInfo.responsibilityToSetDoorCodes = listingPayload.responsibilityToSetDoorCodes ?? null;
+    if (listingPayload.standardDoorCode !== undefined) propertyInfo.standardDoorCode = listingPayload.standardDoorCode ?? null;
     if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
     if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
     if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
@@ -1842,7 +1843,7 @@ export class ClientService {
 
 
   //publish listingIntake to hostaway
-  async publishListingIntakeToHostaway(propertyId: string, userId: string) {
+  async publishPropertyToHostaway(propertyId: string, userId: string) {
     const listingIntake = await this.propertyRepo.findOne({
       where: { id: propertyId },
       relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
@@ -1858,16 +1859,17 @@ export class ClientService {
     logger.info("Publishing property to Hostaway:", listingIntake);
 
     // Simulate successful publishing
-    let status = this.getListingIntakeStatus(listingIntake);
+    let status = this.getListingIntakeStatus(listingIntake.propertyInfo);
     if (status === "draft") {
       throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
     }
-    if (status === "published") {
+    if (listingIntake.status === "published") {
       throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
     }
 
     //prepare hostaway payload
     const hostawayPayload = {
+      internalListingName: listingIntake.propertyInfo.internalListingName,
       externalListingName: listingIntake.propertyInfo.externalListingName,
       // description: listingIntake.propertyInfo.description,
       personCapacity: listingIntake.propertyInfo.personCapacity,
@@ -1878,7 +1880,7 @@ export class ClientService {
       bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
       bathroomType: listingIntake.propertyInfo.bathroomType,
       guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
-      address: listingIntake.propertyInfo.address,
+      address: listingIntake.address,
       // publicAddress: listingIntake.propertyInfo.publicAddress,
       // country: listingIntake.propertyInfo.country,
       // countryCode: listingIntake.propertyInfo.countryCode,
@@ -1890,19 +1892,19 @@ export class ClientService {
       amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
         return { amenityId: Number(amenity) };
       }),
-      currencyCode: listingIntake.propertyInfo.currencyCode,
-      price: listingIntake.propertyInfo.price,
-      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson,
-      guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
-      // cleaningFee: listingIntake.propertyInfo.cleaningFee,
+      currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
+      price: listingIntake.propertyInfo.price || 3000,
+      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
+      guestsIncluded: listingIntake.propertyInfo.personCapacity, //change to guestsIncluded from personCapacity
+      cleaningFee: listingIntake.propertyInfo.vendorManagementInfo.cleaningFee,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
       // houseRules: listingIntake.propertyInfo.houseRules,
       checkOutTime: listingIntake.propertyInfo.checkOutTime,
       checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
-      // checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
+      checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
       squareMeters: listingIntake.propertyInfo.squareMeters,
-      // language: listingIntake.propertyInfo.language,
-      // instantBookable: listingIntake.propertyInfo.instantBookable,
+      language: "en",
+      instantBookable: listingIntake.propertyInfo.canAnyoneBookAnytime.includes("Yes") ? true : false,
       wifiUsername: listingIntake.propertyInfo.wifiUsername,
       wifiPassword: listingIntake.propertyInfo.wifiPassword,
       // airBnbCancellationPolicyId: listingIntake.propertyInfo.airBnbCancellationPolicyId,
@@ -1910,8 +1912,8 @@ export class ClientService {
       // marriottBnbCancellationPolicyId: listingIntake.propertyInfo.marriottBnbCancellationPolicyId,
       // vrboCancellationPolicyId: listingIntake.propertyInfo.vrboCancellationPolicyId,
       // cancellationPolicyId: listingIntake.propertyInfo.cancellationPolicyId,
-      // minNights: listingIntake.propertyInfo.minNights,
-      // maxNights: listingIntake.propertyInfo.maxNights,
+      minNights: listingIntake.propertyInfo.minNights,
+      maxNights: listingIntake.propertyInfo.maxNights,
       // airbnbName: listingIntake.propertyInfo.airbnbName,
       // airbnbSummary: listingIntake.propertyInfo.airbnbSummary,
       // airbnbSpace: listingIntake.propertyInfo.airbnbSpace,
@@ -1926,15 +1928,17 @@ export class ClientService {
       // bookingcomPropertyName: listingIntake.propertyInfo.bookingcomPropertyName,
       // bookingcomPropertyDescription: listingIntake.propertyInfo.bookingcomPropertyDescription,
       // marriottListingName: listingIntake.propertyInfo.marriottListingName,
-      // contactName: listingIntake.propertyInfo.contactName,
-      // contactPhone1: listingIntake.propertyInfo.contactPhone1,
-      // contactLanguage: listingIntake.propertyInfo.contactLanguage,
+      contactName: "Luxury Lodging",
+      contactPhone1: "(813) 531-8988",
+      contactLanguage: "English",
 
-      listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.map(bedType => ({
+      listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
+        .map(bedType => ({
         bedTypeId: bedType.bedTypeId,
         quantity: bedType.quantity,
         bedroomNumber: bedType.bedroomNumber,
       })),
+
 
       // propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
       // propertyLicenseType: listingIntake.propertyInfo.propertyLicenseType,
@@ -1942,18 +1946,18 @@ export class ClientService {
       // propertyLicenseExpirationDate: listingIntake.propertyInfo.propertyLicenseExpirationDate,
     };
 
-    logger.info("Hostaway payload:", JSON.stringify(hostawayPayload));
+    logger.info(JSON.stringify(hostawayPayload));
 
     //simulate taking time of 10s
     // await new Promise(resolve => setTimeout(resolve, 10000));
 
-    const response = await this.hostawayClient.createListing(hostawayPayload);
-    if (!response) {
-      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
-    }
+    // const response = await this.hostawayClient.createListing(hostawayPayload);
+    // if (!response) {
+    //   throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    // }
     // Update the listingIntake status to published
     listingIntake.status = "published";
-    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    // listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
 
@@ -1963,11 +1967,11 @@ export class ClientService {
   private getListingIntakeStatus(listingIntake: any) {
     const requiredFields = [
       "externalListingName",
-      "address",
-      "price",
-      "guestsIncluded",
-      "priceForExtraPerson",
-      "currencyCode"
+      // "address",
+      // "price", //default 3000
+      "personCapacity", //temporary changed from guestsIncluded to personCapacity
+      // "priceForExtraPerson", //default 0
+      // "currencyCode" //default USD
     ];
 
     const hasMissingValue = requiredFields.some(field => {
