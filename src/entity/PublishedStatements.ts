@@ -36,6 +36,9 @@ export class PublishedStatementEntity {
     @Column({ type: "float", nullable: true })
     grandTotal: number;
 
+    @Column({ type: "float", nullable: true })
+    managementFee: number;
+
     @Column({ nullable: true })
     propertyOwnerName: string;
 

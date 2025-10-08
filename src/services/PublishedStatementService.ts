@@ -116,13 +116,17 @@ export class PublishedStatementService {
           );
           continue;
         }
-        const { filterParametersJson } = statementInfo;
-        if (!filterParametersJson) {
+        const { filterParametersJson, grandTotalJson } = statementInfo;
+        const { formulasTotal } = grandTotalJson;
+
+        if (!filterParametersJson || !formulasTotal) {
           logger.error(
             `No filterParametersJson found for statement ID ${statement.id}. Skipping...`
           );
           continue;
         }
+
+        const managementFee = formulasTotal.find((formula: { name: string, amount: number; }) => formula.name == "ManagementFee" || formula.name == "LuxuryLodgingFee" || formula.name == "pmCommission")?.amount || 0;
 
         const newStatementData: Partial<PublishedStatementEntity> = {
           fromDate: filterParametersJson.fromDate,
@@ -135,6 +139,7 @@ export class PublishedStatementService {
           grandTotal: statementInfo.grandTotalAmount,
           propertyOwnerName: statementInfo.propertyOwnerName,
           propertyOwnerPhone: statementInfo.propertyOwnerPhone,
+          managementFee: managementFee,
           createdBy: "system",
         };
 
