@@ -970,9 +970,9 @@ export class ClientService {
         }
 
         if (clientAcknowledgement) {
-          if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) ob.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? null;
-          if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) ob.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? null;
-          if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) ob.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? null;
+          if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) ob.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? false;
+          if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) ob.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
+          if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) ob.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? false;
         }
 
         ob.updatedBy = userId;
@@ -1683,9 +1683,9 @@ export class ClientService {
         if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
         if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
         if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
-        if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? null;
-        if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? null;
-        if(listingPayload.acknowledgesResponsibilityToInform !== undefined) onboarding.acknowledgesResponsibilityToInform = listingPayload.acknowledgesResponsibilityToInform ?? null;
+        if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? false;
+        if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? false;
+        if (listingPayload.acknowledgesResponsibilityToInform !== undefined) onboarding.acknowledgesResponsibilityToInform = listingPayload.acknowledgesResponsibilityToInform ?? false;
 
         // Store client-facing specific fields in targetDateNotes as JSON
         const clientFormData = {
