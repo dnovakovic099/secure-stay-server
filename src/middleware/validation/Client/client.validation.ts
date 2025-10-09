@@ -873,6 +873,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             ),
                         codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
+                        standardDoorCode: Joi.string().optional().allow(null),
                         doorLockAppName: Joi.string().optional().allow(null),
                         doorLockAppUsername: Joi.string().optional().allow(null),
                         doorLockAppPassword: Joi.string().optional().allow(null),
