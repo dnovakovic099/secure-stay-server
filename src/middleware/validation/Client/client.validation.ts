@@ -15,6 +15,7 @@ export const validateCreateClient = (request: Request, response: Response, next:
             companyName: Joi.string().required().allow(null, ''),
             status: Joi.string().required().allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
+            clientFolder: Joi.string().optional().allow(null, ''), 
         }),
         secondaryContacts: Joi.array().items(
             Joi.object({
@@ -57,6 +58,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
             companyName: Joi.string().required().allow(null, ''),
             status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
+            clientFolder: Joi.string().optional().allow(null, ''), 
         }),
         secondaryContacts: Joi.array().items(
             Joi.object({
@@ -775,6 +777,13 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
                         propertyLicenseNumber: Joi.string().optional().allow(null),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
+                        statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly", "Monthly").allow(null),
+                        statementType: Joi.string().optional().valid("Check-Out", "Check-In", "Calendar").allow(null),
+                        payoutMethod: Joi.string().optional().valid("Bank Transfer", "Zelle", "Venmo", "Others").allow(null),
+                        claimFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        claimFeeNotes: Joi.string().optional().allow(null),
+                        techFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        techFeeNotes: Joi.string().optional().allow(null),
                     }).required()
                 }).required()
             })

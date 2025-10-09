@@ -223,6 +223,14 @@ interface Financials {
   propertyLicenseNumber?: string | null;
   tax?: string | null;
   financialNotes?: string | null;
+
+  statementSchedule?: string | null;
+  statementType?: string | null;
+  payoutMethod?: string | null;
+  claimFee?: string | null;
+  claimFeeNotes?: string | null;
+  techFee?: string | null;
+  techFeeNotes?: string | null;
 }
 
 
@@ -2021,6 +2029,14 @@ export class ClientService {
         if (financials.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = financials.propertyLicenseNumber ?? null;
         if (financials.tax !== undefined) propertyInfo.tax = financials.tax ?? null;
         if (financials.financialNotes !== undefined) propertyInfo.financialNotes = financials.financialNotes ?? null;
+        if (financials.statementSchedule !== undefined) propertyInfo.statementSchedule = financials.statementSchedule ?? null;
+        if (financials.statementType !== undefined) propertyInfo.statementType = financials.statementType ?? null;
+        if (financials.payoutMethod !== undefined) propertyInfo.payoutMethod = financials.payoutMethod ?? null;
+        if (financials.claimFee !== undefined) propertyInfo.claimFee = financials.claimFee ?? null;
+        if (financials.claimFeeNotes !== undefined) propertyInfo.claimFeeNotes = financials.claimFeeNotes ?? null;
+        if (financials.techFee !== undefined) propertyInfo.techFee = financials.techFee ?? null;
+        if (financials.techFeeNotes !== undefined) propertyInfo.techFeeNotes = financials.techFeeNotes ?? null;
+
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);
