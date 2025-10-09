@@ -239,7 +239,12 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                         photographyCoverage: Joi.string().required().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().required().allow(null),
-                    })
+                    }),
+                    clientAcknowledgement: Joi.object({
+                        acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
+                        agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
+                        acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
+                    }).optional(),
                 })
             })
         )
@@ -401,7 +406,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of same day bookings and changes before accepting",
                             "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "No, I strictly need days before a reservation"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -565,7 +570,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of same day bookings and changes before accepting",
                             "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "No, I strictly need days before a reservation"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 
@@ -816,7 +821,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of same day bookings and changes before accepting",
                             "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "No, I strictly need days before a reservation"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
                         leadTimeDays: Joi.number().optional().allow(null),
@@ -1114,7 +1119,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of same day bookings and changes before accepting",
                             "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "No, I strictly need days before a reservation"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -1280,7 +1285,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of same day bookings and changes before accepting",
                             "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "No, I strictly need days before a reservation"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 

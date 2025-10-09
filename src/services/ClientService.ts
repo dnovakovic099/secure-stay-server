@@ -857,6 +857,7 @@ export class ClientService {
       const sales = property.onboarding?.sales;
       const listing = property.onboarding?.listing;
       const photography = property.onboarding?.photography;
+      const clientAcknowledgement = property.onboarding.clientAcknowledgement;
 
       let onboardingEntity = clientProperty.onboarding;
       if (!onboardingEntity) {
@@ -892,6 +893,12 @@ export class ClientService {
       if (photography) {
         if (photography.photographyCoverage !== undefined) onboardingEntity.photographyCoverage = photography.photographyCoverage ?? null;
         if (photography.photographyNotes !== undefined) onboardingEntity.photographyNotes = photography.photographyNotes ?? null;
+      }
+
+      if (clientAcknowledgement) {
+        if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) onboardingEntity.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? false;
+        if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) onboardingEntity.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
+        if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) onboardingEntity.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? false;
       }
 
       onboardingEntity.updatedBy = userId;
