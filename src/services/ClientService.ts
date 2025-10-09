@@ -48,6 +48,11 @@ interface Onboarding {
   listing: Listing;
   photography: Photography;
   financials?: Financials;
+  clientAcknowledgement?: {
+    acknowledgePropertyReadyByStartDate?: boolean | null;
+    agreesUnpublishExternalListings?: boolean | null;
+    acknowledgesResponsibilityToInform?: boolean | null;
+  };
 }
 
 interface ServiceInfo {
@@ -926,10 +931,11 @@ export class ClientService {
       await this.propertyRepo.save(clientProperty);
 
       // Update Onboarding if provided (no serviceInfo for internal onboarding)
-      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
+      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography || property.onboarding?.clientAcknowledgement) {
         const sales = property.onboarding.sales;
         const listing = property.onboarding.listing;
         const photography = property.onboarding.photography;
+        const clientAcknowledgement = property.onboarding.clientAcknowledgement;
 
         let ob = clientProperty.onboarding;
         if (!ob) {
@@ -961,6 +967,12 @@ export class ClientService {
         if (photography) {
           if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
           if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+        }
+
+        if (clientAcknowledgement) {
+          if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) ob.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? null;
+          if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) ob.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? null;
+          if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) ob.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? null;
         }
 
         ob.updatedBy = userId;

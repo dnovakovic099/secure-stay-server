@@ -289,7 +289,12 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                         photographyCoverage: Joi.string().optional().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().optional().allow(null),
-                    }).optional()
+                    }).optional(),
+                    clientAcknowledgement: Joi.object({
+                        acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
+                        agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
+                        acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
+                    }).optional(),
                 }).optional()
             })
         )
