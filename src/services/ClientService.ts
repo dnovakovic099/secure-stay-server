@@ -1682,6 +1682,7 @@ export class ClientService {
         if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
         if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
         if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+        if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
 
         // Store client-facing specific fields in targetDateNotes as JSON
         const clientFormData = {
@@ -1690,7 +1691,6 @@ export class ClientService {
           externalListingNotes: listingPayload.externalListingNotes ?? null,
           acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
         };
-        onboarding.targetDateNotes = JSON.stringify(clientFormData);
 
         onboarding.updatedBy = userId;
         await this.propertyOnboardingRepo.save(onboarding);

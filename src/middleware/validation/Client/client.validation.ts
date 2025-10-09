@@ -1055,7 +1055,7 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                         acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
                         agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
-                        externalListingNotes: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
                     }).optional()
                 }).optional()
