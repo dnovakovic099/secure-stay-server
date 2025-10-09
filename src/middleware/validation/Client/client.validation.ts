@@ -535,10 +535,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else create new
-                                floorLevel: Joi.number().optional(),
-                                bedroomNumber: Joi.number().optional(),
-                                bedTypeId: Joi.number().optional(),
-                                quantity: Joi.number().optional()
+                                floorLevel: Joi.number().optional().allow(null),
+                                bedroomNumber: Joi.number().optional().allow(null),
+                                bedTypeId: Joi.number().optional().allow(null),
+                                quantity: Joi.number().optional().allow(null)
                             })
                         ),
 
@@ -553,7 +553,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
                                 bathroomType: Joi.number().optional().valid("Full", "Half"),
-                                bathroomNumber: Joi.number().optional(),
+                                bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
                             })
                         ),
