@@ -1095,9 +1095,12 @@ export class ClientService {
     return { message: "Service info updated", updated };
   }
 
-  async getClientDetails(id: string) {
+  async getClientDetails(id: string, propertyId: string) {
     return await this.clientRepo.findOne({
-      where: { id },
+      where: {
+        id: id,
+        ...(propertyId && { properties: { id: propertyId } }),
+      },
       relations: [
         "properties",
         "secondaryContacts",

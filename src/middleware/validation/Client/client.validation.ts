@@ -404,9 +404,10 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         checkOutTime: Joi.number().required().allow(null),
                         canAnyoneBookAnytime: Joi.string().required().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days before a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -568,9 +569,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         checkOutTime: Joi.number().optional().allow(null),
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days before a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 
@@ -819,9 +821,10 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         //calendar management
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days before a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
                         leadTimeDays: Joi.number().optional().allow(null),
@@ -1117,9 +1120,10 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         checkOutTime: Joi.number().required().allow(null),
                         canAnyoneBookAnytime: Joi.string().required().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days before a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -1283,9 +1287,10 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         checkOutTime: Joi.number().optional().allow(null),
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days before a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 
