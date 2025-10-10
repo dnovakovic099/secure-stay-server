@@ -379,7 +379,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         propertyTypeId: Joi.number().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
-                        personCapacity: Joi.number().required().allow(null),
+                        guestsIncluded: Joi.number().required().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
@@ -532,7 +532,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         propertyTypeId: Joi.number().optional().allow(null),
                         noOfFloors: Joi.number().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
-                        personCapacity: Joi.number().optional().allow(null),
+                        guestsIncluded: Joi.number().optional().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().optional().allow(null),
@@ -1095,7 +1095,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         propertyTypeId: Joi.number().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
-                        personCapacity: Joi.number().required().allow(null),
+                        guestsIncluded: Joi.number().required().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
@@ -1249,7 +1249,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         propertyTypeId: Joi.number().optional().allow(null),
                         noOfFloors: Joi.number().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
-                        personCapacity: Joi.number().optional().allow(null),
+                        guestsIncluded: Joi.number().optional().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().optional().allow(null),

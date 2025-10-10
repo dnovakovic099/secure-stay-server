@@ -89,7 +89,7 @@ interface Listing {
   propertyTypeId?: number | null;
   noOfFloors?: number | null;
   squareMeters?: number | null;
-  personCapacity?: number | null;
+  guestsIncluded?: number | null;
   roomType?: string | null;
   bedroomsNumber?: number | null;
   propertyBedTypes?: Array<{
@@ -1253,7 +1253,7 @@ export class ClientService {
     if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
     if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
-    if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+    if (listingPayload.guestsIncluded !== undefined) propertyInfo.guestsIncluded = listingPayload.guestsIncluded ?? null;
 
     // Bedrooms
     if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
@@ -1905,7 +1905,7 @@ export class ClientService {
       internalListingName: listingIntake.propertyInfo.internalListingName,
       externalListingName: listingIntake.propertyInfo.externalListingName,
       // description: listingIntake.propertyInfo.description,
-      personCapacity: listingIntake.propertyInfo.personCapacity,
+      // guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
       propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
       roomType: listingIntake.propertyInfo.roomType,
       bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
@@ -1928,7 +1928,7 @@ export class ClientService {
       currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
       price: listingIntake.propertyInfo.price || 3000,
       priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
-      guestsIncluded: listingIntake.propertyInfo.personCapacity, //change to guestsIncluded from personCapacity
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded, 
       cleaningFee: listingIntake.propertyInfo.vendorManagementInfo.cleaningFee,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
       // houseRules: listingIntake.propertyInfo.houseRules,
@@ -2002,7 +2002,7 @@ export class ClientService {
       "externalListingName",
       // "address",
       // "price", //default 3000
-      "personCapacity", //temporary changed from guestsIncluded to personCapacity
+      "guestsIncluded", 
       // "priceForExtraPerson", //default 0
       // "currencyCode" //default USD
     ];
