@@ -454,7 +454,7 @@ export class ResolutionService {
 
             let cancellationFeeInfo = null;
             const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
-            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && res.description == row.Type));
+            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && res.type == row.Type));
             if (hasExistingResolution) {
                 // failedToProcessData.push(row);
                 logger.warn(`Skipping duplicate resolution for reservation ID ${reservation.id} with amount ${row.Amount} and type ${row.Type}`);
@@ -462,7 +462,7 @@ export class ResolutionService {
             }
 
             if (row.Type === "Cancellation Fee Refund") {
-                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
+                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.type == "Cancellation Fee")));
             }
 
             const resolution = await this.createResolution(resolutionData, userId);
