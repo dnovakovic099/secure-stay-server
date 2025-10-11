@@ -1941,15 +1941,15 @@ export class ClientService {
     logger.info(JSON.stringify(hostawayPayload));
 
     //simulate taking time of 10s
-    // await new Promise(resolve => setTimeout(resolve, 10000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
-    const response = await this.hostawayClient.createListing(hostawayPayload);
-    if (!response) {
-      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
-    }
+    // const response = await this.hostawayClient.createListing(hostawayPayload);
+    // if (!response) {
+    //   throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    // }
     // Update the listingIntake status to published
     listingIntake.status = "published";
-    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    listingIntake.listingId = String(Math.random()); // Assuming response contains the Hostaway listing ID
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
 
