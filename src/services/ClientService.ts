@@ -401,7 +401,9 @@ export class ClientService {
       .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
       .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
       .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
-      .where("client.deletedAt IS NULL");
+      .where("client.deletedAt IS NULL")
+      .orderBy("client.createdAt", "DESC");
+      //order by client.createdAt desc
 
     if (keyword) {
       const k = `%${keyword.toLowerCase()}%`;
