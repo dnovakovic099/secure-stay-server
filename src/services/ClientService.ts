@@ -269,18 +269,6 @@ export class ClientService {
     const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
 
     if (clientProperties && clientProperties.length > 0) {
-      for (const listingId of clientProperties) {
-        //find the service type of the listingId by checking which array it belongs to
-        if (FULL_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "FULL_SERVICE";
-        } else if (PRO_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "PRO_SERVICE";
-        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "LAUNCH_SERVICE";
-        } else {
-          clientData.serviceType = null;
-        }
-      }
       clientData.status = "active"; // if properties are associated, set status to Active
     } else {
       clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
@@ -1889,7 +1877,7 @@ export class ClientService {
 
     // Here you would implement the logic to publish the property to Hostaway
     // This is a placeholder for the actual implementation
-    logger.info("Publishing property to Hostaway:", listingIntake);
+    logger.info("Publishing property to Hostaway");
 
     // Simulate successful publishing
     let status = this.getListingIntakeStatus(listingIntake.propertyInfo);
@@ -1902,68 +1890,41 @@ export class ClientService {
 
     //prepare hostaway payload
     const hostawayPayload = {
-      internalListingName: listingIntake.propertyInfo.internalListingName,
+      name: listingIntake.propertyInfo.externalListingName,
       externalListingName: listingIntake.propertyInfo.externalListingName,
-      // description: listingIntake.propertyInfo.description,
-      // guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
+      internalListingName: listingIntake.propertyInfo.internalListingName,
+      price: listingIntake.propertyInfo.price || 3000,
+      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
       propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
       roomType: listingIntake.propertyInfo.roomType,
       bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
-      // bedsNumber: listingIntake.propertyInfo.bedsNumber,
       bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
       bathroomType: listingIntake.propertyInfo.bathroomType,
       guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
       address: listingIntake.address,
-      // publicAddress: listingIntake.propertyInfo.publicAddress,
-      // country: listingIntake.propertyInfo.country,
-      // countryCode: listingIntake.propertyInfo.countryCode,
-      // state: listingIntake.propertyInfo.state,
-      // city: listingIntake.propertyInfo.city,
-      // street: listingIntake.propertyInfo.street,
-      // zipcode: listingIntake.propertyInfo.zipcode,
       timeZoneName: listingIntake.client.timezone,
-      amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
-        return { amenityId: Number(amenity) };
-      }),
       currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
-      price: listingIntake.propertyInfo.price || 3000,
-      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
       guestsIncluded: listingIntake.propertyInfo.guestsIncluded, 
       cleaningFee: listingIntake.propertyInfo.vendorManagementInfo.cleaningFee,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
-      // houseRules: listingIntake.propertyInfo.houseRules,
       checkOutTime: listingIntake.propertyInfo.checkOutTime,
       checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
       checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
       squareMeters: listingIntake.propertyInfo.squareMeters,
       language: "en",
       instantBookable: listingIntake.propertyInfo.canAnyoneBookAnytime.includes("Yes") ? true : false,
+      // instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || 0,
       wifiUsername: listingIntake.propertyInfo.wifiUsername,
       wifiPassword: listingIntake.propertyInfo.wifiPassword,
-      // airBnbCancellationPolicyId: listingIntake.propertyInfo.airBnbCancellationPolicyId,
-      // bookingCancellationPolicyId: listingIntake.propertyInfo.bookingCancellationPolicyId,
-      // marriottBnbCancellationPolicyId: listingIntake.propertyInfo.marriottBnbCancellationPolicyId,
-      // vrboCancellationPolicyId: listingIntake.propertyInfo.vrboCancellationPolicyId,
-      // cancellationPolicyId: listingIntake.propertyInfo.cancellationPolicyId,
       minNights: listingIntake.propertyInfo.minNights,
       maxNights: listingIntake.propertyInfo.maxNights,
-      // airbnbName: listingIntake.propertyInfo.airbnbName,
-      // airbnbSummary: listingIntake.propertyInfo.airbnbSummary,
-      // airbnbSpace: listingIntake.propertyInfo.airbnbSpace,
-      // airbnbAccess: listingIntake.propertyInfo.airbnbAccess,
-      // airbnbInteraction: listingIntake.propertyInfo.airbnbInteraction,
-      // airbnbNeighborhoodOverview: listingIntake.propertyInfo.airbnbNeighborhoodOverview,
-      // airbnbTransit: listingIntake.propertyInfo.airbnbTransit,
-      // airbnbNotes: listingIntake.propertyInfo.airbnbNotes,
-      // homeawayPropertyName: listingIntake.propertyInfo.homeawayPropertyName,
-      // homeawayPropertyHeadline: listingIntake.propertyInfo.homeawayPropertyHeadline,
-      // homeawayPropertyDescription: listingIntake.propertyInfo.homeawayPropertyDescription,
-      // bookingcomPropertyName: listingIntake.propertyInfo.bookingcomPropertyName,
-      // bookingcomPropertyDescription: listingIntake.propertyInfo.bookingcomPropertyDescription,
-      // marriottListingName: listingIntake.propertyInfo.marriottListingName,
       contactName: "Luxury Lodging",
       contactPhone1: "(813) 531-8988",
       contactLanguage: "English",
+
+      amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
+        return { amenityId: Number(amenity) };
+      }),
 
       listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
         .map(bedType => ({
@@ -1972,11 +1933,7 @@ export class ClientService {
         bedroomNumber: bedType.bedroomNumber,
       })),
 
-
-      // propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
-      // propertyLicenseType: listingIntake.propertyInfo.propertyLicenseType,
-      // propertyLicenseIssueDate: listingIntake.propertyInfo.propertyLicenseIssueDate,
-      // propertyLicenseExpirationDate: listingIntake.propertyInfo.propertyLicenseExpirationDate,
+      propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
     };
 
     logger.info(JSON.stringify(hostawayPayload));
@@ -1984,13 +1941,13 @@ export class ClientService {
     //simulate taking time of 10s
     // await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // const response = await this.hostawayClient.createListing(hostawayPayload);
-    // if (!response) {
-    //   throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
-    // }
+    const response = await this.hostawayClient.createListing(hostawayPayload);
+    if (!response) {
+      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    }
     // Update the listingIntake status to published
     listingIntake.status = "published";
-    // listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
 
