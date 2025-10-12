@@ -831,12 +831,16 @@ export class ClientService {
   async getClientMetadata() {
     // find the total no. of clients whose status is other than offboarded
     const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
-    // total no. of each serviceType of clients whose status is other than offboarded
+
+    // total no. of each serviceType from client properties' serviceInfo
     const serviceTypeCounts = await this.clientRepo.createQueryBuilder("client")
-      .select("client.serviceType", "serviceType")
+      .leftJoin("client.properties", "property", "property.deletedAt IS NULL")
+      .leftJoin("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .select("serviceInfo.serviceType", "serviceType")
       .addSelect("COUNT(*)", "count")
       .where("client.status != :status AND client.deletedAt IS NULL", { status: "offboarded" })
-      .groupBy("client.serviceType")
+      .andWhere("serviceInfo.serviceType IS NOT NULL")
+      .groupBy("serviceInfo.serviceType")
       .getRawMany();
 
     return { totalActiveClients, serviceTypeCounts };
