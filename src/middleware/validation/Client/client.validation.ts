@@ -210,6 +210,7 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().required(),
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().required().allow(null),
@@ -265,6 +266,7 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().optional().allow(null),
@@ -522,6 +524,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //Listing Name
@@ -702,7 +705,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 Joi.object({
                                     id: Joi.optional().required(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 
@@ -781,6 +784,7 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     financials: Joi.object({
                         minPrice: Joi.number().optional().allow(null),
@@ -816,6 +820,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //calendar management
@@ -966,7 +971,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 
@@ -1239,6 +1244,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
@@ -1421,7 +1427,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 

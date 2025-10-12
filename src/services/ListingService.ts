@@ -255,9 +255,23 @@ export class ListingService {
     const result = await this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.images", "listingImages")
+      .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
+      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .where("listing.listingId = :id", { id: Number(listing_id) })
       .andWhere("listing.userId = :userId", { userId })
       .getOne();
+
+    return result;
+  }
+
+  async getListingInfo(listingId: number, userId: string) {
+    const result = await this.listingRepository.findOne({
+      where: {
+        id: listingId,
+        userId: userId
+      },
+      relations: ['images', 'listingBedTypes', 'listingAmenities', 'listingTags']
+    });
 
     return result;
   }

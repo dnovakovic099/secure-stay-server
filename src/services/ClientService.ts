@@ -5,14 +5,12 @@ import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { In, IsNull, Not } from "typeorm";
 import { ListingService } from "./ListingService";
-import { tagIds } from "../constant"
 import { ClientTicket } from "../entity/ClientTicket";
 import { PropertyOnboarding } from "../entity/PropertyOnboarding";
 import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
 import { PropertyInfo } from "../entity/PropertyInfo";
 import { PropertyBedTypes } from "../entity/PropertyBedTypes";
 import logger from "../utils/logger.utils";
-import { HostAwayClient } from "../client/HostAwayClient";
 import { PropertyUpsells } from "../entity/PropertyUpsells";
 import { PropertyParkingInfo } from "../entity/PropertyParkingInfo";
 import { PropertyBathroomLocation } from "../entity/PropertyBathroomLocation";
@@ -256,8 +254,6 @@ export class ClientService {
   private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
   private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
 
-  private hostawayClient = new HostAwayClient();
-
   async saveClient(
     clientData: Partial<ClientEntity>,
     userId: string,
@@ -266,30 +262,140 @@ export class ClientService {
     clientProperties?: string[],
   ) {
     const listingService = new ListingService();
-    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
 
+    // 1️⃣ Determine status based on properties
     if (clientProperties && clientProperties.length > 0) {
-      clientData.status = "active"; // if properties are associated, set status to Active
+      clientData.status = "active";
     } else {
-      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
+      clientData.status = "onboarding";
     }
 
+    // 2️⃣ Create and save client first
     const client = this.clientRepo.create({ ...clientData, createdBy: userId, source });
+    const savedClient = await this.clientRepo.save(client);
 
+    // 3️⃣ Save secondary contacts (if any)
     if (secondaryContacts && secondaryContacts.length > 0) {
-      client.secondaryContacts = secondaryContacts.map((contact) =>
-        this.contactRepo.create({ ...contact, createdBy: userId })
+      const createdContacts = secondaryContacts.map((contact) =>
+        this.contactRepo.create({
+          ...contact,
+          createdBy: userId,
+          client: savedClient, // set relation manually
+        })
       );
+      await this.contactRepo.save(createdContacts);
     }
 
+    // 4️⃣ Save properties (if any)
     if (clientProperties && clientProperties.length > 0) {
-      client.properties = clientProperties.map((listingId) =>
-        this.propertyRepo.create({ listingId, createdBy: userId })
-      );
+      for (const listingId of clientProperties) {
+        // Use database transaction for each property to ensure data consistency
+        await appDatabase.transaction(async (transactionalEntityManager) => {
+          try {
+            const listingInfo = await listingService.getListingInfo(Number(listingId), userId);
+
+            if (!listingInfo) {
+              logger.error(`❌ Listing not found for listingId: ${listingId}`);
+              return; // Skip this listingId
+            }
+
+            logger.info(`🔄 Processing listingId: ${listingId} for client: ${savedClient.id}`);
+
+            // --- Create property first ---
+            const property = transactionalEntityManager.create(ClientPropertyEntity, {
+              listingId,
+              address: listingInfo.address,
+              status: "published",
+              createdBy: userId,
+              client: savedClient, // 👈 link to client
+            });
+
+            // --- Save property first to get the ID ---
+            const savedProperty = await transactionalEntityManager.save(property);
+
+            // --- Create propertyInfo ---
+            const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+              externalListingName: listingInfo.externalListingName,
+              internalListingName: listingInfo.internalListingName,
+              price: listingInfo.price,
+              priceForExtraPerson: listingInfo.priceForExtraPerson,
+              propertyTypeId: listingInfo.propertyTypeId,
+              roomType: listingInfo.roomType,
+              bedroomsNumber: listingInfo.bedroomsNumber,
+              bathroomsNumber: listingInfo.bathroomsNumber,
+              bathroomType: listingInfo.bathroomType,
+              guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+              address: listingInfo.address,
+              currencyCode: listingInfo.currencyCode,
+              guestsIncluded: listingInfo.guestsIncluded,
+              petFee: listingInfo.airbnbPetFeeAmount,
+              checkOutTime: listingInfo.checkOutTime,
+              checkInTimeStart: listingInfo.checkInTimeStart,
+              checkInTimeEnd: listingInfo.checkInTimeEnd,
+              squareMeters: listingInfo.squareMeters,
+              wifiUsername: listingInfo.wifiUsername,
+              wifiPassword: listingInfo.wifiPassword,
+              minNights: listingInfo.minNights,
+              maxNights: listingInfo.maxNights,
+              propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+              createdBy: userId,
+              clientProperty: savedProperty, // 👈 link to saved property
+            });
+
+            // --- Create and save vendorManagementInfo ---
+            const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+              cleaningFee: listingInfo.cleaningFee,
+            });
+            const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+            propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+            // --- Save propertyInfo ---
+            const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+
+            // --- Set amenities as simple array ---
+            if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+              savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+              await transactionalEntityManager.save(savedPropertyInfo);
+            }
+
+            // --- Save property bed types ---
+            if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+              const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                transactionalEntityManager.create(PropertyBedTypes, {
+                  haId: bedType.id,
+                  bedroomNumber: bedType.bedroomNumber,
+                  bedTypeId: bedType.bedTypeId,
+                  quantity: bedType.quantity,
+                  propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                })
+              );
+              await transactionalEntityManager.save(bedTypes);
+            }
+
+            // --- Update property with propertyInfo relation ---
+            savedProperty.propertyInfo = savedPropertyInfo;
+            await transactionalEntityManager.save(savedProperty);
+
+            logger.info(`✅ Successfully saved property for listingId: ${listingId}`);
+
+          } catch (err) {
+            logger.error(`❌ Error while saving property for listingId: ${listingId}`, err);
+            throw err; // Re-throw to trigger transaction rollback
+          }
+        }).catch((err) => {
+          logger.error(`❌ Transaction failed for listingId: ${listingId}`, err);
+          // Continue with next listingId instead of breaking the entire process
+        });
+      }
     }
 
-    return await this.clientRepo.save(client);
+    // 5️⃣ Return full client with relations (optional)
+    return await this.clientRepo.findOne({
+      where: { id: savedClient.id },
+      relations: ["secondaryContacts", "properties", "properties.propertyInfo"],
+    });
   }
+
 
   async updateClient(
     clientData: Partial<ClientEntity>,
@@ -298,26 +404,13 @@ export class ClientService {
     clientProperties?: string[],
   ) {
     const listingService = new ListingService();
-    const { FULL_SERVICE, PRO_SERVICE, LAUNCH_SERVICE } = await listingService.getListingIdsForEachServiceType(userId);
 
     if (clientProperties && clientProperties.length > 0) {
-      for (const listingId of clientProperties) {
-        //find the service type of the listingId by checking which array it belongs to
-        if (FULL_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "FULL_SERVICE";
-        } else if (PRO_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "PRO_SERVICE";
-        } else if (LAUNCH_SERVICE.includes(Number(listingId))) {
-          clientData.serviceType = "LAUNCH_SERVICE";
-        } else {
-          clientData.serviceType = null;
-        }
-      }
       clientData.status = "active";
     } else {
       clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
     }
-    
+
     const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
@@ -367,7 +460,11 @@ export class ClientService {
 
   private async handleClientPropertiesUpdate(client: ClientEntity, userId: string, clientProperties?: string[]) {
     if (clientProperties) {
-      const existingProperties = await this.propertyRepo.find({ where: { client: { id: client.id } } });
+      const listingService = new ListingService();
+      const existingProperties = await this.propertyRepo.find({
+        where: { client: { id: client.id } },
+        relations: ["propertyInfo", "propertyInfo.vendorManagementInfo", "propertyInfo.propertyBedTypes"]
+      });
       const existingListingIds = existingProperties.map((p) => p.listingId);
 
       // Delete properties that are not in the incoming list
@@ -381,12 +478,263 @@ export class ClientService {
         await this.propertyRepo.save(propertiesToDelete);
       }
 
-      // Add new properties
-      const newProperties = clientProperties
-        .filter((listingId) => !existingListingIds.includes(listingId))
-        .map((listingId) => this.propertyRepo.create({ listingId, createdBy: userId }));
+      // Process all properties (both existing and new) to sync with latest listing data
+      const updatedProperties = [];
 
-      client.properties = [...existingProperties.filter(p => !propertiesToDelete.includes(p)), ...newProperties];
+      for (const listingId of clientProperties) {
+        // Use database transaction for each property to ensure data consistency
+        await appDatabase.transaction(async (transactionalEntityManager) => {
+          try {
+            const listingInfo = await listingService.getListingInfo(Number(listingId), userId);
+
+            if (!listingInfo) {
+              logger.error(`❌ Listing not found for listingId: ${listingId}`);
+              return; // Skip this listingId
+            }
+
+            const isExistingProperty = existingListingIds.includes(listingId);
+            const existingProperty = existingProperties.find(p => p.listingId === listingId);
+
+            if (isExistingProperty && existingProperty) {
+              // Update existing property and its related data
+              logger.info(`🔄 Updating existing property for listingId: ${listingId} for client: ${client.id}`);
+
+              // Update property basic info
+              existingProperty.address = listingInfo.address;
+              existingProperty.updatedAt = new Date();
+              existingProperty.updatedBy = userId;
+              const savedProperty = await transactionalEntityManager.save(existingProperty);
+
+              // Update propertyInfo if it exists
+              if (existingProperty.propertyInfo) {
+                const propertyInfo = existingProperty.propertyInfo;
+
+                // Update all propertyInfo fields with fresh listing data
+                propertyInfo.externalListingName = listingInfo.externalListingName;
+                propertyInfo.internalListingName = listingInfo.internalListingName;
+                propertyInfo.price = listingInfo.price;
+                propertyInfo.priceForExtraPerson = listingInfo.priceForExtraPerson;
+                propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
+                propertyInfo.roomType = listingInfo.roomType;
+                propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
+                propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
+                propertyInfo.bathroomType = listingInfo.bathroomType;
+                propertyInfo.guestBathroomsNumber = listingInfo.guestBathroomsNumber;
+                propertyInfo.address = listingInfo.address;
+                propertyInfo.currencyCode = listingInfo.currencyCode;
+                propertyInfo.guestsIncluded = listingInfo.guestsIncluded;
+                propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
+                propertyInfo.checkOutTime = listingInfo.checkOutTime;
+                propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
+                propertyInfo.checkInTimeEnd = listingInfo.checkInTimeEnd;
+                propertyInfo.squareMeters = listingInfo.squareMeters;
+                propertyInfo.wifiUsername = listingInfo.wifiUsername;
+                propertyInfo.wifiPassword = listingInfo.wifiPassword;
+                propertyInfo.minNights = listingInfo.minNights;
+                propertyInfo.maxNights = listingInfo.maxNights;
+                propertyInfo.propertyLicenseNumber = listingInfo.propertyLicenseNumber;
+                propertyInfo.updatedAt = new Date();
+                propertyInfo.updatedBy = userId;
+
+                // Update vendorManagementInfo
+                if (propertyInfo.vendorManagementInfo) {
+                  propertyInfo.vendorManagementInfo.cleaningFee = listingInfo.cleaningFee;
+                  await transactionalEntityManager.save(propertyInfo.vendorManagementInfo);
+                } else {
+                  // Create vendorManagementInfo if it doesn't exist
+                  const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+                    cleaningFee: listingInfo.cleaningFee,
+                  });
+                  propertyInfo.vendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+                }
+
+                // Update amenities
+                if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+                  propertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+                }
+
+                const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+
+                // Update bed types - remove existing and create new ones
+                if (propertyInfo.propertyBedTypes && propertyInfo.propertyBedTypes.length > 0) {
+                  await transactionalEntityManager.remove(propertyInfo.propertyBedTypes);
+                }
+
+                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                    transactionalEntityManager.create(PropertyBedTypes, {
+                      haId: bedType.id,
+                      bedroomNumber: bedType.bedroomNumber,
+                      bedTypeId: bedType.bedTypeId,
+                      quantity: bedType.quantity,
+                      propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                    })
+                  );
+                  await transactionalEntityManager.save(bedTypes);
+                }
+
+                savedProperty.propertyInfo = savedPropertyInfo;
+                await transactionalEntityManager.save(savedProperty);
+              } else {
+                // Create propertyInfo if it doesn't exist for existing property
+                const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+                  externalListingName: listingInfo.externalListingName,
+                  internalListingName: listingInfo.internalListingName,
+                  price: listingInfo.price,
+                  priceForExtraPerson: listingInfo.priceForExtraPerson,
+                  propertyTypeId: listingInfo.propertyTypeId,
+                  roomType: listingInfo.roomType,
+                  bedroomsNumber: listingInfo.bedroomsNumber,
+                  bathroomsNumber: listingInfo.bathroomsNumber,
+                  bathroomType: listingInfo.bathroomType,
+                  guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                  address: listingInfo.address,
+                  currencyCode: listingInfo.currencyCode,
+                  guestsIncluded: listingInfo.guestsIncluded,
+                  petFee: listingInfo.airbnbPetFeeAmount,
+                  checkOutTime: listingInfo.checkOutTime,
+                  checkInTimeStart: listingInfo.checkInTimeStart,
+                  checkInTimeEnd: listingInfo.checkInTimeEnd,
+                  squareMeters: listingInfo.squareMeters,
+                  wifiUsername: listingInfo.wifiUsername,
+                  wifiPassword: listingInfo.wifiPassword,
+                  minNights: listingInfo.minNights,
+                  maxNights: listingInfo.maxNights,
+                  propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                  createdBy: userId,
+                  clientProperty: savedProperty,
+                });
+
+                // Create vendorManagementInfo
+                const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+                  cleaningFee: listingInfo.cleaningFee,
+                });
+                const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+                propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+                const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+
+                // Set amenities
+                if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+                  savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+                  await transactionalEntityManager.save(savedPropertyInfo);
+                }
+
+                // Create bed types
+                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                    transactionalEntityManager.create(PropertyBedTypes, {
+                      haId: bedType.id,
+                      bedroomNumber: bedType.bedroomNumber,
+                      bedTypeId: bedType.bedTypeId,
+                      quantity: bedType.quantity,
+                      propertyId: savedPropertyInfo,
+                    })
+                  );
+                  await transactionalEntityManager.save(bedTypes);
+                }
+
+                savedProperty.propertyInfo = savedPropertyInfo;
+                await transactionalEntityManager.save(savedProperty);
+              }
+
+              updatedProperties.push(savedProperty);
+              logger.info(`✅ Successfully updated existing property for listingId: ${listingId}`);
+
+            } else {
+              // Create new property with full propertyInfo and related data
+              logger.info(`🔄 Creating new property for listingId: ${listingId} for client: ${client.id}`);
+
+              // --- Create property first ---
+              const property = transactionalEntityManager.create(ClientPropertyEntity, {
+                listingId,
+                address: listingInfo.address,
+                status: "published",
+                createdBy: userId,
+                client: client, // 👈 link to client
+              });
+
+              // --- Save property first to get the ID ---
+              const savedProperty = await transactionalEntityManager.save(property);
+
+              // --- Create propertyInfo ---
+              const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+                externalListingName: listingInfo.externalListingName,
+                internalListingName: listingInfo.internalListingName,
+                price: listingInfo.price,
+                priceForExtraPerson: listingInfo.priceForExtraPerson,
+                propertyTypeId: listingInfo.propertyTypeId,
+                roomType: listingInfo.roomType,
+                bedroomsNumber: listingInfo.bedroomsNumber,
+                bathroomsNumber: listingInfo.bathroomsNumber,
+                bathroomType: listingInfo.bathroomType,
+                guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                address: listingInfo.address,
+                currencyCode: listingInfo.currencyCode,
+                guestsIncluded: listingInfo.guestsIncluded,
+                petFee: listingInfo.airbnbPetFeeAmount,
+                checkOutTime: listingInfo.checkOutTime,
+                checkInTimeStart: listingInfo.checkInTimeStart,
+                checkInTimeEnd: listingInfo.checkInTimeEnd,
+                squareMeters: listingInfo.squareMeters,
+                wifiUsername: listingInfo.wifiUsername,
+                wifiPassword: listingInfo.wifiPassword,
+                minNights: listingInfo.minNights,
+                maxNights: listingInfo.maxNights,
+                propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                createdBy: userId,
+                clientProperty: savedProperty, // 👈 link to saved property
+              });
+
+              // --- Create and save vendorManagementInfo ---
+              const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+                cleaningFee: listingInfo.cleaningFee,
+              });
+              const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+              propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+              // --- Save propertyInfo ---
+              const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+
+              // --- Set amenities as simple array ---
+              if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+                savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+                await transactionalEntityManager.save(savedPropertyInfo);
+              }
+
+              // --- Save property bed types ---
+              if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                  transactionalEntityManager.create(PropertyBedTypes, {
+                    haId: bedType.id,
+                    bedroomNumber: bedType.bedroomNumber,
+                    bedTypeId: bedType.bedTypeId,
+                    quantity: bedType.quantity,
+                    propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                  })
+                );
+                await transactionalEntityManager.save(bedTypes);
+              }
+
+              // --- Update property with propertyInfo relation ---
+              savedProperty.propertyInfo = savedPropertyInfo;
+              await transactionalEntityManager.save(savedProperty);
+
+              updatedProperties.push(savedProperty);
+              logger.info(`✅ Successfully created new property for listingId: ${listingId}`);
+            }
+
+          } catch (err) {
+            logger.error(`❌ Error while processing property for listingId: ${listingId}`, err);
+            throw err; // Re-throw to trigger transaction rollback
+          }
+        }).catch((err) => {
+          logger.error(`❌ Transaction failed for listingId: ${listingId}`, err);
+          // Continue with next listingId instead of breaking the entire process
+        });
+      }
+
+      client.properties = updatedProperties;
     }
   }
 
@@ -403,7 +751,7 @@ export class ClientService {
       .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
       .where("client.deletedAt IS NULL")
       .orderBy("client.createdAt", "DESC");
-      //order by client.createdAt desc
+    //order by client.createdAt desc
 
     if (keyword) {
       const k = `%${keyword.toLowerCase()}%`;
@@ -460,7 +808,7 @@ export class ClientService {
       { "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0 }
     );
 
-    return { 
+    return {
       total,
       data: transformedData,
       satisfactionCounts
@@ -471,16 +819,16 @@ export class ClientService {
   async deleteClient(clientId: string, userId: string) {
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
-       throw CustomErrorHandler.notFound("Client not found");
-     }
+      throw CustomErrorHandler.notFound("Client not found");
+    }
 
-     // Soft delete by setting deletedAt and deletedBy
-     client.deletedAt = new Date();
-     client.deletedBy = userId;
-     await this.clientRepo.save(client);
-   }
+    // Soft delete by setting deletedAt and deletedBy
+    client.deletedAt = new Date();
+    client.deletedBy = userId;
+    await this.clientRepo.save(client);
+  }
 
-   async getClientMetadata() {
+  async getClientMetadata() {
     //status can be one of active, at_risk, offboarding, offboarded
     // find the total no. of clients whose status is other than offboarded
     const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
@@ -492,8 +840,8 @@ export class ClientService {
       .groupBy("client.serviceType")
       .getRawMany();
 
-     return { totalActiveClients, serviceTypeCounts };
-   }
+    return { totalActiveClients, serviceTypeCounts };
+  }
 
   async getClientSatisfactionData(listingIds: string[]) {
     // find the client tickets with these listingIds and find the average of clientSatisfaction field
@@ -1906,16 +2254,16 @@ export class ClientService {
       address: listingIntake.address,
       timeZoneName: listingIntake.client.timezone,
       currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
-      guestsIncluded: listingIntake.propertyInfo.guestsIncluded, 
-      cleaningFee: listingIntake.propertyInfo.vendorManagementInfo.cleaningFee,
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
+      cleaningFee: listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
       checkOutTime: listingIntake.propertyInfo.checkOutTime,
       checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
       checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
       squareMeters: listingIntake.propertyInfo.squareMeters,
       language: "en",
-      instantBookable: listingIntake.propertyInfo.canAnyoneBookAnytime.includes("Yes") ? true : false,
-      // instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || 0,
+      instantBookable: listingIntake.propertyInfo?.canAnyoneBookAnytime?.includes("Yes") || false,
+      instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || null,
       wifiUsername: listingIntake.propertyInfo.wifiUsername,
       wifiPassword: listingIntake.propertyInfo.wifiPassword,
       minNights: listingIntake.propertyInfo.minNights,
@@ -1930,10 +2278,10 @@ export class ClientService {
 
       listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
         .map(bedType => ({
-        bedTypeId: bedType.bedTypeId,
-        quantity: bedType.quantity,
-        bedroomNumber: bedType.bedroomNumber,
-      })),
+          bedTypeId: bedType.bedTypeId,
+          quantity: bedType.quantity,
+          bedroomNumber: bedType.bedroomNumber,
+        })),
 
       propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
     };
@@ -1961,7 +2309,7 @@ export class ClientService {
       "externalListingName",
       // "address",
       // "price", //default 3000
-      "guestsIncluded", 
+      "guestsIncluded",
       // "priceForExtraPerson", //default 0
       // "currencyCode" //default USD
     ];
