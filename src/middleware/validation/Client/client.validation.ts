@@ -794,7 +794,7 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
                         propertyLicenseNumber: Joi.string().optional().allow(null),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
-                        statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly", "Monthly").allow(null),
+                        statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly Batch A", "Bi-Weekly Batch B", "Monthly").allow(null),
                         statementType: Joi.string().optional().valid("Check-Out", "Check-In", "Calendar").allow(null),
                         payoutMethod: Joi.string().optional().valid("Bank Transfer", "Zelle", "Venmo", "Others").allow(null),
                         claimFee: Joi.string().optional().valid("Yes", "No").allow(null),
