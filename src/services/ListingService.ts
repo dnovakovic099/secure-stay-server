@@ -147,6 +147,7 @@ export class ListingService {
       contactPhone1: data?.contactPhone1 || "",
       contactLanguage: data?.contactLanguage || "",
       propertyLicenseNumber: data?.propertyLicenseNumber || "",
+      personCapacity: data?.personCapacity || null,
     };
   }
 

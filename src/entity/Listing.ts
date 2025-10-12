@@ -182,6 +182,9 @@ export class Listing {
   @Column({ nullable: true })
   propertyLicenseNumber: string;
 
+  @Column({ nullable: true })
+  personCapcity: number;
+
   @OneToMany(() => ListingBedTypes, (tags) => tags.listing, {
     cascade: true,
     onDelete: "CASCADE"

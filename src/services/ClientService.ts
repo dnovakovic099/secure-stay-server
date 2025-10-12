@@ -87,7 +87,7 @@ interface Listing {
   propertyTypeId?: number | null;
   noOfFloors?: number | null;
   squareMeters?: number | null;
-  guestsIncluded?: number | null;
+  personCapacity?: number | null;
   roomType?: string | null;
   bedroomsNumber?: number | null;
   propertyBedTypes?: Array<{
@@ -327,7 +327,7 @@ export class ClientService {
               guestBathroomsNumber: listingInfo.guestBathroomsNumber,
               address: listingInfo.address,
               currencyCode: listingInfo.currencyCode,
-              guestsIncluded: listingInfo.guestsIncluded,
+              personCapacity: listingInfo.personCapcity,
               petFee: listingInfo.airbnbPetFeeAmount,
               checkOutTime: listingInfo.checkOutTime,
               checkInTimeStart: listingInfo.checkInTimeStart,
@@ -522,7 +522,7 @@ export class ClientService {
                 propertyInfo.guestBathroomsNumber = listingInfo.guestBathroomsNumber;
                 propertyInfo.address = listingInfo.address;
                 propertyInfo.currencyCode = listingInfo.currencyCode;
-                propertyInfo.guestsIncluded = listingInfo.guestsIncluded;
+                propertyInfo.personCapacity = listingInfo.personCapcity;
                 propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
                 propertyInfo.checkOutTime = listingInfo.checkOutTime;
                 propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
@@ -590,7 +590,7 @@ export class ClientService {
                   guestBathroomsNumber: listingInfo.guestBathroomsNumber,
                   address: listingInfo.address,
                   currencyCode: listingInfo.currencyCode,
-                  guestsIncluded: listingInfo.guestsIncluded,
+                  personCapacity: listingInfo.personCapcity,
                   petFee: listingInfo.airbnbPetFeeAmount,
                   checkOutTime: listingInfo.checkOutTime,
                   checkInTimeStart: listingInfo.checkInTimeStart,
@@ -671,7 +671,7 @@ export class ClientService {
                 guestBathroomsNumber: listingInfo.guestBathroomsNumber,
                 address: listingInfo.address,
                 currencyCode: listingInfo.currencyCode,
-                guestsIncluded: listingInfo.guestsIncluded,
+                personCapacity: listingInfo.personCapcity,
                 petFee: listingInfo.airbnbPetFeeAmount,
                 checkOutTime: listingInfo.checkOutTime,
                 checkInTimeStart: listingInfo.checkInTimeStart,
@@ -805,7 +805,7 @@ export class ClientService {
         }
         return acc;
       },
-      { "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0 }
+      { "Very Satisfied": 0, "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0, "Very Dissatisfied": 0 }
     );
 
     return {
@@ -829,7 +829,6 @@ export class ClientService {
   }
 
   async getClientMetadata() {
-    //status can be one of active, at_risk, offboarding, offboarded
     // find the total no. of clients whose status is other than offboarded
     const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
     // total no. of each serviceType of clients whose status is other than offboarded
@@ -1591,7 +1590,7 @@ export class ClientService {
     if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
     if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
-    if (listingPayload.guestsIncluded !== undefined) propertyInfo.guestsIncluded = listingPayload.guestsIncluded ?? null;
+    if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
 
     // Bedrooms
     if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
@@ -2254,7 +2253,7 @@ export class ClientService {
       address: listingIntake.address,
       timeZoneName: listingIntake.client.timezone,
       currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
-      guestsIncluded: listingIntake.propertyInfo.guestsIncluded,
+      personCapacity: listingIntake.propertyInfo.personCapacity,
       cleaningFee: listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
       checkOutTime: listingIntake.propertyInfo.checkOutTime,
@@ -2309,7 +2308,7 @@ export class ClientService {
       "externalListingName",
       // "address",
       // "price", //default 3000
-      "guestsIncluded",
+      "personCapacity",
       // "priceForExtraPerson", //default 0
       // "currencyCode" //default USD
     ];
