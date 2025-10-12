@@ -2272,11 +2272,11 @@ export class ClientService {
       contactPhone1: "(813) 531-8988",
       contactLanguage: "English",
 
-      amenities: listingIntake.propertyInfo.amenities.map((amenity: any) => {
+      amenities: listingIntake.propertyInfo?.amenities?.map((amenity: any) => {
         return { amenityId: Number(amenity) };
       }),
 
-      listingBedTypes: listingIntake.propertyInfo.propertyBedTypes.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
+      listingBedTypes: listingIntake.propertyInfo?.propertyBedTypes?.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
         .map(bedType => ({
           bedTypeId: bedType.bedTypeId,
           quantity: bedType.quantity,

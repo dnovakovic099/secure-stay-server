@@ -267,6 +267,7 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
                 listingId: Joi.string().optional().allow(null),
+                status: Joi.string().optional(),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().optional().allow(null),
