@@ -144,7 +144,7 @@ export const validateUpdateExpenseStatus = (request: Request, response: Response
 
 export const validateGetExpenseList = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        listingId: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
+        listingId: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
 
         fromDate: Joi.string()
             .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -168,11 +168,11 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
                 Joi.string().valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
             )
             .min(1)
-            .required()
+            .optional()
             .allow('', null),
 
-        categories: Joi.string().required().allow(''),
-        contractorName: Joi.array().items(Joi.string().required()).min(1).required().allow("", null),
+        categories: Joi.string().optional().allow(''),
+        contractorName: Joi.array().items(Joi.string().required()).min(1).optional().allow("", null),
 
         dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
         expenseState: Joi.string().required().valid("active", "deleted").allow(null, ""),
@@ -182,10 +182,10 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
                 Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal")
             )
             .min(1)
-            .required()
+            .optional()
             .allow('', null),
 
-        tags: Joi.array().items(Joi.number().required()).min(1).required().allow("", null),
+        tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional()

@@ -156,5 +156,44 @@ export class UsersController{
             return next(error);
         }
     }
+
+    async fetchUserList(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            return response.send(await usersService.fetchUserList());
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async fetchPaginatedUserList(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            return response.send(await usersService.fetchPaginatedUserList(request.query));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async removeUser(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            const uid = request.params.id;
+            const userId = request.user.id;
+            return response.send(await usersService.removeUser(uid, userId));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getAssignedTaskInfo(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            const userId = request.user.id;
+            return response.send(await usersService.getAssignedTaskInfo(userId));
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
 

@@ -7,6 +7,7 @@ import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { setSelectedSlackUsers } from "../helpers/helpers";
+import { format } from "date-fns";
 
 interface LatestUpdates {
     id?: number;
@@ -84,7 +85,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
-            clientSatisfaction: body.clientSatisfaction
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
         if (body.category.includes("Other") && mentions && mentions.length > 0) {
             setSelectedSlackUsers(mentions);
@@ -147,6 +152,8 @@ export class ClientTicketService {
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
                     updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                 })),
+                assigneeName: userMap.get(ticket.assignee) || ticket.assignee,
+                assigneeList: users.map((user) => { return { uid: user.uid, name: `${user.firstName} ${user.lastName}` }; })
             };
         });
 
@@ -220,7 +227,11 @@ export class ClientTicketService {
             category: JSON.stringify(body.category),
             description: body.description,
             resolution: body.resolution,
-            clientSatisfaction: body.clientSatisfaction
+            clientSatisfaction: body.clientSatisfaction,
+            assignee: body.assignee || null,
+            urgency: body.urgency || null,
+            mistake: body.mistake || null,
+            mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null
         };
 
         const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
@@ -231,7 +242,7 @@ export class ClientTicketService {
         Object.assign(clientTicket, ticketData, {
             updatedBy: userId,
             updatedAt: new Date(),
-            ...(ticketData.status == "Completed" && {
+            ...(clientTicket.status !== "Completed" && ticketData.status == "Completed" && {
                 completedOn: new Date(),
                 completedBy: userId
             })
@@ -267,6 +278,9 @@ export class ClientTicketService {
         if (status === "Completed") {
             clientTicket.completedOn = new Date().toISOString();;
             clientTicket.completedBy = userId;
+        } else {
+            clientTicket.completedOn = null;
+            clientTicket.completedBy = null;
         }
 
         await this.clientTicketRepo.save(clientTicket);
@@ -376,5 +390,41 @@ export class ClientTicketService {
             throw error;
         }
     }
+
+    async updateAssignee(id: number, assignee: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.assignee = assignee;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateUrgency(id: number, urgency: number, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.urgency = urgency;
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
+    async updateMistake(id: number, mistake: string, userId: string) {
+        const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
+        if (!clientTicket) {
+            throw CustomErrorHandler.notFound(`clientTicket with ID ${id} not found`);
+        }
+        clientTicket.mistake = mistake;
+        if (mistake === "Resolved") {
+            clientTicket.mistakeResolvedOn = format(new Date(), 'yyyy-MM-dd');
+        } else {
+            clientTicket.mistakeResolvedOn = null;
+        }
+        clientTicket.updatedBy = userId;
+        return await this.clientTicketRepo.save(clientTicket);
+    }
+
 
 }

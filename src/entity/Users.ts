@@ -1,5 +1,5 @@
 // Import necessary modules from TypeORM
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DeleteDateColumn, UpdateDateColumn } from 'typeorm';
 
 // Define the entity class
 @Entity({ name: 'users' })
@@ -27,5 +27,26 @@ export class UsersEntity {
 
     @Column({ type: 'varchar', length: 255, nullable: true })
     message: string;
+
+    @Column({ nullable: true })
+    department: string;
+
+    @CreateDateColumn()
+    createdAt: Date;
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+
+    @DeleteDateColumn({ nullable: true })
+    deletedAt: Date;
+
+    @Column({ nullable: true })
+    createdBy: string;
+
+    @Column({ nullable: true })
+    updatedBy: string;
+
+    @Column({ nullable: true })
+    deletedBy: string;
 
 }

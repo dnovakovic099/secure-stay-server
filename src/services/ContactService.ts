@@ -30,6 +30,7 @@ interface FilterQuery {
     keyword?: string;
     state?: string[];
     city?: string[];
+    paidBy?: string[];
 }
 
 export class ContactService {
@@ -96,7 +97,8 @@ export class ContactService {
             email,
             keyword,
             state,
-            city
+            city,
+            paidBy
         } = query;
 
         let listingIds = [];
@@ -148,6 +150,7 @@ export class ContactService {
             ...(rate && { rate }),
             ...(source && source.length > 0 && { source: In(source) }),
             ...(email && { email }),
+            ...(paidBy && paidBy.length > 0 && { paidBy: In(paidBy) }),
         };
 
         // Add keyword search for both name and contact (OR condition)
@@ -378,6 +381,9 @@ export class ContactService {
                 }
                 if (updateData.speed !== undefined) {
                     contact.speed = updateData.speed;
+                }
+                if(updateData.paidBy !== undefined) {
+                    contact.paidBy = updateData.paidBy;
                 }
                 
                 contact.updatedBy = userId;

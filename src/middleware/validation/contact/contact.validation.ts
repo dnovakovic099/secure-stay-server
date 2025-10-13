@@ -27,6 +27,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         costRating: Joi.number().integer().min(1).max(5).required().allow(null),
         trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
         speed: Joi.number().integer().min(1).max(5).required().allow(null),
+        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client")
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -114,6 +115,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         costRating: Joi.number().integer().min(1).max(5).required().allow(null),
         trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
         speed: Joi.number().integer().min(1).max(5).required().allow(null),
+        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client")
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -205,6 +207,7 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         keyword: Joi.string().optional(),
         state: Joi.array().items(Joi.string()).optional(),
         city: Joi.array().items(Joi.string()).optional(),
+        paidBy: Joi.array().items(Joi.string().valid("LL", "LL (Charge to Client)", "Client")).optional()
     });
 
     const { error } = schema.validate(request.query);
@@ -295,6 +298,7 @@ export const validateBulkUpdateContacts = (request: Request, response: Response,
             costRating: Joi.number().integer().min(1).max(5).optional().allow(null),
             trustLevel: Joi.number().integer().min(1).max(5).optional().allow(null),
             speed: Joi.number().integer().min(1).max(5).optional().allow(null),
+            paidBy: Joi.string().optional().valid("LL", "LL (Charge to Client)", "Client")
         }).min(1).required()
     });
 

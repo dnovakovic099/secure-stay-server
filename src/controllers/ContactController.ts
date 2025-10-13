@@ -57,6 +57,7 @@ export class ContactController {
                 keyword: request.query.keyword as string,
                 state: request.query.state as string[],
                 city: request.query.city as string[],
+                paidBy: request.query.paidBy as string[],
             }, request.user.id);
             return response.status(200).json(contacts);
         } catch (error) {

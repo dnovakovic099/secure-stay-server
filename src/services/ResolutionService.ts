@@ -24,6 +24,8 @@ interface ResolutionData {
     amount: number;
     arrivalDate: string;
     departureDate: string;
+    creationSource?: string;
+    type?: string;
 }
 
 enum CategoryKey {
@@ -77,6 +79,8 @@ export class ResolutionService {
         resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
+        resolution.creationSource = data.creationSource ? data.creationSource : "manual";
+        resolution.type = data.type || null;
 
         await this.resolutionRepo.save(resolution);
 
@@ -437,7 +441,7 @@ export class ResolutionService {
 
             const resolutionData: ResolutionData = {
                 category: categoriesList[CategoryKey.RESOLUTION],
-                description: row.Type,
+                type: row.Type,
                 listingMapId: reservation.listingMapId, 
                 reservationId: reservation.id, 
                 guestName: reservation.guestName,
@@ -445,11 +449,12 @@ export class ResolutionService {
                 amount: Number(row.Amount), 
                 arrivalDate: arrivalDate,
                 departureDate: String(reservation.departureDate),
+                creationSource: "csv_upload"
             };
 
             let cancellationFeeInfo = null;
             const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
-            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && res.description == row.Type));
+            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && res.type == row.Type));
             if (hasExistingResolution) {
                 // failedToProcessData.push(row);
                 logger.warn(`Skipping duplicate resolution for reservation ID ${reservation.id} with amount ${row.Amount} and type ${row.Type}`);
@@ -457,7 +462,7 @@ export class ResolutionService {
             }
 
             if (row.Type === "Cancellation Fee Refund") {
-                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.description == "Cancellation Fee")));
+                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.type == "Cancellation Fee")));
             }
 
             const resolution = await this.createResolution(resolutionData, userId);
