@@ -17,6 +17,7 @@ import { PropertyBathroomLocation } from "../entity/PropertyBathroomLocation";
 import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
 import { SuppliesToRestock } from "../entity/SuppliesToRestock";
 import { VendorInfo } from "../entity/VendorInfo";
+import { HostAwayClient } from "../client/HostAwayClient";
 
 interface ClientFilter {
   page: number;
@@ -253,6 +254,8 @@ export class ClientService {
   private propertyVendorManagementRepo = appDatabase.getRepository(PropertyVendorManagement);
   private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
   private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
+
+  private hostawayClient = new HostAwayClient();
 
   async saveClient(
     clientData: Partial<ClientEntity>,
@@ -2274,6 +2277,7 @@ export class ClientService {
       contactName: "Luxury Lodging",
       contactPhone1: "(813) 531-8988",
       contactLanguage: "English",
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded || 1,
 
       amenities: listingIntake.propertyInfo?.amenities?.map((amenity: any) => {
         return { amenityId: Number(amenity) };
@@ -2292,15 +2296,15 @@ export class ClientService {
     logger.info(JSON.stringify(hostawayPayload));
 
     //simulate taking time of 10s
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    // await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // const response = await this.hostawayClient.createListing(hostawayPayload);
-    // if (!response) {
-    //   throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
-    // }
+    const response = await this.hostawayClient.createListing(hostawayPayload);
+    if (!response) {
+      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    }
     // Update the listingIntake status to published
     listingIntake.status = "published";
-    listingIntake.listingId = String(Math.random()); // Assuming response contains the Hostaway listing ID
+    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
 
@@ -2312,7 +2316,7 @@ export class ClientService {
       "externalListingName",
       // "address",
       // "price", //default 3000
-      "personCapacity",
+      // "guestsIncluded", //default 1
       // "priceForExtraPerson", //default 0
       // "currencyCode" //default USD
     ];
