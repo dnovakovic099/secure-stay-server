@@ -104,6 +104,7 @@ export class ListingService {
       description: data?.description,
       externalListingName: data?.externalListingName,
       address: data?.address,
+      personCapacity: data?.personCapacity,
       guests: data?.personCapacity,
       price: data?.price,
       guestsIncluded: data?.guestsIncluded,
@@ -147,7 +148,6 @@ export class ListingService {
       contactPhone1: data?.contactPhone1 || "",
       contactLanguage: data?.contactLanguage || "",
       propertyLicenseNumber: data?.propertyLicenseNumber || "",
-      personCapacity: data?.personCapacity || null,
     };
   }
 

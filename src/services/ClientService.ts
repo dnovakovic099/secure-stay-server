@@ -327,7 +327,7 @@ export class ClientService {
               guestBathroomsNumber: listingInfo.guestBathroomsNumber,
               address: listingInfo.address,
               currencyCode: listingInfo.currencyCode,
-              personCapacity: listingInfo.personCapcity,
+              personCapacity: listingInfo.personCapacity,
               petFee: listingInfo.airbnbPetFeeAmount,
               checkOutTime: listingInfo.checkOutTime,
               checkInTimeStart: listingInfo.checkInTimeStart,
@@ -522,7 +522,7 @@ export class ClientService {
                 propertyInfo.guestBathroomsNumber = listingInfo.guestBathroomsNumber;
                 propertyInfo.address = listingInfo.address;
                 propertyInfo.currencyCode = listingInfo.currencyCode;
-                propertyInfo.personCapacity = listingInfo.personCapcity;
+                propertyInfo.personCapacity = listingInfo.personCapacity;
                 propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
                 propertyInfo.checkOutTime = listingInfo.checkOutTime;
                 propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
@@ -590,7 +590,7 @@ export class ClientService {
                   guestBathroomsNumber: listingInfo.guestBathroomsNumber,
                   address: listingInfo.address,
                   currencyCode: listingInfo.currencyCode,
-                  personCapacity: listingInfo.personCapcity,
+                  personCapacity: listingInfo.personCapacity,
                   petFee: listingInfo.airbnbPetFeeAmount,
                   checkOutTime: listingInfo.checkOutTime,
                   checkInTimeStart: listingInfo.checkInTimeStart,
@@ -671,7 +671,7 @@ export class ClientService {
                 guestBathroomsNumber: listingInfo.guestBathroomsNumber,
                 address: listingInfo.address,
                 currencyCode: listingInfo.currencyCode,
-                personCapacity: listingInfo.personCapcity,
+                personCapacity: listingInfo.personCapacity,
                 petFee: listingInfo.airbnbPetFeeAmount,
                 checkOutTime: listingInfo.checkOutTime,
                 checkInTimeStart: listingInfo.checkInTimeStart,

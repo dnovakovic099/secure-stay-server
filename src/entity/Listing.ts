@@ -183,7 +183,7 @@ export class Listing {
   propertyLicenseNumber: string;
 
   @Column({ nullable: true })
-  personCapcity: number;
+  personCapacity: number;
 
   @OneToMany(() => ListingBedTypes, (tags) => tags.listing, {
     cascade: true,
