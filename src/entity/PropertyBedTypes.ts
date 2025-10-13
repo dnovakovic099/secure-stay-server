@@ -7,6 +7,9 @@ export class PropertyBedTypes {
     id: number;
 
     @Column({ nullable: true })
+    haId: number;
+
+    @Column({ nullable: true })
     floorLevel: number;
 
     @Column({ nullable: true })

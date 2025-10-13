@@ -48,6 +48,9 @@ export class ClientEntity {
   @Column({ nullable: true })
   serviceType: string;
 
+  @Column({ type: "text", nullable: true })
+  clientFolder: string;
+
   @OneToMany(() => ClientPropertyEntity, (property) => property.client, { cascade: true, eager: false })
   properties: ClientPropertyEntity[];
 
