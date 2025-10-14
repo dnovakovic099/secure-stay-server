@@ -26,4 +26,6 @@ router
 router.route('/reviewcheckout')
     .get(verifySession, validateGetReviewForCheckout, reviewController.getReviewsForCheckout)
 
+router.route('/reviewcheckout/update').put(verifySession, reviewController.updateReviewCheckout)
+
 export default router;

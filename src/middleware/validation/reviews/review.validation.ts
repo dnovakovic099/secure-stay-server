@@ -93,3 +93,28 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
     }
     next();
 };
+
+enum ReviewCheckoutStatus {
+    TO_CALL = "To Call",
+    FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
+    FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
+    NO_FURTHER_ACTION_REQUIRED = "No further action required",
+    ISSUE = "Issue",
+    CLOSED_FIVE_STAR = "Closed - 5 Star",
+    CLOSED_BAD_REVIEW = "Closed - Bad Review",
+    CLOSED_NO_REVIEW = "Closed - No Review",
+}
+
+export const validateUpdateReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().required().valid(...Object.values(ReviewCheckoutStatus)),
+        comments: Joi.string().allow('', null),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        next(error);
+    }
+    next();
+};
