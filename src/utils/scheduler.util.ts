@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { ClaimsService } from "../services/ClaimsService";
 import { MaintenanceService } from "../services/MaintenanceService";
 import { PublishedStatementService } from "../services/PublishedStatementService";
+import { ReviewService } from "../services/ReviewService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -171,6 +172,20 @@ export function scheduleGetReservation() {
         logger.info('Scheduled task for deleting reservation logs older than last month ran...');
         const reservationInfoService = new ReservationInfoService();
         await reservationInfoService.deleteReservationLogsOlderThanlastMonth();
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
+  schedule.scheduleJob(
+    "0 * * * *", // every hour
+    async () => {
+      try {
+        logger.info('Scheduled task for processing review checkout ran...');
+        const reviewService = new ReviewService();
+        await reviewService.processReviewCheckout();
+        logger.info('Scheduled task for processing review checkout completed...');
       } catch (error) {
         logger.error(error);
       }
