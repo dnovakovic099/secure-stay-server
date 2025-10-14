@@ -113,7 +113,7 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().required().allow(null),
-                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL"),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
                         contractLink: Joi.string().required().allow(null),
                         serviceNotes: Joi.string().required().allow(null)
                     }),
@@ -121,6 +121,7 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().required().allow(null),
                         salesNotes: Joi.string().required().allow(null),
                         projectedRevenue: Joi.number().required().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
@@ -143,7 +144,6 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 })
             })
         )
-
     });
 
     const { error } = schema.validate(request.body);
@@ -171,6 +171,7 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().optional().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
                         projectedRevenue: Joi.number().optional().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
