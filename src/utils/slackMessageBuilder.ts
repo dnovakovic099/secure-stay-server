@@ -11,12 +11,14 @@ import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { Claim } from "../entity/Claim";
 import { ReviewEntity } from "../entity/Review";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
+const EXPENSE_CHANNEL = "#social";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -923,6 +925,218 @@ export const buildClaimReviewReceivedMessage = (claim: Claim, review: ReviewEnti
                         type: "mrkdwn",
                         text: `🕒 Review received on ${review.submittedAt && format(review.submittedAt, "MMM dd hh:mm a")}`
                     }
+                ]
+            }
+        ]
+    };
+
+    return slackMessage;
+};
+
+// Expense Status Emoji Helper
+const expenseStatusEmoji = (status: ExpenseStatus): string => {
+    switch (status) {
+        case ExpenseStatus.PENDING:
+            return "⏳ ";
+        case ExpenseStatus.APPROVED:
+            return "✅ ";
+        case ExpenseStatus.OVERDUE:
+            return "⚠️ ";
+        case ExpenseStatus.PAID:
+            return "💰 ";
+        default:
+            return "📋 ";
+    }
+};
+
+// Expense Slack Message Builders
+export const buildExpenseSlackMessage = (
+    expense: ExpenseEntity,
+    createdBy: string,
+    listingName?: string,
+    updatedBy?: string,
+    categoryNames?: string
+) => {
+    return {
+        channel: EXPENSE_CHANNEL,
+        text: `New Expense: 🏠 ${listingName || 'Unknown Property'}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*New Expense: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
+                    { type: "mrkdwn", text: `*Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Description:*\n${expense.concept || 'No description provided'}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Contractor:* ${expense.contractorName || '-'}` },
+                    { type: "mrkdwn", text: `*Payment Method:* ${expense.paymentMethod || '-'}` },
+                    { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
+                    { type: "mrkdwn", text: `*Expense Date:* ${expense.expenseDate || '-'}` },
+                    { type: "mrkdwn", text: `*Date of Work:* ${expense.dateOfWork || '-'}` },
+                    { type: "mrkdwn", text: `*Created By:* ${createdBy}` },
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Update Status:*"
+                },
+                accessory: {
+                    type: "static_select",
+                    placeholder: {
+                        type: "plain_text",
+                        text: "Select status..."
+                    },
+                    action_id: slackInteractivityEventNames.UPDATE_EXPENSE_STATUS,
+                    options: [
+                        {
+                            text: {
+                                type: "plain_text",
+                                text: "Pending Approval"
+                            },
+                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.PENDING })
+                        },
+                        {
+                            text: {
+                                type: "plain_text",
+                                text: "Approved"
+                            },
+                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.APPROVED })
+                        },
+                        {
+                            text: {
+                                type: "plain_text",
+                                text: "Paid"
+                            },
+                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.PAID })
+                        },
+                        {
+                            text: {
+                                type: "plain_text",
+                                text: "Overdue"
+                            },
+                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.OVERDUE })
+                        }
+                    ]
+                }
+            }
+        ]
+    };
+};
+
+export const buildExpenseSlackMessageUpdate = (
+    expense: ExpenseEntity,
+    updatedBy: string,
+    listingName?: string,
+    categoryNames?: string
+) => {
+    return {
+        channel: EXPENSE_CHANNEL,
+        text: `Expense Updated: 🏠 ${listingName || 'Unknown Property'}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Expense Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
+                    { type: "mrkdwn", text: `*Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Description:*\n${expense.concept || 'No description provided'}`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Contractor:* ${expense.contractorName || '-'}` },
+                    { type: "mrkdwn", text: `*Payment Method:* ${expense.paymentMethod || '-'}` },
+                    { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
+                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
+                ]
+            }
+        ]
+    };
+};
+
+export const buildExpenseSlackMessageDelete = (
+    expense: ExpenseEntity,
+    deletedBy: string,
+    listingName?: string,
+    categoryNames?: string
+) => {
+    return {
+        channel: EXPENSE_CHANNEL,
+        text: `Expense Deleted: 🏠 ${listingName || 'Unknown Property'}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Expense Deleted: 🏠 ${listingName || 'Unknown Property'}*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
+                    { type: "mrkdwn", text: `*Description:* ${expense.concept || 'No description provided'}` },
+                    { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
+                    { type: "mrkdwn", text: `*Deleted By:* ${deletedBy}` }
+                ]
+            }
+        ]
+    };
+};
+
+export const buildExpenseStatusUpdateMessage = (
+    expense: ExpenseEntity,
+    updatedBy: string
+) => {
+    const slackMessage = {
+        channel: EXPENSE_CHANNEL,
+        text: `Expense Status Updated`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Expense Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*New Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` },
+                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
                 ]
             }
         ]

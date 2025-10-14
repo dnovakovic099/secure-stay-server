@@ -10,6 +10,7 @@ import { IssuesService } from "../services/IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
+import { ExpenseService } from "../services/ExpenseService";
 
 export class UnifiedWebhookController {
 
@@ -74,6 +75,10 @@ export class UnifiedWebhookController {
                     logger.info(`Action Item status update request`);
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_EXPENSE_STATUS: {
+                    logger.info(`Expense status update request`);
+                    break;
+                }
                 default: {
                     messageText = `Action not recognized.`;
                     break;
@@ -134,6 +139,24 @@ export class UnifiedWebhookController {
                          await actionItemsService.updateActionItemStatus(Number(requestObj.id), requestObj.status, user);
                     } catch (error) {
                         logger.error(`Error updating action item status: ${error}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_EXPENSE_STATUS}`: {
+                    try {
+                        //update the status of the expense
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const expenseService = new ExpenseService();
+                        const mockRequest = {
+                            body: {
+                                expenseId: [requestObj.id],
+                                status: requestObj.status
+                            }
+                        } as Request;
+                        await expenseService.updateExpenseStatus(mockRequest, user);
+                        logger.info(`User ${user} updated expense ${requestObj.id} status to ${requestObj.status}`);
+                    } catch (error) {
+                        logger.error(`Error updating expense status: ${error}`);
                     }
                     break;
                 }
