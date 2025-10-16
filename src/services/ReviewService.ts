@@ -584,7 +584,7 @@ export class ReviewService {
                     createdAt: 'DESC',
                 },
             });
-            if (review) {
+            if (review.rating) {
                 reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
             } else {
                 reviewCheckout.status = ReviewCheckoutStatus.CLOSED_NO_REVIEW;
