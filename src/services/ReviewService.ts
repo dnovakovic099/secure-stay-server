@@ -507,7 +507,7 @@ export class ReviewService {
         const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
 
         //fetch follow up review checkout whose sevenDaysAfterCheckout is today
-        const followUpReviewCheckout = await this.reviewCheckoutRepo.find({
+        const followUpReviewCheckout = todayDate ? await this.reviewCheckoutRepo.find({
             where: {
                 status: In(
                     [
@@ -523,7 +523,7 @@ export class ReviewService {
                 },
                 ...(todayDate ? { sevenDaysAfterCheckout: Between(todayDate, todayDate) } : {}),
             }
-        });
+        }) : [];
 
         const transformedData = [...reviewCheckoutList, ...followUpReviewCheckout].map(rc => {
             return {
@@ -534,9 +534,9 @@ export class ReviewService {
                 deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
                 reservationInfo: {
                     ...rc.reservationInfo,
-                    review: reviews.find(r => r.reservationId == rc.reservationInfo.id) || null,
-                    issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo.id),
-                    actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo.id),
+                    review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
+                    issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
+                    actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
                 }
             };
         });

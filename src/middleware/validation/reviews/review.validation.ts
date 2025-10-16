@@ -115,7 +115,7 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
         comments: Joi.string().allow('', null),
     });
 
-    const { error } = schema.validate(request.query);
+    const { error } = schema.validate(request.body);
     if (error) {
         next(error);
     }
