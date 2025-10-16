@@ -1,6 +1,19 @@
 import { NextFunction, Request, Response } from "express";
 import Joi, { custom } from "joi";
 
+enum ReviewCheckoutStatus {
+    TO_CALL = "To Call",
+    FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
+    FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
+    NO_FURTHER_ACTION_REQUIRED = "No further action required",
+    ISSUE = "Issue",
+    CLOSED_FIVE_STAR = "Closed - 5 Star",
+    CLOSED_BAD_REVIEW = "Closed - Bad Review",
+    CLOSED_NO_REVIEW = "Closed - No Review",
+    CLOSED_TRAPPED = "Closed - Trapped"
+}
+
+
 export const validateGetReviewRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt"),
@@ -68,7 +81,7 @@ export const validateSaveReview = (request: Request, response: Response, next: N
 
 export const validateGetReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        todayDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).required().messages({
+        todayDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
             'any.required': 'todayDate is required'
         }),
@@ -85,6 +98,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         ).optional(),
         channel: Joi.array().items(Joi.string()).optional(),
         keyword: Joi.string().optional(),
+        status: Joi.array().items(Joi.string().required().valid(...Object.values(ReviewCheckoutStatus))).min(1).allow("", null),
     });
 
     const { error } = schema.validate(request.query);
@@ -93,17 +107,6 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
     }
     next();
 };
-
-enum ReviewCheckoutStatus {
-    TO_CALL = "To Call",
-    FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
-    FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
-    NO_FURTHER_ACTION_REQUIRED = "No further action required",
-    ISSUE = "Issue",
-    CLOSED_FIVE_STAR = "Closed - 5 Star",
-    CLOSED_BAD_REVIEW = "Closed - Bad Review",
-    CLOSED_NO_REVIEW = "Closed - No Review",
-}
 
 export const validateUpdateReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({

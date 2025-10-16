@@ -1,7 +1,7 @@
 import { ReviewController } from "../controllers/ReviewController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout } from "../middleware/validation/reviews/review.validation";
+import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout } from "../middleware/validation/reviews/review.validation";
 import { validateReviewDetailsRequest } from "../middleware/validation/reviews/reviewDetail.validation";
 import { ReviewDetailController } from "../controllers/ReviewDetailController";
 
@@ -26,6 +26,6 @@ router
 router.route('/reviewcheckout')
     .get(verifySession, validateGetReviewForCheckout, reviewController.getReviewsForCheckout)
 
-router.route('/reviewcheckout/update').put(verifySession, reviewController.updateReviewCheckout)
+router.route('/reviewcheckout/update').put(verifySession, validateUpdateReviewForCheckout, reviewController.updateReviewCheckout)
 
 export default router;
