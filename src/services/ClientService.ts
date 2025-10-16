@@ -65,6 +65,7 @@ interface Sales {
   salesRepresentative: string | null;
   salesNotes: string | null;
   projectedRevenue: number | null;
+  minPrice: number | null;
 }
 
 interface Listing {
@@ -947,6 +948,16 @@ export class ClientService {
       });
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
 
+      // Create PropertyInfo record to store minPrice from sales
+      if (sales?.minPrice !== undefined) {
+        const propertyInfoEntity = this.propertyInfoRepo.create({
+          minPrice: sales.minPrice,
+          clientProperty: savedClientProperty,
+          createdBy: userId,
+        });
+        await this.propertyInfoRepo.save(propertyInfoEntity);
+      }
+
       results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
     }
 
@@ -1090,10 +1101,11 @@ export class ClientService {
       }
 
       // Update or Create Onboarding if provided
-      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography) {
-        const sales = property.onboarding.sales;
-        const listing = property.onboarding.listing;
-        const photography = property.onboarding.photography;
+      const sales = property.onboarding?.sales;
+      const listing = property.onboarding?.listing;
+      const photography = property.onboarding?.photography;
+
+      if (sales || listing || photography) {
 
         let ob = clientProperty.onboarding;
         if (!ob) {
@@ -1147,6 +1159,24 @@ export class ClientService {
           ob.updatedBy = userId;
         }
         await this.propertyOnboardingRepo.save(ob);
+      }
+
+      // Handle minPrice from sales - create or update PropertyInfo
+      if (sales?.minPrice !== undefined) {
+        let propertyInfo = clientProperty.propertyInfo;
+        if (!propertyInfo) {
+          // Create new PropertyInfo record
+          propertyInfo = this.propertyInfoRepo.create({
+            minPrice: sales.minPrice,
+            clientProperty: clientProperty,
+            createdBy: userId,
+          });
+        } else {
+          // Update existing PropertyInfo record
+          propertyInfo.minPrice = sales.minPrice;
+          propertyInfo.updatedBy = userId;
+        }
+        await this.propertyInfoRepo.save(propertyInfo);
       }
 
       // Refresh the property to get the latest data with relations

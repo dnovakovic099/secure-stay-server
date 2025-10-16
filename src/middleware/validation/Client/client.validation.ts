@@ -113,7 +113,7 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().required().allow(null),
-                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL"),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
                         contractLink: Joi.string().required().allow(null),
                         serviceNotes: Joi.string().required().allow(null)
                     }),
@@ -121,11 +121,17 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().required().allow(null),
                         salesNotes: Joi.string().required().allow(null),
                         projectedRevenue: Joi.number().required().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().required().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().required().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().required().allow(null),
+                        clientListingStatus: Joi.string().required().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)", 
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).required().allow(null),
@@ -143,7 +149,6 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 })
             })
         )
-
     });
 
     const { error } = schema.validate(request.body);
@@ -171,11 +176,17 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().optional().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
                         projectedRevenue: Joi.number().optional().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().optional().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
@@ -219,8 +230,13 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                     }),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().required().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().required().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().required().allow(null),
+                        clientListingStatus: Joi.string().required().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).required().allow(null),
@@ -276,8 +292,13 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().optional().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
