@@ -57,6 +57,7 @@ export enum ReviewCheckoutStatus {
     CLOSED_FIVE_STAR = "Closed - 5 Star",
     CLOSED_BAD_REVIEW = "Closed - Bad Review",
     CLOSED_NO_REVIEW = "Closed - No Review",
+    CLOSED_TRAPPED = "Closed - Trapped"
 }
 
 export class ReviewService {
@@ -568,7 +569,7 @@ export class ReviewService {
         const existingReviewCheckouts = await this.reviewCheckoutRepo.find({
             where: {
                 fourteenDaysAfterCheckout: Between(today, today),
-                status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW])),
+                status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW, ReviewCheckoutStatus.CLOSED_TRAPPED])),
             },
             relations: ['reservationInfo'],
         });
