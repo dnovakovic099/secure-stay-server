@@ -473,7 +473,7 @@ export class ReviewService {
                 ...(status && status.length > 0 ? { status: In(status) } : {}),
                 reservationInfo: {
                     ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
-                    ...(guestName ? { guestName: ILike(`%${guestName}%`) } : {}),
+                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
                     ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
                 },
                 ...(todayDate ? { adjustedCheckoutDate: Between(todayDate, todayDate) } : {}),
@@ -518,11 +518,12 @@ export class ReviewService {
                     ]),
                 reservationInfo: {
                     ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
-                    ...(guestName ? { guestName: ILike(`%${guestName}%`) } : {}),
+                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
                     ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
                 },
-                ...(todayDate ? { sevenDaysAfterCheckout: Between(todayDate, todayDate) } : {}),
-            }
+                sevenDaysAfterCheckout: Between(todayDate, todayDate),
+            },
+            relations: ['reservationInfo'],
         }) : [];
 
         const transformedData = [...reviewCheckoutList, ...followUpReviewCheckout].map(rc => {
