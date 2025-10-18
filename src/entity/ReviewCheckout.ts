@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToOne, JoinColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToOne, JoinColumn, OneToMany } from "typeorm";
 import { ReservationInfoEntity } from "./ReservationInfo";
+import { ReviewCheckoutUpdates } from "./ReviewCheckoutUpdates";
 
 @Entity('review_checkout')
 export class ReviewCheckout {
@@ -20,6 +21,12 @@ export class ReviewCheckout {
 
     @Column({ type: "text", nullable: true })
     comments: string;
+
+    @OneToMany(() => ReviewCheckoutUpdates, actionItems => actionItems.reviewCheckout)
+    reviewCheckoutUpdates: ReviewCheckoutUpdates[];
+
+    @Column({ nullable: true, default: false })
+    isActive: boolean;
 
     @Column({ nullable: true })
     assignee: string;
