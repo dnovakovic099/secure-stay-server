@@ -99,6 +99,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         channel: Joi.array().items(Joi.string()).optional(),
         keyword: Joi.string().optional(),
         status: Joi.array().items(Joi.string().required().valid(...Object.values(ReviewCheckoutStatus))).min(1).allow("", null),
+        isActive: Joi.boolean().optional(),
     });
 
     const { error } = schema.validate(request.query);
