@@ -25,7 +25,7 @@ router.route('/orders/:id')
         upsellOrderController.deleteOrder
     );
 
-router.route('/process-checkout-upsells')
-    .post(verifySession, upsellOrderController.processCheckoutDateUpsells);
+// router.route('/process-checkout-upsells')
+//     .post(verifySession, upsellOrderController.processCheckoutDateUpsells);
 
 export default router;

@@ -162,7 +162,7 @@ export class UpsellOrderService {
 
         return {
             listingMapId: upsell.listing_id,
-            expenseDate: "2025-10-21",
+            expenseDate: upsell.departure_date,
             concept: upsell.type,
             amount: netAmount,
             categories: JSON.parse(categories),

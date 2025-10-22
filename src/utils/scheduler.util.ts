@@ -92,19 +92,19 @@ export function scheduleGetReservation() {
       }
     })
 
-  // schedule.scheduleJob(
-  //   { hour: 23, minute: 0, tz: "America/New_York" }, // Daily at 11 PM EST
-  //   async () => {
-  //     try {
-  //       logger.info('Processing checkout date upsells to create extras in HostAway...');
-  //       const currentDate = format(new Date(), 'yyyy-MM-dd');
-  //       const upsellOrderService = new UpsellOrderService();
-  //       await upsellOrderService.processCheckoutDateUpsells(currentDate);
-  //       logger.info('Processed checkout date upsells successfully.');
-  //     } catch (error) {
-  //       logger.error("Error processing checkout date upsells:", error);
-  //     }
-  //   })
+  schedule.scheduleJob(
+    { hour: 23, minute: 0, tz: "America/New_York" }, // Daily at 11 PM EST
+    async () => {
+      try {
+        logger.info('Processing checkout date upsells to create extras in HostAway...');
+        const currentDate = format(new Date(), 'yyyy-MM-dd');
+        const upsellOrderService = new UpsellOrderService();
+        await upsellOrderService.processCheckoutDateUpsells(currentDate);
+        logger.info('Processed checkout date upsells successfully.');
+      } catch (error) {
+        logger.error("Error processing checkout date upsells:", error);
+      }
+    })
 
   schedule.scheduleJob(
     { hour: 8, minute: 0, tz: "America/New_York" }, // Daily at 8 AM EST
