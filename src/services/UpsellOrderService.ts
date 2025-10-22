@@ -135,7 +135,7 @@ export class UpsellOrderService {
     private async getUpsellsByCheckoutDate(date: string) {
         return await this.upsellOrderRepo.find({
             where: {
-                departure_date: date,
+                departure_date: Between("2025-07-02", date), // process upsells on checkout feature was made live on July 2, 2025
                 status: "Approved"
             }
         });
