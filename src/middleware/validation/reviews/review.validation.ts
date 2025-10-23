@@ -100,6 +100,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         keyword: Joi.string().optional(),
         status: Joi.array().items(Joi.string().required().valid(...Object.values(ReviewCheckoutStatus))).min(1).allow("", null),
         isActive: Joi.boolean().optional(),
+        tab: Joi.string().required().valid("today", "active", "closed"),
     });
 
     const { error } = schema.validate(request.query);
