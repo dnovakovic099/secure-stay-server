@@ -32,6 +32,7 @@ interface ExpenseBulkUpdateObject {
     contractorNumber?: string;
     findings?: string;
     datePaid?: string;
+    isRecurring?: number;
 }
 
 export class ExpenseService {
@@ -58,7 +59,8 @@ export class ExpenseService {
             status,
             paymentMethod,
             datePaid,
-            issues
+            issues,
+            isRecurring
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -81,6 +83,7 @@ export class ExpenseService {
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
         newExpense.issues = issues ? issues : null;
+        newExpense.isRecurring = isRecurring ? isRecurring : 0;
 
         const hostawayExpense = await this.createHostawayExpense({
             listingMapId,
@@ -151,7 +154,8 @@ export class ExpenseService {
             tags,
             propertyType,
             keyword, 
-            expenseId
+            expenseId,
+            isRecurring
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -212,6 +216,7 @@ export class ExpenseService {
                     ...(categoriesFilter.length > 0 && {
                         categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
                     }),
+                    ...(isRecurring !== undefined && { isRecurring: Number(isRecurring) }),
                 },
             order: { id: "DESC" },
             skip,
@@ -379,7 +384,8 @@ export class ExpenseService {
             status,
             paymentMethod,
             datePaid,
-            issues
+            issues,
+            isRecurring
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
@@ -404,6 +410,7 @@ export class ExpenseService {
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
         expense.issues = issues ? issues : null;
+        expense.isRecurring = isRecurring ? isRecurring : 0
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -653,6 +660,7 @@ export class ExpenseService {
             contractorNumber,
             findings,
             datePaid,
+            isRecurring
         } = body;
 
         const failedExpenseUpdate: number[] = [];
@@ -680,6 +688,7 @@ export class ExpenseService {
             if (contractorNumber !== undefined && contractorNumber !==null) expense.contractorNumber = contractorNumber;
             if (findings !== undefined && findings !==null) expense.findings = findings;
             if (datePaid !== undefined && datePaid !==null) expense.datePaid = datePaid;
+            if (isRecurring !== undefined && isRecurring !== null) expense.isRecurring = isRecurring ? isRecurring : 0;
 
             expense.updatedBy = userId;
             expense.updatedAt = new Date();
