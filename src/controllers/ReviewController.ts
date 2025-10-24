@@ -87,4 +87,22 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const { id, status, comments } = request.body;
+            const userId = request.user.id;
+
+            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, status, comments, userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedReviewCheckout
+            });
+        } catch (error) {
+            logger.error("Error updating review checkout status:", error);
+            return next(error);
+        }
+    }
 }

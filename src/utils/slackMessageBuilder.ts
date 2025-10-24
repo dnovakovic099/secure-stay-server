@@ -18,7 +18,7 @@ const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
-const EXPENSE_CHANNEL = "#social";
+const EXPENSE_CHANNEL = "#payment-requests";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {

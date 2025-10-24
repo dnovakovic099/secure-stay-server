@@ -14,7 +14,11 @@ import { Claim } from "../entity/Claim";
 import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
-import { format } from "date-fns";
+import { addDays, endOfDay, format, getDay, startOfDay } from "date-fns";
+import { ActionItemsService } from "./ActionItemsService";
+import { IssuesService } from "./IssuesService";
+import { UsersEntity } from "../entity/Users";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -41,6 +45,19 @@ interface Filter {
     payment?: string[] | null | undefined;
     keyword?: string | undefined;
     todayDate?: string | undefined;
+    status?: string[] | null | undefined;
+}
+
+export enum ReviewCheckoutStatus {
+    TO_CALL = "To Call",
+    FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
+    FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
+    NO_FURTHER_ACTION_REQUIRED = "No further action required",
+    ISSUE = "Issue",
+    CLOSED_FIVE_STAR = "Closed - 5 Star",
+    CLOSED_BAD_REVIEW = "Closed - Bad Review",
+    CLOSED_NO_REVIEW = "Closed - No Review",
+    CLOSED_TRAPPED = "Closed - Trapped"
 }
 
 export class ReviewService {
@@ -48,6 +65,8 @@ export class ReviewService {
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
     private ownerInfoRepository = appDatabase.getRepository(OwnerInfoEntity);
     private claimRepo = appDatabase.getRepository(Claim);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+    private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
 
     public async getReviews({
         fromDate,
@@ -443,19 +462,31 @@ export class ReviewService {
     }
 
     async getReviewsForCheckout(filters: Filter, userId: string) {
-        const { listingMapId, guestName, page, limit, actionItemsStatus, issuesStatus, channel, keyword, todayDate } = filters;
+        const {
+            page, limit, listingMapId, guestName,
+            actionItemsStatus, issuesStatus, channel,
+            todayDate, status
+        } = filters;
 
-        const today = new Date(todayDate);
-        const fourteenDaysAgo = new Date(today);
-        fourteenDaysAgo.setDate(today.getDate() - 14);
-        const fromDate = format(fourteenDaysAgo, 'yyyy-MM-dd');
-        const toDate = format(today, 'yyyy-MM-dd');
+        //fetch reviewCheckoutList
+        const [reviewCheckoutList, total] = await this.reviewCheckoutRepo.findAndCount({
+            where: {
+                ...(status && status.length > 0 ? { status: In(status) } : {}),
+                reservationInfo: {
+                    ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
+                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
+                    ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
+                },
+                ...(todayDate ? { adjustedCheckoutDate: Between(todayDate, todayDate) } : {}),
+            },
+            relations: ['reservationInfo'],
+            skip: (page - 1) * limit,
+            take: limit,
+        });
 
-        const reservationInfoService = new ReservationInfoService();
-        const { result, count } = await reservationInfoService.getReservationByDateRange(null, null, fromDate, toDate, listingMapId, guestName, page, limit, userId, actionItemsStatus, issuesStatus, channel, null, keyword);
+        const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
 
         // append reviews for each reservations
-        const reservationIds = result.map(reservation => reservation.id);
         const reviews = await this.reviewRepository.find({
             where: {
                 reservationId: In(reservationIds),
@@ -467,15 +498,163 @@ export class ReviewService {
             },
         });
 
-        const transformedData = result.map(reservation => {
-            const review = reviews.find(r => r.reservationId == reservation.id);
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
+        const issueServices = new IssuesService();
+        const actionItemServices = new ActionItemsService();
+
+        const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
+        const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
+
+        //fetch follow up review checkout whose sevenDaysAfterCheckout is today
+        const followUpReviewCheckout = todayDate ? await this.reviewCheckoutRepo.find({
+            where: {
+                status: In(
+                    [
+                        ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER,
+                        ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK,
+                        ReviewCheckoutStatus.ISSUE,
+                        ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED
+                    ]),
+                reservationInfo: {
+                    ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
+                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
+                    ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
+                },
+                sevenDaysAfterCheckout: Between(todayDate, todayDate),
+            },
+            relations: ['reservationInfo'],
+        }) : [];
+
+        const transformedData = [...reviewCheckoutList, ...followUpReviewCheckout].map(rc => {
             return {
-                ...reservation,
-                review: review ? review : null,
+                ...rc,
+                assignee: userMap.get(rc.assignee) || rc.assignee,
+                createdBy: userMap.get(rc.createdBy) || rc.createdBy,
+                updatedBy: userMap.get(rc.updatedBy) || rc.updatedBy,
+                deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
+                reservationInfo: {
+                    ...rc.reservationInfo,
+                    review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
+                    issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
+                    actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
+                }
             };
         });
 
-        return { result: transformedData, total: count };
+        return { result: transformedData, total };
+    }
+
+
+    getAdjustedDepartureDate(departureDate: Date): string {
+        const dayOfWeek = getDay(departureDate); // Sunday = 0, Monday = 1, ..., Saturday = 6
+        let adjustedDate = departureDate;
+
+        if (dayOfWeek === 6) {
+            // Saturday → move to Monday
+            adjustedDate = addDays(departureDate, 2);
+        } else if (dayOfWeek === 0) {
+            // Sunday → move to Monday
+            adjustedDate = addDays(departureDate, 1);
+        }
+
+        return format(adjustedDate, "yyyy-MM-dd");
+    }
+
+    async processReviewCheckout() {
+
+        // Step 1: Update existing review checkouts whose fourteenDaysAfterCheckout is today and status is not closed
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const existingReviewCheckouts = await this.reviewCheckoutRepo.find({
+            where: {
+                fourteenDaysAfterCheckout: Between(today, today),
+                status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW, ReviewCheckoutStatus.CLOSED_TRAPPED])),
+            },
+            relations: ['reservationInfo'],
+        });
+
+        for (const reviewCheckout of existingReviewCheckouts) {
+            //check if there is any review placed or not.
+            //If review is placed then close the review checkout
+            const review = await this.reviewRepository.findOne({
+                where: {
+                    reservationId: reviewCheckout.reservationInfo.id,
+                    isHidden: 0,
+                },
+                order: {
+                    createdAt: 'DESC',
+                },
+            });
+            if (review.rating) {
+                reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+            } else {
+                reviewCheckout.status = ReviewCheckoutStatus.CLOSED_NO_REVIEW;
+            }
+            reviewCheckout.updatedAt = new Date();
+            reviewCheckout.updatedBy = "system";
+            await this.reviewCheckoutRepo.save(reviewCheckout);
+        }
+
+        // Step 2: Process today's checkouts to create or update review checkout entries
+        // get reservations whose checkout date is today
+        const reservationInfoService = new ReservationInfoService();
+        const { reservations } = await reservationInfoService.getCheckoutReservations();
+
+        for (const reservation of reservations) {
+            //check if there is review checkout entry
+            let reviewCheckout = await this.reviewCheckoutRepo.findOne({
+                where: {
+                    reservationInfo: reservation,
+                }
+            });
+
+            if (!reviewCheckout) {
+                const newReviewCheckout = this.reviewCheckoutRepo.create({
+                    reservationInfo: reservation,
+                    adjustedCheckoutDate: this.getAdjustedDepartureDate(reservation.departureDate),
+                    sevenDaysAfterCheckout: format(addDays(reservation.departureDate, 7), 'yyyy-MM-dd'),
+                    fourteenDaysAfterCheckout: format(addDays(reservation.departureDate, 14), 'yyyy-MM-dd'),
+                    status: ReviewCheckoutStatus.TO_CALL,
+                    createdBy: "system",
+                });
+                reviewCheckout = await this.reviewCheckoutRepo.save(newReviewCheckout);
+            } else {
+                //check if there is any review placed or not.
+                //If review is placed then close the review checkout
+                const review = await this.reviewRepository.findOne({
+                    where: {
+                        reservationId: reservation.id,
+                        isHidden: 0,
+                    },
+                    order: {
+                        createdAt: 'DESC',
+                    },
+                });
+                if (review) {
+                    reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+                    reviewCheckout.updatedAt = new Date();
+                    reviewCheckout.updatedBy = "system";
+                    await this.reviewCheckoutRepo.save(reviewCheckout);
+                }
+            }
+        }
+
+    }
+
+    async updateReviewCheckout(id: number, status: ReviewCheckoutStatus, comments: string, userId: string) {
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id } });
+        if (!reviewCheckout) {
+            throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
+        }
+
+        reviewCheckout.status = status;
+        reviewCheckout.comments = comments;
+        reviewCheckout.updatedAt = new Date();
+        reviewCheckout.updatedBy = userId;
+        await this.reviewCheckoutRepo.save(reviewCheckout);
+
+        return reviewCheckout;
     }
 
 }
