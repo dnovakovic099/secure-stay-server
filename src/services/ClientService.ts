@@ -72,11 +72,11 @@ interface Listing {
   clientCurrentListingLink: string[] | null;
   listingOwner: "Luxury Lodging" | "Client" | null;
   clientListingStatus: "Closed" | "Open - Will Close" | "Open - Keeping" | null;
-  targetLiveDate: string | null;  // yyyy-mm-dd
+  targetLiveDate: string | null; // yyyy-mm-dd
   targetStartDate: string | null; // yyyy-mm-dd
   targetDateNotes: string | null;
   upcomingReservations: string | null;
-  actualLiveDate?: string | null;  // yyyy-mm-dd
+  actualLiveDate?: string | null; // yyyy-mm-dd
   actualStartDate?: string | null; // yyyy-mm-dd
 
   // Client-facing onboarding specific fields
@@ -214,10 +214,10 @@ interface Listing {
 
 interface Photography {
   photographyCoverage:
-  | "Yes (Covered by Luxury Lodging)"
-  | "Yes (Covered by Client)"
-  | "No"
-  | null;
+    | "Yes (Covered by Luxury Lodging)"
+    | "Yes (Covered by Client)"
+    | "No"
+    | null;
   photographyNotes: string | null;
 }
 
@@ -238,21 +238,27 @@ interface Financials {
   techFeeNotes?: string | null;
 }
 
-
 export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
   private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
   private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
   private clientTicketRepo = appDatabase.getRepository(ClientTicket);
 
-  private propertyOnboardingRepo = appDatabase.getRepository(PropertyOnboarding);
-  private propertyServiceInfoRepo = appDatabase.getRepository(PropertyServiceInfo);
+  private propertyOnboardingRepo =
+    appDatabase.getRepository(PropertyOnboarding);
+  private propertyServiceInfoRepo =
+    appDatabase.getRepository(PropertyServiceInfo);
   private propertyInfoRepo = appDatabase.getRepository(PropertyInfo);
   private propertyBedTypesRepo = appDatabase.getRepository(PropertyBedTypes);
   private propertyUpsellsRepo = appDatabase.getRepository(PropertyUpsells);
-  private propertyParkingInfoRepo = appDatabase.getRepository(PropertyParkingInfo);
-  private propertyBathroomLocationRepo = appDatabase.getRepository(PropertyBathroomLocation);
-  private propertyVendorManagementRepo = appDatabase.getRepository(PropertyVendorManagement);
+  private propertyParkingInfoRepo =
+    appDatabase.getRepository(PropertyParkingInfo);
+  private propertyBathroomLocationRepo = appDatabase.getRepository(
+    PropertyBathroomLocation
+  );
+  private propertyVendorManagementRepo = appDatabase.getRepository(
+    PropertyVendorManagement
+  );
   private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
   private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
 
@@ -263,7 +269,7 @@ export class ClientService {
     userId: string,
     source: string,
     secondaryContacts?: Partial<ClientSecondaryContact>[],
-    clientProperties?: string[],
+    clientProperties?: string[]
   ) {
     const listingService = new ListingService();
 
@@ -275,7 +281,11 @@ export class ClientService {
     }
 
     // 2️⃣ Create and save client first
-    const client = this.clientRepo.create({ ...clientData, createdBy: userId, source });
+    const client = this.clientRepo.create({
+      ...clientData,
+      createdBy: userId,
+      source,
+    });
     const savedClient = await this.clientRepo.save(client);
 
     // 3️⃣ Save secondary contacts (if any)
@@ -294,294 +304,46 @@ export class ClientService {
     if (clientProperties && clientProperties.length > 0) {
       for (const listingId of clientProperties) {
         // Use database transaction for each property to ensure data consistency
-        await appDatabase.transaction(async (transactionalEntityManager) => {
-          try {
-            const listingInfo = await listingService.getListingInfo(Number(listingId), userId);
-
-            if (!listingInfo) {
-              logger.error(`❌ Listing not found for listingId: ${listingId}`);
-              return; // Skip this listingId
-            }
-
-            logger.info(`🔄 Processing listingId: ${listingId} for client: ${savedClient.id}`);
-
-            // --- Create property first ---
-            const property = transactionalEntityManager.create(ClientPropertyEntity, {
-              listingId,
-              address: listingInfo.address,
-              status: "published",
-              createdBy: userId,
-              client: savedClient, // 👈 link to client
-            });
-
-            // --- Save property first to get the ID ---
-            const savedProperty = await transactionalEntityManager.save(property);
-
-            // --- Create propertyInfo ---
-            const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
-              externalListingName: listingInfo.externalListingName,
-              internalListingName: listingInfo.internalListingName,
-              price: listingInfo.price,
-              priceForExtraPerson: listingInfo.priceForExtraPerson,
-              propertyTypeId: listingInfo.propertyTypeId,
-              roomType: listingInfo.roomType,
-              bedroomsNumber: listingInfo.bedroomsNumber,
-              bathroomsNumber: listingInfo.bathroomsNumber,
-              bathroomType: listingInfo.bathroomType,
-              guestBathroomsNumber: listingInfo.guestBathroomsNumber,
-              address: listingInfo.address,
-              currencyCode: listingInfo.currencyCode,
-              personCapacity: listingInfo.personCapacity,
-              petFee: listingInfo.airbnbPetFeeAmount,
-              checkOutTime: listingInfo.checkOutTime,
-              checkInTimeStart: listingInfo.checkInTimeStart,
-              checkInTimeEnd: listingInfo.checkInTimeEnd,
-              squareMeters: listingInfo.squareMeters,
-              wifiUsername: listingInfo.wifiUsername,
-              wifiPassword: listingInfo.wifiPassword,
-              minNights: listingInfo.minNights,
-              maxNights: listingInfo.maxNights,
-              propertyLicenseNumber: listingInfo.propertyLicenseNumber,
-              createdBy: userId,
-              clientProperty: savedProperty, // 👈 link to saved property
-            });
-
-            // --- Create and save vendorManagementInfo ---
-            const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
-              cleaningFee: listingInfo.cleaningFee,
-            });
-            const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
-            propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
-
-            // --- Save propertyInfo ---
-            const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
-
-            // --- Set amenities as simple array ---
-            if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-              savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
-              await transactionalEntityManager.save(savedPropertyInfo);
-            }
-
-            // --- Save property bed types ---
-            if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-              const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                transactionalEntityManager.create(PropertyBedTypes, {
-                  haId: bedType.id,
-                  bedroomNumber: bedType.bedroomNumber,
-                  bedTypeId: bedType.bedTypeId,
-                  quantity: bedType.quantity,
-                  propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                })
+        await appDatabase
+          .transaction(async (transactionalEntityManager) => {
+            try {
+              const listingInfo = await listingService.getListingInfo(
+                Number(listingId),
+                userId
               );
-              await transactionalEntityManager.save(bedTypes);
-            }
 
-            // --- Update property with propertyInfo relation ---
-            savedProperty.propertyInfo = savedPropertyInfo;
-            await transactionalEntityManager.save(savedProperty);
+              if (!listingInfo) {
+                logger.error(
+                  `❌ Listing not found for listingId: ${listingId}`
+                );
+                return; // Skip this listingId
+              }
 
-            logger.info(`✅ Successfully saved property for listingId: ${listingId}`);
+              logger.info(
+                `🔄 Processing listingId: ${listingId} for client: ${savedClient.id}`
+              );
 
-          } catch (err) {
-            logger.error(`❌ Error while saving property for listingId: ${listingId}`, err);
-            throw err; // Re-throw to trigger transaction rollback
-          }
-        }).catch((err) => {
-          logger.error(`❌ Transaction failed for listingId: ${listingId}`, err);
-          // Continue with next listingId instead of breaking the entire process
-        });
-      }
-    }
-
-    // 5️⃣ Return full client with relations (optional)
-    return await this.clientRepo.findOne({
-      where: { id: savedClient.id },
-      relations: ["secondaryContacts", "properties", "properties.propertyInfo"],
-    });
-  }
-
-
-  async updateClient(
-    clientData: Partial<ClientEntity>,
-    userId: string,
-    secondaryContacts?: Partial<ClientSecondaryContact>[],
-    clientProperties?: string[],
-  ) {
-    const listingService = new ListingService();
-
-    if (clientProperties && clientProperties.length > 0) {
-      clientData.status = "active";
-    } else {
-      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
-    }
-
-    const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
-    if (!client) {
-      throw CustomErrorHandler.notFound("Client not found");
-    }
-
-    Object.assign(client, clientData);
-    client.updatedAt = new Date();
-    client.updatedBy = userId;
-
-    await this.handleClientSecondaryContactUpdate(client, userId, secondaryContacts);
-    await this.handleClientPropertiesUpdate(client, userId, clientProperties);
-
-    return await this.clientRepo.save(client);
-  }
-
-  private async handleClientSecondaryContactUpdate(client: ClientEntity, userId: string, secondaryContacts?: Partial<ClientSecondaryContact>[]) {
-    if (secondaryContacts) {
-      const existingContacts = await this.contactRepo.find({ where: { client: { id: client.id } } });
-      const existingContactIds = existingContacts.map((c) => c.id);
-      const incomingContactIds = secondaryContacts.map((c) => c.id).filter((id): id is string => !!id);
-
-      // Delete contacts that are not in the incoming list
-      const contactsToDelete = existingContacts.filter((c) => !incomingContactIds.includes(c.id));
-      if (contactsToDelete.length > 0) {
-        //updated deletedBy and deletedAt instead of hard delete
-        contactsToDelete.forEach(contact => {
-          contact.deletedAt = new Date();
-          contact.deletedBy = userId;
-        });
-        await this.contactRepo.save(contactsToDelete);
-      }
-
-      // Update or create contacts
-      client.secondaryContacts = secondaryContacts.map((contact) => {
-        if (contact.id && existingContactIds.includes(contact.id)) {
-          const existingContact = existingContacts.find((c) => c.id === contact.id)!;
-          Object.assign(existingContact, contact);
-          existingContact.updatedAt = new Date();
-          existingContact.updatedBy = userId;
-          return existingContact;
-        } else {
-          return this.contactRepo.create({ ...contact, createdBy: userId });
-        }
-      });
-    }
-  }
-
-  private async handleClientPropertiesUpdate(client: ClientEntity, userId: string, clientProperties?: string[]) {
-    if (clientProperties) {
-      const listingService = new ListingService();
-      const existingProperties = await this.propertyRepo.find({
-        where: { client: { id: client.id } },
-        relations: ["propertyInfo", "propertyInfo.vendorManagementInfo", "propertyInfo.propertyBedTypes"]
-      });
-      const existingListingIds = existingProperties.map((p) => p.listingId);
-
-      // Delete properties that are not in the incoming list
-      const propertiesToDelete = existingProperties.filter((p) => !clientProperties.includes(p.listingId));
-      if (propertiesToDelete.length > 0) {
-        //updated deletedBy and deletedAt instead of hard delete
-        propertiesToDelete.forEach(property => {
-          property.deletedAt = new Date();
-          property.deletedBy = userId;
-        });
-        await this.propertyRepo.save(propertiesToDelete);
-      }
-
-      // Process all properties (both existing and new) to sync with latest listing data
-      const updatedProperties = [];
-
-      for (const listingId of clientProperties) {
-        // Use database transaction for each property to ensure data consistency
-        await appDatabase.transaction(async (transactionalEntityManager) => {
-          try {
-            const listingInfo = await listingService.getListingInfo(Number(listingId), userId);
-
-            if (!listingInfo) {
-              logger.error(`❌ Listing not found for listingId: ${listingId}`);
-              return; // Skip this listingId
-            }
-
-            const isExistingProperty = existingListingIds.includes(listingId);
-            const existingProperty = existingProperties.find(p => p.listingId === listingId);
-
-            if (isExistingProperty && existingProperty) {
-              // Update existing property and its related data
-              logger.info(`🔄 Updating existing property for listingId: ${listingId} for client: ${client.id}`);
-
-              // Update property basic info
-              existingProperty.address = listingInfo.address;
-              existingProperty.updatedAt = new Date();
-              existingProperty.updatedBy = userId;
-              const savedProperty = await transactionalEntityManager.save(existingProperty);
-
-              // Update propertyInfo if it exists
-              if (existingProperty.propertyInfo) {
-                const propertyInfo = existingProperty.propertyInfo;
-
-                // Update all propertyInfo fields with fresh listing data
-                propertyInfo.externalListingName = listingInfo.externalListingName;
-                propertyInfo.internalListingName = listingInfo.internalListingName;
-                propertyInfo.price = listingInfo.price;
-                propertyInfo.priceForExtraPerson = listingInfo.priceForExtraPerson;
-                propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
-                propertyInfo.roomType = listingInfo.roomType;
-                propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
-                propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
-                propertyInfo.bathroomType = listingInfo.bathroomType;
-                propertyInfo.guestBathroomsNumber = listingInfo.guestBathroomsNumber;
-                propertyInfo.address = listingInfo.address;
-                propertyInfo.currencyCode = listingInfo.currencyCode;
-                propertyInfo.personCapacity = listingInfo.personCapacity;
-                propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
-                propertyInfo.checkOutTime = listingInfo.checkOutTime;
-                propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
-                propertyInfo.checkInTimeEnd = listingInfo.checkInTimeEnd;
-                propertyInfo.squareMeters = listingInfo.squareMeters;
-                propertyInfo.wifiUsername = listingInfo.wifiUsername;
-                propertyInfo.wifiPassword = listingInfo.wifiPassword;
-                propertyInfo.minNights = listingInfo.minNights;
-                propertyInfo.maxNights = listingInfo.maxNights;
-                propertyInfo.propertyLicenseNumber = listingInfo.propertyLicenseNumber;
-                propertyInfo.updatedAt = new Date();
-                propertyInfo.updatedBy = userId;
-
-                // Update vendorManagementInfo
-                if (propertyInfo.vendorManagementInfo) {
-                  propertyInfo.vendorManagementInfo.cleaningFee = listingInfo.cleaningFee;
-                  await transactionalEntityManager.save(propertyInfo.vendorManagementInfo);
-                } else {
-                  // Create vendorManagementInfo if it doesn't exist
-                  const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
-                    cleaningFee: listingInfo.cleaningFee,
-                  });
-                  propertyInfo.vendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+              // --- Create property first ---
+              const property = transactionalEntityManager.create(
+                ClientPropertyEntity,
+                {
+                  listingId,
+                  address: listingInfo.address,
+                  status: "published",
+                  createdBy: userId,
+                  client: savedClient, // 👈 link to client
                 }
+              );
 
-                // Update amenities
-                if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-                  propertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
-                }
+              // --- Save property first to get the ID ---
+              const savedProperty = await transactionalEntityManager.save(
+                property
+              );
 
-                const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
-
-                // Update bed types - remove existing and create new ones
-                if (propertyInfo.propertyBedTypes && propertyInfo.propertyBedTypes.length > 0) {
-                  await transactionalEntityManager.remove(propertyInfo.propertyBedTypes);
-                }
-
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
-
-                savedProperty.propertyInfo = savedPropertyInfo;
-                await transactionalEntityManager.save(savedProperty);
-              } else {
-                // Create propertyInfo if it doesn't exist for existing property
-                const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+              // --- Create propertyInfo ---
+              const propertyInfo = transactionalEntityManager.create(
+                PropertyInfo,
+                {
                   externalListingName: listingInfo.externalListingName,
                   internalListingName: listingInfo.internalListingName,
                   price: listingInfo.price,
@@ -606,108 +368,42 @@ export class ClientService {
                   maxNights: listingInfo.maxNights,
                   propertyLicenseNumber: listingInfo.propertyLicenseNumber,
                   createdBy: userId,
-                  clientProperty: savedProperty,
-                });
-
-                // Create vendorManagementInfo
-                const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
-                  cleaningFee: listingInfo.cleaningFee,
-                });
-                const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
-                propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
-
-                const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
-
-                // Set amenities
-                if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-                  savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
-                  await transactionalEntityManager.save(savedPropertyInfo);
+                  clientProperty: savedProperty, // 👈 link to saved property
                 }
-
-                // Create bed types
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo,
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
-
-                savedProperty.propertyInfo = savedPropertyInfo;
-                await transactionalEntityManager.save(savedProperty);
-              }
-
-              updatedProperties.push(savedProperty);
-              logger.info(`✅ Successfully updated existing property for listingId: ${listingId}`);
-
-            } else {
-              // Create new property with full propertyInfo and related data
-              logger.info(`🔄 Creating new property for listingId: ${listingId} for client: ${client.id}`);
-
-              // --- Create property first ---
-              const property = transactionalEntityManager.create(ClientPropertyEntity, {
-                listingId,
-                address: listingInfo.address,
-                status: "published",
-                createdBy: userId,
-                client: client, // 👈 link to client
-              });
-
-              // --- Save property first to get the ID ---
-              const savedProperty = await transactionalEntityManager.save(property);
-
-              // --- Create propertyInfo ---
-              const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
-                externalListingName: listingInfo.externalListingName,
-                internalListingName: listingInfo.internalListingName,
-                price: listingInfo.price,
-                priceForExtraPerson: listingInfo.priceForExtraPerson,
-                propertyTypeId: listingInfo.propertyTypeId,
-                roomType: listingInfo.roomType,
-                bedroomsNumber: listingInfo.bedroomsNumber,
-                bathroomsNumber: listingInfo.bathroomsNumber,
-                bathroomType: listingInfo.bathroomType,
-                guestBathroomsNumber: listingInfo.guestBathroomsNumber,
-                address: listingInfo.address,
-                currencyCode: listingInfo.currencyCode,
-                personCapacity: listingInfo.personCapacity,
-                petFee: listingInfo.airbnbPetFeeAmount,
-                checkOutTime: listingInfo.checkOutTime,
-                checkInTimeStart: listingInfo.checkInTimeStart,
-                checkInTimeEnd: listingInfo.checkInTimeEnd,
-                squareMeters: listingInfo.squareMeters,
-                wifiUsername: listingInfo.wifiUsername,
-                wifiPassword: listingInfo.wifiPassword,
-                minNights: listingInfo.minNights,
-                maxNights: listingInfo.maxNights,
-                propertyLicenseNumber: listingInfo.propertyLicenseNumber,
-                createdBy: userId,
-                clientProperty: savedProperty, // 👈 link to saved property
-              });
+              );
 
               // --- Create and save vendorManagementInfo ---
-              const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
-                cleaningFee: listingInfo.cleaningFee,
-              });
-              const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+              const vendorManagementInfo = transactionalEntityManager.create(
+                PropertyVendorManagement,
+                {
+                  cleaningFee: listingInfo.cleaningFee,
+                }
+              );
+              const savedVendorManagementInfo =
+                await transactionalEntityManager.save(vendorManagementInfo);
               propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
 
               // --- Save propertyInfo ---
-              const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+              const savedPropertyInfo = await transactionalEntityManager.save(
+                propertyInfo
+              );
 
               // --- Set amenities as simple array ---
-              if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-                savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+              if (
+                listingInfo.listingAmenities &&
+                listingInfo.listingAmenities.length > 0
+              ) {
+                savedPropertyInfo.amenities = listingInfo.listingAmenities.map(
+                  (amenity) => String(amenity.amenityId)
+                );
                 await transactionalEntityManager.save(savedPropertyInfo);
               }
 
               // --- Save property bed types ---
-              if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+              if (
+                listingInfo.listingBedTypes &&
+                listingInfo.listingBedTypes.length > 0
+              ) {
                 const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
                   transactionalEntityManager.create(PropertyBedTypes, {
                     haId: bedType.id,
@@ -724,18 +420,492 @@ export class ClientService {
               savedProperty.propertyInfo = savedPropertyInfo;
               await transactionalEntityManager.save(savedProperty);
 
-              updatedProperties.push(savedProperty);
-              logger.info(`✅ Successfully created new property for listingId: ${listingId}`);
+              logger.info(
+                `✅ Successfully saved property for listingId: ${listingId}`
+              );
+            } catch (err) {
+              logger.error(
+                `❌ Error while saving property for listingId: ${listingId}`,
+                err
+              );
+              throw err; // Re-throw to trigger transaction rollback
             }
+          })
+          .catch((err) => {
+            logger.error(
+              `❌ Transaction failed for listingId: ${listingId}`,
+              err
+            );
+            // Continue with next listingId instead of breaking the entire process
+          });
+      }
+    }
 
-          } catch (err) {
-            logger.error(`❌ Error while processing property for listingId: ${listingId}`, err);
-            throw err; // Re-throw to trigger transaction rollback
-          }
-        }).catch((err) => {
-          logger.error(`❌ Transaction failed for listingId: ${listingId}`, err);
-          // Continue with next listingId instead of breaking the entire process
+    // 5️⃣ Return full client with relations (optional)
+    return await this.clientRepo.findOne({
+      where: { id: savedClient.id },
+      relations: ["secondaryContacts", "properties", "properties.propertyInfo"],
+    });
+  }
+
+  async updateClient(
+    clientData: Partial<ClientEntity>,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[],
+    clientProperties?: string[]
+  ) {
+    const listingService = new ListingService();
+
+    if (clientProperties && clientProperties.length > 0) {
+      clientData.status = "active";
+    } else {
+      clientData.status = "onboarding"; // if no properties are associated, set status to Onboarding
+    }
+
+    const client = await this.clientRepo.findOne({
+      where: { id: clientData.id },
+    });
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    Object.assign(client, clientData);
+    client.updatedAt = new Date();
+    client.updatedBy = userId;
+
+    await this.handleClientSecondaryContactUpdate(
+      client,
+      userId,
+      secondaryContacts
+    );
+    await this.handleClientPropertiesUpdate(client, userId, clientProperties);
+
+    return await this.clientRepo.save(client);
+  }
+
+  private async handleClientSecondaryContactUpdate(
+    client: ClientEntity,
+    userId: string,
+    secondaryContacts?: Partial<ClientSecondaryContact>[]
+  ) {
+    if (secondaryContacts) {
+      const existingContacts = await this.contactRepo.find({
+        where: { client: { id: client.id } },
+      });
+      const existingContactIds = existingContacts.map((c) => c.id);
+      const incomingContactIds = secondaryContacts
+        .map((c) => c.id)
+        .filter((id): id is string => !!id);
+
+      // Delete contacts that are not in the incoming list
+      const contactsToDelete = existingContacts.filter(
+        (c) => !incomingContactIds.includes(c.id)
+      );
+      if (contactsToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        contactsToDelete.forEach((contact) => {
+          contact.deletedAt = new Date();
+          contact.deletedBy = userId;
         });
+        await this.contactRepo.save(contactsToDelete);
+      }
+
+      // Update or create contacts
+      client.secondaryContacts = secondaryContacts.map((contact) => {
+        if (contact.id && existingContactIds.includes(contact.id)) {
+          const existingContact = existingContacts.find(
+            (c) => c.id === contact.id
+          )!;
+          Object.assign(existingContact, contact);
+          existingContact.updatedAt = new Date();
+          existingContact.updatedBy = userId;
+          return existingContact;
+        } else {
+          return this.contactRepo.create({ ...contact, createdBy: userId });
+        }
+      });
+    }
+  }
+
+  private async handleClientPropertiesUpdate(
+    client: ClientEntity,
+    userId: string,
+    clientProperties?: string[]
+  ) {
+    if (clientProperties) {
+      const listingService = new ListingService();
+      const existingProperties = await this.propertyRepo.find({
+        where: { client: { id: client.id } },
+        relations: [
+          "propertyInfo",
+          "propertyInfo.vendorManagementInfo",
+          "propertyInfo.propertyBedTypes",
+        ],
+      });
+      const existingListingIds = existingProperties.map((p) => p.listingId);
+
+      // Delete properties that are not in the incoming list
+      const propertiesToDelete = existingProperties.filter(
+        (p) => !clientProperties.includes(p.listingId)
+      );
+      if (propertiesToDelete.length > 0) {
+        //updated deletedBy and deletedAt instead of hard delete
+        propertiesToDelete.forEach((property) => {
+          property.deletedAt = new Date();
+          property.deletedBy = userId;
+        });
+        await this.propertyRepo.save(propertiesToDelete);
+      }
+
+      // Process all properties (both existing and new) to sync with latest listing data
+      const updatedProperties = [];
+
+      for (const listingId of clientProperties) {
+        // Use database transaction for each property to ensure data consistency
+        await appDatabase
+          .transaction(async (transactionalEntityManager) => {
+            try {
+              const listingInfo = await listingService.getListingInfo(
+                Number(listingId),
+                userId
+              );
+
+              if (!listingInfo) {
+                logger.error(
+                  `❌ Listing not found for listingId: ${listingId}`
+                );
+                return; // Skip this listingId
+              }
+
+              const isExistingProperty = existingListingIds.includes(listingId);
+              const existingProperty = existingProperties.find(
+                (p) => p.listingId === listingId
+              );
+
+              if (isExistingProperty && existingProperty) {
+                // Update existing property and its related data
+                logger.info(
+                  `🔄 Updating existing property for listingId: ${listingId} for client: ${client.id}`
+                );
+
+                // Update property basic info
+                existingProperty.address = listingInfo.address;
+                existingProperty.updatedAt = new Date();
+                existingProperty.updatedBy = userId;
+                const savedProperty = await transactionalEntityManager.save(
+                  existingProperty
+                );
+
+                // Update propertyInfo if it exists
+                if (existingProperty.propertyInfo) {
+                  const propertyInfo = existingProperty.propertyInfo;
+
+                  // Update all propertyInfo fields with fresh listing data
+                  propertyInfo.externalListingName =
+                    listingInfo.externalListingName;
+                  propertyInfo.internalListingName =
+                    listingInfo.internalListingName;
+                  propertyInfo.price = listingInfo.price;
+                  propertyInfo.priceForExtraPerson =
+                    listingInfo.priceForExtraPerson;
+                  propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
+                  propertyInfo.roomType = listingInfo.roomType;
+                  propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
+                  propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
+                  propertyInfo.bathroomType = listingInfo.bathroomType;
+                  propertyInfo.guestBathroomsNumber =
+                    listingInfo.guestBathroomsNumber;
+                  propertyInfo.address = listingInfo.address;
+                  propertyInfo.currencyCode = listingInfo.currencyCode;
+                  propertyInfo.personCapacity = listingInfo.personCapacity;
+                  propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
+                  propertyInfo.checkOutTime = listingInfo.checkOutTime;
+                  propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
+                  propertyInfo.checkInTimeEnd = listingInfo.checkInTimeEnd;
+                  propertyInfo.squareMeters = listingInfo.squareMeters;
+                  propertyInfo.wifiUsername = listingInfo.wifiUsername;
+                  propertyInfo.wifiPassword = listingInfo.wifiPassword;
+                  propertyInfo.minNights = listingInfo.minNights;
+                  propertyInfo.maxNights = listingInfo.maxNights;
+                  propertyInfo.propertyLicenseNumber =
+                    listingInfo.propertyLicenseNumber;
+                  propertyInfo.updatedAt = new Date();
+                  propertyInfo.updatedBy = userId;
+
+                  // Update vendorManagementInfo
+                  if (propertyInfo.vendorManagementInfo) {
+                    propertyInfo.vendorManagementInfo.cleaningFee =
+                      listingInfo.cleaningFee;
+                    await transactionalEntityManager.save(
+                      propertyInfo.vendorManagementInfo
+                    );
+                  } else {
+                    // Create vendorManagementInfo if it doesn't exist
+                    const vendorManagementInfo =
+                      transactionalEntityManager.create(
+                        PropertyVendorManagement,
+                        {
+                          cleaningFee: listingInfo.cleaningFee,
+                        }
+                      );
+                    propertyInfo.vendorManagementInfo =
+                      await transactionalEntityManager.save(
+                        vendorManagementInfo
+                      );
+                  }
+
+                  // Update amenities
+                  if (
+                    listingInfo.listingAmenities &&
+                    listingInfo.listingAmenities.length > 0
+                  ) {
+                    propertyInfo.amenities = listingInfo.listingAmenities.map(
+                      (amenity) => String(amenity.amenityId)
+                    );
+                  }
+
+                  const savedPropertyInfo =
+                    await transactionalEntityManager.save(propertyInfo);
+
+                  // Update bed types - remove existing and create new ones
+                  if (
+                    propertyInfo.propertyBedTypes &&
+                    propertyInfo.propertyBedTypes.length > 0
+                  ) {
+                    await transactionalEntityManager.remove(
+                      propertyInfo.propertyBedTypes
+                    );
+                  }
+
+                  if (
+                    listingInfo.listingBedTypes &&
+                    listingInfo.listingBedTypes.length > 0
+                  ) {
+                    const bedTypes = listingInfo.listingBedTypes.map(
+                      (bedType) =>
+                        transactionalEntityManager.create(PropertyBedTypes, {
+                          haId: bedType.id,
+                          bedroomNumber: bedType.bedroomNumber,
+                          bedTypeId: bedType.bedTypeId,
+                          quantity: bedType.quantity,
+                          propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                        })
+                    );
+                    await transactionalEntityManager.save(bedTypes);
+                  }
+
+                  savedProperty.propertyInfo = savedPropertyInfo;
+                  await transactionalEntityManager.save(savedProperty);
+                } else {
+                  // Create propertyInfo if it doesn't exist for existing property
+                  const propertyInfo = transactionalEntityManager.create(
+                    PropertyInfo,
+                    {
+                      externalListingName: listingInfo.externalListingName,
+                      internalListingName: listingInfo.internalListingName,
+                      price: listingInfo.price,
+                      priceForExtraPerson: listingInfo.priceForExtraPerson,
+                      propertyTypeId: listingInfo.propertyTypeId,
+                      roomType: listingInfo.roomType,
+                      bedroomsNumber: listingInfo.bedroomsNumber,
+                      bathroomsNumber: listingInfo.bathroomsNumber,
+                      bathroomType: listingInfo.bathroomType,
+                      guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                      address: listingInfo.address,
+                      currencyCode: listingInfo.currencyCode,
+                      personCapacity: listingInfo.personCapacity,
+                      petFee: listingInfo.airbnbPetFeeAmount,
+                      checkOutTime: listingInfo.checkOutTime,
+                      checkInTimeStart: listingInfo.checkInTimeStart,
+                      checkInTimeEnd: listingInfo.checkInTimeEnd,
+                      squareMeters: listingInfo.squareMeters,
+                      wifiUsername: listingInfo.wifiUsername,
+                      wifiPassword: listingInfo.wifiPassword,
+                      minNights: listingInfo.minNights,
+                      maxNights: listingInfo.maxNights,
+                      propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                      createdBy: userId,
+                      clientProperty: savedProperty,
+                    }
+                  );
+
+                  // Create vendorManagementInfo
+                  const vendorManagementInfo =
+                    transactionalEntityManager.create(
+                      PropertyVendorManagement,
+                      {
+                        cleaningFee: listingInfo.cleaningFee,
+                      }
+                    );
+                  const savedVendorManagementInfo =
+                    await transactionalEntityManager.save(vendorManagementInfo);
+                  propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+                  const savedPropertyInfo =
+                    await transactionalEntityManager.save(propertyInfo);
+
+                  // Set amenities
+                  if (
+                    listingInfo.listingAmenities &&
+                    listingInfo.listingAmenities.length > 0
+                  ) {
+                    savedPropertyInfo.amenities =
+                      listingInfo.listingAmenities.map((amenity) =>
+                        String(amenity.amenityId)
+                      );
+                    await transactionalEntityManager.save(savedPropertyInfo);
+                  }
+
+                  // Create bed types
+                  if (
+                    listingInfo.listingBedTypes &&
+                    listingInfo.listingBedTypes.length > 0
+                  ) {
+                    const bedTypes = listingInfo.listingBedTypes.map(
+                      (bedType) =>
+                        transactionalEntityManager.create(PropertyBedTypes, {
+                          haId: bedType.id,
+                          bedroomNumber: bedType.bedroomNumber,
+                          bedTypeId: bedType.bedTypeId,
+                          quantity: bedType.quantity,
+                          propertyId: savedPropertyInfo,
+                        })
+                    );
+                    await transactionalEntityManager.save(bedTypes);
+                  }
+
+                  savedProperty.propertyInfo = savedPropertyInfo;
+                  await transactionalEntityManager.save(savedProperty);
+                }
+
+                updatedProperties.push(savedProperty);
+                logger.info(
+                  `✅ Successfully updated existing property for listingId: ${listingId}`
+                );
+              } else {
+                // Create new property with full propertyInfo and related data
+                logger.info(
+                  `🔄 Creating new property for listingId: ${listingId} for client: ${client.id}`
+                );
+
+                // --- Create property first ---
+                const property = transactionalEntityManager.create(
+                  ClientPropertyEntity,
+                  {
+                    listingId,
+                    address: listingInfo.address,
+                    status: "published",
+                    createdBy: userId,
+                    client: client, // 👈 link to client
+                  }
+                );
+
+                // --- Save property first to get the ID ---
+                const savedProperty = await transactionalEntityManager.save(
+                  property
+                );
+
+                // --- Create propertyInfo ---
+                const propertyInfo = transactionalEntityManager.create(
+                  PropertyInfo,
+                  {
+                    externalListingName: listingInfo.externalListingName,
+                    internalListingName: listingInfo.internalListingName,
+                    price: listingInfo.price,
+                    priceForExtraPerson: listingInfo.priceForExtraPerson,
+                    propertyTypeId: listingInfo.propertyTypeId,
+                    roomType: listingInfo.roomType,
+                    bedroomsNumber: listingInfo.bedroomsNumber,
+                    bathroomsNumber: listingInfo.bathroomsNumber,
+                    bathroomType: listingInfo.bathroomType,
+                    guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                    address: listingInfo.address,
+                    currencyCode: listingInfo.currencyCode,
+                    personCapacity: listingInfo.personCapacity,
+                    petFee: listingInfo.airbnbPetFeeAmount,
+                    checkOutTime: listingInfo.checkOutTime,
+                    checkInTimeStart: listingInfo.checkInTimeStart,
+                    checkInTimeEnd: listingInfo.checkInTimeEnd,
+                    squareMeters: listingInfo.squareMeters,
+                    wifiUsername: listingInfo.wifiUsername,
+                    wifiPassword: listingInfo.wifiPassword,
+                    minNights: listingInfo.minNights,
+                    maxNights: listingInfo.maxNights,
+                    propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                    createdBy: userId,
+                    clientProperty: savedProperty, // 👈 link to saved property
+                  }
+                );
+
+                // --- Create and save vendorManagementInfo ---
+                const vendorManagementInfo = transactionalEntityManager.create(
+                  PropertyVendorManagement,
+                  {
+                    cleaningFee: listingInfo.cleaningFee,
+                  }
+                );
+                const savedVendorManagementInfo =
+                  await transactionalEntityManager.save(vendorManagementInfo);
+                propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+                // --- Save propertyInfo ---
+                const savedPropertyInfo = await transactionalEntityManager.save(
+                  propertyInfo
+                );
+
+                // --- Set amenities as simple array ---
+                if (
+                  listingInfo.listingAmenities &&
+                  listingInfo.listingAmenities.length > 0
+                ) {
+                  savedPropertyInfo.amenities =
+                    listingInfo.listingAmenities.map((amenity) =>
+                      String(amenity.amenityId)
+                    );
+                  await transactionalEntityManager.save(savedPropertyInfo);
+                }
+
+                // --- Save property bed types ---
+                if (
+                  listingInfo.listingBedTypes &&
+                  listingInfo.listingBedTypes.length > 0
+                ) {
+                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                    transactionalEntityManager.create(PropertyBedTypes, {
+                      haId: bedType.id,
+                      bedroomNumber: bedType.bedroomNumber,
+                      bedTypeId: bedType.bedTypeId,
+                      quantity: bedType.quantity,
+                      propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                    })
+                  );
+                  await transactionalEntityManager.save(bedTypes);
+                }
+
+                // --- Update property with propertyInfo relation ---
+                savedProperty.propertyInfo = savedPropertyInfo;
+                await transactionalEntityManager.save(savedProperty);
+
+                updatedProperties.push(savedProperty);
+                logger.info(
+                  `✅ Successfully created new property for listingId: ${listingId}`
+                );
+              }
+            } catch (err) {
+              logger.error(
+                `❌ Error while processing property for listingId: ${listingId}`,
+                err
+              );
+              throw err; // Re-throw to trigger transaction rollback
+            }
+          })
+          .catch((err) => {
+            logger.error(
+              `❌ Transaction failed for listingId: ${listingId}`,
+              err
+            );
+            // Continue with next listingId instead of breaking the entire process
+          });
       }
 
       client.properties = updatedProperties;
@@ -746,13 +916,34 @@ export class ClientService {
     const { page, limit, keyword } = filter;
 
     // fetch the associated clientSecondaryContacts and clientProperties as well
-    const query = this.clientRepo.createQueryBuilder("client")
-      .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
-      .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+    const query = this.clientRepo
+      .createQueryBuilder("client")
+      .leftJoinAndSelect(
+        "client.secondaryContacts",
+        "secondaryContact",
+        "secondaryContact.deletedAt IS NULL"
+      )
+      .leftJoinAndSelect(
+        "client.properties",
+        "property",
+        "property.deletedAt IS NULL"
+      )
       //fetch the onboarding, serviceInfo and propertyInfo of the property as well
-      .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
-      .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
-      .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
+      .leftJoinAndSelect(
+        "property.onboarding",
+        "onboarding",
+        "onboarding.deletedAt IS NULL"
+      )
+      .leftJoinAndSelect(
+        "property.serviceInfo",
+        "serviceInfo",
+        "serviceInfo.deletedAt IS NULL"
+      )
+      .leftJoinAndSelect(
+        "property.propertyInfo",
+        "propertyInfo",
+        "propertyInfo.deletedAt IS NULL"
+      )
       .where("client.deletedAt IS NULL")
       .orderBy("client.createdAt", "DESC");
     //order by client.createdAt desc
@@ -768,15 +959,21 @@ export class ClientService {
     }
 
     if (filter.listingId && filter.listingId.length > 0) {
-      query.andWhere("property.listingId IN (:...listingIds)", { listingIds: filter.listingId });
+      query.andWhere("property.listingId IN (:...listingIds)", {
+        listingIds: filter.listingId,
+      });
     }
 
     if (filter.serviceType && filter.serviceType.length > 0) {
-      query.andWhere("client.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
+      query.andWhere("client.serviceType IN (:...serviceTypes)", {
+        serviceTypes: filter.serviceType,
+      });
     }
 
     if (filter.status && filter.status.length > 0) {
-      query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+      query.andWhere("client.status IN (:...statuses)", {
+        statuses: filter.status,
+      });
     }
 
     if (filter.source) {
@@ -790,34 +987,54 @@ export class ClientService {
     const listingService = new ListingService();
     const listings = await listingService.getListingNames(userId);
 
-    const transformedData = await Promise.all(data.map(async (client) => {
-      if (client.properties) {
-        client.properties = client.properties.map((property) => {
-          const listing = listings.find((l) => l.id === Number(property.listingId));
-          return { ...property, listingName: listing ? listing.internalListingName : "Unknown Listing" };
-        });
-      }
-      const listingIds = client.properties ? client.properties.map(p => p.listingId) : [];
-      const clientSatisfaction = await this.getClientSatisfactionData(listingIds);
-      return { ...client, clientSatisfaction };
-    }));
+    const transformedData = await Promise.all(
+      data.map(async (client) => {
+        if (client.properties) {
+          client.properties = client.properties.map((property) => {
+            const listing = listings.find(
+              (l) => l.id === Number(property.listingId)
+            );
+            return {
+              ...property,
+              listingName: listing
+                ? listing.internalListingName
+                : "Unknown Listing",
+            };
+          });
+        }
+        const listingIds = client.properties
+          ? client.properties.map((p) => p.listingId)
+          : [];
+        const clientSatisfaction = await this.getClientSatisfactionData(
+          listingIds
+        );
+        const ticketCount = await this.getClientTicketCount(listingIds);
+        return { ...client, clientSatisfaction, ticketCount };
+      })
+    );
 
     const satisfactionCounts = transformedData.reduce(
       (acc, client) => {
         if (client.clientSatisfaction) {
-          acc[client.clientSatisfaction] = (acc[client.clientSatisfaction] || 0) + 1;
+          acc[client.clientSatisfaction] =
+            (acc[client.clientSatisfaction] || 0) + 1;
         }
         return acc;
       },
-      { "Very Satisfied": 0, "Satisfied": 0, "Neutral": 0, "Dissatisfied": 0, "Very Dissatisfied": 0 }
+      {
+        "Very Satisfied": 0,
+        Satisfied: 0,
+        Neutral: 0,
+        Dissatisfied: 0,
+        "Very Dissatisfied": 0,
+      }
     );
 
     return {
       total,
       data: transformedData,
-      satisfactionCounts
+      satisfactionCounts,
     };
-
   }
 
   async deleteClient(clientId: string, userId: string) {
@@ -834,15 +1051,24 @@ export class ClientService {
 
   async getClientMetadata() {
     // find the total no. of clients whose status is other than offboarded
-    const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
+    const totalActiveClients = await this.clientRepo.count({
+      where: { status: Not("offboarded"), deletedAt: IsNull() },
+    });
 
     // total no. of each serviceType from client properties' serviceInfo
-    const serviceTypeCounts = await this.clientRepo.createQueryBuilder("client")
+    const serviceTypeCounts = await this.clientRepo
+      .createQueryBuilder("client")
       .leftJoin("client.properties", "property", "property.deletedAt IS NULL")
-      .leftJoin("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .leftJoin(
+        "property.serviceInfo",
+        "serviceInfo",
+        "serviceInfo.deletedAt IS NULL"
+      )
       .select("serviceInfo.serviceType", "serviceType")
       .addSelect("COUNT(*)", "count")
-      .where("client.status != :status AND client.deletedAt IS NULL", { status: "offboarded" })
+      .where("client.status != :status AND client.deletedAt IS NULL", {
+        status: "offboarded",
+      })
       .andWhere("serviceInfo.serviceType IS NOT NULL")
       .groupBy("serviceInfo.serviceType")
       .getRawMany();
@@ -885,8 +1111,21 @@ export class ClientService {
     return "Neutral";
   }
 
+  async getClientTicketCount(listingIds: string[]) {
+    const ticketCount = await this.clientTicketRepo.count({
+      where: {
+        listingId: In(listingIds),
+        deletedAt: IsNull(),
+      },
+    });
 
-  async savePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+    return ticketCount;
+  }
+
+  async savePropertyPreOnboardingInfo(
+    body: PropertyOnboardingRequest,
+    userId: string
+  ) {
     const { clientId, clientProperties } = body;
 
     // Ensure client exists
@@ -895,7 +1134,11 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; onboarding: PropertyOnboarding; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo: PropertyServiceInfo;
+      onboarding: PropertyOnboarding;
+    }> = [];
 
     for (const property of clientProperties) {
       // Create ClientProperty
@@ -910,14 +1153,19 @@ export class ClientService {
       // Map Service Info
       const serviceInfoPayload = property.onboarding?.serviceInfo;
       const serviceInfoEntity = this.propertyServiceInfoRepo.create({
-        managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
+        managementFee:
+          serviceInfoPayload?.managementFee != null
+            ? String(serviceInfoPayload.managementFee)
+            : null,
         serviceType: serviceInfoPayload?.serviceType ?? null,
         contractLink: serviceInfoPayload?.contractLink ?? null,
         serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
         clientProperty: savedClientProperty,
         createdBy: userId,
       });
-      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(
+        serviceInfoEntity
+      );
 
       // Map Onboarding (sales, listing, photography)
       const sales = property.onboarding?.sales;
@@ -928,9 +1176,14 @@ export class ClientService {
         // sales
         salesRepresentative: sales?.salesRepresentative ?? null,
         salesNotes: sales?.salesNotes ?? null,
-        projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
+        projectedRevenue:
+          sales?.projectedRevenue != null
+            ? String(sales.projectedRevenue)
+            : null,
         // listing
-        clientCurrentListingLink: Array.isArray(listing?.clientCurrentListingLink)
+        clientCurrentListingLink: Array.isArray(
+          listing?.clientCurrentListingLink
+        )
           ? JSON.stringify(listing?.clientCurrentListingLink)
           : (listing?.clientCurrentListingLink as unknown as string) ?? null,
         listingOwner: listing?.listingOwner ?? null,
@@ -946,7 +1199,9 @@ export class ClientService {
         clientProperty: savedClientProperty,
         createdBy: userId,
       });
-      const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
+      const savedOnboarding = await this.propertyOnboardingRepo.save(
+        onboardingEntity
+      );
 
       // Create PropertyInfo record to store minPrice from sales
       if (sales?.minPrice !== undefined) {
@@ -958,7 +1213,11 @@ export class ClientService {
         await this.propertyInfoRepo.save(propertyInfoEntity);
       }
 
-      results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
+      results.push({
+        clientProperty: savedClientProperty,
+        serviceInfo: savedServiceInfo,
+        onboarding: savedOnboarding,
+      });
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -998,35 +1257,39 @@ export class ClientService {
         onboarding: {
           serviceInfo: si
             ? {
-              managementFee: si.managementFee != null ? Number(si.managementFee) : null,
-              serviceType: si.serviceType ?? null,
-              contractLink: si.contractLink ?? null,
-              serviceNotes: si.serviceNotes ?? null,
-            }
+                managementFee:
+                  si.managementFee != null ? Number(si.managementFee) : null,
+                serviceType: si.serviceType ?? null,
+                contractLink: si.contractLink ?? null,
+                serviceNotes: si.serviceNotes ?? null,
+              }
             : null,
           sales: ob
             ? {
-              salesRepresentative: ob.salesRepresentative ?? null,
-              salesNotes: ob.salesNotes ?? null,
-              projectedRevenue: ob.projectedRevenue != null ? Number(ob.projectedRevenue) : null,
-            }
+                salesRepresentative: ob.salesRepresentative ?? null,
+                salesNotes: ob.salesNotes ?? null,
+                projectedRevenue:
+                  ob.projectedRevenue != null
+                    ? Number(ob.projectedRevenue)
+                    : null,
+              }
             : null,
           listing: ob
             ? {
-              clientCurrentListingLink: parsedClientCurrentListingLink,
-              listingOwner: ob.listingOwner ?? null,
-              clientListingStatus: ob.clientListingStatus ?? null,
-              targetLiveDate: ob.targetLiveDate ?? null,
-              targetStartDate: ob.targetStartDate ?? null,
-              targetDateNotes: ob.targetDateNotes ?? null,
-              upcomingReservations: ob.upcomingReservations ?? null,
-            }
+                clientCurrentListingLink: parsedClientCurrentListingLink,
+                listingOwner: ob.listingOwner ?? null,
+                clientListingStatus: ob.clientListingStatus ?? null,
+                targetLiveDate: ob.targetLiveDate ?? null,
+                targetStartDate: ob.targetStartDate ?? null,
+                targetDateNotes: ob.targetDateNotes ?? null,
+                upcomingReservations: ob.upcomingReservations ?? null,
+              }
             : null,
           photography: ob
             ? {
-              photographyCoverage: ob.photographyCoverage ?? null,
-              photographyNotes: ob.photographyNotes ?? null,
-            }
+                photographyCoverage: ob.photographyCoverage ?? null,
+                photographyNotes: ob.photographyNotes ?? null,
+              }
             : null,
         },
       };
@@ -1035,7 +1298,10 @@ export class ClientService {
     return { clientId, data };
   }
 
-  async updatePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
+  async updatePropertyPreOnboardingInfo(
+    body: PropertyOnboardingRequest,
+    userId: string
+  ) {
     const { clientId, clientProperties } = body;
 
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
@@ -1043,20 +1309,36 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo?: PropertyServiceInfo | null; onboarding?: PropertyOnboarding | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo?: PropertyServiceInfo | null;
+      onboarding?: PropertyOnboarding | null;
+    }> = [];
 
     // Handle both update and create scenarios based on id presence
-    for (const property of clientProperties as Array<Property & { id?: string; }>) {
+    for (const property of clientProperties as Array<
+      Property & { id?: string }
+    >) {
       let clientProperty: ClientPropertyEntity;
 
       if (property.id) {
         // Update existing property
-        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+        clientProperty = await this.propertyRepo.findOne({
+          where: { id: property.id },
+          relations: ["onboarding", "serviceInfo"],
+        });
         if (!clientProperty) {
-          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+          throw CustomErrorHandler.notFound(
+            `Client property not found: ${property.id}`
+          );
         }
-        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        if (
+          (clientProperty.client as any)?.id &&
+          (clientProperty.client as any).id !== clientId
+        ) {
+          throw CustomErrorHandler.validationError(
+            "Property does not belong to provided clientId"
+          );
         }
 
         if (property.address !== undefined) {
@@ -1073,7 +1355,9 @@ export class ClientService {
           client: { id: clientId } as any,
           createdBy: userId,
         });
-        const savedClientProperty = await this.propertyRepo.save(clientProperty);
+        const savedClientProperty = await this.propertyRepo.save(
+          clientProperty
+        );
         clientProperty = savedClientProperty;
       }
 
@@ -1085,16 +1369,26 @@ export class ClientService {
           si = this.propertyServiceInfoRepo.create({
             clientProperty,
             createdBy: userId,
-            managementFee: siPayload.managementFee != null ? String(siPayload.managementFee) : null,
+            managementFee:
+              siPayload.managementFee != null
+                ? String(siPayload.managementFee)
+                : null,
             serviceType: siPayload.serviceType ?? null,
             contractLink: siPayload.contractLink ?? null,
-            serviceNotes: siPayload.serviceNotes ?? null
+            serviceNotes: siPayload.serviceNotes ?? null,
           });
         } else {
-          if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
-          if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
-          if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
-          if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+          if (siPayload.managementFee !== undefined)
+            si.managementFee =
+              siPayload.managementFee != null
+                ? String(siPayload.managementFee)
+                : null;
+          if (siPayload.serviceType !== undefined)
+            si.serviceType = siPayload.serviceType ?? null;
+          if (siPayload.contractLink !== undefined)
+            si.contractLink = siPayload.contractLink ?? null;
+          if (siPayload.serviceNotes !== undefined)
+            si.serviceNotes = siPayload.serviceNotes ?? null;
           si.updatedBy = userId;
         }
         await this.propertyServiceInfoRepo.save(si);
@@ -1106,7 +1400,6 @@ export class ClientService {
       const photography = property.onboarding?.photography;
 
       if (sales || listing || photography) {
-
         let ob = clientProperty.onboarding;
         if (!ob) {
           // Create new onboarding record with initial values
@@ -1115,11 +1408,15 @@ export class ClientService {
             createdBy: userId,
             salesRepresentative: sales?.salesRepresentative ?? null,
             salesNotes: sales?.salesNotes ?? null,
-            projectedRevenue: sales?.projectedRevenue != null ? String(sales.projectedRevenue) : null,
-            clientCurrentListingLink: listing?.clientCurrentListingLink ?
-              (Array.isArray(listing.clientCurrentListingLink)
+            projectedRevenue:
+              sales?.projectedRevenue != null
+                ? String(sales.projectedRevenue)
+                : null,
+            clientCurrentListingLink: listing?.clientCurrentListingLink
+              ? Array.isArray(listing.clientCurrentListingLink)
                 ? JSON.stringify(listing.clientCurrentListingLink)
-                : (listing.clientCurrentListingLink as unknown as string)) : null,
+                : (listing.clientCurrentListingLink as unknown as string)
+              : null,
             listingOwner: listing?.listingOwner ?? null,
             clientListingStatus: listing?.clientListingStatus ?? null,
             targetLiveDate: listing?.targetLiveDate ?? null,
@@ -1127,33 +1424,50 @@ export class ClientService {
             targetDateNotes: listing?.targetDateNotes ?? null,
             upcomingReservations: listing?.upcomingReservations ?? null,
             photographyCoverage: photography?.photographyCoverage ?? null,
-            photographyNotes: photography?.photographyNotes ?? null
+            photographyNotes: photography?.photographyNotes ?? null,
           });
         } else {
           // Update existing onboarding record
           if (sales) {
-            if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
-            if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
-            if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+            if (sales.salesRepresentative !== undefined)
+              ob.salesRepresentative = sales.salesRepresentative ?? null;
+            if (sales.salesNotes !== undefined)
+              ob.salesNotes = sales.salesNotes ?? null;
+            if (sales.projectedRevenue !== undefined)
+              ob.projectedRevenue =
+                sales.projectedRevenue != null
+                  ? String(sales.projectedRevenue)
+                  : null;
           }
 
           if (listing) {
             if (listing.clientCurrentListingLink !== undefined) {
-              ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+              ob.clientCurrentListingLink = Array.isArray(
+                listing.clientCurrentListingLink
+              )
                 ? JSON.stringify(listing.clientCurrentListingLink)
-                : (listing.clientCurrentListingLink as unknown as string) ?? null;
+                : (listing.clientCurrentListingLink as unknown as string) ??
+                  null;
             }
-            if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
-            if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
-            if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
-            if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
-            if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
-            if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+            if (listing.listingOwner !== undefined)
+              ob.listingOwner = listing.listingOwner ?? null;
+            if (listing.clientListingStatus !== undefined)
+              ob.clientListingStatus = listing.clientListingStatus ?? null;
+            if (listing.targetLiveDate !== undefined)
+              ob.targetLiveDate = listing.targetLiveDate ?? null;
+            if (listing.targetStartDate !== undefined)
+              ob.targetStartDate = listing.targetStartDate ?? null;
+            if (listing.targetDateNotes !== undefined)
+              ob.targetDateNotes = listing.targetDateNotes ?? null;
+            if (listing.upcomingReservations !== undefined)
+              ob.upcomingReservations = listing.upcomingReservations ?? null;
           }
 
           if (photography) {
-            if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
-            if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+            if (photography.photographyCoverage !== undefined)
+              ob.photographyCoverage = photography.photographyCoverage ?? null;
+            if (photography.photographyNotes !== undefined)
+              ob.photographyNotes = photography.photographyNotes ?? null;
           }
 
           ob.updatedBy = userId;
@@ -1181,13 +1495,19 @@ export class ClientService {
 
       // Refresh the property to get the latest data with relations
       const propertyId = property.id || clientProperty.id;
-      const refreshed = await this.propertyRepo.findOne({ where: { id: propertyId }, relations: ["onboarding", "serviceInfo"] });
-      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: propertyId },
+        relations: ["onboarding", "serviceInfo"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        serviceInfo: refreshed!.serviceInfo,
+        onboarding: refreshed!.onboarding,
+      });
     }
 
     return { message: "Property pre-onboarding info updated", updated };
   }
-
 
   async saveOnboardingDetails(body: PropertyOnboardingRequest, userId: string) {
     const { clientId, clientProperties } = body;
@@ -1198,19 +1518,32 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      onboarding: PropertyOnboarding;
+    }> = [];
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
 
       if (property.id) {
         // Update existing property
-        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        clientProperty = await this.propertyRepo.findOne({
+          where: { id: property.id },
+          relations: ["onboarding", "client"],
+        });
         if (!clientProperty) {
-          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+          throw CustomErrorHandler.notFound(
+            `Client property not found: ${property.id}`
+          );
         }
-        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        if (
+          (clientProperty.client as any)?.id &&
+          (clientProperty.client as any).id !== clientId
+        ) {
+          throw CustomErrorHandler.validationError(
+            "Property does not belong to provided clientId"
+          );
         }
         clientProperty.address = property.address;
         clientProperty.updatedAt = new Date();
@@ -1243,40 +1576,76 @@ export class ClientService {
 
       // Update onboarding fields
       if (sales) {
-        if (sales.salesRepresentative !== undefined) onboardingEntity.salesRepresentative = sales.salesRepresentative ?? null;
-        if (sales.salesNotes !== undefined) onboardingEntity.salesNotes = sales.salesNotes ?? null;
-        if (sales.projectedRevenue !== undefined) onboardingEntity.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+        if (sales.salesRepresentative !== undefined)
+          onboardingEntity.salesRepresentative =
+            sales.salesRepresentative ?? null;
+        if (sales.salesNotes !== undefined)
+          onboardingEntity.salesNotes = sales.salesNotes ?? null;
+        if (sales.projectedRevenue !== undefined)
+          onboardingEntity.projectedRevenue =
+            sales.projectedRevenue != null
+              ? String(sales.projectedRevenue)
+              : null;
       }
 
       if (listing) {
         if (listing.clientCurrentListingLink !== undefined) {
-          onboardingEntity.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+          onboardingEntity.clientCurrentListingLink = Array.isArray(
+            listing.clientCurrentListingLink
+          )
             ? JSON.stringify(listing.clientCurrentListingLink)
             : (listing.clientCurrentListingLink as unknown as string) ?? null;
         }
-        if (listing.listingOwner !== undefined) onboardingEntity.listingOwner = listing.listingOwner ?? null;
-        if (listing.clientListingStatus !== undefined) onboardingEntity.clientListingStatus = listing.clientListingStatus ?? null;
-        if (listing.targetLiveDate !== undefined) onboardingEntity.targetLiveDate = listing.targetLiveDate ?? null;
-        if (listing.targetStartDate !== undefined) onboardingEntity.targetStartDate = listing.targetStartDate ?? null;
-        if (listing.actualLiveDate !== undefined) onboardingEntity.actualLiveDate = listing.actualLiveDate ?? null;
-        if (listing.actualStartDate !== undefined) onboardingEntity.actualStartDate = listing.actualStartDate ?? null;
-        if (listing.targetDateNotes !== undefined) onboardingEntity.targetDateNotes = listing.targetDateNotes ?? null;
-        if (listing.upcomingReservations !== undefined) onboardingEntity.upcomingReservations = listing.upcomingReservations ?? null;
+        if (listing.listingOwner !== undefined)
+          onboardingEntity.listingOwner = listing.listingOwner ?? null;
+        if (listing.clientListingStatus !== undefined)
+          onboardingEntity.clientListingStatus =
+            listing.clientListingStatus ?? null;
+        if (listing.targetLiveDate !== undefined)
+          onboardingEntity.targetLiveDate = listing.targetLiveDate ?? null;
+        if (listing.targetStartDate !== undefined)
+          onboardingEntity.targetStartDate = listing.targetStartDate ?? null;
+        if (listing.actualLiveDate !== undefined)
+          onboardingEntity.actualLiveDate = listing.actualLiveDate ?? null;
+        if (listing.actualStartDate !== undefined)
+          onboardingEntity.actualStartDate = listing.actualStartDate ?? null;
+        if (listing.targetDateNotes !== undefined)
+          onboardingEntity.targetDateNotes = listing.targetDateNotes ?? null;
+        if (listing.upcomingReservations !== undefined)
+          onboardingEntity.upcomingReservations =
+            listing.upcomingReservations ?? null;
       }
 
       if (photography) {
-        if (photography.photographyCoverage !== undefined) onboardingEntity.photographyCoverage = photography.photographyCoverage ?? null;
-        if (photography.photographyNotes !== undefined) onboardingEntity.photographyNotes = photography.photographyNotes ?? null;
+        if (photography.photographyCoverage !== undefined)
+          onboardingEntity.photographyCoverage =
+            photography.photographyCoverage ?? null;
+        if (photography.photographyNotes !== undefined)
+          onboardingEntity.photographyNotes =
+            photography.photographyNotes ?? null;
       }
 
       if (clientAcknowledgement) {
-        if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) onboardingEntity.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? false;
-        if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) onboardingEntity.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
-        if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) onboardingEntity.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? false;
+        if (
+          clientAcknowledgement.acknowledgePropertyReadyByStartDate !==
+          undefined
+        )
+          onboardingEntity.acknowledgePropertyReadyByStartDate =
+            clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? false;
+        if (
+          clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined
+        )
+          onboardingEntity.acknowledgesResponsibilityToInform =
+            clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
+        if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined)
+          onboardingEntity.agreesUnpublishExternalListings =
+            clientAcknowledgement.agreesUnpublishExternalListings ?? false;
       }
 
       onboardingEntity.updatedBy = userId;
-      const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
+      const savedOnboarding = await this.propertyOnboardingRepo.save(
+        onboardingEntity
+      );
 
       results.push({ clientProperty, onboarding: savedOnboarding });
     }
@@ -1284,7 +1653,10 @@ export class ClientService {
     return { message: "Internal onboarding details saved", results };
   }
 
-  async updatedOnboardingDetails(body: PropertyOnboardingRequest, userId: string) {
+  async updatedOnboardingDetails(
+    body: PropertyOnboardingRequest,
+    userId: string
+  ) {
     const { clientId, clientProperties } = body;
 
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
@@ -1292,16 +1664,31 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      onboarding?: PropertyOnboarding | null;
+    }> = [];
 
     // Proper update loop using id
-    for (const property of clientProperties as Array<Property & { id: string; }>) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+    for (const property of clientProperties as Array<
+      Property & { id: string }
+    >) {
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["onboarding"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if (property.address !== undefined) {
@@ -1312,7 +1699,12 @@ export class ClientService {
       await this.propertyRepo.save(clientProperty);
 
       // Update Onboarding if provided (no serviceInfo for internal onboarding)
-      if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography || property.onboarding?.clientAcknowledgement) {
+      if (
+        property.onboarding?.sales ||
+        property.onboarding?.listing ||
+        property.onboarding?.photography ||
+        property.onboarding?.clientAcknowledgement
+      ) {
         const sales = property.onboarding.sales;
         const listing = property.onboarding.listing;
         const photography = property.onboarding.photography;
@@ -1320,48 +1712,90 @@ export class ClientService {
 
         let ob = clientProperty.onboarding;
         if (!ob) {
-          ob = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+          ob = this.propertyOnboardingRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
         if (sales) {
-          if (sales.salesRepresentative !== undefined) ob.salesRepresentative = sales.salesRepresentative ?? null;
-          if (sales.salesNotes !== undefined) ob.salesNotes = sales.salesNotes ?? null;
-          if (sales.projectedRevenue !== undefined) ob.projectedRevenue = sales.projectedRevenue != null ? String(sales.projectedRevenue) : null;
+          if (sales.salesRepresentative !== undefined)
+            ob.salesRepresentative = sales.salesRepresentative ?? null;
+          if (sales.salesNotes !== undefined)
+            ob.salesNotes = sales.salesNotes ?? null;
+          if (sales.projectedRevenue !== undefined)
+            ob.projectedRevenue =
+              sales.projectedRevenue != null
+                ? String(sales.projectedRevenue)
+                : null;
         }
 
         if (listing) {
           if (listing.clientCurrentListingLink !== undefined) {
-            ob.clientCurrentListingLink = Array.isArray(listing.clientCurrentListingLink)
+            ob.clientCurrentListingLink = Array.isArray(
+              listing.clientCurrentListingLink
+            )
               ? JSON.stringify(listing.clientCurrentListingLink)
               : (listing.clientCurrentListingLink as unknown as string) ?? null;
           }
-          if (listing.listingOwner !== undefined) ob.listingOwner = listing.listingOwner ?? null;
-          if (listing.clientListingStatus !== undefined) ob.clientListingStatus = listing.clientListingStatus ?? null;
-          if (listing.targetLiveDate !== undefined) ob.targetLiveDate = listing.targetLiveDate ?? null;
-          if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
-          if (listing.actualLiveDate !== undefined) ob.actualLiveDate = listing.actualLiveDate ?? null;
-          if (listing.actualStartDate !== undefined) ob.actualStartDate = listing.actualStartDate ?? null;
-          if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
-          if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+          if (listing.listingOwner !== undefined)
+            ob.listingOwner = listing.listingOwner ?? null;
+          if (listing.clientListingStatus !== undefined)
+            ob.clientListingStatus = listing.clientListingStatus ?? null;
+          if (listing.targetLiveDate !== undefined)
+            ob.targetLiveDate = listing.targetLiveDate ?? null;
+          if (listing.targetStartDate !== undefined)
+            ob.targetStartDate = listing.targetStartDate ?? null;
+          if (listing.actualLiveDate !== undefined)
+            ob.actualLiveDate = listing.actualLiveDate ?? null;
+          if (listing.actualStartDate !== undefined)
+            ob.actualStartDate = listing.actualStartDate ?? null;
+          if (listing.targetDateNotes !== undefined)
+            ob.targetDateNotes = listing.targetDateNotes ?? null;
+          if (listing.upcomingReservations !== undefined)
+            ob.upcomingReservations = listing.upcomingReservations ?? null;
         }
 
         if (photography) {
-          if (photography.photographyCoverage !== undefined) ob.photographyCoverage = photography.photographyCoverage ?? null;
-          if (photography.photographyNotes !== undefined) ob.photographyNotes = photography.photographyNotes ?? null;
+          if (photography.photographyCoverage !== undefined)
+            ob.photographyCoverage = photography.photographyCoverage ?? null;
+          if (photography.photographyNotes !== undefined)
+            ob.photographyNotes = photography.photographyNotes ?? null;
         }
 
         if (clientAcknowledgement) {
-          if (clientAcknowledgement.acknowledgePropertyReadyByStartDate !== undefined) ob.acknowledgePropertyReadyByStartDate = clientAcknowledgement.acknowledgePropertyReadyByStartDate ?? false;
-          if (clientAcknowledgement.acknowledgesResponsibilityToInform !== undefined) ob.acknowledgesResponsibilityToInform = clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
-          if (clientAcknowledgement.agreesUnpublishExternalListings !== undefined) ob.agreesUnpublishExternalListings = clientAcknowledgement.agreesUnpublishExternalListings ?? false;
+          if (
+            clientAcknowledgement.acknowledgePropertyReadyByStartDate !==
+            undefined
+          )
+            ob.acknowledgePropertyReadyByStartDate =
+              clientAcknowledgement.acknowledgePropertyReadyByStartDate ??
+              false;
+          if (
+            clientAcknowledgement.acknowledgesResponsibilityToInform !==
+            undefined
+          )
+            ob.acknowledgesResponsibilityToInform =
+              clientAcknowledgement.acknowledgesResponsibilityToInform ?? false;
+          if (
+            clientAcknowledgement.agreesUnpublishExternalListings !== undefined
+          )
+            ob.agreesUnpublishExternalListings =
+              clientAcknowledgement.agreesUnpublishExternalListings ?? false;
         }
 
         ob.updatedBy = userId;
         await this.propertyOnboardingRepo.save(ob);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
-      updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["onboarding"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        onboarding: refreshed!.onboarding,
+      });
     }
 
     return { message: "Internal onboarding details updated", updated };
@@ -1369,29 +1803,47 @@ export class ClientService {
 
   async getSalesRepresentativeList() {
     // find the distinct salesRepresentative from propertyOnboarding repo and return the list
-    const rows = await this.propertyOnboardingRepo.createQueryBuilder("po")
+    const rows = await this.propertyOnboardingRepo
+      .createQueryBuilder("po")
       .select("DISTINCT po.salesRepresentative", "salesRepresentative")
-      .where("po.salesRepresentative IS NOT NULL AND po.salesRepresentative != ''")
+      .where(
+        "po.salesRepresentative IS NOT NULL AND po.salesRepresentative != ''"
+      )
       .getRawMany();
-    return rows.map(r => r.salesRepresentative);
+    return rows.map((r) => r.salesRepresentative);
   }
 
   async saveServiceInfo(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo: PropertyServiceInfo;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -1403,20 +1855,30 @@ export class ClientService {
 
       const serviceInfoPayload = property.onboarding?.serviceInfo;
       if (!serviceInfoPayload) {
-        throw CustomErrorHandler.validationError("serviceInfo payload is required");
+        throw CustomErrorHandler.validationError(
+          "serviceInfo payload is required"
+        );
       }
 
       let serviceInfoEntity = clientProperty.serviceInfo;
       if (!serviceInfoEntity) {
-        serviceInfoEntity = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        serviceInfoEntity = this.propertyServiceInfoRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
       }
-      serviceInfoEntity.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfoEntity.managementFee =
+        serviceInfoPayload.managementFee != null
+          ? String(serviceInfoPayload.managementFee)
+          : null;
       serviceInfoEntity.serviceType = serviceInfoPayload.serviceType ?? null;
       serviceInfoEntity.contractLink = serviceInfoPayload.contractLink ?? null;
       serviceInfoEntity.serviceNotes = serviceInfoPayload.serviceNotes ?? null;
       serviceInfoEntity.updatedBy = userId;
 
-      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(
+        serviceInfoEntity
+      );
       results.push({ clientProperty, serviceInfo: savedServiceInfo });
     }
 
@@ -1430,15 +1892,30 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo: PropertyServiceInfo | null;
+    }> = [];
 
-    for (const property of clientProperties as Array<Property & { id: string; }>) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "client"] });
+    for (const property of clientProperties as Array<
+      Property & { id: string }
+    >) {
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if (property.address !== undefined) {
@@ -1452,18 +1929,34 @@ export class ClientService {
       if (siPayload) {
         let si = clientProperty.serviceInfo;
         if (!si) {
-          si = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+          si = this.propertyServiceInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
-        if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
-        if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
-        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
-        if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
+        if (siPayload.managementFee !== undefined)
+          si.managementFee =
+            siPayload.managementFee != null
+              ? String(siPayload.managementFee)
+              : null;
+        if (siPayload.serviceType !== undefined)
+          si.serviceType = siPayload.serviceType ?? null;
+        if (siPayload.contractLink !== undefined)
+          si.contractLink = siPayload.contractLink ?? null;
+        if (siPayload.serviceNotes !== undefined)
+          si.serviceNotes = siPayload.serviceNotes ?? null;
         si.updatedBy = userId;
         await this.propertyServiceInfoRepo.save(si);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo"] });
-      updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo ?? null });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        serviceInfo: refreshed!.serviceInfo ?? null,
+      });
     }
 
     return { message: "Service info updated", updated };
@@ -1493,21 +1986,36 @@ export class ClientService {
   }
 
   async saveListingInfo(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      propertyInfo: PropertyInfo;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -1524,7 +2032,10 @@ export class ClientService {
 
       let propertyInfo = clientProperty.propertyInfo;
       if (!propertyInfo) {
-        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        propertyInfo = this.propertyInfoRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
       }
 
       // Map all listing fields to propertyInfo
@@ -1533,13 +2044,25 @@ export class ClientService {
       const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
 
       // Handle PropertyBedTypes
-      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
-        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      if (
+        listingPayload.propertyBedTypes &&
+        listingPayload.propertyBedTypes.length > 0
+      ) {
+        await this.handlePropertyBedTypes(
+          savedPropertyInfo,
+          listingPayload.propertyBedTypes
+        );
       }
 
       // Handle PropertyUpsells
-      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
-        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      if (
+        listingPayload.propertyUpsells &&
+        listingPayload.propertyUpsells.length > 0
+      ) {
+        await this.handlePropertyUpsells(
+          savedPropertyInfo,
+          listingPayload.propertyUpsells
+        );
       }
 
       results.push({ clientProperty, propertyInfo: savedPropertyInfo });
@@ -1549,21 +2072,36 @@ export class ClientService {
   }
 
   async updateListingInfo(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      propertyInfo: PropertyInfo | null;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -1577,7 +2115,10 @@ export class ClientService {
       if (listingPayload) {
         let propertyInfo = clientProperty.propertyInfo;
         if (!propertyInfo) {
-          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+          propertyInfo = this.propertyInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
         // Map all listing fields to propertyInfo
@@ -1586,142 +2127,272 @@ export class ClientService {
         await this.propertyInfoRepo.save(propertyInfo);
 
         // Handle PropertyBedTypes
-        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
-          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        if (
+          listingPayload.propertyBedTypes &&
+          listingPayload.propertyBedTypes.length > 0
+        ) {
+          await this.handlePropertyBedTypes(
+            propertyInfo,
+            listingPayload.propertyBedTypes
+          );
         }
 
         // Handle PropertyUpsells
-        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
-          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        if (
+          listingPayload.propertyUpsells &&
+          listingPayload.propertyUpsells.length > 0
+        ) {
+          await this.handlePropertyUpsells(
+            propertyInfo,
+            listingPayload.propertyUpsells
+          );
         }
 
         // Handle Parking Info (array of parking rows)
         if (listingPayload.parking !== undefined) {
-          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+          await this.handlePropertyParkingInfo(
+            propertyInfo,
+            Array.isArray(listingPayload.parking) ? listingPayload.parking : []
+          );
         }
 
         // Handle Bathroom Locations
         if (listingPayload.propertyBathroomLocation !== undefined) {
-          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
+          await this.handlePropertyBathroomLocation(
+            propertyInfo,
+            listingPayload.propertyBathroomLocation ?? []
+          );
         }
 
         // Handle Vendor Management
         if (listingPayload.vendorManagement) {
-          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+          await this.handleVendorManagementInfo(
+            propertyInfo,
+            listingPayload.vendorManagement
+          );
         }
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
-      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        propertyInfo: refreshed!.propertyInfo ?? null,
+      });
     }
 
     return { message: "Listing info updated", updated };
   }
 
-  private mapListingFieldsToPropertyInfo(propertyInfo: PropertyInfo, listingPayload: any) {
+  private mapListingFieldsToPropertyInfo(
+    propertyInfo: PropertyInfo,
+    listingPayload: any
+  ) {
     // Listing Name
-    if (listingPayload.internalListingName !== undefined) propertyInfo.internalListingName = listingPayload.internalListingName ?? null;
-    if (listingPayload.externalListingName !== undefined) propertyInfo.externalListingName = listingPayload.externalListingName ?? null;
+    if (listingPayload.internalListingName !== undefined)
+      propertyInfo.internalListingName =
+        listingPayload.internalListingName ?? null;
+    if (listingPayload.externalListingName !== undefined)
+      propertyInfo.externalListingName =
+        listingPayload.externalListingName ?? null;
 
     // General info
-    if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
-    if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
-    if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
-    if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+    if (listingPayload.propertyTypeId !== undefined)
+      propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
+    if (listingPayload.noOfFloors !== undefined)
+      propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
+    if (listingPayload.squareMeters !== undefined)
+      propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
+    if (listingPayload.personCapacity !== undefined)
+      propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
 
     // Bedrooms
-    if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
-    if (listingPayload.bedroomsNumber !== undefined) propertyInfo.bedroomsNumber = listingPayload.bedroomsNumber ?? null;
+    if (listingPayload.roomType !== undefined)
+      propertyInfo.roomType = listingPayload.roomType ?? null;
+    if (listingPayload.bedroomsNumber !== undefined)
+      propertyInfo.bedroomsNumber = listingPayload.bedroomsNumber ?? null;
 
     // Bathrooms
-    if (listingPayload.bathroomType !== undefined) propertyInfo.bathroomType = listingPayload.bathroomType ?? null;
-    if (listingPayload.bathroomsNumber !== undefined) propertyInfo.bathroomsNumber = listingPayload.bathroomsNumber ?? null;
-    if (listingPayload.guestBathroomsNumber !== undefined) propertyInfo.guestBathroomsNumber = listingPayload.guestBathroomsNumber ?? null;
+    if (listingPayload.bathroomType !== undefined)
+      propertyInfo.bathroomType = listingPayload.bathroomType ?? null;
+    if (listingPayload.bathroomsNumber !== undefined)
+      propertyInfo.bathroomsNumber = listingPayload.bathroomsNumber ?? null;
+    if (listingPayload.guestBathroomsNumber !== undefined)
+      propertyInfo.guestBathroomsNumber =
+        listingPayload.guestBathroomsNumber ?? null;
 
     // Listing Information
-    if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
-    if (listingPayload.checkOutTime !== undefined) propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
-    if (listingPayload.canAnyoneBookAnytime !== undefined) propertyInfo.canAnyoneBookAnytime = listingPayload.canAnyoneBookAnytime ?? null;
-    if (listingPayload.bookingAcceptanceNoticeNotes !== undefined) propertyInfo.bookingAcceptanceNoticeNotes = listingPayload.bookingAcceptanceNoticeNotes ?? null;
+    if (listingPayload.checkInTimeStart !== undefined)
+      propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
+    if (listingPayload.checkOutTime !== undefined)
+      propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
+    if (listingPayload.canAnyoneBookAnytime !== undefined)
+      propertyInfo.canAnyoneBookAnytime =
+        listingPayload.canAnyoneBookAnytime ?? null;
+    if (listingPayload.bookingAcceptanceNoticeNotes !== undefined)
+      propertyInfo.bookingAcceptanceNoticeNotes =
+        listingPayload.bookingAcceptanceNoticeNotes ?? null;
 
     // House Rules
-    if (listingPayload.allowPartiesAndEvents !== undefined) propertyInfo.allowPartiesAndEvents = listingPayload.allowPartiesAndEvents ?? null;
-    if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
-    if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
-    if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
-    if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
-    if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
-    if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
-    if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
-    if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
-    if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+    if (listingPayload.allowPartiesAndEvents !== undefined)
+      propertyInfo.allowPartiesAndEvents =
+        listingPayload.allowPartiesAndEvents ?? null;
+    if (listingPayload.allowSmoking !== undefined)
+      propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
+    if (listingPayload.allowPets !== undefined)
+      propertyInfo.allowPets = listingPayload.allowPets ?? null;
+    if (listingPayload.petFee !== undefined)
+      propertyInfo.petFee = listingPayload.petFee ?? null;
+    if (listingPayload.numberOfPetsAllowed !== undefined)
+      propertyInfo.numberOfPetsAllowed =
+        listingPayload.numberOfPetsAllowed ?? null;
+    if (listingPayload.petRestrictionsNotes !== undefined)
+      propertyInfo.petRestrictionsNotes =
+        listingPayload.petRestrictionsNotes ?? null;
+    if (listingPayload.allowChildreAndInfants !== undefined)
+      propertyInfo.allowChildreAndInfants =
+        listingPayload.allowChildreAndInfants ?? null;
+    if (listingPayload.childrenInfantsRestrictionReason !== undefined)
+      propertyInfo.childrenInfantsRestrictionReason =
+        listingPayload.childrenInfantsRestrictionReason ?? null;
+    if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined)
+      propertyInfo.allowLuggageDropoffBeforeCheckIn =
+        listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
+    if (listingPayload.otherHouseRules !== undefined)
+      propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
 
     // Parking (instructions only; types/fee/spots handled via PropertyParkingInfo)
-    if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
+    if (listingPayload.parkingInstructions !== undefined)
+      propertyInfo.parkingInstructions =
+        listingPayload.parkingInstructions ?? null;
 
     // Property Access
-    if (listingPayload.checkInProcess !== undefined) propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
-    if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
-    if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
-    if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
-    if (listingPayload.responsibilityToSetDoorCodes !== undefined) propertyInfo.responsibilityToSetDoorCodes = listingPayload.responsibilityToSetDoorCodes ?? null;
-    if (listingPayload.standardDoorCode !== undefined) propertyInfo.standardDoorCode = listingPayload.standardDoorCode ?? null;
-    if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
-    if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
-    if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
-    if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
-    if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
-    if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+    if (listingPayload.checkInProcess !== undefined)
+      propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
+    if (listingPayload.doorLockType !== undefined)
+      propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
+    if (listingPayload.doorLockCodeType !== undefined)
+      propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
+    if (listingPayload.codeResponsibleParty !== undefined)
+      propertyInfo.codeResponsibleParty =
+        listingPayload.codeResponsibleParty ?? null;
+    if (listingPayload.responsibilityToSetDoorCodes !== undefined)
+      propertyInfo.responsibilityToSetDoorCodes =
+        listingPayload.responsibilityToSetDoorCodes ?? null;
+    if (listingPayload.standardDoorCode !== undefined)
+      propertyInfo.standardDoorCode = listingPayload.standardDoorCode ?? null;
+    if (listingPayload.doorLockAppName !== undefined)
+      propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
+    if (listingPayload.doorLockAppUsername !== undefined)
+      propertyInfo.doorLockAppUsername =
+        listingPayload.doorLockAppUsername ?? null;
+    if (listingPayload.doorLockAppPassword !== undefined)
+      propertyInfo.doorLockAppPassword =
+        listingPayload.doorLockAppPassword ?? null;
+    if (listingPayload.lockboxLocation !== undefined)
+      propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
+    if (listingPayload.lockboxCode !== undefined)
+      propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
+    if (listingPayload.doorLockInstructions !== undefined)
+      propertyInfo.doorLockInstructions =
+        listingPayload.doorLockInstructions ?? null;
 
     // Waste Management
-    if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
-    if (listingPayload.wasteBinLocation !== undefined) propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
-    if (listingPayload.wasteManagementInstructions !== undefined) propertyInfo.wasteManagementInstructions = listingPayload.wasteManagementInstructions ?? null;
+    if (listingPayload.wasteCollectionDays !== undefined)
+      propertyInfo.wasteCollectionDays =
+        listingPayload.wasteCollectionDays ?? null;
+    if (listingPayload.wasteBinLocation !== undefined)
+      propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
+    if (listingPayload.wasteManagementInstructions !== undefined)
+      propertyInfo.wasteManagementInstructions =
+        listingPayload.wasteManagementInstructions ?? null;
 
     // Additional Services/Upsells
-    if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
+    if (listingPayload.additionalServiceNotes !== undefined)
+      propertyInfo.additionalServiceNotes =
+        listingPayload.additionalServiceNotes ?? null;
 
-    if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
-    if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
+    if (listingPayload.checkInInstructions !== undefined)
+      propertyInfo.checkInInstructions =
+        listingPayload.checkInInstructions ?? null;
+    if (listingPayload.checkOutInstructions !== undefined)
+      propertyInfo.checkOutInstructions =
+        listingPayload.checkOutInstructions ?? null;
 
     //Management
-    if (listingPayload.specialInstructions !== undefined) propertyInfo.specialInstructions = listingPayload.specialInstructions ?? null;
-    if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
-    if (listingPayload.bookingAcceptanceNotes !== undefined) propertyInfo.bookingAcceptanceNotes = listingPayload.bookingAcceptanceNotes ?? null;
-    if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+    if (listingPayload.specialInstructions !== undefined)
+      propertyInfo.specialInstructions =
+        listingPayload.specialInstructions ?? null;
+    if (listingPayload.leadTimeDays !== undefined)
+      propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
+    if (listingPayload.bookingAcceptanceNotes !== undefined)
+      propertyInfo.bookingAcceptanceNotes =
+        listingPayload.bookingAcceptanceNotes ?? null;
+    if (listingPayload.managementNotes !== undefined)
+      propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
 
     //Financials
-    if (listingPayload.minPrice !== undefined) propertyInfo.minPrice = listingPayload.minPrice ?? null;
-    if (listingPayload.minNights !== undefined) propertyInfo.minNights = listingPayload.minNights ?? null;
-    if (listingPayload.maxNights !== undefined) propertyInfo.maxNights = listingPayload.maxNights ?? null;
-    if (listingPayload.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = listingPayload.propertyLicenseNumber ?? null;
-    if (listingPayload.tax !== undefined) propertyInfo.tax = listingPayload.tax ?? null;
-    if (listingPayload.financialNotes !== undefined) propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
+    if (listingPayload.minPrice !== undefined)
+      propertyInfo.minPrice = listingPayload.minPrice ?? null;
+    if (listingPayload.minNights !== undefined)
+      propertyInfo.minNights = listingPayload.minNights ?? null;
+    if (listingPayload.maxNights !== undefined)
+      propertyInfo.maxNights = listingPayload.maxNights ?? null;
+    if (listingPayload.propertyLicenseNumber !== undefined)
+      propertyInfo.propertyLicenseNumber =
+        listingPayload.propertyLicenseNumber ?? null;
+    if (listingPayload.tax !== undefined)
+      propertyInfo.tax = listingPayload.tax ?? null;
+    if (listingPayload.financialNotes !== undefined)
+      propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
 
     // Amenities
-    if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
-    if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
-    if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
-    if (listingPayload.wifiSpeed !== undefined) propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
-    if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
-    if (listingPayload.swimmingPoolNotes !== undefined) propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
-    if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
-    if (listingPayload.firePlaceNotes !== undefined) propertyInfo.firePlaceNotes = listingPayload.firePlaceNotes ?? null;
-    if (listingPayload.firepitNotes !== undefined) propertyInfo.firepitNotes = listingPayload.firepitNotes ?? null;
-    if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
-    if (listingPayload.locationOfThemostat !== undefined) propertyInfo.locationOfThemostat = listingPayload.locationOfThemostat ?? null;
+    if (listingPayload.amenities !== undefined)
+      propertyInfo.amenities = listingPayload.amenities ?? null;
+    if (listingPayload.wifiUsername !== undefined)
+      propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
+    if (listingPayload.wifiPassword !== undefined)
+      propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
+    if (listingPayload.wifiSpeed !== undefined)
+      propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
+    if (listingPayload.locationOfModem !== undefined)
+      propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
+    if (listingPayload.swimmingPoolNotes !== undefined)
+      propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
+    if (listingPayload.hotTubInstructions !== undefined)
+      propertyInfo.hotTubInstructions =
+        listingPayload.hotTubInstructions ?? null;
+    if (listingPayload.firePlaceNotes !== undefined)
+      propertyInfo.firePlaceNotes = listingPayload.firePlaceNotes ?? null;
+    if (listingPayload.firepitNotes !== undefined)
+      propertyInfo.firepitNotes = listingPayload.firepitNotes ?? null;
+    if (listingPayload.heatControlInstructions !== undefined)
+      propertyInfo.heatControlInstructions =
+        listingPayload.heatControlInstructions ?? null;
+    if (listingPayload.locationOfThemostat !== undefined)
+      propertyInfo.locationOfThemostat =
+        listingPayload.locationOfThemostat ?? null;
   }
 
-  private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
+  private async handlePropertyBedTypes(
+    propertyInfo: PropertyInfo,
+    bedTypesData: any[]
+  ) {
     // Get existing bed types for this property
     const existingBedTypes = await this.propertyBedTypesRepo.find({
-      where: { propertyId: { id: propertyInfo.id } }
+      where: { propertyId: { id: propertyInfo.id } },
     });
-    const existingBedTypeIds = existingBedTypes.map(bt => bt.id);
-    const incomingBedTypeIds = bedTypesData.map(bt => bt.id).filter(id => id !== undefined);
+    const existingBedTypeIds = existingBedTypes.map((bt) => bt.id);
+    const incomingBedTypeIds = bedTypesData
+      .map((bt) => bt.id)
+      .filter((id) => id !== undefined);
 
     // Remove bed types that are not in the incoming list
-    const bedTypesToDelete = existingBedTypes.filter(bt => !incomingBedTypeIds.includes(bt.id));
+    const bedTypesToDelete = existingBedTypes.filter(
+      (bt) => !incomingBedTypeIds.includes(bt.id)
+    );
     if (bedTypesToDelete.length > 0) {
       await this.propertyBedTypesRepo.remove(bedTypesToDelete);
     }
@@ -1730,12 +2401,18 @@ export class ClientService {
     for (const bedTypeData of bedTypesData) {
       if (bedTypeData.id && existingBedTypeIds.includes(bedTypeData.id)) {
         // Update existing bed type
-        const existingBedType = existingBedTypes.find(bt => bt.id === bedTypeData.id);
+        const existingBedType = existingBedTypes.find(
+          (bt) => bt.id === bedTypeData.id
+        );
         if (existingBedType) {
-          if (bedTypeData.floorLevel !== undefined) existingBedType.floorLevel = Number(bedTypeData.floorLevel);
-          if (bedTypeData.bedroomNumber !== undefined) existingBedType.bedroomNumber = bedTypeData.bedroomNumber;
-          if (bedTypeData.bedTypeId !== undefined) existingBedType.bedTypeId = bedTypeData.bedTypeId;
-          if (bedTypeData.quantity !== undefined) existingBedType.quantity = bedTypeData.quantity;
+          if (bedTypeData.floorLevel !== undefined)
+            existingBedType.floorLevel = Number(bedTypeData.floorLevel);
+          if (bedTypeData.bedroomNumber !== undefined)
+            existingBedType.bedroomNumber = bedTypeData.bedroomNumber;
+          if (bedTypeData.bedTypeId !== undefined)
+            existingBedType.bedTypeId = bedTypeData.bedTypeId;
+          if (bedTypeData.quantity !== undefined)
+            existingBedType.quantity = bedTypeData.quantity;
           await this.propertyBedTypesRepo.save(existingBedType);
         }
       } else {
@@ -1745,23 +2422,30 @@ export class ClientService {
           bedroomNumber: bedTypeData.bedroomNumber,
           bedTypeId: bedTypeData.bedTypeId,
           quantity: bedTypeData.quantity,
-          propertyId: propertyInfo
+          propertyId: propertyInfo,
         });
         await this.propertyBedTypesRepo.save(newBedType);
       }
     }
   }
 
-  private async handlePropertyUpsells(propertyInfo: PropertyInfo, upsellsData: any[]) {
+  private async handlePropertyUpsells(
+    propertyInfo: PropertyInfo,
+    upsellsData: any[]
+  ) {
     // Get existing upsells for this property
     const existingUpsells = await this.propertyUpsellsRepo.find({
-      where: { propertyId: { id: propertyInfo.id } }
+      where: { propertyId: { id: propertyInfo.id } },
     });
-    const existingUpsellIds = existingUpsells.map(u => u.id);
-    const incomingUpsellIds = upsellsData.map(u => u.id).filter(id => id !== undefined);
+    const existingUpsellIds = existingUpsells.map((u) => u.id);
+    const incomingUpsellIds = upsellsData
+      .map((u) => u.id)
+      .filter((id) => id !== undefined);
 
     // Remove upsells that are not in the incoming list
-    const upsellsToDelete = existingUpsells.filter(u => !incomingUpsellIds.includes(u.id));
+    const upsellsToDelete = existingUpsells.filter(
+      (u) => !incomingUpsellIds.includes(u.id)
+    );
     if (upsellsToDelete.length > 0) {
       await this.propertyUpsellsRepo.remove(upsellsToDelete);
     }
@@ -1770,13 +2454,19 @@ export class ClientService {
     for (const upsellData of upsellsData) {
       if (upsellData.id && existingUpsellIds.includes(upsellData.id)) {
         // Update existing upsell
-        const existingUpsell = existingUpsells.find(u => u.id === upsellData.id);
+        const existingUpsell = existingUpsells.find(
+          (u) => u.id === upsellData.id
+        );
         if (existingUpsell) {
-          if (upsellData.upsellName !== undefined) existingUpsell.upsellName = upsellData.upsellName;
-          if (upsellData.allowUpsell !== undefined) existingUpsell.allowUpsell = upsellData.allowUpsell;
-          if (upsellData.feeType !== undefined) existingUpsell.feeType = upsellData.feeType;
+          if (upsellData.upsellName !== undefined)
+            existingUpsell.upsellName = upsellData.upsellName;
+          if (upsellData.allowUpsell !== undefined)
+            existingUpsell.allowUpsell = upsellData.allowUpsell;
+          if (upsellData.feeType !== undefined)
+            existingUpsell.feeType = upsellData.feeType;
           if (upsellData.fee !== undefined) existingUpsell.fee = upsellData.fee;
-          if (upsellData.maxAdditionalHours !== undefined) existingUpsell.maxAdditionalHours = upsellData.maxAdditionalHours;
+          if (upsellData.maxAdditionalHours !== undefined)
+            existingUpsell.maxAdditionalHours = upsellData.maxAdditionalHours;
           await this.propertyUpsellsRepo.save(existingUpsell);
         }
       } else {
@@ -1787,85 +2477,141 @@ export class ClientService {
           feeType: upsellData.feeType,
           fee: upsellData.fee,
           maxAdditionalHours: upsellData.maxAdditionalHours,
-          propertyId: propertyInfo
+          propertyId: propertyInfo,
         });
         await this.propertyUpsellsRepo.save(newUpsell);
       }
     }
   }
 
-  private async handlePropertyParkingInfo(propertyInfo: PropertyInfo, parkingRows: any[]) {
-    const existing = await this.propertyParkingInfoRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
-    const existingById = new Map(existing.map(r => [r.id, r] as const));
-    const existingByType = new Map(existing.map(r => [(r as any).parkingType, r] as const));
+  private async handlePropertyParkingInfo(
+    propertyInfo: PropertyInfo,
+    parkingRows: any[]
+  ) {
+    const existing = await this.propertyParkingInfoRepo.find({
+      where: { propertyId: { id: propertyInfo.id } },
+    });
+    const existingById = new Map(existing.map((r) => [r.id, r] as const));
+    const existingByType = new Map(
+      existing.map((r) => [(r as any).parkingType, r] as const)
+    );
     const incomingIds = new Set<number>();
 
     // If array empty, clear all
     if (Array.isArray(parkingRows) && parkingRows.length === 0) {
-      if (existing.length > 0) await this.propertyParkingInfoRepo.remove(existing);
+      if (existing.length > 0)
+        await this.propertyParkingInfoRepo.remove(existing);
       return;
     }
 
     for (const p of parkingRows || []) {
-      let row = (p.id && existingById.has(p.id))
-        ? existingById.get(p.id)!
-        : (existingByType.get(p.parkingType) ?? this.propertyParkingInfoRepo.create({ propertyId: propertyInfo }));
+      let row =
+        p.id && existingById.has(p.id)
+          ? existingById.get(p.id)!
+          : existingByType.get(p.parkingType) ??
+            this.propertyParkingInfoRepo.create({ propertyId: propertyInfo });
 
       (row as any).parkingType = p.parkingType;
-      if (p.parkingFee !== undefined) row.parkingFee = p.parkingFee ?? null as any;
-      if (p.numberOfParkingSpots !== undefined) row.numberOfParkingSpots = p.numberOfParkingSpots ?? null as any;
+      if (p.parkingFee !== undefined)
+        row.parkingFee = p.parkingFee ?? (null as any);
+      if (p.numberOfParkingSpots !== undefined)
+        row.numberOfParkingSpots = p.numberOfParkingSpots ?? (null as any);
       row = await this.propertyParkingInfoRepo.save(row);
       incomingIds.add(row.id);
     }
 
-    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    const toDelete = existing.filter((e) => !incomingIds.has(e.id));
     if (toDelete.length > 0) {
       await this.propertyParkingInfoRepo.remove(toDelete);
     }
   }
 
-  private async handleVendorManagementInfo(propertyInfo: PropertyInfo, vendorPayload: any) {
+  private async handleVendorManagementInfo(
+    propertyInfo: PropertyInfo,
+    vendorPayload: any
+  ) {
     // Load existing VM with children
-    let vm = await this.propertyVendorManagementRepo.findOne({ where: { propertyInfo: { id: propertyInfo.id } }, relations: ["suppliesToRestock", "vendorInfo"] });
+    let vm = await this.propertyVendorManagementRepo.findOne({
+      where: { propertyInfo: { id: propertyInfo.id } },
+      relations: ["suppliesToRestock", "vendorInfo"],
+    });
     if (!vm) {
       vm = this.propertyVendorManagementRepo.create({ propertyInfo });
     }
 
     // Cleaner
-    if (vendorPayload.cleanerManagedBy !== undefined) vm.cleanerManagedBy = vendorPayload.cleanerManagedBy ?? null;
-    if (vendorPayload.cleanerManagedByReason !== undefined) vm.cleanerManagedByReason = vendorPayload.cleanerManagedByReason ?? null;
-    if (vendorPayload.hasCurrentCleaner !== undefined) vm.hasCurrentCleaner = vendorPayload.hasCurrentCleaner ?? null;
-    if (vendorPayload.cleaningFee !== undefined) vm.cleaningFee = vendorPayload.cleaningFee ?? null;
-    if (vendorPayload.cleanerName !== undefined) vm.cleanerName = vendorPayload.cleanerName ?? null;
-    if (vendorPayload.cleanerPhone !== undefined) vm.cleanerPhone = vendorPayload.cleanerPhone ?? null;
-    if (vendorPayload.cleanerEmail !== undefined) vm.cleanerEmail = vendorPayload.cleanerEmail ?? null;
-    if (vendorPayload.acknowledgeCleanerResponsibility !== undefined) vm.acknowledgeCleanerResponsibility = vendorPayload.acknowledgeCleanerResponsibility ?? null;
-    if (vendorPayload.acknowledgeCleanerResponsibilityReason !== undefined) vm.acknowledgeCleanerResponsibilityReason = vendorPayload.acknowledgeCleanerResponsibilityReason ?? null;
-    if (vendorPayload.ensureCleanersScheduled !== undefined) vm.ensureCleanersScheduled = vendorPayload.ensureCleanersScheduled ?? null;
-    if (vendorPayload.ensureCleanersScheduledReason !== undefined) vm.ensureCleanersScheduledReason = vendorPayload.ensureCleanersScheduledReason ?? null;
-    if (vendorPayload.propertyCleanedBeforeNextCheckIn !== undefined) vm.propertyCleanedBeforeNextCheckIn = vendorPayload.propertyCleanedBeforeNextCheckIn ?? null;
-    if (vendorPayload.propertyCleanedBeforeNextCheckInReason !== undefined) vm.propertyCleanedBeforeNextCheckInReason = vendorPayload.propertyCleanedBeforeNextCheckInReason ?? null;
-    if (vendorPayload.luxuryLodgingReadyAssumption !== undefined) vm.luxuryLodgingReadyAssumption = vendorPayload.luxuryLodgingReadyAssumption ?? null;
-    if (vendorPayload.luxuryLodgingReadyAssumptionReason !== undefined) vm.luxuryLodgingReadyAssumptionReason = vendorPayload.luxuryLodgingReadyAssumptionReason ?? null;
-    if (vendorPayload.cleaningTurnoverNotes !== undefined) vm.cleaningTurnoverNotes = vendorPayload.cleaningTurnoverNotes ?? null;
+    if (vendorPayload.cleanerManagedBy !== undefined)
+      vm.cleanerManagedBy = vendorPayload.cleanerManagedBy ?? null;
+    if (vendorPayload.cleanerManagedByReason !== undefined)
+      vm.cleanerManagedByReason = vendorPayload.cleanerManagedByReason ?? null;
+    if (vendorPayload.hasCurrentCleaner !== undefined)
+      vm.hasCurrentCleaner = vendorPayload.hasCurrentCleaner ?? null;
+    if (vendorPayload.cleaningFee !== undefined)
+      vm.cleaningFee = vendorPayload.cleaningFee ?? null;
+    if (vendorPayload.cleanerName !== undefined)
+      vm.cleanerName = vendorPayload.cleanerName ?? null;
+    if (vendorPayload.cleanerPhone !== undefined)
+      vm.cleanerPhone = vendorPayload.cleanerPhone ?? null;
+    if (vendorPayload.cleanerEmail !== undefined)
+      vm.cleanerEmail = vendorPayload.cleanerEmail ?? null;
+    if (vendorPayload.acknowledgeCleanerResponsibility !== undefined)
+      vm.acknowledgeCleanerResponsibility =
+        vendorPayload.acknowledgeCleanerResponsibility ?? null;
+    if (vendorPayload.acknowledgeCleanerResponsibilityReason !== undefined)
+      vm.acknowledgeCleanerResponsibilityReason =
+        vendorPayload.acknowledgeCleanerResponsibilityReason ?? null;
+    if (vendorPayload.ensureCleanersScheduled !== undefined)
+      vm.ensureCleanersScheduled =
+        vendorPayload.ensureCleanersScheduled ?? null;
+    if (vendorPayload.ensureCleanersScheduledReason !== undefined)
+      vm.ensureCleanersScheduledReason =
+        vendorPayload.ensureCleanersScheduledReason ?? null;
+    if (vendorPayload.propertyCleanedBeforeNextCheckIn !== undefined)
+      vm.propertyCleanedBeforeNextCheckIn =
+        vendorPayload.propertyCleanedBeforeNextCheckIn ?? null;
+    if (vendorPayload.propertyCleanedBeforeNextCheckInReason !== undefined)
+      vm.propertyCleanedBeforeNextCheckInReason =
+        vendorPayload.propertyCleanedBeforeNextCheckInReason ?? null;
+    if (vendorPayload.luxuryLodgingReadyAssumption !== undefined)
+      vm.luxuryLodgingReadyAssumption =
+        vendorPayload.luxuryLodgingReadyAssumption ?? null;
+    if (vendorPayload.luxuryLodgingReadyAssumptionReason !== undefined)
+      vm.luxuryLodgingReadyAssumptionReason =
+        vendorPayload.luxuryLodgingReadyAssumptionReason ?? null;
+    if (vendorPayload.cleaningTurnoverNotes !== undefined)
+      vm.cleaningTurnoverNotes = vendorPayload.cleaningTurnoverNotes ?? null;
 
     // Restocking supplies policy
-    if (vendorPayload.restockingSuppliesManagedBy !== undefined) vm.restockingSuppliesManagedBy = vendorPayload.restockingSuppliesManagedBy ?? null;
-    if (vendorPayload.restockingSuppliesManagedByReason !== undefined) vm.restockingSuppliesManagedByReason = vendorPayload.restockingSuppliesManagedByReason ?? null;
-    if (vendorPayload.luxuryLodgingRestockWithoutApproval !== undefined) vm.luxuryLodgingRestockWithoutApproval = vendorPayload.luxuryLodgingRestockWithoutApproval ?? null;
-    if (vendorPayload.luxuryLodgingConfirmBeforePurchase !== undefined) vm.luxuryLodgingConfirmBeforePurchase = vendorPayload.luxuryLodgingConfirmBeforePurchase ?? null;
+    if (vendorPayload.restockingSuppliesManagedBy !== undefined)
+      vm.restockingSuppliesManagedBy =
+        vendorPayload.restockingSuppliesManagedBy ?? null;
+    if (vendorPayload.restockingSuppliesManagedByReason !== undefined)
+      vm.restockingSuppliesManagedByReason =
+        vendorPayload.restockingSuppliesManagedByReason ?? null;
+    if (vendorPayload.luxuryLodgingRestockWithoutApproval !== undefined)
+      vm.luxuryLodgingRestockWithoutApproval =
+        vendorPayload.luxuryLodgingRestockWithoutApproval ?? null;
+    if (vendorPayload.luxuryLodgingConfirmBeforePurchase !== undefined)
+      vm.luxuryLodgingConfirmBeforePurchase =
+        vendorPayload.luxuryLodgingConfirmBeforePurchase ?? null;
 
     // Other
-    if (vendorPayload.addtionalVendorManagementNotes !== undefined) vm.addtionalVendorManagementNotes = vendorPayload.addtionalVendorManagementNotes ?? null;
-    if (vendorPayload.acknowledgeExpensesBilledToStatement !== undefined) vm.acknowledgeExpensesBilledToStatement = vendorPayload.acknowledgeExpensesBilledToStatement as any;
+    if (vendorPayload.addtionalVendorManagementNotes !== undefined)
+      vm.addtionalVendorManagementNotes =
+        vendorPayload.addtionalVendorManagementNotes ?? null;
+    if (vendorPayload.acknowledgeExpensesBilledToStatement !== undefined)
+      vm.acknowledgeExpensesBilledToStatement =
+        vendorPayload.acknowledgeExpensesBilledToStatement as any;
 
     // Save base VM first
     vm = await this.propertyVendorManagementRepo.save(vm);
 
     // Supplies To Restock
     if (Array.isArray(vendorPayload.suppliesToRestock)) {
-      const existing = await this.suppliesToRestockRepo.find({ where: { propertyVendorManagementId: { id: vm.id } } });
-      const existingById = new Map(existing.map(s => [s.id, s] as const));
+      const existing = await this.suppliesToRestockRepo.find({
+        where: { propertyVendorManagementId: { id: vm.id } },
+      });
+      const existingById = new Map(existing.map((s) => [s.id, s] as const));
       const incomingIds = new Set<number>();
 
       for (const s of vendorPayload.suppliesToRestock) {
@@ -1873,7 +2619,9 @@ export class ClientService {
         if (s.id && existingById.has(s.id)) {
           row = existingById.get(s.id)!;
         } else {
-          row = this.suppliesToRestockRepo.create({ propertyVendorManagementId: vm });
+          row = this.suppliesToRestockRepo.create({
+            propertyVendorManagementId: vm,
+          });
         }
         if (s.supplyName !== undefined) row.supplyName = s.supplyName;
         if (s.notes !== undefined) row.notes = s.notes ?? null;
@@ -1882,7 +2630,7 @@ export class ClientService {
       }
 
       // delete removed
-      const toDelete = existing.filter(e => !incomingIds.has(e.id));
+      const toDelete = existing.filter((e) => !incomingIds.has(e.id));
       if (toDelete.length > 0) {
         await this.suppliesToRestockRepo.remove(toDelete);
       }
@@ -1890,8 +2638,10 @@ export class ClientService {
 
     // Vendor Info
     if (Array.isArray(vendorPayload.vendorInfo)) {
-      const existing = await this.vendorInfoRepo.find({ where: { propertyVendorManagementId: { id: vm.id } } });
-      const existingById = new Map(existing.map(v => [v.id, v] as const));
+      const existing = await this.vendorInfoRepo.find({
+        where: { propertyVendorManagementId: { id: vm.id } },
+      });
+      const existingById = new Map(existing.map((v) => [v.id, v] as const));
       const incomingIds = new Set<number>();
 
       for (const v of vendorPayload.vendorInfo) {
@@ -1901,72 +2651,103 @@ export class ClientService {
         } else {
           row = this.vendorInfoRepo.create({ propertyVendorManagementId: vm });
         }
-        if (v.workCategory !== undefined) row.workCategory = v.workCategory ?? null;
+        if (v.workCategory !== undefined)
+          row.workCategory = v.workCategory ?? null;
         if (v.managedBy !== undefined) row.managedBy = v.managedBy ?? null;
         if (v.name !== undefined) row.name = v.name ?? null;
         if (v.contact !== undefined) row.contact = v.contact ?? null;
         if (v.email !== undefined) row.email = v.email ?? null;
-        if (v.scheduleType !== undefined) row.scheduleType = v.scheduleType ?? null;
-        if (v.intervalMonth !== undefined) row.intervalMonth = v.intervalMonth ?? null;
-        if (v.dayOfWeek !== undefined) row.dayOfWeek = JSON.stringify(v.dayOfWeek) ?? null as any;
-        if (v.weekOfMonth !== undefined) row.weekOfMonth = v.weekOfMonth ?? null;
+        if (v.scheduleType !== undefined)
+          row.scheduleType = v.scheduleType ?? null;
+        if (v.intervalMonth !== undefined)
+          row.intervalMonth = v.intervalMonth ?? null;
+        if (v.dayOfWeek !== undefined)
+          row.dayOfWeek = JSON.stringify(v.dayOfWeek) ?? (null as any);
+        if (v.weekOfMonth !== undefined)
+          row.weekOfMonth = v.weekOfMonth ?? null;
         if (v.dayOfMonth !== undefined) row.dayOfMonth = v.dayOfMonth ?? null;
         if (v.notes !== undefined) row.notes = v.notes ?? null;
         row = await this.vendorInfoRepo.save(row);
         incomingIds.add(row.id);
       }
 
-      const toDelete = existing.filter(e => !incomingIds.has(e.id));
+      const toDelete = existing.filter((e) => !incomingIds.has(e.id));
       if (toDelete.length > 0) {
         await this.vendorInfoRepo.remove(toDelete);
       }
     }
   }
 
-  private async handlePropertyBathroomLocation(propertyInfo: PropertyInfo, bathroomsData: any[]) {
+  private async handlePropertyBathroomLocation(
+    propertyInfo: PropertyInfo,
+    bathroomsData: any[]
+  ) {
     // Fetch existing
-    const existing = await this.propertyBathroomLocationRepo.find({ where: { propertyId: { id: propertyInfo.id } } });
-    const existingById = new Map(existing.map(b => [b.id, b] as const));
+    const existing = await this.propertyBathroomLocationRepo.find({
+      where: { propertyId: { id: propertyInfo.id } },
+    });
+    const existingById = new Map(existing.map((b) => [b.id, b] as const));
     const incomingIds = new Set<number>();
 
     for (const b of bathroomsData || []) {
-      let row = b.id && existingById.has(b.id) ? existingById.get(b.id)! : this.propertyBathroomLocationRepo.create({ propertyId: propertyInfo });
+      let row =
+        b.id && existingById.has(b.id)
+          ? existingById.get(b.id)!
+          : this.propertyBathroomLocationRepo.create({
+              propertyId: propertyInfo,
+            });
       if (b.floorLevel !== undefined) row.floorLevel = b.floorLevel ?? null;
-      if (b.bathroomType !== undefined) row.bathroomType = b.bathroomType ?? null;
-      if (b.bathroomNumber !== undefined) row.bathroomNumber = b.bathroomNumber ?? null;
+      if (b.bathroomType !== undefined)
+        row.bathroomType = b.bathroomType ?? null;
+      if (b.bathroomNumber !== undefined)
+        row.bathroomNumber = b.bathroomNumber ?? null;
       if (b.ensuite !== undefined) row.ensuite = b.ensuite ?? null;
       row = await this.propertyBathroomLocationRepo.save(row);
       incomingIds.add(row.id);
     }
 
     // delete removed
-    const toDelete = existing.filter(e => !incomingIds.has(e.id));
+    const toDelete = existing.filter((e) => !incomingIds.has(e.id));
     if (toDelete.length > 0) {
       await this.propertyBathroomLocationRepo.remove(toDelete);
     }
   }
 
-
   async saveOnboardingDetailsClientForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id?: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      onboarding: PropertyOnboarding;
+    }> = [];
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
 
       if (property.id) {
         // Update existing property
-        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        clientProperty = await this.propertyRepo.findOne({
+          where: { id: property.id },
+          relations: ["onboarding", "client"],
+        });
         if (!clientProperty) {
-          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+          throw CustomErrorHandler.notFound(
+            `Client property not found: ${property.id}`
+          );
         }
-        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        if (
+          (clientProperty.client as any)?.id &&
+          (clientProperty.client as any).id !== clientId
+        ) {
+          throw CustomErrorHandler.validationError(
+            "Property does not belong to provided clientId"
+          );
         }
         clientProperty.address = property.address;
         clientProperty.updatedAt = new Date();
@@ -1990,25 +2771,37 @@ export class ClientService {
 
       let onboarding = clientProperty.onboarding;
       if (!onboarding) {
-        onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+        onboarding = this.propertyOnboardingRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
       }
 
       // Map client-facing onboarding fields
-      if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
-      if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
-      if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+      if (listingPayload.targetLiveDate !== undefined)
+        onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+      if (listingPayload.targetStartDate !== undefined)
+        onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+      if (listingPayload.upcomingReservations !== undefined)
+        onboarding.upcomingReservations =
+          listingPayload.upcomingReservations ?? null;
 
       // Store client-facing specific fields in targetDateNotes as JSON
       const clientFormData = {
-        acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
-        agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+        acknowledgePropertyReadyByStartDate:
+          listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+        agreesUnpublishExternalListings:
+          listingPayload.agreesUnpublishExternalListings ?? null,
         externalListingNotes: listingPayload.externalListingNotes ?? null,
-        acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+        acknowledgesResponsibilityToInform:
+          listingPayload.acknowledgesResponsibilityToInform ?? null,
       };
       onboarding.targetDateNotes = JSON.stringify(clientFormData);
 
       onboarding.updatedBy = userId;
-      const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
+      const savedOnboarding = await this.propertyOnboardingRepo.save(
+        onboarding
+      );
 
       results.push({ clientProperty, onboarding: savedOnboarding });
     }
@@ -2017,25 +2810,40 @@ export class ClientService {
   }
 
   async updateOnboardingDetailsClientForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id?: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      onboarding?: PropertyOnboarding | null;
+    }> = [];
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
 
       if (property.id) {
         // Update existing property
-        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        clientProperty = await this.propertyRepo.findOne({
+          where: { id: property.id },
+          relations: ["onboarding", "client"],
+        });
         if (!clientProperty) {
-          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+          throw CustomErrorHandler.notFound(
+            `Client property not found: ${property.id}`
+          );
         }
-        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        if (
+          (clientProperty.client as any)?.id &&
+          (clientProperty.client as any).id !== clientId
+        ) {
+          throw CustomErrorHandler.validationError(
+            "Property does not belong to provided clientId"
+          );
         }
 
         if ((property as any).address !== undefined) {
@@ -2059,53 +2867,92 @@ export class ClientService {
       if (listingPayload) {
         let onboarding = clientProperty.onboarding;
         if (!onboarding) {
-          onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
+          onboarding = this.propertyOnboardingRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
         // Map client-facing onboarding fields
-        if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
-        if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
-        if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
-        if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
-        if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? false;
-        if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? false;
-        if (listingPayload.acknowledgesResponsibilityToInform !== undefined) onboarding.acknowledgesResponsibilityToInform = listingPayload.acknowledgesResponsibilityToInform ?? false;
+        if (listingPayload.targetLiveDate !== undefined)
+          onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+        if (listingPayload.targetStartDate !== undefined)
+          onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+        if (listingPayload.upcomingReservations !== undefined)
+          onboarding.upcomingReservations =
+            listingPayload.upcomingReservations ?? null;
+        if (listingPayload.targetDateNotes !== undefined)
+          onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
+        if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined)
+          onboarding.acknowledgePropertyReadyByStartDate =
+            listingPayload.acknowledgePropertyReadyByStartDate ?? false;
+        if (listingPayload.agreesUnpublishExternalListings !== undefined)
+          onboarding.agreesUnpublishExternalListings =
+            listingPayload.agreesUnpublishExternalListings ?? false;
+        if (listingPayload.acknowledgesResponsibilityToInform !== undefined)
+          onboarding.acknowledgesResponsibilityToInform =
+            listingPayload.acknowledgesResponsibilityToInform ?? false;
 
         // Store client-facing specific fields in targetDateNotes as JSON
         const clientFormData = {
-          acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
-          agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+          acknowledgePropertyReadyByStartDate:
+            listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+          agreesUnpublishExternalListings:
+            listingPayload.agreesUnpublishExternalListings ?? null,
           externalListingNotes: listingPayload.externalListingNotes ?? null,
-          acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+          acknowledgesResponsibilityToInform:
+            listingPayload.acknowledgesResponsibilityToInform ?? null,
         };
 
         onboarding.updatedBy = userId;
         await this.propertyOnboardingRepo.save(onboarding);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
-      updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: clientProperty.id },
+        relations: ["onboarding"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        onboarding: refreshed!.onboarding,
+      });
     }
 
     return { message: "Client onboarding details updated", updated };
   }
 
   async saveListingDetailsClientForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const results: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo; propertyInfo: PropertyInfo; }> = [];
+    const results: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo: PropertyServiceInfo;
+      propertyInfo: PropertyInfo;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo", "propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -2119,23 +2966,36 @@ export class ClientService {
       const listingPayload = property.onboarding?.listing;
 
       if (!serviceInfoPayload || !listingPayload) {
-        throw CustomErrorHandler.validationError("serviceInfo and listing payloads are required");
+        throw CustomErrorHandler.validationError(
+          "serviceInfo and listing payloads are required"
+        );
       }
 
       // Handle Service Info
       let serviceInfo = clientProperty.serviceInfo;
       if (!serviceInfo) {
-        serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+        serviceInfo = this.propertyServiceInfoRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
       }
-      serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
+      serviceInfo.managementFee =
+        serviceInfoPayload.managementFee != null
+          ? String(serviceInfoPayload.managementFee)
+          : null;
       serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
       serviceInfo.updatedBy = userId;
-      const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfo);
+      const savedServiceInfo = await this.propertyServiceInfoRepo.save(
+        serviceInfo
+      );
 
       // Handle Property Info
       let propertyInfo = clientProperty.propertyInfo;
       if (!propertyInfo) {
-        propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+        propertyInfo = this.propertyInfoRepo.create({
+          clientProperty,
+          createdBy: userId,
+        });
       }
 
       // Map all listing fields to propertyInfo
@@ -2144,37 +3004,69 @@ export class ClientService {
       const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
 
       // Handle PropertyBedTypes
-      if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
-        await this.handlePropertyBedTypes(savedPropertyInfo, listingPayload.propertyBedTypes);
+      if (
+        listingPayload.propertyBedTypes &&
+        listingPayload.propertyBedTypes.length > 0
+      ) {
+        await this.handlePropertyBedTypes(
+          savedPropertyInfo,
+          listingPayload.propertyBedTypes
+        );
       }
 
       // Handle PropertyUpsells
-      if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
-        await this.handlePropertyUpsells(savedPropertyInfo, listingPayload.propertyUpsells);
+      if (
+        listingPayload.propertyUpsells &&
+        listingPayload.propertyUpsells.length > 0
+      ) {
+        await this.handlePropertyUpsells(
+          savedPropertyInfo,
+          listingPayload.propertyUpsells
+        );
       }
 
-      results.push({ clientProperty, serviceInfo: savedServiceInfo, propertyInfo: savedPropertyInfo });
+      results.push({
+        clientProperty,
+        serviceInfo: savedServiceInfo,
+        propertyInfo: savedPropertyInfo,
+      });
     }
 
     return { message: "Client listing details saved", results };
   }
 
   async updateListingDetailsClientForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; serviceInfo: PropertyServiceInfo | null; propertyInfo: PropertyInfo | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      serviceInfo: PropertyServiceInfo | null;
+      propertyInfo: PropertyInfo | null;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo", "propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -2191,10 +3083,18 @@ export class ClientService {
       if (serviceInfoPayload) {
         let serviceInfo = clientProperty.serviceInfo;
         if (!serviceInfo) {
-          serviceInfo = this.propertyServiceInfoRepo.create({ clientProperty, createdBy: userId });
+          serviceInfo = this.propertyServiceInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
-        if (serviceInfoPayload.managementFee !== undefined) serviceInfo.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
-        if (serviceInfoPayload.serviceType !== undefined) serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
+        if (serviceInfoPayload.managementFee !== undefined)
+          serviceInfo.managementFee =
+            serviceInfoPayload.managementFee != null
+              ? String(serviceInfoPayload.managementFee)
+              : null;
+        if (serviceInfoPayload.serviceType !== undefined)
+          serviceInfo.serviceType = serviceInfoPayload.serviceType ?? null;
         serviceInfo.updatedBy = userId;
         await this.propertyServiceInfoRepo.save(serviceInfo);
       }
@@ -2203,7 +3103,10 @@ export class ClientService {
       if (listingPayload) {
         let propertyInfo = clientProperty.propertyInfo;
         if (!propertyInfo) {
-          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+          propertyInfo = this.propertyInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
         // Map all listing fields to propertyInfo
@@ -2212,53 +3115,84 @@ export class ClientService {
         await this.propertyInfoRepo.save(propertyInfo);
 
         // Handle PropertyBedTypes
-        if (listingPayload.propertyBedTypes && listingPayload.propertyBedTypes.length > 0) {
-          await this.handlePropertyBedTypes(propertyInfo, listingPayload.propertyBedTypes);
+        if (
+          listingPayload.propertyBedTypes &&
+          listingPayload.propertyBedTypes.length > 0
+        ) {
+          await this.handlePropertyBedTypes(
+            propertyInfo,
+            listingPayload.propertyBedTypes
+          );
         }
 
         // Handle PropertyUpsells
-        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
-          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        if (
+          listingPayload.propertyUpsells &&
+          listingPayload.propertyUpsells.length > 0
+        ) {
+          await this.handlePropertyUpsells(
+            propertyInfo,
+            listingPayload.propertyUpsells
+          );
         }
 
         // Handle Parking Info (array of parking rows)
         if (listingPayload.parking !== undefined) {
-          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+          await this.handlePropertyParkingInfo(
+            propertyInfo,
+            Array.isArray(listingPayload.parking) ? listingPayload.parking : []
+          );
         }
 
         // Handle Bathroom Locations
         if (listingPayload.propertyBathroomLocation !== undefined) {
-          await this.handlePropertyBathroomLocation(propertyInfo, listingPayload.propertyBathroomLocation ?? []);
+          await this.handlePropertyBathroomLocation(
+            propertyInfo,
+            listingPayload.propertyBathroomLocation ?? []
+          );
         }
 
         // Handle Vendor Management
         if (listingPayload.vendorManagement) {
-          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+          await this.handleVendorManagementInfo(
+            propertyInfo,
+            listingPayload.vendorManagement
+          );
         }
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["serviceInfo", "propertyInfo"] });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["serviceInfo", "propertyInfo"],
+      });
       updated.push({
         clientProperty: refreshed!,
         serviceInfo: refreshed!.serviceInfo ?? null,
-        propertyInfo: refreshed!.propertyInfo ?? null
+        propertyInfo: refreshed!.propertyInfo ?? null,
       });
     }
 
     return { message: "Client listing details updated", updated };
   }
 
-
   //publish listingIntake to hostaway
   async publishPropertyToHostaway(propertyId: string, userId: string) {
     const listingIntake = await this.propertyRepo.findOne({
       where: { id: propertyId },
-      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
+      relations: [
+        "onboarding",
+        "serviceInfo",
+        "propertyInfo",
+        "propertyInfo.propertyBedTypes",
+        "propertyInfo.propertyUpsells",
+        "client",
+      ],
     });
 
-
     if (!listingIntake) {
-      throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
+      throw CustomErrorHandler.notFound(
+        `Property with ID ${propertyId} not found.`
+      );
     }
 
     // Here you would implement the logic to publish the property to Hostaway
@@ -2268,10 +3202,14 @@ export class ClientService {
     // Simulate successful publishing
     let status = this.getListingIntakeStatus(listingIntake.propertyInfo);
     if (status === "draft") {
-      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
+      throw CustomErrorHandler.forbidden(
+        "Missing required fields. Cannot be published to Hostaway."
+      );
     }
     if (listingIntake.status === "published") {
-      throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
+      throw CustomErrorHandler.forbidden(
+        "Property is already published to Hostaway."
+      );
     }
 
     //prepare hostaway payload
@@ -2291,14 +3229,17 @@ export class ClientService {
       timeZoneName: listingIntake.client.timezone,
       currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
       personCapacity: listingIntake.propertyInfo.personCapacity,
-      cleaningFee: listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
+      cleaningFee:
+        listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
       airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
       checkOutTime: listingIntake.propertyInfo.checkOutTime,
       checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
       checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
       squareMeters: listingIntake.propertyInfo.squareMeters,
       language: "en",
-      instantBookable: listingIntake.propertyInfo?.canAnyoneBookAnytime?.includes("Yes") || false,
+      instantBookable:
+        listingIntake.propertyInfo?.canAnyoneBookAnytime?.includes("Yes") ||
+        false,
       instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || null,
       wifiUsername: listingIntake.propertyInfo.wifiUsername,
       wifiPassword: listingIntake.propertyInfo.wifiPassword,
@@ -2313,8 +3254,12 @@ export class ClientService {
         return { amenityId: Number(amenity) };
       }),
 
-      listingBedTypes: listingIntake.propertyInfo?.propertyBedTypes?.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
-        .map(bedType => ({
+      listingBedTypes: listingIntake.propertyInfo?.propertyBedTypes
+        ?.filter(
+          (bedType: any) =>
+            bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber
+        )
+        .map((bedType) => ({
           bedTypeId: bedType.bedTypeId,
           quantity: bedType.quantity,
           bedroomNumber: bedType.bedroomNumber,
@@ -2330,7 +3275,10 @@ export class ClientService {
 
     const response = await this.hostawayClient.createListing(hostawayPayload);
     if (!response) {
-      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+      throw new CustomErrorHandler(
+        500,
+        "Failed to publish listing intake to Hostaway"
+      );
     }
     // Update the listingIntake status to published
     listingIntake.status = "published";
@@ -2338,7 +3286,10 @@ export class ClientService {
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
 
-    return { message: "Property published to Hostaway successfully", listingIntake };
+    return {
+      message: "Property published to Hostaway successfully",
+      listingIntake,
+    };
   }
 
   private getListingIntakeStatus(listingIntake: any) {
@@ -2351,7 +3302,7 @@ export class ClientService {
       // "currencyCode" //default USD
     ];
 
-    const hasMissingValue = requiredFields.some(field => {
+    const hasMissingValue = requiredFields.some((field) => {
       const value = (listingIntake as any)[field];
       return value == null || value === "";
     });
@@ -2360,22 +3311,37 @@ export class ClientService {
   }
 
   async updateFinancialsInternalForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
 
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      propertyInfo: PropertyInfo | null;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -2385,56 +3351,95 @@ export class ClientService {
         await this.propertyRepo.save(clientProperty);
       }
 
-      const financials = (property as any)?.onboarding?.financials as Financials | undefined;
+      const financials = (property as any)?.onboarding?.financials as
+        | Financials
+        | undefined;
       if (financials) {
         let propertyInfo = clientProperty.propertyInfo;
         if (!propertyInfo) {
-          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+          propertyInfo = this.propertyInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
-        if (financials.minPrice !== undefined) propertyInfo.minPrice = financials.minPrice ?? null;
-        if (financials.minNights !== undefined) propertyInfo.minNights = financials.minNights ?? null;
-        if (financials.maxNights !== undefined) propertyInfo.maxNights = financials.maxNights ?? null;
-        if (financials.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = financials.propertyLicenseNumber ?? null;
-        if (financials.tax !== undefined) propertyInfo.tax = financials.tax ?? null;
-        if (financials.financialNotes !== undefined) propertyInfo.financialNotes = financials.financialNotes ?? null;
-        if (financials.statementSchedule !== undefined) propertyInfo.statementSchedule = financials.statementSchedule ?? null;
-        if (financials.statementType !== undefined) propertyInfo.statementType = financials.statementType ?? null;
-        if (financials.payoutMethod !== undefined) propertyInfo.payoutMethod = financials.payoutMethod ?? null;
-        if (financials.claimFee !== undefined) propertyInfo.claimFee = financials.claimFee ?? null;
-        if (financials.claimFeeNotes !== undefined) propertyInfo.claimFeeNotes = financials.claimFeeNotes ?? null;
-        if (financials.techFee !== undefined) propertyInfo.techFee = financials.techFee ?? null;
-        if (financials.techFeeNotes !== undefined) propertyInfo.techFeeNotes = financials.techFeeNotes ?? null;
-
+        if (financials.minPrice !== undefined)
+          propertyInfo.minPrice = financials.minPrice ?? null;
+        if (financials.minNights !== undefined)
+          propertyInfo.minNights = financials.minNights ?? null;
+        if (financials.maxNights !== undefined)
+          propertyInfo.maxNights = financials.maxNights ?? null;
+        if (financials.propertyLicenseNumber !== undefined)
+          propertyInfo.propertyLicenseNumber =
+            financials.propertyLicenseNumber ?? null;
+        if (financials.tax !== undefined)
+          propertyInfo.tax = financials.tax ?? null;
+        if (financials.financialNotes !== undefined)
+          propertyInfo.financialNotes = financials.financialNotes ?? null;
+        if (financials.statementSchedule !== undefined)
+          propertyInfo.statementSchedule = financials.statementSchedule ?? null;
+        if (financials.statementType !== undefined)
+          propertyInfo.statementType = financials.statementType ?? null;
+        if (financials.payoutMethod !== undefined)
+          propertyInfo.payoutMethod = financials.payoutMethod ?? null;
+        if (financials.claimFee !== undefined)
+          propertyInfo.claimFee = financials.claimFee ?? null;
+        if (financials.claimFeeNotes !== undefined)
+          propertyInfo.claimFeeNotes = financials.claimFeeNotes ?? null;
+        if (financials.techFee !== undefined)
+          propertyInfo.techFee = financials.techFee ?? null;
+        if (financials.techFeeNotes !== undefined)
+          propertyInfo.techFeeNotes = financials.techFeeNotes ?? null;
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
-      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        propertyInfo: refreshed!.propertyInfo ?? null,
+      });
     }
 
     return { message: "Internal financials updated", updated };
   }
 
   async updateManagementInternalForm(body: any, userId: string) {
-    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & {
+      clientProperties: Array<Property & { id: string }>;
+    };
 
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    const updated: Array<{ clientProperty: ClientPropertyEntity; propertyInfo: PropertyInfo | null; }> = [];
+    const updated: Array<{
+      clientProperty: ClientPropertyEntity;
+      propertyInfo: PropertyInfo | null;
+    }> = [];
 
     for (const property of clientProperties) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo", "client"] });
+      const clientProperty = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo", "client"],
+      });
       if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        throw CustomErrorHandler.notFound(
+          `Client property not found: ${property.id}`
+        );
       }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+      if (
+        (clientProperty.client as any)?.id &&
+        (clientProperty.client as any).id !== clientId
+      ) {
+        throw CustomErrorHandler.validationError(
+          "Property does not belong to provided clientId"
+        );
       }
 
       if ((property as any).address !== undefined) {
@@ -2448,84 +3453,162 @@ export class ClientService {
       if (listingPayload) {
         let propertyInfo = clientProperty.propertyInfo;
         if (!propertyInfo) {
-          propertyInfo = this.propertyInfoRepo.create({ clientProperty, createdBy: userId });
+          propertyInfo = this.propertyInfoRepo.create({
+            clientProperty,
+            createdBy: userId,
+          });
         }
 
         // Calendar Management
-        if (listingPayload.canAnyoneBookAnytime !== undefined) propertyInfo.canAnyoneBookAnytime = listingPayload.canAnyoneBookAnytime ?? null;
-        if (listingPayload.bookingAcceptanceNoticeNotes !== undefined) propertyInfo.bookingAcceptanceNoticeNotes = listingPayload.bookingAcceptanceNoticeNotes ?? null;
-        if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
-        if (listingPayload.calendarManagementNotes !== undefined) propertyInfo.calendarManagementNotes = listingPayload.calendarManagementNotes ?? null;
+        if (listingPayload.canAnyoneBookAnytime !== undefined)
+          propertyInfo.canAnyoneBookAnytime =
+            listingPayload.canAnyoneBookAnytime ?? null;
+        if (listingPayload.bookingAcceptanceNoticeNotes !== undefined)
+          propertyInfo.bookingAcceptanceNoticeNotes =
+            listingPayload.bookingAcceptanceNoticeNotes ?? null;
+        if (listingPayload.leadTimeDays !== undefined)
+          propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
+        if (listingPayload.calendarManagementNotes !== undefined)
+          propertyInfo.calendarManagementNotes =
+            listingPayload.calendarManagementNotes ?? null;
 
         // Reservation Management
-        if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;
-        if (listingPayload.checkInTimeEnd !== undefined) propertyInfo.checkInTimeEnd = listingPayload.checkInTimeEnd ?? null;
-        if (listingPayload.checkOutTime !== undefined) propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
+        if (listingPayload.checkInTimeStart !== undefined)
+          propertyInfo.checkInTimeStart =
+            listingPayload.checkInTimeStart ?? null;
+        if (listingPayload.checkInTimeEnd !== undefined)
+          propertyInfo.checkInTimeEnd = listingPayload.checkInTimeEnd ?? null;
+        if (listingPayload.checkOutTime !== undefined)
+          propertyInfo.checkOutTime = listingPayload.checkOutTime ?? null;
 
         // Parking
         if (listingPayload.parking !== undefined) {
-          await this.handlePropertyParkingInfo(propertyInfo, Array.isArray(listingPayload.parking) ? listingPayload.parking : []);
+          await this.handlePropertyParkingInfo(
+            propertyInfo,
+            Array.isArray(listingPayload.parking) ? listingPayload.parking : []
+          );
         }
-        if (listingPayload.parkingInstructions !== undefined) propertyInfo.parkingInstructions = listingPayload.parkingInstructions ?? null;
+        if (listingPayload.parkingInstructions !== undefined)
+          propertyInfo.parkingInstructions =
+            listingPayload.parkingInstructions ?? null;
 
         // Property Access
-        if (listingPayload.checkInProcess !== undefined) propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
-        if (listingPayload.doorLockType !== undefined) propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
-        if (listingPayload.doorLockCodeType !== undefined) propertyInfo.doorLockCodeType = listingPayload.doorLockCodeType ?? null;
-        if (listingPayload.codeResponsibleParty !== undefined) propertyInfo.codeResponsibleParty = listingPayload.codeResponsibleParty ?? null;
-        if (listingPayload.doorLockAppName !== undefined) propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
-        if (listingPayload.doorLockAppUsername !== undefined) propertyInfo.doorLockAppUsername = listingPayload.doorLockAppUsername ?? null;
-        if (listingPayload.doorLockAppPassword !== undefined) propertyInfo.doorLockAppPassword = listingPayload.doorLockAppPassword ?? null;
-        if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
-        if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
-        if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
-        if (listingPayload.standardDoorCode !== undefined) propertyInfo.standardDoorCode = listingPayload.standardDoorCode ?? null;
+        if (listingPayload.checkInProcess !== undefined)
+          propertyInfo.checkInProcess = listingPayload.checkInProcess ?? null;
+        if (listingPayload.doorLockType !== undefined)
+          propertyInfo.doorLockType = listingPayload.doorLockType ?? null;
+        if (listingPayload.doorLockCodeType !== undefined)
+          propertyInfo.doorLockCodeType =
+            listingPayload.doorLockCodeType ?? null;
+        if (listingPayload.codeResponsibleParty !== undefined)
+          propertyInfo.codeResponsibleParty =
+            listingPayload.codeResponsibleParty ?? null;
+        if (listingPayload.doorLockAppName !== undefined)
+          propertyInfo.doorLockAppName = listingPayload.doorLockAppName ?? null;
+        if (listingPayload.doorLockAppUsername !== undefined)
+          propertyInfo.doorLockAppUsername =
+            listingPayload.doorLockAppUsername ?? null;
+        if (listingPayload.doorLockAppPassword !== undefined)
+          propertyInfo.doorLockAppPassword =
+            listingPayload.doorLockAppPassword ?? null;
+        if (listingPayload.lockboxLocation !== undefined)
+          propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
+        if (listingPayload.lockboxCode !== undefined)
+          propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
+        if (listingPayload.doorLockInstructions !== undefined)
+          propertyInfo.doorLockInstructions =
+            listingPayload.doorLockInstructions ?? null;
+        if (listingPayload.standardDoorCode !== undefined)
+          propertyInfo.standardDoorCode =
+            listingPayload.standardDoorCode ?? null;
 
         // Waste Management
-        if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
-        if (listingPayload.wasteBinLocation !== undefined) propertyInfo.wasteBinLocation = listingPayload.wasteBinLocation ?? null;
-        if (listingPayload.wasteManagementInstructions !== undefined) propertyInfo.wasteManagementInstructions = listingPayload.wasteManagementInstructions ?? null;
+        if (listingPayload.wasteCollectionDays !== undefined)
+          propertyInfo.wasteCollectionDays =
+            listingPayload.wasteCollectionDays ?? null;
+        if (listingPayload.wasteBinLocation !== undefined)
+          propertyInfo.wasteBinLocation =
+            listingPayload.wasteBinLocation ?? null;
+        if (listingPayload.wasteManagementInstructions !== undefined)
+          propertyInfo.wasteManagementInstructions =
+            listingPayload.wasteManagementInstructions ?? null;
 
         // Property Upsells
-        if (listingPayload.propertyUpsells && listingPayload.propertyUpsells.length > 0) {
-          await this.handlePropertyUpsells(propertyInfo, listingPayload.propertyUpsells);
+        if (
+          listingPayload.propertyUpsells &&
+          listingPayload.propertyUpsells.length > 0
+        ) {
+          await this.handlePropertyUpsells(
+            propertyInfo,
+            listingPayload.propertyUpsells
+          );
         }
-        if (listingPayload.additionalServiceNotes !== undefined) propertyInfo.additionalServiceNotes = listingPayload.additionalServiceNotes ?? null;
+        if (listingPayload.additionalServiceNotes !== undefined)
+          propertyInfo.additionalServiceNotes =
+            listingPayload.additionalServiceNotes ?? null;
 
         // Special Instructions for Guests
-        if (listingPayload.checkInInstructions !== undefined) propertyInfo.checkInInstructions = listingPayload.checkInInstructions ?? null;
-        if (listingPayload.checkOutInstructions !== undefined) propertyInfo.checkOutInstructions = listingPayload.checkOutInstructions ?? null;
+        if (listingPayload.checkInInstructions !== undefined)
+          propertyInfo.checkInInstructions =
+            listingPayload.checkInInstructions ?? null;
+        if (listingPayload.checkOutInstructions !== undefined)
+          propertyInfo.checkOutInstructions =
+            listingPayload.checkOutInstructions ?? null;
 
         // House Rules
-        if (listingPayload.allowPartiesAndEvents !== undefined) propertyInfo.allowPartiesAndEvents = listingPayload.allowPartiesAndEvents ?? null;
-        if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
-        if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
-        if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
-        if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
-        if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
-        if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
-        if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
-        if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
-        if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+        if (listingPayload.allowPartiesAndEvents !== undefined)
+          propertyInfo.allowPartiesAndEvents =
+            listingPayload.allowPartiesAndEvents ?? null;
+        if (listingPayload.allowSmoking !== undefined)
+          propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
+        if (listingPayload.allowPets !== undefined)
+          propertyInfo.allowPets = listingPayload.allowPets ?? null;
+        if (listingPayload.petFee !== undefined)
+          propertyInfo.petFee = listingPayload.petFee ?? null;
+        if (listingPayload.numberOfPetsAllowed !== undefined)
+          propertyInfo.numberOfPetsAllowed =
+            listingPayload.numberOfPetsAllowed ?? null;
+        if (listingPayload.petRestrictionsNotes !== undefined)
+          propertyInfo.petRestrictionsNotes =
+            listingPayload.petRestrictionsNotes ?? null;
+        if (listingPayload.allowChildreAndInfants !== undefined)
+          propertyInfo.allowChildreAndInfants =
+            listingPayload.allowChildreAndInfants ?? null;
+        if (listingPayload.childrenInfantsRestrictionReason !== undefined)
+          propertyInfo.childrenInfantsRestrictionReason =
+            listingPayload.childrenInfantsRestrictionReason ?? null;
+        if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined)
+          propertyInfo.allowLuggageDropoffBeforeCheckIn =
+            listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
+        if (listingPayload.otherHouseRules !== undefined)
+          propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
 
         // Vendor Management
         if (listingPayload.vendorManagement) {
-          await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
+          await this.handleVendorManagementInfo(
+            propertyInfo,
+            listingPayload.vendorManagement
+          );
         }
 
         // Management Notes
-        if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+        if (listingPayload.managementNotes !== undefined)
+          propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
-      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+      const refreshed = await this.propertyRepo.findOne({
+        where: { id: property.id },
+        relations: ["propertyInfo"],
+      });
+      updated.push({
+        clientProperty: refreshed!,
+        propertyInfo: refreshed!.propertyInfo ?? null,
+      });
     }
 
     return { message: "Internal management updated", updated };
   }
-
-
 }
