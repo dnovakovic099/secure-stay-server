@@ -238,6 +238,15 @@ interface Financials {
   techFeeNotes?: string | null;
 }
 
+enum PropertyStatus {
+  ACTIVE = "active",
+  ONBOARDING = "onboarding",
+  ON_HOLD = "on-hold",
+  POTENTIAL_OFFBOARDING = "potential-offboarding",
+  OFFBOARDING = "offboarding",
+  INACTIVE = "inactive",
+}
+
 
 export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
@@ -309,7 +318,7 @@ export class ClientService {
             const property = transactionalEntityManager.create(ClientPropertyEntity, {
               listingId,
               address: listingInfo.address,
-              status: "published",
+              status: PropertyStatus.ACTIVE,
               createdBy: userId,
               client: savedClient, // 👈 link to client
             });
@@ -653,7 +662,7 @@ export class ClientService {
               const property = transactionalEntityManager.create(ClientPropertyEntity, {
                 listingId,
                 address: listingInfo.address,
-                status: "published",
+                status: PropertyStatus.ACTIVE,
                 createdBy: userId,
                 client: client, // 👈 link to client
               });
@@ -835,7 +844,7 @@ export class ClientService {
 
   async getClientMetadata() {
     // find the total no. of clients whose status is other than offboarded
-    const totalActiveClients = await this.clientRepo.count({ where: { status: Not("offboarded"), deletedAt: IsNull() } });
+    const totalActiveClients = await this.clientRepo.count({ where: { status: Not(PropertyStatus.INACTIVE), deletedAt: IsNull() } });
 
     // total no. of each serviceType from client properties' serviceInfo
     const serviceTypeCounts = await this.clientRepo.createQueryBuilder("client")
@@ -843,7 +852,7 @@ export class ClientService {
       .leftJoin("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
       .select("serviceInfo.serviceType", "serviceType")
       .addSelect("COUNT(*)", "count")
-      .where("client.status != :status AND client.deletedAt IS NULL", { status: "offboarded" })
+      .where("client.status != :status AND client.deletedAt IS NULL", { status: PropertyStatus.INACTIVE })
       .andWhere("serviceInfo.serviceType IS NOT NULL")
       .groupBy("serviceInfo.serviceType")
       .getRawMany();
@@ -912,7 +921,7 @@ export class ClientService {
       // Create ClientProperty
       const clientProperty = this.propertyRepo.create({
         address: property.address,
-        status: "draft",
+        status: PropertyStatus.ONBOARDING,
         client: { id: clientId } as any,
         createdBy: userId,
       });
@@ -1080,7 +1089,7 @@ export class ClientService {
         // Create new property
         clientProperty = this.propertyRepo.create({
           address: property.address,
-          status: "draft",
+          status: PropertyStatus.ONBOARDING,
           client: { id: clientId } as any,
           createdBy: userId,
         });
@@ -1233,7 +1242,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
-          status: "draft",
+          status: PropertyStatus.ONBOARDING,
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
@@ -1989,7 +1998,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
-          status: "draft",
+          status: PropertyStatus.ONBOARDING,
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
@@ -2061,7 +2070,7 @@ export class ClientService {
           address: property.address,
           client: { id: clientId } as any,
           createdBy: userId,
-          status: "draft",
+          status: PropertyStatus.ONBOARDING,
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
       }
@@ -2281,7 +2290,7 @@ export class ClientService {
     if (status === "draft") {
       throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
     }
-    if (listingIntake.status === "published") {
+    if (listingIntake.listingId) {
       throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
     }
 
@@ -2344,7 +2353,7 @@ export class ClientService {
       throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
     }
     // Update the listingIntake status to published
-    listingIntake.status = "published";
+    listingIntake.status = PropertyStatus.ACTIVE;
     listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
     listingIntake.updatedBy = userId;
     await this.propertyRepo.save(listingIntake);
