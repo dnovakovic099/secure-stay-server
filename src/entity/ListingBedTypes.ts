@@ -14,7 +14,7 @@ export class ListingBedTypes {
     @PrimaryGeneratedColumn()
     listing_bed_type_id: number;
 
-    @Column()
+    @Column({ type: "bigint" })
     id: number;
 
     @Column({ nullable: true })
