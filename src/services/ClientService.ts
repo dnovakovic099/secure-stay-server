@@ -481,7 +481,10 @@ export class ClientService {
       const existingListingIds = existingProperties.map((p) => p.listingId);
 
       // Delete properties that are not in the incoming list
-      const propertiesToDelete = existingProperties.filter((p) => !clientProperties.includes(p.listingId));
+      const propertiesToDelete = existingProperties.filter(
+        (p) => !clientProperties.map(String).includes(p.listingId)
+      );
+      
       if (propertiesToDelete.length > 0) {
         //updated deletedBy and deletedAt instead of hard delete
         propertiesToDelete.forEach(property => {
@@ -505,8 +508,8 @@ export class ClientService {
               return; // Skip this listingId
             }
 
-            const isExistingProperty = existingListingIds.includes(listingId);
-            const existingProperty = existingProperties.find(p => p.listingId === listingId);
+            const isExistingProperty = existingListingIds.includes(String(listingId));
+            const existingProperty = existingProperties.find(p => p.listingId == listingId);
 
             if (isExistingProperty && existingProperty) {
               // Update existing property and its related data
