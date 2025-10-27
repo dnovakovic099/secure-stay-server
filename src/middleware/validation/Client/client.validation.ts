@@ -2,6 +2,15 @@ import { max } from "date-fns";
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
+enum PropertyStatus {
+    ACTIVE = "active",
+    ONBOARDING = "onboarding",
+    ON_HOLD = "on-hold",
+    POTENTIAL_OFFBOARDING = "potential-offboarding",
+    OFFBOARDING = "offboarding",
+    INACTIVE = "inactive",
+}
+
 export const validateCreateClient = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         primaryContact: Joi.object({
@@ -56,7 +65,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
             phone: Joi.string().required().allow(null, ''),
             timezone: Joi.string().required().allow(null, ''),
             companyName: Joi.string().required().allow(null, ''),
-            status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+            status: Joi.string().required().valid().allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
             clientFolder: Joi.string().optional().allow(null, ''), 
         }),
@@ -71,7 +80,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
                 phone: Joi.string().required().allow(null, ''),
                 timezone: Joi.string().required().allow(null, ''),
                 companyName: Joi.string().required().allow(null, ''),
-                status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+                status: Joi.string().required().valid(...Object.values(PropertyStatus)).allow(null, ''),
                 notes: Joi.string().required().allow(null, ''),
                 type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
             }),
@@ -93,7 +102,7 @@ export const validateGetClients = (request: Request, response: Response, next: N
         keyword: Joi.string().optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
         serviceType: Joi.array().items(Joi.string()).optional(),
-        status: Joi.array().items(Joi.string().valid("onboarding", "active", "atRisk", "offboarding", "offboarded")).optional(),
+        status: Joi.array().items(Joi.string().valid(...Object.values(PropertyStatus))).optional(),
         source: Joi.string().valid("listingIntakePage", "clientsPage").optional()
     });
 
@@ -770,7 +779,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 
@@ -812,7 +821,7 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
                         statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly Batch A", "Bi-Weekly Batch B", "Monthly").allow(null),
@@ -1492,7 +1501,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 
