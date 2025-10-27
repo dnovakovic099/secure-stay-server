@@ -1,4 +1,4 @@
-import { Between, In, IsNull, ILike, LessThan, LessThanOrEqual, Not } from "typeorm";
+import { Between, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -19,6 +19,7 @@ import { ActionItemsService } from "./ActionItemsService";
 import { IssuesService } from "./IssuesService";
 import { UsersEntity } from "../entity/Users";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -46,6 +47,8 @@ interface Filter {
     keyword?: string | undefined;
     todayDate?: string | undefined;
     status?: string[] | null | undefined;
+    isActive?: boolean | null | undefined;
+    tab?: string | null | undefined;
 }
 
 export enum ReviewCheckoutStatus {
@@ -67,6 +70,7 @@ export class ReviewService {
     private claimRepo = appDatabase.getRepository(Claim);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
 
     public async getReviews({
         fromDate,
@@ -461,28 +465,119 @@ export class ReviewService {
 
     }
 
+    /**
+     * Get reviews for checkout with tab-based filtering
+     * 
+     * API Usage Examples:
+     * 
+     * 1. TODAY TAB:
+     *    - Shows 'To Call' status + follow up statuses with sevenDaysAfterCheckout < todayDate
+     *    - Parameters: { tab: 'today', todayDate: '2024-01-15', page: 1, limit: 10 }
+     * 
+     * 2. ACTIVE TAB:
+     *    - Shows follow up statuses + Issue + No Further Action statuses
+     *    - Special logic: If sevenDaysAfterCheckout <= todayDate for follow up statuses, 
+     *      only shows if isActive = true
+     *    - Parameters: { tab: 'active', todayDate: '2024-01-15', page: 1, limit: 10 }
+     * 
+     * 3. CLOSED TAB:
+     *    - Shows all closed statuses (Closed - 5 Star, Closed - Bad Review, etc.)
+     *    - Parameters: { tab: 'closed', page: 1, limit: 10 }
+     * 
+     * Additional filters work with all tabs:
+     * - listingMapId: Filter by specific listing IDs
+     * - guestName: Filter by guest name (partial match)
+     * - channel: Filter by channel IDs
+     * - actionItemsStatus: Filter action items by status
+     * - issuesStatus: Filter issues by status
+     */
     async getReviewsForCheckout(filters: Filter, userId: string) {
         const {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
-            todayDate, status
+            todayDate, status, isActive, tab,
         } = filters;
 
         //fetch reviewCheckoutList
-        const [reviewCheckoutList, total] = await this.reviewCheckoutRepo.findAndCount({
-            where: {
-                ...(status && status.length > 0 ? { status: In(status) } : {}),
-                reservationInfo: {
-                    ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
-                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
-                    ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
-                },
-                ...(todayDate ? { adjustedCheckoutDate: Between(todayDate, todayDate) } : {}),
-            },
-            relations: ['reservationInfo'],
-            skip: (page - 1) * limit,
-            take: limit,
-        });
+        const query = this.reviewCheckoutRepo
+            .createQueryBuilder("reviewCheckout")
+            .leftJoinAndSelect("reviewCheckout.reservationInfo", "reservationInfo")
+            .leftJoinAndSelect("reviewCheckout.reviewCheckoutUpdates", "reviewCheckoutUpdates");
+
+        // Tab-based filtering logic
+        if (tab) {
+            switch (tab.toLowerCase()) {
+                case 'today':
+                    // Today tab: Show 'To Call' status + follow up statuses with sevenDaysAfterCheckout < todayDate
+                    query.andWhere(`
+                        (reviewCheckout.status = :toCallStatus) OR 
+                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate)
+                    `, {
+                        toCallStatus: ReviewCheckoutStatus.TO_CALL,
+                        followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                        todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
+                    });
+                    break;
+
+                case 'active':
+                    // Active tab: Show follow up statuses + Issue + No Further Action
+                    // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses, 
+                    // only show if isActive is true
+                    query.andWhere(`
+                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout > :todayDate) OR
+                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate AND reviewCheckout.isActive = true) OR
+                        (reviewCheckout.status IN (:activeStatuses))
+                    `, {
+                        followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED],
+                        todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
+                    });
+                    break;
+
+                case 'closed':
+                    // Closed tab: Show all closed statuses
+                    query.andWhere("reviewCheckout.status IN (:...closedStatuses)", {
+                        closedStatuses: [
+                            ReviewCheckoutStatus.CLOSED_FIVE_STAR,
+                            ReviewCheckoutStatus.CLOSED_BAD_REVIEW,
+                            ReviewCheckoutStatus.CLOSED_NO_REVIEW,
+                            ReviewCheckoutStatus.CLOSED_TRAPPED
+                        ]
+                    });
+                    break;
+
+                default:
+                    // If tab is provided but not recognized, use existing status filter logic
+                    if (status && status.length > 0) {
+                        query.andWhere("reviewCheckout.status IN (:...status)", { status });
+                    }
+                    break;
+            }
+        } else {
+            // Legacy status filter (when no tab is specified)
+            if (status && status.length > 0) {
+                query.andWhere("reviewCheckout.status IN (:...status)", { status });
+            }
+        }
+
+        // Listing filter
+        if (listingMapId && listingMapId.length > 0) {
+            query.andWhere("reservationInfo.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId.map(id => Number(id)) });
+        }
+
+        // Guest name filter
+        if (guestName) {
+            query.andWhere("reservationInfo.guestName ILIKE :guestName", { guestName: `${guestName}%` });
+        }
+
+        // Channel filter
+        if (channel && channel.length > 0) {
+            query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
+        }
+
+        query.skip((page - 1) * limit).take(limit);
+
+        const [reviewCheckoutList, total] = await query.getManyAndCount();
 
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
 
@@ -507,27 +602,7 @@ export class ReviewService {
         const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
         const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
 
-        //fetch follow up review checkout whose sevenDaysAfterCheckout is today
-        const followUpReviewCheckout = todayDate ? await this.reviewCheckoutRepo.find({
-            where: {
-                status: In(
-                    [
-                        ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER,
-                        ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK,
-                        ReviewCheckoutStatus.ISSUE,
-                        ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED
-                    ]),
-                reservationInfo: {
-                    ...(listingMapId && listingMapId.length > 0 ? { listingMapId: In(listingMapId.map(id => Number(id))) } : {}),
-                    ...(guestName ? { guestName: ILike(`${guestName}%`) } : {}),
-                    ...(channel && channel.length > 0 ? { channelId: In(channel.map(id => Number(id))) } : {}),
-                },
-                sevenDaysAfterCheckout: Between(todayDate, todayDate),
-            },
-            relations: ['reservationInfo'],
-        }) : [];
-
-        const transformedData = [...reviewCheckoutList, ...followUpReviewCheckout].map(rc => {
+        const transformedData = reviewCheckoutList.map(rc => {
             return {
                 ...rc,
                 assignee: userMap.get(rc.assignee) || rc.assignee,
@@ -539,7 +614,14 @@ export class ReviewService {
                     review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
-                }
+                },
+                reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
+                    return {
+                        ...update,
+                        createdBy: userMap.get(update.createdBy) || update.createdBy,
+                        updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                    };
+                })
             };
         });
 
@@ -563,12 +645,11 @@ export class ReviewService {
     }
 
     async processReviewCheckout() {
-
-        // Step 1: Update existing review checkouts whose fourteenDaysAfterCheckout is today and status is not closed
+        // ---------------------------------------------------------------------------------------------------------------------
+        // Step 1: Update existing review checkouts whose status is not closed and if review is placed or 14 days after checkout is passed
         const today = format(new Date(), 'yyyy-MM-dd');
         const existingReviewCheckouts = await this.reviewCheckoutRepo.find({
             where: {
-                fourteenDaysAfterCheckout: Between(today, today),
                 status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW, ReviewCheckoutStatus.CLOSED_TRAPPED])),
             },
             relations: ['reservationInfo'],
@@ -580,15 +661,18 @@ export class ReviewService {
             const review = await this.reviewRepository.findOne({
                 where: {
                     reservationId: reviewCheckout.reservationInfo.id,
-                    isHidden: 0,
+                    //submittedAt should not be null
+                    submittedAt: Not(IsNull()),
                 },
                 order: {
                     createdAt: 'DESC',
                 },
             });
-            if (review.rating) {
+            if (review && review.rating) {
                 reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
-            } else {
+            }
+            // if no review is placed and fourteenDaysAfterCheckout is today then close the review checkout as no review
+            if (reviewCheckout.fourteenDaysAfterCheckout < today) {
                 reviewCheckout.status = ReviewCheckoutStatus.CLOSED_NO_REVIEW;
             }
             reviewCheckout.updatedAt = new Date();
@@ -596,18 +680,23 @@ export class ReviewService {
             await this.reviewCheckoutRepo.save(reviewCheckout);
         }
 
+        // ---------------------------------------------------------------------------------------------------------------------
+
         // Step 2: Process today's checkouts to create or update review checkout entries
         // get reservations whose checkout date is today
         const reservationInfoService = new ReservationInfoService();
         const { reservations } = await reservationInfoService.getCheckoutReservations();
 
         for (const reservation of reservations) {
+            logger.info(`Processing review checkout for reservation ID: ${reservation.guestName}`);
             //check if there is review checkout entry
             let reviewCheckout = await this.reviewCheckoutRepo.findOne({
                 where: {
-                    reservationInfo: reservation,
+                    reservationInfo: { id: reservation.id },
                 }
             });
+            logger.info(JSON.stringify(reviewCheckout));
+            logger.info(`Existing review checkout found: ${reviewCheckout ? 'Yes' : 'No'}`);
 
             if (!reviewCheckout) {
                 const newReviewCheckout = this.reviewCheckoutRepo.create({
@@ -625,7 +714,7 @@ export class ReviewService {
                 const review = await this.reviewRepository.findOne({
                     where: {
                         reservationId: reservation.id,
-                        isHidden: 0,
+                        submittedAt: Not(IsNull()),
                     },
                     order: {
                         createdAt: 'DESC',
@@ -639,10 +728,11 @@ export class ReviewService {
                 }
             }
         }
+        // ---------------------------------------------------------------------------------------------------------------------
 
     }
 
-    async updateReviewCheckout(id: number, status: ReviewCheckoutStatus, comments: string, userId: string) {
+    async updateReviewCheckout(id: number, status: ReviewCheckoutStatus, comments: string, userId: string, isActive?: boolean) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id } });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
@@ -652,9 +742,28 @@ export class ReviewService {
         reviewCheckout.comments = comments;
         reviewCheckout.updatedAt = new Date();
         reviewCheckout.updatedBy = userId;
+        if (isActive !== undefined) {
+            reviewCheckout.isActive = isActive;
+        }
         await this.reviewCheckoutRepo.save(reviewCheckout);
 
         return reviewCheckout;
+    }
+
+    async createReviewCheckoutUpdate(reviewCheckoutId: number, updates: string, userId: string) {
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id: reviewCheckoutId } });
+        if (!reviewCheckout) {
+            throw CustomErrorHandler.notFound(`Review checkout not found with id: ${reviewCheckoutId}`);
+        }
+
+        const newUpdate = {
+            updates,
+            createdBy: userId,
+            reviewCheckout,
+        };
+
+        const reviewCheckoutUpdate = this.reviewCheckoutUpdatesRepo.create(newUpdate);
+        return await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
     }
 
 }
