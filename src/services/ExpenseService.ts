@@ -754,6 +754,56 @@ export class ExpenseService {
         }
     }
 
+    async processRecurringExpenses(expenseDate: string) {
+        const expenseList = await this.expenseRepo.find({
+            where: {
+                isRecurring: 1,
+                isDeleted: 0,
+                expenseDate: expenseDate
+            }
+        });
+
+        for (const expense of expenseList) {
+            try {
+                const newExpense = new ExpenseEntity();
+                newExpense.listingMapId = expense.listingMapId;
+                newExpense.expenseDate = expense.expenseDate;
+                newExpense.concept = expense.concept;
+                newExpense.amount = expense.amount;
+                newExpense.isDeleted = 0;
+                newExpense.categories = expense.categories;
+                newExpense.contractorName = expense.contractorName;
+                newExpense.dateOfWork = expense.dateOfWork;
+                newExpense.contractorNumber = expense.contractorNumber;
+                newExpense.findings = expense.findings;
+                newExpense.userId = expense.userId;
+                newExpense.fileNames = expense.fileNames;
+                newExpense.status = ExpenseStatus.PENDING;
+                newExpense.createdBy = expense.userId;
+                newExpense.datePaid = expense.datePaid ? expense.datePaid : "";
+                newExpense.comesFrom = "recurring_expense";
+
+                const hostawayExpense = await this.createHostawayExpense({
+                    listingMapId: String(newExpense.listingMapId),
+                    expenseDate: newExpense.expenseDate,
+                    concept: newExpense.concept,
+                    amount: newExpense.amount,
+                    categories: JSON.parse(newExpense.categories),
+                }, expense.userId);
+
+                if (!hostawayExpense) {
+                    logger.error(`Failed to create recurring expense in Hostaway for listingMapId ${newExpense.listingMapId}`);
+                    continue;
+                }
+
+                newExpense.expenseId = hostawayExpense?.id;
+                await this.expenseRepo.save(newExpense);
+            } catch (error) {
+                logger.error(`Error processing recurring expense for listingMapId ${expense.listingMapId}: ${error.message}`);
+            }
+        }
+    }
+
 
 }
 
