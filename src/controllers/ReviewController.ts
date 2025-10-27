@@ -91,10 +91,10 @@ export class ReviewController {
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { id, status, comments } = request.body;
+            const { id, status, comments, isActive } = request.body;
             const userId = request.user.id;
 
-            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, status, comments, userId);
+            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, status, comments, userId, isActive);
 
             return response.status(200).json({
                 success: true,
@@ -102,6 +102,24 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error updating review checkout status:", error);
+            return next(error);
+        }
+    }
+
+    async createReviewCheckoutUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { reviewCheckoutId, updates } = request.body;
+
+            const newUpdate = await reviewService.createReviewCheckoutUpdate(reviewCheckoutId, updates, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: newUpdate
+            });
+        } catch (error) {
+            logger.error("Error creating review checkout update:", error);
             return next(error);
         }
     }

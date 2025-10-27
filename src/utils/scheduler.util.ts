@@ -93,7 +93,7 @@ export function scheduleGetReservation() {
     })
 
   schedule.scheduleJob(
-    { hour: 23, minute: 0, tz: "America/New_York" }, // Daily at 11 PM EST
+    "0 * * * *", // every hour
     async () => {
       try {
         logger.info('Processing checkout date upsells to create extras in HostAway...');

@@ -1400,6 +1400,7 @@ export class ReservationInfoService {
       where: {
         departureDate: Between(startOfDay(today), endOfDay(today)),
         status: In(["new", "modified", "ownerStay"]),
+        channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
       },
       relations: ["reviewCheckout"],
       order: { departureDate: "ASC" },

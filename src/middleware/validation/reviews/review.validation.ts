@@ -99,6 +99,8 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         channel: Joi.array().items(Joi.string()).optional(),
         keyword: Joi.string().optional(),
         status: Joi.array().items(Joi.string().required().valid(...Object.values(ReviewCheckoutStatus))).min(1).allow("", null),
+        isActive: Joi.boolean().optional(),
+        tab: Joi.string().required().valid("today", "active", "closed"),
     });
 
     const { error } = schema.validate(request.query);
@@ -113,11 +115,25 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
         id: Joi.number().required(),
         status: Joi.string().required().valid(...Object.values(ReviewCheckoutStatus)),
         comments: Joi.string().allow('', null),
+        isActive: Joi.boolean().optional(),
     });
 
     const { error } = schema.validate(request.body);
     if (error) {
         next(error);
+    }
+    next();
+};
+
+export const validateCreateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        reviewCheckoutId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
     }
     next();
 };

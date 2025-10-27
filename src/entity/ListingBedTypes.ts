@@ -4,13 +4,17 @@ import {
     ManyToOne,
     JoinColumn,
     PrimaryColumn,
+    PrimaryGeneratedColumn,
 } from "typeorm";
 
 import { Listing } from "./Listing";
 
 @Entity("listing_bed_types")
 export class ListingBedTypes {
-    @PrimaryColumn({ type: "bigint" })
+    @PrimaryGeneratedColumn()
+    listing_bed_type_id: number;
+
+    @Column({ type: "bigint" })
     id: number;
 
     @Column({ nullable: true })
