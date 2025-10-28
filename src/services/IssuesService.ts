@@ -10,7 +10,7 @@ import {
   LessThanOrEqual,
 } from "typeorm";
 import * as XLSX from "xlsx";
-import { sendUnresolvedIssueEmail } from "./IssuesEmailService";
+import { sendUnresolvedIssuesEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ActionItems } from "../entity/ActionItems";
@@ -379,8 +379,8 @@ export class IssuesService {
       },
     });
 
-    for (const issue of unresolvedIssues) {
-      await sendUnresolvedIssueEmail(issue);
+    if (unresolvedIssues.length > 0) {
+      await sendUnresolvedIssuesEmail(unresolvedIssues);
     }
   }
 
