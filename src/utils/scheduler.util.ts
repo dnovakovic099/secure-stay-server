@@ -14,6 +14,7 @@ import { ClaimsService } from "../services/ClaimsService";
 import { MaintenanceService } from "../services/MaintenanceService";
 import { PublishedStatementService } from "../services/PublishedStatementService";
 import { ReviewService } from "../services/ReviewService";
+import { ExpenseService } from "../services/ExpenseService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -191,4 +192,20 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  schedule.scheduleJob(
+    { hour: 8, minute: 50, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Scheduled task for processing recurring expenses ran...');
+        const expenseService = new ExpenseService();
+        await expenseService.processRecurringExpenses();
+        logger.info('Scheduled task for processing recurring expenses completed...');
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
+
 }

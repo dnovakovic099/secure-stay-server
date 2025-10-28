@@ -8,7 +8,7 @@ import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ConnectedAccountService } from "./ConnectedAccountService";
 import { MobileUsersEntity } from "../entity/MoblieUsers";
-import { format } from 'date-fns';
+import { format, getDate, getDaysInMonth, parseISO } from 'date-fns';
 import { UsersEntity } from "../entity/Users";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingService } from "./ListingService";
@@ -754,57 +754,113 @@ export class ExpenseService {
         }
     }
 
-    async processRecurringExpenses(expenseDate: string) {
+    async processRecurringExpenses() {
+        // 🕒 Get current date in Eastern Time (America/New_York)
+        const now = new Date();
+        const todayInET = new Date(
+            now.toLocaleString("en-US", { timeZone: "America/New_York" })
+        );
+
+        const yyyy = todayInET.getFullYear();
+        const mm = String(todayInET.getMonth() + 1).padStart(2, "0");
+        const dd = String(todayInET.getDate()).padStart(2, "0");
+        const todayStr = `${yyyy}-${mm}-${dd}`; // 'yyyy-MM-dd'
+
         const expenseList = await this.expenseRepo.find({
             where: {
                 isRecurring: 1,
                 isDeleted: 0,
-                expenseDate: expenseDate
-            }
+            },
         });
 
         for (const expense of expenseList) {
             try {
+                const originalDate = parseISO(expense.expenseDate);
+                const recurringDay = getDate(originalDate);
+
+                // Determine this month's recurring date
+                const targetYear = todayInET.getFullYear();
+                const targetMonth = todayInET.getMonth();
+                let recurringExpenseDate = new Date(targetYear, targetMonth, recurringDay);
+
+                // Adjust for months with fewer days
+                const daysInMonth = getDaysInMonth(recurringExpenseDate);
+                if (recurringDay > daysInMonth) {
+                    recurringExpenseDate = new Date(targetYear, targetMonth, daysInMonth);
+                }
+
+                const recurringExpenseDateStr = format(recurringExpenseDate, "yyyy-MM-dd");
+
+                // Only create if today matches recurring day
+                if (todayStr !== recurringExpenseDateStr) continue;
+
+                // Skip if already exists
+                const existing = await this.expenseRepo.findOne({
+                    where: {
+                        listingMapId: expense.listingMapId,
+                        expenseDate: recurringExpenseDateStr,
+                        isDeleted: 0,
+                        comesFrom: "recurring_expense",
+                    },
+                });
+
+                if (existing) {
+                    logger.info(
+                        `Recurring expense already exists for listingMapId ${expense.listingMapId} on ${recurringExpenseDateStr}`
+                    );
+                    continue;
+                }
+
                 const newExpense = new ExpenseEntity();
                 newExpense.listingMapId = expense.listingMapId;
-                newExpense.expenseDate = expense.expenseDate;
+                newExpense.expenseDate = recurringExpenseDateStr;
                 newExpense.concept = expense.concept;
                 newExpense.amount = expense.amount;
                 newExpense.isDeleted = 0;
                 newExpense.categories = expense.categories;
                 newExpense.contractorName = expense.contractorName;
-                newExpense.dateOfWork = expense.dateOfWork;
+                newExpense.dateOfWork = null;
                 newExpense.contractorNumber = expense.contractorNumber;
                 newExpense.findings = expense.findings;
                 newExpense.userId = expense.userId;
                 newExpense.fileNames = expense.fileNames;
-                newExpense.status = ExpenseStatus.PENDING;
+                newExpense.status = expense.status;
                 newExpense.createdBy = expense.userId;
-                newExpense.datePaid = expense.datePaid ? expense.datePaid : "";
+                newExpense.datePaid = recurringExpenseDateStr;
+                newExpense.paymentMethod=expense.paymentMethod;
                 newExpense.comesFrom = "recurring_expense";
 
-                const hostawayExpense = await this.createHostawayExpense({
-                    listingMapId: String(newExpense.listingMapId),
-                    expenseDate: newExpense.expenseDate,
-                    concept: newExpense.concept,
-                    amount: newExpense.amount,
-                    categories: JSON.parse(newExpense.categories),
-                }, expense.userId);
+                logger.info(
+                    `Creating recurring expense for listingMapId ${expense.listingMapId} on ${recurringExpenseDateStr}`
+                );
+
+                const hostawayExpense = await this.createHostawayExpense(
+                    {
+                        listingMapId: String(newExpense.listingMapId),
+                        expenseDate: newExpense.expenseDate,
+                        concept: newExpense.concept,
+                        amount: newExpense.amount,
+                        categories: JSON.parse(expense.categories),
+                    },
+                    expense.userId
+                );
 
                 if (!hostawayExpense) {
-                    logger.error(`Failed to create recurring expense in Hostaway for listingMapId ${newExpense.listingMapId}`);
+                    logger.error(
+                        `Failed to create recurring expense in Hostaway for listingMapId ${newExpense.listingMapId}`
+                    );
                     continue;
                 }
 
-                newExpense.expenseId = hostawayExpense?.id;
+                newExpense.expenseId = hostawayExpense.id;
                 await this.expenseRepo.save(newExpense);
             } catch (error) {
-                logger.error(`Error processing recurring expense for listingMapId ${expense.listingMapId}: ${error.message}`);
+                logger.error(
+                    `Error processing recurring expense for listingMapId ${expense.listingMapId}: ${error?.message}`
+                );
             }
         }
     }
-
-
 }
 
 
