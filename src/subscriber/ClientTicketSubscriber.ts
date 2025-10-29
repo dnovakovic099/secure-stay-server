@@ -71,9 +71,10 @@ export class ClientTicketSubscriber
         }
     }
 
-    private async updateSlackMessage(ticket: any, userId: string) {
+    private async updateSlackMessage(ticket: any, userId: string, diff: any) {
         try {
-            const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+            const userList = await this.usersRepo.find();
+            const userInfo = userList.find(user => user.uid == userId);
             const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
 
             const listingInfo = await this.listingRepo.findOne({
@@ -83,7 +84,31 @@ export class ClientTicketSubscriber
                 }
             });
 
-            let slackMessage = buildClientTicketSlackMessageUpdate(ticket, user, listingInfo?.internalListingName);
+            // ---- 🧠 Preprocess diff ----
+            const processedDiff: Record<string, { old: any; new: any; }> = {};
+
+            Object.entries(diff).forEach(([key, value]: [string, any]) => {
+                // Skip metadata fields
+                const excludedFields = [
+                    "createdBy", "updatedBy", "updatedAt",
+                    "createdAt", "deletedAt", "deletedBy"
+                ];
+                if (excludedFields.includes(key)) return;
+
+                // If assignee, map UIDs to full names
+                if (key === "assignee") {
+                    const oldUser = userList.find(u => u.uid === value.old);
+                    const newUser = userList.find(u => u.uid === value.new);
+                    processedDiff[key] = {
+                        old: oldUser ? `${oldUser.firstName} ${oldUser.lastName}` : value.old,
+                        new: newUser ? `${newUser.firstName} ${newUser.lastName}` : value.new
+                    };
+                } else {
+                    processedDiff[key] = value;
+                }
+            });
+
+            let slackMessage = buildClientTicketSlackMessageUpdate(processedDiff, user, listingInfo?.internalListingName);
             if (ticket.deletedAt) {
                 slackMessage = buildClientTicketSlackMessageDelete(ticket, user, listingInfo?.internalListingName);
             }
@@ -110,7 +135,7 @@ export class ClientTicketSubscriber
 
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
-        await this.updateSlackMessage(entity, entity.updatedBy)
+        await this.updateSlackMessage(entity, entity.updatedBy, diff)
 
     }
 

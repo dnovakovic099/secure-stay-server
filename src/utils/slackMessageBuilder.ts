@@ -266,46 +266,73 @@ export const buildClientTicketSlackMessage = (ticket: ClientTicket, user: string
     return block;
 }
 
-export const buildClientTicketSlackMessageUpdate = (ticket: ClientTicket, user: string, listingName: string) => {
+export const buildClientTicketSlackMessageUpdate = (
+    diff: Record<string, { old: any; new: any; }>,
+    user: string,
+    listingName: string,
+) => {
     const blocks: any[] = [
         {
             type: "section",
             text: {
                 type: "mrkdwn",
-                text: `*Client Ticket details has been updated* - 🏠 ${listingName}`
-            }
+                text: `*Client Ticket details have been updated* - 🏠 ${listingName}`,
+            },
         },
-        {
-            type: "section",
-            fields: [
-                { type: "mrkdwn", text: `*Description:*\n${ticket.description}` }
-            ]
-        }
+        { type: "divider" },
     ];
 
-    if (ticket.resolution) {
+    // Build one sentence per field change
+    const changes: string[] = Object.entries(diff).map(([field, { old, new: newValue }]) => {
+        return `• *${formatFieldName(field)}* was changed from \`${formatValue(old)}\` → \`${formatValue(newValue)}\``;
+    });
+
+    // Add the changes summary
+    if (changes.length > 0) {
         blocks.push({
             type: "section",
-            fields: [
-                { type: "mrkdwn", text: `*Resolution:*\n${ticket.resolution}` }
-            ]
+            text: {
+                type: "mrkdwn",
+                text: changes.join("\n"),
+            },
         });
     }
 
+    // Add who made the update
     blocks.push({
-        type: "section",
-        fields: [
-            { type: "mrkdwn", text: `*Categories:* ${JSON.parse(ticket.category).join(', ')}` },
-            { type: "mrkdwn", text: `*Updated By:* ${user}` }
-        ]
+        type: "context",
+        elements: [
+            {
+                type: "mrkdwn",
+                text: `*Updated By:* ${user}`,
+            },
+        ],
     });
 
     return {
         channel: CLIENT_RELATIONS,
-        text: `Client Ticket details has been updated for 🏠 ${listingName}`,
-        blocks
+        text: `Client Ticket updated for 🏠 ${listingName}`,
+        blocks,
     };
 };
+
+// ---- Helper functions ----
+
+// Make sure values look clean in Slack
+const formatValue = (value: any) => {
+    if (value === null || value === undefined) return "none";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+};
+
+// Prettify field names like “updatedAt” → “Updated At”
+const formatFieldName = (name: string) => {
+    return name
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (s) => s.toUpperCase())
+        .trim();
+};
+
 
 export const buildClientTicketSlackMessageDelete = (ticket: ClientTicket, user: string, listingName: string) => {
     const slackMessage = {
