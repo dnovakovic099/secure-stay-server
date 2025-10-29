@@ -56,9 +56,9 @@ export class ClientTicketController {
     try {
       const { id } = request.params;
       const ticketService = new ClientTicketService();
-      const result = await ticketService.getClientTicketById(Number(id));
+      const { slackLink, clientTicket } = await ticketService.getClientTicketById(Number(id));
 
-      return response.status(200).json(result);
+      return response.status(200).json({ slackLink, clientTicket });
     } catch (error) {
       next(error);
     }
