@@ -60,7 +60,8 @@ export enum ReviewCheckoutStatus {
     CLOSED_FIVE_STAR = "Closed - 5 Star",
     CLOSED_BAD_REVIEW = "Closed - Bad Review",
     CLOSED_NO_REVIEW = "Closed - No Review",
-    CLOSED_TRAPPED = "Closed - Trapped"
+    CLOSED_TRAPPED = "Closed - Trapped",
+    LAUNCH = "Launch"
 }
 
 export class ReviewService {
@@ -541,7 +542,8 @@ export class ReviewService {
                             ReviewCheckoutStatus.CLOSED_FIVE_STAR,
                             ReviewCheckoutStatus.CLOSED_BAD_REVIEW,
                             ReviewCheckoutStatus.CLOSED_NO_REVIEW,
-                            ReviewCheckoutStatus.CLOSED_TRAPPED
+                            ReviewCheckoutStatus.CLOSED_TRAPPED,
+                            ReviewCheckoutStatus.LAUNCH
                         ]
                     });
                     break;
@@ -576,6 +578,7 @@ export class ReviewService {
         }
 
         query.skip((page - 1) * limit).take(limit);
+        query.orderBy("reviewCheckout.createdAt", "DESC");
 
         const [reviewCheckoutList, total] = await query.getManyAndCount();
 
@@ -621,7 +624,8 @@ export class ReviewService {
                         createdBy: userMap.get(update.createdBy) || update.createdBy,
                         updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                     };
-                })
+                }),
+                reviews: reviews.filter(r => r.reservationId == rc.reservationInfo?.id) || [],
             };
         });
 
@@ -650,7 +654,7 @@ export class ReviewService {
         const today = format(new Date(), 'yyyy-MM-dd');
         const existingReviewCheckouts = await this.reviewCheckoutRepo.find({
             where: {
-                status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW, ReviewCheckoutStatus.CLOSED_TRAPPED])),
+                status: Not(In([ReviewCheckoutStatus.CLOSED_BAD_REVIEW, ReviewCheckoutStatus.CLOSED_FIVE_STAR, ReviewCheckoutStatus.CLOSED_NO_REVIEW, ReviewCheckoutStatus.CLOSED_TRAPPED, ReviewCheckoutStatus.LAUNCH])),
             },
             relations: ['reservationInfo'],
         });
