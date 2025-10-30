@@ -6,9 +6,10 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
-import { setSelectedSlackUsers } from "../helpers/helpers";
+import { generateSlackMessageLink, setSelectedSlackUsers } from "../helpers/helpers";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 
 interface LatestUpdates {
   id?: number;
@@ -105,8 +106,8 @@ export class ClientTicketService {
       assignee: body.assignee || null,
       urgency: body.urgency || null,
       mistake: body.mistake || null,
-      mistakeResolvedOn:
-        body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null,
+      mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null,
+      dueDate: body.dueDate || null,
     };
     if (body.category.includes("Other") && mentions && mentions.length > 0) {
       setSelectedSlackUsers(mentions);
@@ -222,20 +223,20 @@ export class ClientTicketService {
     });
 
     if (!clientTicket) {
-      throw CustomErrorHandler.notFound(
-        `Client ticket with ID ${id} not found.`
-      );
+      throw CustomErrorHandler.notFound(`Client ticket with ID ${id} not found.`);
+    }
+
+    const slackMessage = await appDatabase.getRepository(SlackMessageEntity).findOne({ where: { entityType: "client_ticket", entityId: id } });
+    let slackLink = "";
+    if (slackMessage) {
+      slackLink = generateSlackMessageLink(process.env.SLACK_WORKSPACE_URL, slackMessage.channel, slackMessage.messageTs);
     }
 
     const users = await this.usersRepo.find();
-    const userMap = new Map(
-      users.map((user) => [user.uid, `${user?.firstName} ${user?.lastName}`])
-    );
+    const userMap = new Map(users.map((user) => [user.uid, `${user?.firstName} ${user?.lastName}`]));
 
-    clientTicket.createdBy =
-      userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
-    clientTicket.updatedBy =
-      userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
+    clientTicket.createdBy = userMap.get(clientTicket.createdBy) || clientTicket.createdBy;
+    clientTicket.updatedBy = userMap.get(clientTicket.updatedBy) || clientTicket.updatedBy;
     clientTicket.clientTicketUpdates = clientTicket.clientTicketUpdates.map(
       (update) => ({
         ...update,
@@ -244,7 +245,7 @@ export class ClientTicketService {
       })
     );
 
-    return clientTicket;
+    return { clientTicket, slackLink };
   }
 
   public async updateClientTicketUpdates(
@@ -252,7 +253,7 @@ export class ClientTicketService {
     updates: LatestUpdates[],
     userId: string
   ) {
-    const clientTicket = await this.getClientTicketById(ticketId);
+    const { clientTicket } = await this.getClientTicketById(ticketId);
     if (!clientTicket) {
       throw CustomErrorHandler.notFound(
         `Client ticket with ID ${ticketId} not found.`
@@ -293,8 +294,8 @@ export class ClientTicketService {
       assignee: body.assignee || null,
       urgency: body.urgency || null,
       mistake: body.mistake || null,
-      mistakeResolvedOn:
-        body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null,
+      mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null,
+      dueDate: body.dueDate || null,
     };
 
     const clientTicket = await this.clientTicketRepo.findOne({ where: { id } });
