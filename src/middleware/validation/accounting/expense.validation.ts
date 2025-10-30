@@ -53,6 +53,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
                 }
             })
         ).optional().allow(null, ""),
+        isRecurring: Joi.number().valid(0,1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -116,6 +117,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
                 }
             })
         ).optional().allow(null, ""),
+        isRecurring: Joi.number().valid(0,1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -188,7 +190,8 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         keyword: Joi.string().optional(),
-        expenseId: Joi.array().items(Joi.number()).optional()
+        expenseId: Joi.array().items(Joi.number()).optional(),
+        isRecurring: Joi.number().valid(0,1).optional()
     })
         // enforce fromDate <-> toDate dependency
         .with("fromDate", "toDate")
@@ -236,6 +239,7 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         contractorNumber: Joi.string().required().allow(null),
         findings: Joi.string().required().allow(null),
         datePaid: Joi.string().required().allow(null),
+        isRecurring: Joi.number().valid(0,1).optional()
     });
 
     const { error } = schema.validate(request.body);

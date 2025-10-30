@@ -74,4 +74,10 @@ export class ExpenseEntity {
 
     @Column({ nullable: true })
     updatedBy: string;
+
+    @Column({ type: "tinyint", default: 0 })
+    isRecurring: number;
+
+    @Column({ nullable: true })
+    comesFrom: string;
 }
