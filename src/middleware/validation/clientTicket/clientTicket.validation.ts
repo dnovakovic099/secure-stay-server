@@ -25,7 +25,7 @@ export const validateCreateClientTicket = (request: Request, response: Response,
         mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
         dueDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Due date must be in the format "yyyy-mm-dd"',
-        }).optional()
+        }).optional().allow(null)
     });
 
     const { error } = schema.validate(request.body);
@@ -61,7 +61,7 @@ export const validateUpdateClientTicket = (request: Request, response: Response,
         mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
         dueDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Due date must be in the format "yyyy-mm-dd"',
-        }).optional()
+        }).optional().allow(null)
     });
 
     const { error } = schema.validate(request.body);
