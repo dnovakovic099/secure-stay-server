@@ -10,7 +10,8 @@ enum ReviewCheckoutStatus {
     CLOSED_FIVE_STAR = "Closed - 5 Star",
     CLOSED_BAD_REVIEW = "Closed - Bad Review",
     CLOSED_NO_REVIEW = "Closed - No Review",
-    CLOSED_TRAPPED = "Closed - Trapped"
+    CLOSED_TRAPPED = "Closed - Trapped",
+    LAUNCH = "Launch"
 }
 
 
