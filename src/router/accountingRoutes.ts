@@ -13,6 +13,7 @@ import { validateContractorInfo } from "../middleware/validation/accounting/cont
 import { ResolutionController } from "../controllers/ResolutionController";
 import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
 import { PublishedStatementController } from "../controllers/PublishedStatementController";
+import { contextMiddleware } from "../middleware/context.middleware";
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -35,6 +36,7 @@ router.route('/createexpense')
 router.route('/updateexpense')
     .put(
         verifySession,
+        contextMiddleware,
         fileUpload('expense').fields([
             { name: 'attachments', maxCount: 10 }
         ]),
@@ -48,9 +50,9 @@ router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getT
 
 router.route('/getexpense/:expenseId').get(verifySession, expenseController.getExpenseById);
 
-router.route('/deleteexpense/:expenseId').delete(verifySession, expenseController.deleteExpense);
+router.route('/deleteexpense/:expenseId').delete(verifySession, contextMiddleware, expenseController.deleteExpense);
 
-router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
+router.route('/bulkupdateexpense').post(verifySession, contextMiddleware, validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 
 router.route('/expense/migratefilestodrive').get(verifySession, expenseController.migrateFilesToDrive);
 
@@ -59,6 +61,7 @@ router.route('/getincomestatement').post(verifySession, validateGetIncomeStateme
 router.route("/updateexpensestatus")
     .put(
         verifySession,
+        contextMiddleware,
         validateUpdateExpenseStatus,
         expenseController.updateExpenseStatus
 );
@@ -113,6 +116,7 @@ router.route('/createresolution')
 router.route('/updateresolution')
     .put(
         verifySession,
+        contextMiddleware,
         validateUpdateResolution,
         resolutionController.updateResolution
     )
@@ -133,12 +137,14 @@ router.route('/getresolution/:resolutionId')
 router.route('/deleteresolution/:resolutionId')
     .delete(
         verifySession,
+        contextMiddleware,
         resolutionController.deleteResolution
     );
 
 router.route('/bulkupdateresolutions')
     .put(
         verifySession,
+        contextMiddleware,
         validateBulkUpdateResolutions,
         resolutionController.bulkUpdateResolutions
     );
@@ -158,6 +164,7 @@ router.route('/fixpositiveexpensesandsync')
 router.route('/resolution/upload-csv')
     .post(
         verifySession,
+        contextMiddleware,
         fileUpload("resolution").single("file"),
         resolutionController.processCSVForResolution
     )

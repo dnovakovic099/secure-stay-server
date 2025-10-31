@@ -13,6 +13,7 @@ import { Resolution } from "../entity/Resolution";
 import { FileInfo } from "../entity/FileInfo";
 import { initRootFolder, getOrCreateFolder, drive, uploadToDrive } from "../utils/drive";
 import fs from "fs";
+import { ActivityService } from "../services/ActivityService";
 
 (async () => {
     if (!appDatabase.isInitialized) {
@@ -206,6 +207,19 @@ import fs from "fs";
         }
     );
 
+    const activityWorker = new Worker('activity-queue', async job => {
+        try {
+            const { payload } = job.data;
+            const activityService = new ActivityService();
+            await activityService.log(payload);
+        } catch (error) {
+            logger.error(`Error processing activity job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
 
 
 
@@ -250,5 +264,14 @@ import fs from "fs";
     googleDriveFileUploadWorker.on('failed', (job, err) => {
         logger.error(`❌ File upload Job ${job.id} failed for fileId ${job.data.entity.id}: ${err.message}`);
     });
+
+    activityWorker.on('completed', job => {
+        logger.info(`✅ Activity Job ${job.id} completed for objectId ${job.data.payload.objectId}`);
+    });
+
+    activityWorker.on('failed', (job, err) => {
+        logger.error(`❌ Activity Job ${job.id} failed for objectId ${job.data.payload.objectId}: ${err.message}`);
+    });
+
 
 })();

@@ -13,6 +13,7 @@ import {
   validateUpdateMistake,
   validateUpdateUrgency,
 } from "../middleware/validation/clientTicket/clientTicket.validation";
+import { contextMiddleware } from "../middleware/context.middleware";
 
 const router = Router();
 const clientTicketController = new ClientTicketController();
@@ -21,6 +22,7 @@ router
   .route("/create")
   .post(
     verifySession,
+    contextMiddleware,
     validateCreateClientTicket,
     clientTicketController.createClientTicket
   );
@@ -41,18 +43,20 @@ router
   .route("/update")
   .put(
     verifySession,
+    contextMiddleware,
     validateUpdateClientTicket,
     clientTicketController.updateClientTicket
   );
 
 router
   .route("/ticket/:id")
-  .delete(verifySession, clientTicketController.deleteClientTicket);
+  .delete(verifySession, contextMiddleware, clientTicketController.deleteClientTicket);
 
 router
   .route("/update-status")
   .put(
     verifySession,
+    contextMiddleware,
     validateUpdateStatus,
     clientTicketController.updateClientTicketStatus
   );
@@ -81,6 +85,7 @@ router
   .route("/bulk-update")
   .put(
     verifySession,
+    contextMiddleware,
     validateBulkUpdateClientTicket,
     clientTicketController.bulkUpdateClientTickets
   );
@@ -89,6 +94,7 @@ router
   .route("/update-assignee")
   .put(
     verifySession,
+    contextMiddleware,
     validateUpdateAssignee,
     clientTicketController.updateAssignee
   );
@@ -96,6 +102,7 @@ router
   .route("/update-urgency")
   .put(
     verifySession,
+    contextMiddleware,
     validateUpdateUrgency,
     clientTicketController.updateUrgency
   );
@@ -103,6 +110,7 @@ router
   .route("/update-mistake")
   .put(
     verifySession,
+    contextMiddleware,
     validateUpdateMistake,
     clientTicketController.updateMistake
   );

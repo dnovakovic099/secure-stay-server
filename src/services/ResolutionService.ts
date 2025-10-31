@@ -85,13 +85,13 @@ export class ResolutionService {
         await this.resolutionRepo.save(resolution);
 
         //add to queue to create resolution in HA
-        try {
-            await haResolutionQueue.add('create-HA-resolution', {
-                resolution,
-            });
-        } catch (error) {
-            logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
-        }
+        // try {
+        //     await haResolutionQueue.add('create-HA-resolution', {
+        //         resolution,
+        //     });
+        // } catch (error) {
+        //     logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
+        // }
 
         return resolution;
     }
