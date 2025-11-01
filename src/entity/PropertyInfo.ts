@@ -266,6 +266,27 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     financialNotes: string;
 
+    @Column({ nullable: true })
+    statementSchedule: string;
+
+    @Column({ nullable: true })
+    statementType: string;
+
+    @Column({ nullable: true })
+    payoutMethod: string;
+
+    @Column({ nullable: true })
+    claimFee: string;
+
+    @Column({ type: "text", nullable: true })
+    claimFeeNotes: string;
+
+    @Column({ nullable: true })
+    techFee: string;
+
+    @Column({ nullable: true })
+    techFeeNotes: string;
+
 
     //amenities
     @Column({ type: "simple-array", nullable: true })

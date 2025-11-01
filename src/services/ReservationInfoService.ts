@@ -1,4 +1,4 @@
-import { Between, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
+import { Between, In, LessThanOrEqual, Like, MoreThanOrEqual } from "typeorm";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
@@ -14,7 +14,7 @@ import axios from "axios";
 import { Listing } from "../entity/Listing";
 import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
-import { format } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
 import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange, getStartOfThreeMonthsAgo } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
@@ -1392,6 +1392,21 @@ export class ReservationInfoService {
 
     logger.info(`[deleteReservationLogsOlderThanlastMonth] Deleted ${deleteResult.affected} reservation logs older than ${firstDayString}`);
     return deleteResult;
+  }
+
+  async getCheckoutReservations() {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const [reservations, total] = await this.reservationInfoRepository.findAndCount({
+      where: {
+        departureDate: Between(startOfDay(today), endOfDay(today)),
+        status: In(["new", "modified", "ownerStay"]),
+        channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
+      },
+      relations: ["reviewCheckout"],
+      order: { departureDate: "ASC" },
+    });
+
+    return { reservations, total };
   }
 
 

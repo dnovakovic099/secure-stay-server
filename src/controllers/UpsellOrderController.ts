@@ -115,4 +115,21 @@ export class UpsellOrderController {
             });
         }
     }
+
+    // async processCheckoutDateUpsells(request: Request, response: Response) {
+    //     try {
+    //         const { date } = request.body;
+    //         const upsellOrderService = new UpsellOrderService();
+    //         await upsellOrderService.processCheckoutDateUpsells(date);
+    //         return response.send({
+    //             status: true,
+    //             message: 'Processed checkout date upsells successfully.'
+    //         });
+    //     } catch (error) {
+    //         return response.status(500).json({
+    //             status: false,
+    //             message: error.message
+    //         });
+    //     }
+    // }
 } 

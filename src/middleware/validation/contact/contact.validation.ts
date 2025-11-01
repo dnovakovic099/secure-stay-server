@@ -27,7 +27,7 @@ export const validateCreateContact = (request: Request, response: Response, next
         costRating: Joi.number().integer().min(1).max(5).required().allow(null),
         trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
         speed: Joi.number().integer().min(1).max(5).required().allow(null),
-        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client")
+        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client").allow(null)
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":
@@ -115,7 +115,7 @@ export const validateUpdateContact = (request: Request, response: Response, next
         costRating: Joi.number().integer().min(1).max(5).required().allow(null),
         trustLevel: Joi.number().integer().min(1).max(5).required().allow(null),
         speed: Joi.number().integer().min(1).max(5).required().allow(null),
-        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client")
+        paidBy: Joi.string().required().valid("LL", "LL (Charge to Client)", "Client").allow(null)
     }).custom((value, helpers) => {
         switch (value.paymentScheduleType) {
             case "weekly":

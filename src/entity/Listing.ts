@@ -9,6 +9,8 @@ import {
 import { ListingImage } from "./ListingImage";
 import { GuideBook } from "./GuideBook";
 import { ListingTags } from "./ListingTags";
+import { ListingBedTypes } from "./ListingBedTypes";
+import { ListingAmenities } from "./ListingAmenities";
 
 @Entity("listing_info") // Specify the name of your MySQL table
 export class Listing {
@@ -125,4 +127,73 @@ export class Listing {
 
   @Column()
   userId: string;
+
+  @Column({ nullable: true })
+  propertyTypeId: number;
+
+  @Column({ nullable: true })
+  roomType: string;
+
+  @Column({ nullable: true })
+  bedroomsNumber: number;
+
+  @Column({ nullable: true })
+  bathroomsNumber: number;
+
+  @Column({ nullable: true })
+  bathroomType: string;
+
+  @Column({ nullable: true })
+  guestBathroomsNumber: number;
+
+  @Column({ nullable: true })
+  cleaningFee: number;
+
+  @Column({ nullable: true })
+  airbnbPetFeeAmount: number;
+
+  @Column({ nullable: true })
+  squareMeters: number;
+
+  @Column({ nullable: true })
+  language: string;
+
+  @Column({ nullable: true })
+  instantBookable: string;
+
+  @Column({ nullable: true })
+  instantBookableLeadTime: number;
+
+  @Column({ nullable: true })
+  minNights: number;
+
+  @Column({ nullable: true })
+  maxNights: number;
+
+  @Column({ nullable: true })
+  contactName: string;
+
+  @Column({ nullable: true })
+  contactPhone1: string;
+
+  @Column({ nullable: true })
+  contactLanguage: string;
+
+  @Column({ nullable: true })
+  propertyLicenseNumber: string;
+
+  @Column({ nullable: true })
+  personCapacity: number;
+
+  @OneToMany(() => ListingBedTypes, (tags) => tags.listing, {
+    cascade: true,
+    onDelete: "CASCADE"
+  })
+  listingBedTypes: ListingBedTypes[];
+
+  @OneToMany(() => ListingAmenities, (tags) => tags.listing, {
+    cascade: true,
+    onDelete: "CASCADE"
+  })
+  listingAmenities: ListingAmenities[];
 }

@@ -2,6 +2,15 @@ import { max } from "date-fns";
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
+enum PropertyStatus {
+    ACTIVE = "active",
+    ONBOARDING = "onboarding",
+    ON_HOLD = "on-hold",
+    POTENTIAL_OFFBOARDING = "potential-offboarding",
+    OFFBOARDING = "offboarding",
+    INACTIVE = "inactive",
+}
+
 export const validateCreateClient = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         primaryContact: Joi.object({
@@ -11,10 +20,11 @@ export const validateCreateClient = (request: Request, response: Response, next:
             email: Joi.string().email().required(),
             dialCode: Joi.string().required().allow(null, ''),
             phone: Joi.string().required().allow(null, ''),
-            timezone: Joi.string().required(),
+            timezone: Joi.string().required().allow(null, ''),
             companyName: Joi.string().required().allow(null, ''),
             status: Joi.string().required().allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
+            clientFolder: Joi.string().optional().allow(null, ''), 
         }),
         secondaryContacts: Joi.array().items(
             Joi.object({
@@ -24,7 +34,7 @@ export const validateCreateClient = (request: Request, response: Response, next:
                 email: Joi.string().email().required(),
                 dialCode: Joi.string().required().allow(null, ''),
                 phone: Joi.string().required().allow(null, ''),
-                timezone: Joi.string().required(),
+                timezone: Joi.string().required().allow(null, ''),
                 companyName: Joi.string().required().allow(null, ''),
                 status: Joi.string().required().allow(null, ''),
                 notes: Joi.string().required().allow(null, ''),
@@ -53,10 +63,11 @@ export const validateUpdateClient = (request: Request, response: Response, next:
             email: Joi.string().email().required(),
             dialCode: Joi.string().required().allow(null, ''),
             phone: Joi.string().required().allow(null, ''),
-            timezone: Joi.string().required(),
+            timezone: Joi.string().required().allow(null, ''),
             companyName: Joi.string().required().allow(null, ''),
-            status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+            status: Joi.string().required().valid().allow(null, ''),
             notes: Joi.string().required().allow(null, ''),
+            clientFolder: Joi.string().optional().allow(null, ''), 
         }),
         secondaryContacts: Joi.array().items(
             Joi.object({
@@ -67,9 +78,9 @@ export const validateUpdateClient = (request: Request, response: Response, next:
                 email: Joi.string().email().required(),
                 dialCode: Joi.string().required().allow(null, ''),
                 phone: Joi.string().required().allow(null, ''),
-                timezone: Joi.string().required(),
+                timezone: Joi.string().required().allow(null, ''),
                 companyName: Joi.string().required().allow(null, ''),
-                status: Joi.string().required().valid("onboarding", "active", "atRisk", "offboarding", "offboarded").allow(null, ''),
+                status: Joi.string().required().valid(...Object.values(PropertyStatus)).allow(null, ''),
                 notes: Joi.string().required().allow(null, ''),
                 type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
             }),
@@ -91,7 +102,7 @@ export const validateGetClients = (request: Request, response: Response, next: N
         keyword: Joi.string().optional(),
         listingId: Joi.array().items(Joi.string()).optional(),
         serviceType: Joi.array().items(Joi.string()).optional(),
-        status: Joi.array().items(Joi.string().valid("onboarding", "active", "atRisk", "offboarding", "offboarded")).optional(),
+        status: Joi.array().items(Joi.string().valid(...Object.values(PropertyStatus))).optional(),
         source: Joi.string().valid("listingIntakePage", "clientsPage").optional()
     });
 
@@ -111,7 +122,7 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().required().allow(null),
-                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL"),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
                         contractLink: Joi.string().required().allow(null),
                         serviceNotes: Joi.string().required().allow(null)
                     }),
@@ -119,11 +130,17 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().required().allow(null),
                         salesNotes: Joi.string().required().allow(null),
                         projectedRevenue: Joi.number().required().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().required().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().required().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().required().allow(null),
+                        clientListingStatus: Joi.string().required().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)", 
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).required().allow(null),
@@ -141,7 +158,6 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 })
             })
         )
-
     });
 
     const { error } = schema.validate(request.body);
@@ -169,11 +185,17 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().optional().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
                         projectedRevenue: Joi.number().optional().allow(null),
+                        minPrice: Joi.number().required().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().optional().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
@@ -208,6 +230,7 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().required(),
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().required().allow(null),
@@ -216,8 +239,13 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                     }),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().required().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().required().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().required().allow(null),
+                        clientListingStatus: Joi.string().required().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).required().allow(null),
@@ -237,7 +265,12 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                         photographyCoverage: Joi.string().required().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().required().allow(null),
-                    })
+                    }),
+                    clientAcknowledgement: Joi.object({
+                        acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
+                        agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
+                        acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
+                    }).optional(),
                 })
             })
         )
@@ -258,6 +291,8 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null),
+                status: Joi.string().optional(),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().optional().allow(null),
@@ -266,8 +301,13 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
-                        clientListingStatus: Joi.string().optional().allow(null).valid("Closed", "Open - Will Close", "Open - Keeping"),
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)",
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
@@ -287,7 +327,12 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                         photographyCoverage: Joi.string().optional().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().optional().allow(null),
-                    }).optional()
+                    }).optional(),
+                    clientAcknowledgement: Joi.object({
+                        acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
+                        agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
+                        acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
+                    }).optional(),
                 }).optional()
             })
         )
@@ -392,9 +437,10 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         checkOutTime: Joi.number().required().allow(null),
                         canAnyoneBookAnytime: Joi.string().required().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -509,6 +555,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //Listing Name
@@ -528,10 +575,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else create new
-                                floorLevel: Joi.number().optional(),
-                                bedroomNumber: Joi.number().optional(),
-                                bedTypeId: Joi.number().optional(),
-                                quantity: Joi.number().optional()
+                                floorLevel: Joi.number().optional().allow(null),
+                                bedroomNumber: Joi.number().optional().allow(null),
+                                bedTypeId: Joi.number().optional().allow(null),
+                                quantity: Joi.number().optional().allow(null)
                             })
                         ),
 
@@ -546,7 +593,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
                                 bathroomType: Joi.number().optional().valid("Full", "Half"),
-                                bathroomNumber: Joi.number().optional(),
+                                bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
                             })
                         ),
@@ -556,9 +603,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         checkOutTime: Joi.number().optional().allow(null),
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 
@@ -688,7 +736,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 Joi.object({
                                     id: Joi.optional().required(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 
@@ -731,7 +779,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 
@@ -767,14 +815,22 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     financials: Joi.object({
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
+                        statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly Batch A", "Bi-Weekly Batch B", "Monthly").allow(null),
+                        statementType: Joi.string().optional().valid("Check-Out", "Check-In", "Calendar").allow(null),
+                        payoutMethod: Joi.string().optional().valid("Bank Transfer", "Zelle", "Venmo", "Others").allow(null),
+                        claimFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        claimFeeNotes: Joi.string().optional().allow(null),
+                        techFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        techFeeNotes: Joi.string().optional().allow(null),
                     }).required()
                 }).required()
             })
@@ -795,14 +851,16 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
+                listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //calendar management
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
                         leadTimeDays: Joi.number().optional().allow(null),
@@ -859,6 +917,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             ),
                         codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
+                        standardDoorCode: Joi.string().optional().allow(null),
                         doorLockAppName: Joi.string().optional().allow(null),
                         doorLockAppUsername: Joi.string().optional().allow(null),
                         doorLockAppPassword: Joi.string().optional().allow(null),
@@ -943,7 +1002,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 
@@ -1040,7 +1099,7 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                         acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
                         agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
-                        externalListingNotes: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
                     }).optional()
                 }).optional()
@@ -1097,9 +1156,10 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         checkOutTime: Joi.number().required().allow(null),
                         canAnyoneBookAnytime: Joi.string().required().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().required().allow(null),
 
@@ -1215,6 +1275,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
@@ -1263,9 +1324,10 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         checkOutTime: Joi.number().optional().allow(null),
                         canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
                             "Yes, no restrictions. (Recommended)",
-                            "Yes, but please notify me of same day bookings and changes before accepting",
-                            "No, please confirm with me before accepting",
-                            "No, I strictly need days befor a reservation"
+                            "Yes, but please notify me of SAME DAY bookings/changes before accepting",
+                            "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
+                            "No, please always confirm with me before accepting",
+                            "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
                         bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
 
@@ -1396,7 +1458,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
-                                    notes: Joi.string().optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
 
@@ -1439,7 +1501,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         minPrice: Joi.number().optional().allow(null),
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        propertyLicenseNumber: Joi.string().optional().allow(null),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 

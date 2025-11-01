@@ -337,6 +337,11 @@ export const getStarRating = (ratingOutOf10: number): string => {
     return '⭐'.repeat(fullStars) + (halfStar ? '🌟' : '') + '☆'.repeat(emptyStars);
 };
 
+export function generateSlackMessageLink(workspaceDomain: string, channelId: string, messageTs: string) {
+    const tsClean = messageTs.replace('.', '');
+    return `${workspaceDomain}/archives/${channelId}/p${tsClean}`;
+}
+
 
 // | Status | Emoji |
 // | ----------- | ----- |

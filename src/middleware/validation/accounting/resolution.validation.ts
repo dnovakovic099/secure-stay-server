@@ -5,7 +5,7 @@ export const validateCreateResolution = (request: Request, response: Response, n
     const schema = Joi.object({
         category: Joi.string()
             .required()
-            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal")
+            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal", "dispute")
             .messages({
                 'any.required': 'Category is required',
                 'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others, resolution, review_removal'
@@ -98,7 +98,7 @@ export const validateUpdateResolution = (request: Request, response: Response, n
         id: Joi.number().required(),
         category: Joi.string()
             .required()
-            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal")
+            .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal", "dispute")
             .messages({
                 'any.required': 'Category is required',
                 'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others, resolution, review_removal'
@@ -180,7 +180,7 @@ export const validateBulkUpdateResolutions = (request: Request, response: Respon
             }),
         updateData: Joi.object({
             category: Joi.string()
-                .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal")
+                .valid("claim", "security_deposit", "pet_fee", "extra_cleaning", "others", "resolution", "review_removal", "dispute")
                 .messages({
                     'any.only': 'Category must be one of: claim, security_deposit, pet_fee, extra_cleaning, others, resolution, review_removal'
                 })

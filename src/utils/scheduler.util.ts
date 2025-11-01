@@ -13,6 +13,8 @@ import { format } from "date-fns";
 import { ClaimsService } from "../services/ClaimsService";
 import { MaintenanceService } from "../services/MaintenanceService";
 import { PublishedStatementService } from "../services/PublishedStatementService";
+import { ReviewService } from "../services/ReviewService";
+import { ExpenseService } from "../services/ExpenseService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -28,7 +30,7 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 * * * *", syncReviews);
 
-  schedule.scheduleJob("0 14 * * 1", syncIssue);
+  schedule.scheduleJob({ hour: 9, minute: 0, dayOfWeek: 1, tz: "America/New_York" }, syncIssue); // Every Monday at 9 AM EST
 
   schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, checkUpdatedReviews);
 
@@ -92,7 +94,7 @@ export function scheduleGetReservation() {
     })
 
   schedule.scheduleJob(
-    { hour: 23, minute: 0, tz: "America/New_York" }, // Daily at 11 PM EST
+    "0 * * * *", // every hour
     async () => {
       try {
         logger.info('Processing checkout date upsells to create extras in HostAway...');
@@ -176,4 +178,34 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  schedule.scheduleJob(
+    "0 * * * *", // every hour
+    async () => {
+      try {
+        logger.info('Scheduled task for processing review checkout ran...');
+        const reviewService = new ReviewService();
+        await reviewService.processReviewCheckout();
+        logger.info('Scheduled task for processing review checkout completed...');
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
+  schedule.scheduleJob(
+    { hour: 8, minute: 50, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Scheduled task for processing recurring expenses ran...');
+        const expenseService = new ExpenseService();
+        await expenseService.processRecurringExpenses();
+        logger.info('Scheduled task for processing recurring expenses completed...');
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
+
 }

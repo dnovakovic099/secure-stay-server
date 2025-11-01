@@ -13,6 +13,8 @@ import { ownerDetails, tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingTags } from "../entity/ListingTags";
 import logger from "../utils/logger.utils";
+import { ListingBedTypes } from "../entity/ListingBedTypes";
+import { ListingAmenities } from "../entity/ListingAmenities";
 
 interface ListingUpdate {
   listingId: number;
@@ -70,6 +72,19 @@ export class ListingService {
             listing["listingTags"],
             savedListing.listingId
           )
+
+          await this.saveListingBedTypes(
+            transactionalEntityManager,
+            listing["listingBedTypes"],
+            savedListing.listingId
+          );
+
+
+          await this.saveListingAmenities(
+            transactionalEntityManager,
+            listing["listingAmenities"],
+            savedListing.listingId
+          )
         }
       });
 
@@ -89,6 +104,7 @@ export class ListingService {
       description: data?.description,
       externalListingName: data?.externalListingName,
       address: data?.address,
+      personCapacity: data?.personCapacity,
       guests: data?.personCapacity,
       price: data?.price,
       guestsIncluded: data?.guestsIncluded,
@@ -114,6 +130,24 @@ export class ListingService {
       ownerName: ownerDetails[data.id]?.name || "",
       ownerEmail: ownerDetails[data.id]?.email || "",
       ownerPhone: ownerDetails[data.id]?.phone || "",
+      propertyTypeId: data?.propertyTypeId || null,
+      roomType: data?.roomType || "",
+      bedroomsNumber: data?.bedroomsNumber || 0,
+      bathroomsNumber: data?.bathroomsNumber || 0,
+      bathroomType: data?.bathroomType || "",
+      guestBathroomsNumber: data?.guestBathroomsNumber || 0,
+      cleaningFee: data?.cleaningFee || 0,
+      airbnbPetFeeAmount: data?.airbnbPetFeeAmount || 0,
+      squareMeters: data?.squareMeters || 0,
+      language: data?.language || "",
+      instantBookable: data?.instantBookable || null,
+      instantBookableLeadTime: data?.instantBookableLeadTime || null,
+      minNights: data?.minNights || null,
+      maxNights: data?.maxNights || null,
+      contactName: data?.contactName || "",
+      contactPhone1: data?.contactPhone1 || "",
+      contactLanguage: data?.contactLanguage || "",
+      propertyLicenseNumber: data?.propertyLicenseNumber || "",
     };
   }
 
@@ -164,15 +198,48 @@ export class ListingService {
     await entityManager.save(ListingTags, listingTagsObjs);
   }
 
+  // Save listing bedTypes
+  private async saveListingBedTypes(
+    entityManager: EntityManager,
+    bedTypes: { id: number; bedTypeId: number; quantity: number, bedroomNumber: number; }[],
+    listingId: number
+  ) {
+    const listingBedTypesObj = bedTypes.map((bedType) => ({
+      id: bedType.id,
+      bedTypeId: bedType.bedTypeId,
+      quantity: bedType.quantity,
+      bedroomNumber: bedType.bedroomNumber,
+      listing: listingId,
+    }));
+    await entityManager.save(ListingBedTypes, listingBedTypesObj);
+  }
+
+  // Save listing amenities
+  private async saveListingAmenities(
+    entityManager: EntityManager,
+    amenities: { id: number; amenityId: number; amenityName: string; }[],
+    listingId: number
+  ) {
+    const listingAmenitiesObj = amenities.map((amenity) => ({
+      id: amenity.id,
+      amenityId: amenity.amenityId,
+      amenityName: amenity.amenityName,
+      listing: listingId,
+    }));
+    await entityManager.save(ListingAmenities, listingAmenitiesObj);
+  }
+
   async getListings(userId: string) {
-      const listingsWithImages = await this.listingRepository
+    const listings = await this.listingRepository
         .createQueryBuilder("listing")
         .leftJoinAndSelect("listing.images", "listingImages")
         .leftJoinAndSelect("listing.guideBook", "GuideBook")
+      .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
+      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
         .where("listing.userId = :userId", { userId })
         .getMany();
 
-    return listingsWithImages;
+    return listings;
   }
 
   async getListingNames(userId: string) {
@@ -189,9 +256,23 @@ export class ListingService {
     const result = await this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.images", "listingImages")
+      .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
+      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .where("listing.listingId = :id", { id: Number(listing_id) })
       .andWhere("listing.userId = :userId", { userId })
       .getOne();
+
+    return result;
+  }
+
+  async getListingInfo(listingId: number, userId: string) {
+    const result = await this.listingRepository.findOne({
+      where: {
+        id: listingId,
+        userId: userId
+      },
+      relations: ['images', 'listingBedTypes', 'listingAmenities', 'listingTags']
+    });
 
     return result;
   }

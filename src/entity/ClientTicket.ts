@@ -63,4 +63,7 @@ export class ClientTicket {
 
     @Column({ nullable: true })
     mistakeResolvedOn: string;
+
+    @Column({ nullable: true })
+    dueDate: string;
 }
