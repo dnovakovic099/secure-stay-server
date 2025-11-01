@@ -207,5 +207,19 @@ export function scheduleGetReservation() {
     }
   );
 
+  schedule.scheduleJob(
+    { hour: 4, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Scheduled task for deleting launch status review checkout ran...');
+        const reviewService = new ReviewService();
+        await reviewService.deleteLaunchReviewCheckouts();
+        logger.info('Scheduled task for deleting launch status review checkout completed...');
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
 
 }

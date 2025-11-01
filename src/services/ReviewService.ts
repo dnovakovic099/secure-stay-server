@@ -530,7 +530,7 @@ export class ReviewService {
                         (reviewCheckout.status IN (:activeStatuses))
                     `, {
                         followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
-                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED],
+                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED, ReviewCheckoutStatus.LAUNCH],
                         todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
                     });
                     break;
@@ -543,7 +543,6 @@ export class ReviewService {
                             ReviewCheckoutStatus.CLOSED_BAD_REVIEW,
                             ReviewCheckoutStatus.CLOSED_NO_REVIEW,
                             ReviewCheckoutStatus.CLOSED_TRAPPED,
-                            ReviewCheckoutStatus.LAUNCH
                         ]
                     });
                     break;
@@ -768,6 +767,23 @@ export class ReviewService {
 
         const reviewCheckoutUpdate = this.reviewCheckoutUpdatesRepo.create(newUpdate);
         return await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
+    }
+
+    async deleteLaunchReviewCheckouts() {
+        const launchReviewCheckouts = await this.reviewCheckoutRepo.find({
+            where: {
+                status: ReviewCheckoutStatus.LAUNCH,
+            }
+        });
+
+        for (const reviewCheckout of launchReviewCheckouts) {
+            //updated the deletedAt and deletedBy fields
+            reviewCheckout.deletedAt = new Date();
+            reviewCheckout.deletedBy = "system";
+            await this.reviewCheckoutRepo.save(reviewCheckout);
+        }
+
+        logger.info(`Deleted ${launchReviewCheckouts.length} review checkouts with 'Launch' status.`);
     }
 
 }
