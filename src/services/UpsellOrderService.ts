@@ -6,10 +6,12 @@ import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
 import { categoryIds, tagIds } from "../constant";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
     private hostAwayClient = new HostAwayClient();
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
@@ -196,6 +198,28 @@ export class UpsellOrderService {
                     upsell.ha_id = expenseId;
                     await this.upsellOrderRepo.save(upsell);
                     logger.info(`[processCheckoutDateUpsells]Created expense in HostAway with ID: ${expenseId} for upsell ID: ${upsell.id}`);
+
+                    //create expense in internal system as well
+                    const expense = this.expenseRepo.create({
+                        expenseId: Number(expenseId),
+                        listingMapId: Number(upsell.listing_id),
+                        expenseDate: upsell.departure_date,
+                        concept: upsell.type,
+                        amount: upsell.cost,
+                        isDeleted: 0,
+                        categories: JSON.stringify([categoryIds.Upsell]),
+                        contractorName: "",
+                        contractorNumber: "",
+                        dateOfWork: null,
+                        datePaid: null,
+                        status: ExpenseStatus.APPROVED,
+                        userId: 'system',
+                        createdBy: 'system',
+                        reservationId: upsell.booking_id,
+                        guestName: upsell.client_name
+                    });
+
+                    await this.expenseRepo.save(expense);
                 } else {
                     logger.error(`[processCheckoutDateUpsells]Failed to create expense in HostAway for upsell ID: ${upsell.id}`);
                 }
