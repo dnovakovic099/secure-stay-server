@@ -15,6 +15,7 @@ import { ListingTags } from "../entity/ListingTags";
 import logger from "../utils/logger.utils";
 import { ListingBedTypes } from "../entity/ListingBedTypes";
 import { ListingAmenities } from "../entity/ListingAmenities";
+import { Hostify } from "../client/Hostify";
 
 interface ListingUpdate {
   listingId: number;
@@ -31,10 +32,12 @@ export class ListingService {
   private listingUpdateRepo = appDatabase.getRepository(ListingUpdateEntity);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
+  private hostifyClient = new Hostify();
+
   // Fetch listings from hostaway client and save in our database if not present
   async syncHostawayListing(userId: string) {
     const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({
-      where: { userId, account: "pm" },
+      where: { userId, account: "pm", status: true },
     });
 
     if (!hostawayCredentials) {
@@ -571,6 +574,25 @@ export class ListingService {
       LAUNCH_SERVICE: entries.find(([key]) => key === "LAUNCH_SERVICE")?.[1] ?? [],
       PRO_SERVICE: entries.find(([key]) => key === "PRO_SERVICE")?.[1] ?? [],
     };
+  }
+
+  async syncHostifyListings(userId: string) {
+    const credentials = await this.connectedAccountInfoRepository.findOne({
+      where: { userId, account: "pm", status: true },
+    });
+
+    if (!credentials) {
+      throw CustomErrorHandler.notFound('Hostify credentials not found');
+    }
+
+    const { apiKey } = credentials;
+    const listings = await this.hostifyClient.getListings(apiKey);
+    if (listings.length === 0) {
+      throw CustomErrorHandler.unAthorized();
+    }
+
+    //add/updated listing in db
+
   }
 
 
