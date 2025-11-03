@@ -233,19 +233,20 @@ export function scheduleGetReservation() {
         logger.error("Scheduled task for bad review:", error);
       }
     })
-  schedule.scheduleJob(
-    { hour: 3, minute: 10, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('Processing upsells to create missing extras in the system...');
-        const currentDate = format(new Date(), 'yyyy-MM-dd');
-        const upsellOrderService = new UpsellOrderService();
-        await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
-        logger.info('Processed upsells to create missing extras in the system successfully.');
-      } catch (error) {
-        logger.error("Error processing upsells to create missing extras in the system:", error);
-      }
-    })
+
+  // schedule.scheduleJob(
+  //   { hour: 3, minute: 10, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('Processing upsells to create missing extras in the system...');
+  //       const currentDate = format(new Date(), 'yyyy-MM-dd');
+  //       const upsellOrderService = new UpsellOrderService();
+  //       await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
+  //       logger.info('Processed upsells to create missing extras in the system successfully.');
+  //     } catch (error) {
+  //       logger.error("Error processing upsells to create missing extras in the system:", error);
+  //     }
+  //   })
 
 
 }
