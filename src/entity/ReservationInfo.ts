@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, PrimaryColumn, OneToOne } from 'typeorm';
 import { ReviewCheckout } from './ReviewCheckout';
+import { BadReviewEntity } from './BadReview';
 
 @Entity({ name: 'reservation_info' })
 export class ReservationInfoEntity {
@@ -176,4 +177,7 @@ export class ReservationInfoEntity {
 
     @OneToOne(() => ReviewCheckout, (reviewCheckout) => reviewCheckout.reservationInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
     reviewCheckout: ReviewCheckout;
+
+    @OneToOne(() => BadReviewEntity, (badReview) => badReview.reservationInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
+    badReview: BadReviewEntity;
 }
