@@ -240,6 +240,8 @@ export class UpsellOrderService {
             }
         });
 
+        logger.info(`[scriptToCreateMissingExtrasFromUpsell] Found ${upsells.length} upsells with HostAway IDs up to date: ${date}`);
+
         for (const upsell of upsells) {
             try {
                 //create expense in internal system as well
