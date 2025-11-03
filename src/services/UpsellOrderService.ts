@@ -267,7 +267,8 @@ export class UpsellOrderService {
                     userId: 'system',
                     createdBy: 'system',
                     reservationId: upsell.booking_id,
-                    guestName: upsell.client_name
+                    guestName: upsell.client_name,
+                    fileNames: ""
                 });
 
                 await this.expenseRepo.save(expense);
