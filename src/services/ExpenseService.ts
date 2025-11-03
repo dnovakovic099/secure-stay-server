@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, ILike, In, IsNull, MoreThan, Not, Raw } from "typeorm";
+import { Between, ILike, In, IsNull, LessThan, MoreThan, Not, Raw } from "typeorm";
 import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -155,7 +155,8 @@ export class ExpenseService {
             propertyType,
             keyword, 
             expenseId,
-            isRecurring
+            isRecurring,
+            type
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -217,6 +218,8 @@ export class ExpenseService {
                         categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
                     }),
                     ...(isRecurring !== undefined && { isRecurring: Number(isRecurring) }),
+                    ...(type && type == "extras" && { amount: MoreThan(0) }),
+                    ...(type && type == "expense" && { amount: LessThan(0) }),
                 },
             order: { id: "DESC" },
             skip,
@@ -263,7 +266,7 @@ export class ExpenseService {
                 const user = users.find(user => user.uid == expense.updatedBy);
                 const updatedBy = user ? `${user.firstName} ${user.lastName}` : "";
                 const createdByUser = users.find(user => user.uid == expense.createdBy);
-                const createdBy = createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : "";
+                const createdBy = createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : expense.createdBy;
 
                 const issueIds = expense.issues ? JSON.parse(expense.issues) : [];
                 let issueList = [];
@@ -278,7 +281,7 @@ export class ExpenseService {
                 return {
                     expenseId: expense.expenseId,
                     status: expense.status,
-                    amount: Math.abs(expense.amount),
+                    amount: type ? Math.abs(expense.amount) : expense.amount,
                     listing: listingNameMap[expense.listingMapId] || 'N/A',
                     listingMapId: expense.listingMapId,
                     dateAdded: expense.expenseDate,
@@ -297,7 +300,8 @@ export class ExpenseService {
                     fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
                     issues: issueIds,
                     issuesList: issueList,
-                    createdBy: createdBy
+                    createdBy: createdBy,
+                    guestName: expense.guestName
                 };
             })
         );
@@ -337,6 +341,14 @@ export class ExpenseService {
             qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
                 regex: categoriesFilter.join('|'),
             });
+        }
+
+        if (type && type == "extras") {
+            qb.andWhere('expense.amount > 0');
+        }
+
+        if (type && type == "expense") {
+            qb.andWhere('expense.amount < 0');
         }
 
         const { totalExpense } = await qb.getRawOne();
