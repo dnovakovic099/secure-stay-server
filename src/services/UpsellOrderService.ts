@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, ILike, In, Not } from "typeorm";
+import { Between, ILike, In, IsNull, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
@@ -236,7 +236,7 @@ export class UpsellOrderService {
             where: {
                 departure_date: Between("2025-07-02", date), // process upsells on checkout feature was made live on July 2, 2025
                 status: "Approved",
-                ha_id: Not(null)
+                ha_id: Not(IsNull())
             }
         });
 
