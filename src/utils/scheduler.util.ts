@@ -222,6 +222,18 @@ export function scheduleGetReservation() {
   );
 
   schedule.scheduleJob(
+    { hour: 9, minute: 0, tz: "America/New_York" }, // 9 AM EST daily
+    async () => {
+      try {
+        logger.info('Scheduled task for processing bad review ran...');
+        const reviewService = new ReviewService();
+        await reviewService.updateBadReviewStatusForCallPhaseDaily();
+        logger.info('Scheduled task for processing bad review completed...');
+      } catch (error) {
+        logger.error("Scheduled task for bad review:", error);
+      }
+    })
+  schedule.scheduleJob(
     { hour: 23, minute: 50, tz: "America/New_York" },
     async () => {
       try {
