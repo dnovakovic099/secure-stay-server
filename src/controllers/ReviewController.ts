@@ -123,4 +123,54 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async getBadReview(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const reviewService = new ReviewService();
+            const data = await reviewService.getBadReviews(request.query, userId);
+            return response.status(200).json(data);
+        } catch (error) {
+            logger.error("Error fetching bad review:", error);
+            return next(error);
+        }
+    }
+
+    async updateBadReviewStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+
+            const { status, badReviewId } = request.body;
+            const userId = request.user.id;
+
+            const updatedBadReview = await reviewService.updateBadReviewStatus(badReviewId, status, userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedBadReview
+            });
+        } catch (error) {
+            logger.error("Error updating bad review status:", error);
+            return next(error);
+        }
+    }
+
+
+    async createBadReviewUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { badReviewId, updates } = request.body;
+
+            const newUpdate = await reviewService.createBadReviewUpdate(badReviewId, updates, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: newUpdate
+            });
+        } catch (error) {
+            logger.error("Error creating bad review update:", error);
+            return next(error);
+        }
+    }
 }

@@ -207,5 +207,46 @@ export function scheduleGetReservation() {
     }
   );
 
+  schedule.scheduleJob(
+    { hour: 4, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Scheduled task for deleting launch status review checkout ran...');
+        const reviewService = new ReviewService();
+        await reviewService.deleteLaunchReviewCheckouts();
+        logger.info('Scheduled task for deleting launch status review checkout completed...');
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  );
+
+  schedule.scheduleJob(
+    { hour: 9, minute: 0, tz: "America/New_York" }, // 9 AM EST daily
+    async () => {
+      try {
+        logger.info('Scheduled task for processing bad review ran...');
+        const reviewService = new ReviewService();
+        await reviewService.updateBadReviewStatusForCallPhaseDaily();
+        logger.info('Scheduled task for processing bad review completed...');
+      } catch (error) {
+        logger.error("Scheduled task for bad review:", error);
+      }
+    })
+
+  // schedule.scheduleJob(
+  //   { hour: 3, minute: 10, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('Processing upsells to create missing extras in the system...');
+  //       const currentDate = format(new Date(), 'yyyy-MM-dd');
+  //       const upsellOrderService = new UpsellOrderService();
+  //       await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
+  //       logger.info('Processed upsells to create missing extras in the system successfully.');
+  //     } catch (error) {
+  //       logger.error("Error processing upsells to create missing extras in the system:", error);
+  //     }
+  //   })
+
 
 }
