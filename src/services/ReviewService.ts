@@ -24,6 +24,7 @@ import { BadReviewEntity } from "../entity/BadReview";
 import { BadReviewUpdatesEntity } from "../entity/BadReviewUpdates";
 import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
 import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
+import { Listing } from "../entity/Listing";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -1102,26 +1103,32 @@ export class ReviewService {
 
         // Get listing information for properties
         const listingService = new ListingService();
+        const listingRepository = appDatabase.getRepository(Listing);
         const propertyIds = [...new Set(liveIssueList.map(li => li.propertyId).filter(Boolean))];
-        const propertyMap = new Map();
+        const propertyMap = new Map<number, string>();
 
-        for (const propId of propertyIds) {
+        if (propertyIds.length > 0) {
             try {
-                const listingInfo = await listingService.getListingInfo(Number(propId), userId);
-                if (listingInfo) {
-                    propertyMap.set(propId, listingInfo.name || listingInfo.externalListingName || `Property ${propId}`);
-                }
+                const listings = await listingRepository.find({
+                    where: { id: In(propertyIds) }
+                });
+
+                listings.forEach(listing => {
+                    propertyMap.set(listing.id, listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
+                });
             } catch (error) {
-                logger.error(`Error fetching listing info for propertyId ${propId}:`, error);
-                propertyMap.set(propId, `Property ${propId}`);
+                logger.error(`Error fetching listing info:`, error);
             }
         }
 
         const transformedData = liveIssueList.map(li => {
+            const propertyId = Number(li.propertyId);
+            const propertyName = propertyMap.get(propertyId) || (li.propertyId ? `Property ${li.propertyId}` : 'N/A');
+            
             return {
                 ...li,
                 assignee: userMap.get(li.assignee) || li.assignee,
-                propertyName: propertyMap.get(li.propertyId) || `Property ${li.propertyId}`,
+                propertyName: propertyName,
                 createdBy: userMap.get(li.createdBy) || li.createdBy,
                 updatedBy: userMap.get(li.updatedBy) || li.updatedBy,
                 liveIssueUpdates: li.liveIssueUpdates ? li.liveIssueUpdates.map(update => {
