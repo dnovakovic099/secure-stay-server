@@ -26,6 +26,9 @@ export class LiveIssue {
     assignee: string;
 
     @Column({ nullable: true })
+    assigneeId: string;
+
+    @Column({ nullable: true })
     propertyId: number; // listingMapId
 
     @Column({ type: 'text', nullable: true })

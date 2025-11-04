@@ -225,6 +225,7 @@ export const validateCreateLiveIssue = (request: Request, response: Response, ne
     const schema = Joi.object({
         status: Joi.string().required().valid(...Object.values(LiveIssueStatus)),
         assignee: Joi.string().allow('', null).optional(),
+        assigneeId: Joi.number().allow('', null).optional(),
         propertyId: Joi.number().required(),
         summary: Joi.string().required(),
         comments: Joi.string().allow('', null).optional(),
@@ -247,6 +248,7 @@ export const validateUpdateLiveIssue = (request: Request, response: Response, ne
         id: Joi.number().required(),
         status: Joi.string().valid(...Object.values(LiveIssueStatus)).optional(),
         assignee: Joi.string().allow('', null).optional(),
+        assigneeId: Joi.number().allow('', null).optional(),
         propertyId: Joi.number().optional(),
         summary: Joi.string().optional(),
         comments: Joi.string().allow('', null).optional(),

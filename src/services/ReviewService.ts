@@ -1147,6 +1147,7 @@ export class ReviewService {
     async createLiveIssue(liveIssueData: {
         status: string;
         assignee?: string;
+        assigneeId?: string;
         propertyId: number;
         summary: string;
         comments?: string;
@@ -1155,6 +1156,7 @@ export class ReviewService {
         const newLiveIssue = this.liveIssueRepo.create({
             status: liveIssueData.status,
             assignee: liveIssueData.assignee,
+            assigneeId: liveIssueData.assigneeId,
             propertyId: liveIssueData.propertyId,
             summary: liveIssueData.summary,
             comments: liveIssueData.comments,
@@ -1168,6 +1170,7 @@ export class ReviewService {
     async updateLiveIssue(id: number, liveIssueData: {
         status?: string;
         assignee?: string;
+        assigneeId?: string;
         propertyId?: number;
         summary?: string;
         comments?: string;
@@ -1183,6 +1186,9 @@ export class ReviewService {
         }
         if (liveIssueData.assignee !== undefined) {
             liveIssue.assignee = liveIssueData.assignee;
+        }
+        if (liveIssueData.assigneeId !== undefined) {
+            liveIssue.assigneeId = liveIssueData.assigneeId;
         }
         if (liveIssueData.propertyId !== undefined) {
             liveIssue.propertyId = liveIssueData.propertyId;
