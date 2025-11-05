@@ -31,9 +31,6 @@ export class LiveIssue {
     @Column({ type: 'text', nullable: true })
     summary: string;
 
-    @Column({ type: 'text', nullable: true })
-    comments: string;
-
     @Column({ type: 'datetime', nullable: true })
     followUp: Date;
 

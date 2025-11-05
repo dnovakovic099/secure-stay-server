@@ -638,7 +638,7 @@ export class UsersService {
         //Live Issues
         const liveIssues = await this.liveIssuesRepo.find({
             where: {
-                assigneeId: userId
+                assignee: userId
             },
             relations: ["liveIssueUpdates"],
             order: { followUp: "DESC" },

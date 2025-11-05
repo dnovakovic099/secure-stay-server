@@ -1084,10 +1084,10 @@ export class ReviewService {
             query.andWhere("liveIssue.assignee = :assignee", { assignee });
         }
 
-        // Keyword filter (search in summary and comments)
+        // Keyword filter (search in summary)
         if (keyword) {
             query.andWhere(
-                "(liveIssue.summary ILIKE :keyword OR liveIssue.comments ILIKE :keyword)",
+                "liveIssue.summary ILIKE :keyword",
                 { keyword: `%${keyword}%` }
             );
         }
@@ -1152,7 +1152,6 @@ export class ReviewService {
         assignee?: string;
         propertyId: number;
         summary: string;
-        comments?: string;
         followUp?: Date | string;
     }, userId: string) {
         const newLiveIssue = this.liveIssueRepo.create({
@@ -1160,7 +1159,6 @@ export class ReviewService {
             assignee: liveIssueData.assignee,
             propertyId: liveIssueData.propertyId,
             summary: liveIssueData.summary,
-            comments: liveIssueData.comments,
             followUp: liveIssueData.followUp ? new Date(liveIssueData.followUp) : null,
             createdBy: userId,
         });
@@ -1173,7 +1171,6 @@ export class ReviewService {
         assignee?: string;
         propertyId?: number;
         summary?: string;
-        comments?: string;
         followUp?: Date | string | null;
     }, userId: string) {
         const liveIssue = await this.liveIssueRepo.findOne({ where: { id } });
@@ -1192,9 +1189,6 @@ export class ReviewService {
         }
         if (liveIssueData.summary !== undefined) {
             liveIssue.summary = liveIssueData.summary;
-        }
-        if (liveIssueData.comments !== undefined) {
-            liveIssue.comments = liveIssueData.comments;
         }
         if (liveIssueData.followUp !== undefined) {
             liveIssue.followUp = liveIssueData.followUp ? new Date(liveIssueData.followUp) : null;

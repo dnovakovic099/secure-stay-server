@@ -206,14 +206,13 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { status, assignee, propertyId, summary, comments, followUp } = request.body;
+            const { status, assignee, propertyId, summary, followUp } = request.body;
 
             const newLiveIssue = await reviewService.createLiveIssue({
                 status,
                 assignee,
                 propertyId,
                 summary,
-                comments,
                 followUp,
             }, userId);
 
@@ -231,14 +230,13 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { id, status, assignee, propertyId, summary, comments, followUp } = request.body;
+            const { id, status, assignee, propertyId, summary, followUp } = request.body;
 
             const updatedLiveIssue = await reviewService.updateLiveIssue(Number(id), {
                 status,
                 assignee,
                 propertyId,
                 summary,
-                comments,
                 followUp,
             }, userId);
 

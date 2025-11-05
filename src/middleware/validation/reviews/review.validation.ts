@@ -227,7 +227,6 @@ export const validateCreateLiveIssue = (request: Request, response: Response, ne
         assignee: Joi.string().allow('', null).optional(),
         propertyId: Joi.number().required(),
         summary: Joi.string().required(),
-        comments: Joi.string().allow('', null).optional(),
         followUp: Joi.alternatives().try(
             Joi.string().isoDate(),
             Joi.date(),
@@ -249,7 +248,6 @@ export const validateUpdateLiveIssue = (request: Request, response: Response, ne
         assignee: Joi.string().allow('', null).optional(),
         propertyId: Joi.number().optional(),
         summary: Joi.string().optional(),
-        comments: Joi.string().allow('', null).optional(),
         followUp: Joi.alternatives().try(
             Joi.string().isoDate(),
             Joi.date(),
