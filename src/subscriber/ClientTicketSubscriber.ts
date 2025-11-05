@@ -41,7 +41,6 @@ export class ClientTicketSubscriber
             const listingInfo = await this.listingRepo.findOne({
                 where: {
                     id: Number(ticket.listingId),
-                    userId: userId
                 }
             });
 
@@ -80,7 +79,6 @@ export class ClientTicketSubscriber
             const listingInfo = await this.listingRepo.findOne({
                 where: {
                     id: Number(ticket.listingId),
-                    userId: userId
                 }
             });
 

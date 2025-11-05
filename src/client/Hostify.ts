@@ -39,7 +39,7 @@ export class Hostify {
             return allListings;
         } catch (error) {
             logger.error("Error fetching listings:", error.message);
-            throw error;
+            return [];
         }
     }
 
@@ -60,7 +60,7 @@ export class Hostify {
             return response.data || null;
         } catch (error) {
             logger.error(`Error fetching details for listing ${listingId}:`, error.message);
-            throw error;
+            return null;
         }
     }
 
@@ -104,6 +104,24 @@ export class Hostify {
 
         } catch (error) {
             logger.error(`Error fetching details for reservation ${reservationId}:`, error.message);
+            throw error;
+        }
+    }
+
+    async getListingImages(apiKey: string, listingId: string) {
+        try {
+            const url = `https://api-rms.hostify.com/listings/photos/${listingId}`;
+
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+
+            return response.data.photos || null;
+        } catch (error) {
+            logger.error(`Error fetching details for listing ${listingId}:`, error.message);
             throw error;
         }
     }

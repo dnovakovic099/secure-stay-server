@@ -23,10 +23,11 @@ export class ListingAmenities {
     @Column({ nullable: true })
     amenityName: string;
 
+    @Column({ type: "text", nullable: true })
+    description: string;
+
     @ManyToOne(() => Listing, (listing) => listing.listingAmenities, {
         onDelete: "CASCADE"
     })
-
-    @JoinColumn({ name: "listing_id" })
-    listing: number;
+    listing: Listing;
 }

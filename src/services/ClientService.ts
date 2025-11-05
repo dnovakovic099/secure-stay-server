@@ -366,24 +366,24 @@ export class ClientService {
             const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
 
             // --- Set amenities as simple array ---
-            if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-              savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
-              await transactionalEntityManager.save(savedPropertyInfo);
-            }
+            // if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+            //   savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+            //   await transactionalEntityManager.save(savedPropertyInfo);
+            // }
 
             // --- Save property bed types ---
-            if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-              const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                transactionalEntityManager.create(PropertyBedTypes, {
-                  haId: bedType.id,
-                  bedroomNumber: bedType.bedroomNumber,
-                  bedTypeId: bedType.bedTypeId,
-                  quantity: bedType.quantity,
-                  propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                })
-              );
-              await transactionalEntityManager.save(bedTypes);
-            }
+            // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+            //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+            //     transactionalEntityManager.create(PropertyBedTypes, {
+            //       haId: bedType.id,
+            //       bedroomNumber: bedType.bedroomNumber,
+            //       bedTypeId: bedType.bedTypeId,
+            //       quantity: bedType.quantity,
+            //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+            //     })
+            //   );
+            //   await transactionalEntityManager.save(bedTypes);
+            // }
 
             // --- Update property with propertyInfo relation ---
             savedProperty.propertyInfo = savedPropertyInfo;
@@ -576,18 +576,18 @@ export class ClientService {
                   await transactionalEntityManager.remove(propertyInfo.propertyBedTypes);
                 }
 
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
+                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                //     transactionalEntityManager.create(PropertyBedTypes, {
+                //       haId: bedType.id,
+                //       bedroomNumber: bedType.bedroomNumber,
+                //       bedTypeId: bedType.bedTypeId,
+                //       quantity: bedType.quantity,
+                //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                //     })
+                //   );
+                //   await transactionalEntityManager.save(bedTypes);
+                // }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -637,18 +637,18 @@ export class ClientService {
                 }
 
                 // Create bed types
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo,
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
+                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                //     transactionalEntityManager.create(PropertyBedTypes, {
+                //       haId: bedType.id,
+                //       bedroomNumber: bedType.bedroomNumber,
+                //       bedTypeId: bedType.bedTypeId,
+                //       quantity: bedType.quantity,
+                //       propertyId: savedPropertyInfo,
+                //     })
+                //   );
+                //   await transactionalEntityManager.save(bedTypes);
+                // }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -718,19 +718,19 @@ export class ClientService {
                 await transactionalEntityManager.save(savedPropertyInfo);
               }
 
-              // --- Save property bed types ---
-              if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                  transactionalEntityManager.create(PropertyBedTypes, {
-                    haId: bedType.id,
-                    bedroomNumber: bedType.bedroomNumber,
-                    bedTypeId: bedType.bedTypeId,
-                    quantity: bedType.quantity,
-                    propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                  })
-                );
-                await transactionalEntityManager.save(bedTypes);
-              }
+              // // --- Save property bed types ---
+              // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+              //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+              //     transactionalEntityManager.create(PropertyBedTypes, {
+              //       haId: bedType.id,
+              //       bedroomNumber: bedType.bedroomNumber,
+              //       bedTypeId: bedType.bedTypeId,
+              //       quantity: bedType.quantity,
+              //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+              //     })
+              //   );
+              //   await transactionalEntityManager.save(bedTypes);
+              // }
 
               // --- Update property with propertyInfo relation ---
               savedProperty.propertyInfo = savedPropertyInfo;

@@ -26,10 +26,4 @@ export class ListingBedTypes {
     @Column({ nullable: true })
     bedroomNumber: number;
 
-    @ManyToOne(() => Listing, (listing) => listing.listingBedTypes, {
-        onDelete: "CASCADE"
-    })
-
-    @JoinColumn({ name: "listing_id" })
-    listing: number;
 }

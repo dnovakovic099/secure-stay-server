@@ -14,7 +14,7 @@ export class ListingController {
       const listingService = new ListingService();
       const userId = request.user.id;
 
-      await listingService.syncHostawayListing(userId);
+      await listingService.syncHostifyListings(userId);
 
       return response.status(200).json(dataSaved('Listing synced successfully!!!'));
     } catch (error) {
