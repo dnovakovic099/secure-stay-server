@@ -22,6 +22,9 @@ import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
 import { BadReviewEntity } from "../entity/BadReview";
 import { BadReviewUpdatesEntity } from "../entity/BadReviewUpdates";
+import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
+import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
+import { Listing } from "../entity/Listing";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -106,6 +109,8 @@ export class ReviewService {
     private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
     private badReviewRepo = appDatabase.getRepository(BadReviewEntity);
     private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
+    private liveIssueRepo = appDatabase.getRepository(LiveIssue);
+    private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
 
     public async getReviews({
         fromDate,
@@ -1004,6 +1009,211 @@ export class ReviewService {
             .set({ isTodayActive: true })
             .where('status = :status', { status: BadReviewStatus.CALL_PHASE })
             .execute();
+    }
+
+    async getLiveIssues(filters: {
+        page: number;
+        limit: number;
+        propertyId?: number[];
+        keyword?: string;
+        status?: string[];
+        tab?: string;
+        assignee?: string;
+    }, userId: string) {
+        const {
+            page, limit, propertyId, keyword, status, tab, assignee
+        } = filters;
+
+        const query = this.liveIssueRepo
+            .createQueryBuilder("liveIssue")
+            .leftJoinAndSelect("liveIssue.liveIssueUpdates", "liveIssueUpdates")
+            .where("liveIssue.deletedAt IS NULL");
+
+        // Tab-based filtering logic
+        if (tab) {
+            switch (tab.toLowerCase()) {
+                case 'new':
+                    // New tab: Show only 'New' status
+                    query.andWhere("liveIssue.status = :newStatus", {
+                        newStatus: LiveIssueStatus.NEW
+                    });
+                    break;
+
+                case 'active':
+                    // Active tab: Show 'In Progress' status
+                    query.andWhere("liveIssue.status = :activeStatus", {
+                        activeStatus: LiveIssueStatus.IN_PROGRESS
+                    });
+                    break;
+
+                case 'closed':
+                    // Closed tab: Show all closed statuses
+                    query.andWhere("liveIssue.status IN (:...closedStatuses)", {
+                        closedStatuses: [
+                            LiveIssueStatus.CLOSED_RESOLVED,
+                            LiveIssueStatus.CLOSED_FAILED,
+                            LiveIssueStatus.CLOSED_NEGOTIATED,
+                            LiveIssueStatus.CLOSED_TRAPPED,
+                        ]
+                    });
+                    break;
+
+                default:
+                    // If tab is provided but not recognized, use existing status filter logic
+                    if (status && status.length > 0) {
+                        query.andWhere("liveIssue.status IN (:...status)", { status });
+                    }
+                    break;
+            }
+        } else {
+            // Legacy status filter (when no tab is specified)
+            if (status && status.length > 0) {
+                query.andWhere("liveIssue.status IN (:...status)", { status });
+            }
+        }
+
+        // Property filter
+        if (propertyId && propertyId.length > 0) {
+            query.andWhere("liveIssue.propertyId IN (:...propertyId)", { 
+                propertyId: propertyId.map(id => Number(id)) 
+            });
+        }
+
+        // Assignee filter
+        if (assignee) {
+            query.andWhere("liveIssue.assignee = :assignee", { assignee });
+        }
+
+        // Keyword filter (search in summary)
+        if (keyword) {
+            query.andWhere(
+                "liveIssue.summary ILIKE :keyword",
+                { keyword: `%${keyword}%` }
+            );
+        }
+
+        query.skip((page - 1) * limit).take(limit);
+        query.orderBy("liveIssue.createdAt", "DESC");
+
+        const [liveIssueList, total] = await query.getManyAndCount();
+
+        // Get users for assignee mapping
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
+        // Get listing information for properties
+        const listingService = new ListingService();
+        const listingRepository = appDatabase.getRepository(Listing);
+        const propertyIds = [...new Set(liveIssueList.map(li => li.propertyId).filter(Boolean))];
+        const propertyMap = new Map<number, string>();
+
+        if (propertyIds.length > 0) {
+            try {
+                const listings = await listingRepository.find({
+                    where: { id: In(propertyIds) }
+                });
+
+                listings.forEach(listing => {
+                    propertyMap.set(listing.id, listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
+                });
+            } catch (error) {
+                logger.error(`Error fetching listing info:`, error);
+            }
+        }
+
+        const transformedData = liveIssueList.map(li => {
+            const propertyId = Number(li.propertyId);
+            const propertyName = propertyMap.get(propertyId) || (li.propertyId ? `Property ${li.propertyId}` : 'N/A');
+            
+            return {
+                ...li,
+                assigneeName: userMap.get(li.assignee) || li.assignee,
+                assigneeList: users.map((user) => {
+                    return { uid: user.uid, name: `${user.firstName} ${user.lastName}` };
+                }),
+                propertyName: propertyName,
+                createdBy: userMap.get(li.createdBy) || li.createdBy,
+                updatedBy: userMap.get(li.updatedBy) || li.updatedBy,
+                liveIssueUpdates: li.liveIssueUpdates ? li.liveIssueUpdates.map(update => {
+                    return {
+                        ...update,
+                        createdBy: userMap.get(update.createdBy) || update.createdBy,
+                        updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                    };
+                }) : [],
+            };
+        });
+
+        return { result: transformedData, total };
+    }
+
+    async createLiveIssue(liveIssueData: {
+        status: string;
+        assignee?: string;
+        propertyId: number;
+        summary: string;
+        followUp?: Date | string;
+    }, userId: string) {
+        const newLiveIssue = this.liveIssueRepo.create({
+            status: liveIssueData.status,
+            assignee: liveIssueData.assignee,
+            propertyId: liveIssueData.propertyId,
+            summary: liveIssueData.summary,
+            followUp: liveIssueData.followUp ? new Date(liveIssueData.followUp) : null,
+            createdBy: userId,
+        });
+
+        return await this.liveIssueRepo.save(newLiveIssue);
+    }
+
+    async updateLiveIssue(id: number, liveIssueData: {
+        status?: string;
+        assignee?: string;
+        propertyId?: number;
+        summary?: string;
+        followUp?: Date | string | null;
+    }, userId: string) {
+        const liveIssue = await this.liveIssueRepo.findOne({ where: { id } });
+        if (!liveIssue) {
+            throw CustomErrorHandler.notFound(`Live issue not found with id: ${id}`);
+        }
+
+        if (liveIssueData.status !== undefined) {
+            liveIssue.status = liveIssueData.status;
+        }
+        if (liveIssueData.assignee !== undefined) {
+            liveIssue.assignee = liveIssueData.assignee;
+        }
+        if (liveIssueData.propertyId !== undefined) {
+            liveIssue.propertyId = liveIssueData.propertyId;
+        }
+        if (liveIssueData.summary !== undefined) {
+            liveIssue.summary = liveIssueData.summary;
+        }
+        if (liveIssueData.followUp !== undefined) {
+            liveIssue.followUp = liveIssueData.followUp ? new Date(liveIssueData.followUp) : null;
+        }
+
+        liveIssue.updatedAt = new Date();
+        liveIssue.updatedBy = userId;
+
+        return await this.liveIssueRepo.save(liveIssue);
+    }
+
+    async createLiveIssueUpdate(liveIssueId: number, updates: string, userId: string) {
+        const liveIssue = await this.liveIssueRepo.findOne({ where: { id: liveIssueId } });
+        if (!liveIssue) {
+            throw CustomErrorHandler.notFound(`Live issue not found with id: ${liveIssueId}`);
+        }
+
+        const newUpdate = {
+            updates,
+            createdBy: userId,
+            liveIssue,
+        };
+
+        const liveIssueUpdate = this.liveIssueUpdatesRepo.create(newUpdate);
+        return await this.liveIssueUpdatesRepo.save(liveIssueUpdate);
     }
 
 
