@@ -3,8 +3,9 @@ import Joi from "joi";
 
 export const validateSavePmAccountInfoRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        clientId: Joi.string().required(),
-        clientSecret: Joi.string().required()
+        clientId: Joi.string().required().allow(null, ""),
+        clientSecret: Joi.string().required().allow(null, ""),
+        apiKey: Joi.string().required().allow(null, "")
     });
 
     const { error } = schema.validate(request.body);

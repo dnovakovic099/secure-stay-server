@@ -1,3 +1,4 @@
+import { Hostify } from "../client/Hostify";
 import { ConnectedAccountInfo } from "../entity/ConnectedAccountInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
@@ -5,16 +6,25 @@ import { appDatabase } from "../utils/database.util";
 export class ConnectedAccountService {
     private connectedAccountInfoRepo = appDatabase.getRepository(ConnectedAccountInfo);
 
-    async savePmAccountInfo(clientId: string, clientSecret: string, userId: string) {
-        const isExist = await this.connectedAccountInfoRepo.findOne({ where: { account: 'pm', userId } });
-        if (isExist) {
-            throw CustomErrorHandler.alreadyExists('Account already connected');
+    async savePmAccountInfo(clientId: string, clientSecret: string, apiKey: string, userId: string) {
+        const existingAccount = await this.connectedAccountInfoRepo.findOne({ where: { account: 'pm', userId } });
+        const isValidAPIKey = await this.validateHostifyAPIKey(apiKey);
+        if (!isValidAPIKey) {
+            throw CustomErrorHandler.forbidden('Invalid Hostify API Key');
+        }
+        if (existingAccount) {
+            existingAccount.clientId = clientId;
+            existingAccount.clientSecret = clientSecret;
+            existingAccount.apiKey = apiKey;
+            existingAccount.updated_at = new Date();
+            return await this.connectedAccountInfoRepo.save(existingAccount);
         }
 
         const accountInfo = new ConnectedAccountInfo();
         accountInfo.account = 'pm';
         accountInfo.clientId = clientId;
         accountInfo.clientSecret = clientSecret;
+        accountInfo.apiKey = apiKey;
         accountInfo.userId = userId;
         accountInfo.created_at = new Date();
         accountInfo.updated_at = new Date();
@@ -69,19 +79,13 @@ export class ConnectedAccountService {
     }
 
     async getConnectedAccountInfo(userId: string) {
-        const [isPmCredentialExist, isSeamCredentialExist, isSifelyCredentialExist, isStripeCredentialExist] =
+        const [accountInfo] =
             await Promise.all([
                 this.connectedAccountInfoRepo.findOne({ where: { account: "pm", userId } }),
-                this.connectedAccountInfoRepo.findOne({ where: { account: "seam", userId } }),
-                this.connectedAccountInfoRepo.findOne({ where: { account: "sifely", userId } }),
-                this.connectedAccountInfoRepo.findOne({ where: { account: "stripe", userId } })
             ]);
 
         return {
-            pm: isPmCredentialExist ? true : false,
-            seam: isSeamCredentialExist ? true : false,
-            sifely: isSifelyCredentialExist ? true : false,
-            stripe: isStripeCredentialExist ? true : false
+            pm: accountInfo && accountInfo.apiKey ? true : false,
         };
     }
 
@@ -92,5 +96,10 @@ export class ConnectedAccountService {
 
     async deleteConnectedAccount(userId: string) {
         return await this.connectedAccountInfoRepo.delete({ userId });
+    }
+
+    async validateHostifyAPIKey(apiKey: string): Promise<boolean> {
+        const hostifyAPIKey = process.env.HOSTIFY_API_KEY;
+        return apiKey === hostifyAPIKey;
     }
 }

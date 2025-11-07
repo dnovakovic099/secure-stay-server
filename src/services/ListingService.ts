@@ -301,7 +301,7 @@ export class ListingService {
     const listings = await this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName"])
-      .where("listing.userId = :userId", { userId })
+      // .where("listing.userId = :userId", { userId })
       .getMany();
 
     return listings;
@@ -314,7 +314,7 @@ export class ListingService {
       .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
       .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .where("listing.listingId = :id", { id: Number(listing_id) })
-      .andWhere("listing.userId = :userId", { userId })
+      // .andWhere("listing.userId = :userId", { userId })
       .getOne();
 
     return result;
@@ -484,16 +484,21 @@ export class ListingService {
   }
 
   public async autoSyncListings(){
-    const connectedAccounts = await this.connectedAccountInfoRepository.find({
-      where: { account: "pm" },
-    });
+    // const connectedAccounts = await this.connectedAccountInfoRepository.find({
+    //   where: { account: "pm" },
+    // });
 
-    for (const account of connectedAccounts) {
-      try {
-        await this.syncHostifyListings(account.userId);
-      } catch (error) {
-        logger.error(`Error syncing listings for user ${account.userId}:`, error);
-      }
+    // for (const account of connectedAccounts) {
+    //   try {
+    //     await this.syncHostifyListings(account.userId);
+    //   } catch (error) {
+    //     logger.error(`Error syncing listings for user ${account.userId}:`, error);
+    //   }
+    // }
+    try {
+      await this.syncHostifyListings('system');
+    } catch (error) {
+      logger.error(`Error syncing listings for system user:`, error);
     }
   }
 
