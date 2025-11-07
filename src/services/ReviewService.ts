@@ -1153,6 +1153,8 @@ export class ReviewService {
         propertyId: number;
         summary: string;
         followUp?: Date | string;
+        guestName: string;
+        reservationId: number;
     }, userId: string) {
         const newLiveIssue = this.liveIssueRepo.create({
             status: liveIssueData.status,
@@ -1160,6 +1162,8 @@ export class ReviewService {
             propertyId: liveIssueData.propertyId,
             summary: liveIssueData.summary,
             followUp: liveIssueData.followUp ? new Date(liveIssueData.followUp) : null,
+            guestName: liveIssueData.guestName,
+            reservationId: liveIssueData.reservationId,
             createdBy: userId,
         });
 
@@ -1172,6 +1176,8 @@ export class ReviewService {
         propertyId?: number;
         summary?: string;
         followUp?: Date | string | null;
+        guestName?: string;
+        reservationId?: number;
     }, userId: string) {
         const liveIssue = await this.liveIssueRepo.findOne({ where: { id } });
         if (!liveIssue) {
@@ -1192,6 +1198,12 @@ export class ReviewService {
         }
         if (liveIssueData.followUp !== undefined) {
             liveIssue.followUp = liveIssueData.followUp ? new Date(liveIssueData.followUp) : null;
+        }
+        if (liveIssueData.guestName !== undefined) {
+            liveIssue.guestName = liveIssueData.guestName;
+        }
+        if (liveIssueData.reservationId !== undefined) {
+            liveIssue.reservationId = liveIssueData.reservationId;
         }
 
         liveIssue.updatedAt = new Date();

@@ -206,7 +206,7 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { status, assignee, propertyId, summary, followUp } = request.body;
+            const { status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
 
             const newLiveIssue = await reviewService.createLiveIssue({
                 status,
@@ -214,6 +214,8 @@ export class ReviewController {
                 propertyId,
                 summary,
                 followUp,
+                guestName,
+                reservationId,
             }, userId);
 
             return response.status(201).json({
@@ -230,7 +232,7 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { id, status, assignee, propertyId, summary, followUp } = request.body;
+            const { id, status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
 
             const updatedLiveIssue = await reviewService.updateLiveIssue(Number(id), {
                 status,
@@ -238,6 +240,8 @@ export class ReviewController {
                 propertyId,
                 summary,
                 followUp,
+                guestName,
+                reservationId,
             }, userId);
 
             return response.status(200).json({
