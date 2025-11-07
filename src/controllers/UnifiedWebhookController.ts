@@ -282,4 +282,20 @@ export class UnifiedWebhookController {
             logger.error(`[handleHostBuddyWebhook][handleCreateIssue] Error creating issue: ${error.message}`);
         }
     }
+
+    async handleHostifyWebhook(request: Request, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+
+            logger.info('[handleHostifyWebhook]Received Hostify webhook request');
+            logger.info(`[handleHostifyWebhook]Hostify webhook request body: ${JSON.stringify(body)}`);
+            // Process the Hostify webhook here
+
+            return response.status(200).send("Ok");
+        } catch (error) {
+            logger.error(`Error handling Hostify webhook: ${error?.message}`);
+            logger.error(error.stack);
+            return next(error);
+        }
+    }
 }
