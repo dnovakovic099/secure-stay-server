@@ -212,6 +212,7 @@ export const validateGetLiveIssues = (request: Request, response: Response, next
         ).optional(),
         tab: Joi.string().required().valid("new", "active", "closed"),
         assignee: Joi.string().optional(),
+        guestName: Joi.string().optional(),
     });
 
     const { error } = schema.validate(request.query);

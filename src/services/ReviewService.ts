@@ -1019,9 +1019,10 @@ export class ReviewService {
         status?: string[];
         tab?: string;
         assignee?: string;
+        guestName?: string;
     }, userId: string) {
         const {
-            page, limit, propertyId, keyword, status, tab, assignee
+            page, limit, propertyId, keyword, status, tab, assignee, guestName
         } = filters;
 
         const query = this.liveIssueRepo
@@ -1087,8 +1088,15 @@ export class ReviewService {
         // Keyword filter (search in summary)
         if (keyword) {
             query.andWhere(
-                "liveIssue.summary ILIKE :keyword",
-                { keyword: `%${keyword}%` }
+                "LOWER(liveIssue.summary) LIKE :keyword",
+                { keyword: `%${keyword.toLowerCase()}%` }
+            );
+        }
+
+        if (guestName) {
+            query.andWhere(
+                "LOWER(liveIssue.guestName) LIKE :guestName",
+                { guestName: `%${guestName.toLowerCase()}%` }
             );
         }
 

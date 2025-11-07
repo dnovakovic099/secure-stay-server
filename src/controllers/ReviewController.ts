@@ -178,7 +178,7 @@ export class ReviewController {
         try {
             const userId = request.user.id;
             const reviewService = new ReviewService();
-            const { page, limit, propertyId, keyword, status, tab, assignee } = request.query;
+            const { page, limit, propertyId, keyword, status, tab, assignee, guestName } = request.query;
             
             const filters = {
                 page: Number(page) || 1,
@@ -188,6 +188,7 @@ export class ReviewController {
                 status: status ? (Array.isArray(status) ? status.map(s => String(s)) : [String(status)]) : undefined,
                 tab: tab ? String(tab) : undefined,
                 assignee: assignee ? String(assignee) : undefined,
+                guestName: guestName ? String(guestName) : undefined,
             };
 
             const data = await reviewService.getLiveIssues(filters, userId);
