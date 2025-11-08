@@ -18,6 +18,7 @@ export class UnifiedWebhookController {
         this.handleSlackInteractivity = this.handleSlackInteractivity.bind(this);
         this.handleCreateIssue = this.handleCreateIssue.bind(this);
         this.handleHostBuddyWebhook = this.handleHostBuddyWebhook.bind(this);
+        this.handleHostifyWebhook = this.handleHostifyWebhook.bind(this);
     }
 
     async handleWebhookResponse(request: Request, response: Response, next: NextFunction) {
@@ -284,18 +285,53 @@ export class UnifiedWebhookController {
     }
 
     async handleHostifyWebhook(request: Request, response: Response, next: NextFunction) {
+        let message: any;
         try {
-            const body = request.body;
+            // Parse the JSON from the text body (bodyParser.text() gives us a string)
+            try {
+                message = JSON.parse(request.body);
+            } catch (err) {
+                logger.error("❌ Failed to parse SNS body:", request.body);
+                return response.sendStatus(400);
+            }
 
-            logger.info('[handleHostifyWebhook]Received Hostify webhook request');
-            logger.info(`[handleHostifyWebhook]Hostify webhook request body: ${JSON.stringify(body)}`);
-            // Process the Hostify webhook here
+            logger.info("[handleHostifyWebhook] Received SNS message:", message);
+            logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message, null, 2)}`);
 
-            return response.status(200).send("Ok");
-        } catch (error) {
-            logger.error(`Error handling Hostify webhook: ${error?.message}`);
+            // Optional auth verification (Hostify 'auth' query parameter)
+            const incomingAuth = request.query.auth as string;
+            const expectedAuth = process.env.HOSTIFY_WEBHOOK_SECRET;
+            if (expectedAuth && incomingAuth !== expectedAuth) {
+                logger.warn("🚫 Invalid Hostify webhook auth");
+                return response.sendStatus(401);
+            }
+
+            // Check if this is the SNS confirmation message
+            if (message.Type === "SubscriptionConfirmation") {
+                logger.info("🔔 SNS SubscriptionConfirmation received");
+                try {
+                    // Confirm the subscription by making a GET request to SubscribeURL
+                    await axios.get(message.SubscribeURL);
+                    logger.info("✅ SNS subscription confirmed successfully");
+                } catch (err: any) {
+                    logger.error("❌ Failed to confirm SNS subscription:", err.message);
+                }
+            } else if (message.Type === "Notification") {
+                logger.info("📩 Hostify event received:", message);
+
+                // You can inspect the inner notification here
+                // Example:
+                // const notification = JSON.parse(message.Message);
+                // logger.info("Hostify payload:", notification);
+            } else {
+                logger.info("ℹ️ Unrecognized SNS message type:", message.Type);
+            }
+
+            return response.sendStatus(200);
+        } catch (error: any) {
+            logger.error("❌ Error handling Hostify webhook:", error.message);
             logger.error(error.stack);
-            return next(error);
+            return response.sendStatus(500);
         }
     }
 }

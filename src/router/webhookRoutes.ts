@@ -11,6 +11,6 @@ router.route('/slack-interactivity-webhook').post(bodyParser.urlencoded({ extend
 
 router.route('/hostbuddy-webhook').post(unifiedWebhookController.handleHostBuddyWebhook);
 
-router.route('/hostify').post(unifiedWebhookController.handleHostifyWebhook);
+router.route('/hostify_v1').post(bodyParser.text({ type: "*/*" }), unifiedWebhookController.handleHostifyWebhook);
 
 export default router;

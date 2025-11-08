@@ -22,7 +22,15 @@ process.on("unhandledRejection", (reason, promise) => {
 const main = async () => {
   const app = express();
   app.use(cors());
-  app.use(express.json({ limit: "50mb" }));
+
+  // JSON parser middleware that skips the hostify webhook route (needs raw text body for SNS)
+  app.use((req, res, next) => {
+    // Skip JSON parsing for hostify webhook - it needs raw text body
+    if (req.path.includes('/webhook/hostify_v1')) {
+      return next();
+    }
+    express.json({ limit: "50mb" })(req, res, next);
+  });
   // app.use(express.json());
   app.use("/uploads", express.static("uploads"));
   app.use("/public", express.static("public"));
