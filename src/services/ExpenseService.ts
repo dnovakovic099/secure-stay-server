@@ -281,7 +281,7 @@ export class ExpenseService {
                 return {
                     expenseId: expense.expenseId,
                     status: expense.status,
-                    amount: type ? Math.abs(expense.amount) : expense.amount,
+                    amount: expense.amount,
                     listing: listingNameMap[expense.listingMapId] || 'N/A',
                     listingMapId: expense.listingMapId,
                     dateAdded: expense.expenseDate,

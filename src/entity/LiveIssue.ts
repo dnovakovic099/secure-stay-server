@@ -28,6 +28,12 @@ export class LiveIssue {
     @Column({ nullable: true })
     propertyId: number; // listingMapId
 
+    @Column({ nullable: true })
+    guestName: string;
+
+    @Column({ type: 'int', nullable: true })
+    reservationId: number;
+
     @Column({ type: 'text', nullable: true })
     summary: string;
 

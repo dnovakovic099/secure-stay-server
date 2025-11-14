@@ -178,7 +178,7 @@ export class ReviewController {
         try {
             const userId = request.user.id;
             const reviewService = new ReviewService();
-            const { page, limit, propertyId, keyword, status, tab, assignee } = request.query;
+            const { page, limit, propertyId, keyword, status, tab, assignee, guestName } = request.query;
             
             const filters = {
                 page: Number(page) || 1,
@@ -188,6 +188,7 @@ export class ReviewController {
                 status: status ? (Array.isArray(status) ? status.map(s => String(s)) : [String(status)]) : undefined,
                 tab: tab ? String(tab) : undefined,
                 assignee: assignee ? String(assignee) : undefined,
+                guestName: guestName ? String(guestName) : undefined,
             };
 
             const data = await reviewService.getLiveIssues(filters, userId);
@@ -206,7 +207,7 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { status, assignee, propertyId, summary, followUp } = request.body;
+            const { status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
 
             const newLiveIssue = await reviewService.createLiveIssue({
                 status,
@@ -214,6 +215,8 @@ export class ReviewController {
                 propertyId,
                 summary,
                 followUp,
+                guestName,
+                reservationId,
             }, userId);
 
             return response.status(201).json({
@@ -230,7 +233,7 @@ export class ReviewController {
         try {
             const reviewService = new ReviewService();
             const userId = request.user.id;
-            const { id, status, assignee, propertyId, summary, followUp } = request.body;
+            const { id, status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
 
             const updatedLiveIssue = await reviewService.updateLiveIssue(Number(id), {
                 status,
@@ -238,6 +241,8 @@ export class ReviewController {
                 propertyId,
                 summary,
                 followUp,
+                guestName,
+                reservationId,
             }, userId);
 
             return response.status(200).json({
