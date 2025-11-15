@@ -274,9 +274,21 @@ export const listingIdMappings = [
     // { hostaway_id: 423859, hostify_id: 300017668 },
     // { hostaway_id: 423533, hostify_id: 300017712 },
     // { hostaway_id: 418423, hostify_id: 300017584 },
-    { hostaway_id: 442837, hostify_id: 300017756 },
-    { hostaway_id: 433545, hostify_id: 300017913 },
-    { hostaway_id: 441077, hostify_id: 300017922 },
-    { hostaway_id: 442472, hostify_id: 300017763 },
+    // { hostaway_id: 442837, hostify_id: 300017756 },
+    // { hostaway_id: 433545, hostify_id: 300017913 },
+    // { hostaway_id: 441077, hostify_id: 300017922 },
+    // { hostaway_id: 442472, hostify_id: 300017763 },
+
+    { hostaway_id: 434835, hostify_id: 300018404 },
+    { hostaway_id: 443789, hostify_id: 300017759 },
+    { hostaway_id: 414766, hostify_id: 300017669 },
+    { hostaway_id: 301737, hostify_id: 300017780 },
+    { hostaway_id: 434712, hostify_id: 300017708 },
+    { hostaway_id: 356150, hostify_id: 300017730 },
+    { hostaway_id: 423326, hostify_id: 300017680 },
+    { hostaway_id: 420927, hostify_id: 300017688 },
+    { hostaway_id: 288169, hostify_id: 300017734 },
+
+
 ];
 
