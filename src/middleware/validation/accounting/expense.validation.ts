@@ -191,7 +191,8 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional(),
-        isRecurring: Joi.number().valid(0,1).optional()
+        isRecurring: Joi.number().valid(0, 1).optional(),
+        type: Joi.string().optional().valid("expense", "extras")
     })
         // enforce fromDate <-> toDate dependency
         .with("fromDate", "toDate")

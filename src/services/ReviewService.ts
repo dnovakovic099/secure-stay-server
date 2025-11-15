@@ -20,6 +20,11 @@ import { IssuesService } from "./IssuesService";
 import { UsersEntity } from "../entity/Users";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
+import { BadReviewEntity } from "../entity/BadReview";
+import { BadReviewUpdatesEntity } from "../entity/BadReviewUpdates";
+import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
+import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
+import { Listing } from "../entity/Listing";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -51,6 +56,24 @@ interface Filter {
     tab?: string | null | undefined;
 }
 
+
+interface FilterBadReviews {
+    listingMapId?: string[];
+    guestName?: string;
+    page?: number;
+    limit?: number;
+    userId?: string;
+    actionItemsStatus?: string[] | null | undefined;
+    issuesStatus?: string[] | null | undefined;
+    channel?: string[] | null | undefined;
+    payment?: string[] | null | undefined;
+    keyword?: string | undefined;
+    todayDate?: string | undefined;
+    status?: string[] | null | undefined;
+    isActive?: boolean | null | undefined;
+    tab?: string | null | undefined;
+}
+
 export enum ReviewCheckoutStatus {
     TO_CALL = "To Call",
     FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
@@ -64,6 +87,18 @@ export enum ReviewCheckoutStatus {
     LAUNCH = "Launch"
 }
 
+
+export enum BadReviewStatus {
+    NEW = 'New',
+    CALL_PHASE = 'Call Phase',
+    PENDING_REMOVAL = 'Pending Removal',
+    CLOSED_NO_ACTION_REQUIRED = 'Closed - No Action Required',
+    CLOSED_REMOVED = 'Closed - Removed',
+    CLOSED_FAILED = 'Closed - Failed'
+}
+
+
+
 export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
@@ -72,6 +107,10 @@ export class ReviewService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
     private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
+    private badReviewRepo = appDatabase.getRepository(BadReviewEntity);
+    private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
+    private liveIssueRepo = appDatabase.getRepository(LiveIssue);
+    private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
 
     public async getReviews({
         fromDate,
@@ -530,7 +569,7 @@ export class ReviewService {
                         (reviewCheckout.status IN (:activeStatuses))
                     `, {
                         followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
-                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED],
+                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED, ReviewCheckoutStatus.LAUNCH],
                         todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
                     });
                     break;
@@ -543,7 +582,6 @@ export class ReviewService {
                             ReviewCheckoutStatus.CLOSED_BAD_REVIEW,
                             ReviewCheckoutStatus.CLOSED_NO_REVIEW,
                             ReviewCheckoutStatus.CLOSED_TRAPPED,
-                            ReviewCheckoutStatus.LAUNCH
                         ]
                     });
                     break;
@@ -737,7 +775,7 @@ export class ReviewService {
     }
 
     async updateReviewCheckout(id: number, status: ReviewCheckoutStatus, comments: string, userId: string, isActive?: boolean) {
-        const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id } });
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
         }
@@ -748,6 +786,14 @@ export class ReviewService {
         reviewCheckout.updatedBy = userId;
         if (isActive !== undefined) {
             reviewCheckout.isActive = isActive;
+        }
+        if (reviewCheckout.status == ReviewCheckoutStatus.CLOSED_BAD_REVIEW) {
+            logger.info(`Bad review created for review checkout id: ${id}`);
+            await this.createBadReview({
+                reservationInfo: reviewCheckout.reservationInfo,
+                status: 'New',
+                createdBy: userId
+            });
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
 
@@ -769,5 +815,426 @@ export class ReviewService {
         const reviewCheckoutUpdate = this.reviewCheckoutUpdatesRepo.create(newUpdate);
         return await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
     }
+
+    async deleteLaunchReviewCheckouts() {
+        const launchReviewCheckouts = await this.reviewCheckoutRepo.find({
+            where: {
+                status: ReviewCheckoutStatus.LAUNCH,
+            }
+        });
+
+        for (const reviewCheckout of launchReviewCheckouts) {
+            //updated the deletedAt and deletedBy fields
+            reviewCheckout.deletedAt = new Date();
+            reviewCheckout.deletedBy = "system";
+            await this.reviewCheckoutRepo.save(reviewCheckout);
+        }
+
+        logger.info(`Deleted ${launchReviewCheckouts.length} review checkouts with 'Launch' status.`);
+    }
+
+    private async createBadReview(obj: any) {
+        const newReview = this.badReviewRepo.create(obj);
+        return await this.badReviewRepo.save(newReview);
+    }
+
+    async updateBadReviewStatus(id: number, status: BadReviewStatus, userId: string) {
+        const badReview = await this.badReviewRepo.findOne({ where: { id } });
+        if (!badReview) {
+            throw CustomErrorHandler.notFound(`Bad review not found with id: ${id}`);
+        }
+        badReview.status = status;
+        badReview.isTodayActive = false;;
+        badReview.updatedAt = new Date();
+        badReview.updatedBy = userId;
+        await this.badReviewRepo.save(badReview);
+        return badReview;
+    }
+
+    async getBadReviews(filters: FilterBadReviews, userId: string) {
+        const {
+            page, limit, listingMapId, guestName,
+            actionItemsStatus, issuesStatus, channel,
+            todayDate, status, tab,
+        } = filters;
+
+        //fetch bad reviews list
+        const query = this.badReviewRepo
+            .createQueryBuilder("badReview")
+            .leftJoinAndSelect("badReview.reservationInfo", "reservationInfo")
+            .leftJoinAndSelect("badReview.badReviewUpdates", "badReviewUpdates");
+
+        // Tab-based filtering logic
+        if (tab) {
+            switch (tab.toLowerCase()) {
+                case 'today':
+                    // Today tab: Show 'New' status + follow up statuses with active today with status call phase
+                    query.andWhere(`
+                        (badReview.status = :toCallStatus) OR 
+                        (badReview.status IN (:followUpStatuses) AND badReview.isTodayActive = true)
+                    `, {
+                        toCallStatus: BadReviewStatus.NEW,
+                        followUpStatuses: [BadReviewStatus.CALL_PHASE],
+                    });
+                    break;
+
+                case 'active':
+                    // Active tab: Show follow up statuses + Issue + No Further Action
+                    // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses, 
+                    // only show if isActive is true
+                    query.andWhere(`
+                        (badReview.status IN (:followUpStatuses)) OR
+                        (badReview.status IN (:followUpStatuses) AND badReview.isTodayActive = false) OR
+                        (badReview.status IN (:activeStatuses))
+                    `, {
+                        followUpStatuses: [BadReviewStatus.PENDING_REMOVAL],
+                        activeStatuses: [BadReviewStatus.CALL_PHASE],
+                    });
+                    break;
+
+                case 'closed':
+                    // Closed tab: Show all closed statuses
+                    query.andWhere("badReview.status IN (:...closedStatuses)", {
+                        closedStatuses: [
+                            BadReviewStatus.CLOSED_FAILED,
+                            BadReviewStatus.CLOSED_NO_ACTION_REQUIRED,
+                            BadReviewStatus.CLOSED_REMOVED,
+                        ]
+                    });
+                    break;
+
+                default:
+                    // If tab is provided but not recognized, use existing status filter logic
+                    if (status && status.length > 0) {
+                        query.andWhere("badReview.status IN (:...status)", { status });
+                    }
+                    break;
+            }
+        } else {
+            // Legacy status filter (when no tab is specified)
+            if (status && status.length > 0) {
+                query.andWhere("badReview.status IN (:...status)", { status });
+            }
+        }
+
+        // Listing filter
+        if (listingMapId && listingMapId.length > 0) {
+            query.andWhere("reservationInfo.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId.map(id => Number(id)) });
+        }
+
+        // Guest name filter
+        if (guestName) {
+            query.andWhere("reservationInfo.guestName ILIKE :guestName", { guestName: `${guestName}%` });
+        }
+
+        // Channel filter
+        if (channel && channel.length > 0) {
+            query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
+        }
+
+        query.skip((page - 1) * limit).take(limit);
+        query.orderBy("badReview.createdAt", "DESC");
+
+        const [badReviewList, total] = await query.getManyAndCount();
+
+        const reservationIds = badReviewList.map(rc => rc.reservationInfo.id);
+
+        // append reviews for each reservations
+        const reviews = await this.reviewRepository.find({
+            where: {
+                reservationId: In(reservationIds),
+                isHidden: 0,
+            },
+            relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
+            order: {
+                createdAt: 'DESC',
+            },
+        });
+
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
+        const issueServices = new IssuesService();
+        const actionItemServices = new ActionItemsService();
+
+        const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
+        const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
+
+        const transformedData = badReviewList.map(rc => {
+            return {
+                ...rc,
+                assignee: userMap.get(rc.assignee) || rc.assignee,
+                createdBy: userMap.get(rc.createdBy) || rc.createdBy,
+                updatedBy: userMap.get(rc.updatedBy) || rc.updatedBy,
+                reservationInfo: {
+                    ...rc.reservationInfo,
+                    review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
+                    issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
+                    actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
+                },
+                badReviewUpdates: rc.badReviewUpdates.map(update => {
+                    return {
+                        ...update,
+                        createdBy: userMap.get(update.createdBy) || update.createdBy,
+                        updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                    };
+                }),
+                reviews: reviews.filter(r => r.reservationId == rc.reservationInfo?.id) || [],
+            };
+        });
+
+        return { result: transformedData, total };
+    }
+
+    async createBadReviewUpdate(badReviewId: number, updates: string, userId: string) {
+        const badReview = await this.badReviewRepo.findOne({ where: { id: badReviewId } });
+        if (!badReview) {
+            throw CustomErrorHandler.notFound(`Bad review not found with id: ${badReviewId}`);
+        }
+
+        const newUpdate = {
+            updates,
+            createdBy: userId,
+            badReview,
+        };
+
+        const badReviewUpdate = this.badReviewUpdatesRepo.create(newUpdate);
+        return await this.badReviewUpdatesRepo.save(badReviewUpdate);
+    }
+
+    async updateBadReviewStatusForCallPhaseDaily() {
+        await this.badReviewRepo
+            .createQueryBuilder()
+            .update(BadReviewEntity)
+            .set({ isTodayActive: true })
+            .where('status = :status', { status: BadReviewStatus.CALL_PHASE })
+            .execute();
+    }
+
+    async getLiveIssues(filters: {
+        page: number;
+        limit: number;
+        propertyId?: number[];
+        keyword?: string;
+        status?: string[];
+        tab?: string;
+        assignee?: string;
+        guestName?: string;
+    }, userId: string) {
+        const {
+            page, limit, propertyId, keyword, status, tab, assignee, guestName
+        } = filters;
+
+        const query = this.liveIssueRepo
+            .createQueryBuilder("liveIssue")
+            .leftJoinAndSelect("liveIssue.liveIssueUpdates", "liveIssueUpdates")
+            .where("liveIssue.deletedAt IS NULL");
+
+        // Tab-based filtering logic
+        if (tab) {
+            switch (tab.toLowerCase()) {
+                case 'new':
+                    // New tab: Show only 'New' status
+                    query.andWhere("liveIssue.status = :newStatus", {
+                        newStatus: LiveIssueStatus.NEW
+                    });
+                    break;
+
+                case 'active':
+                    // Active tab: Show 'In Progress' status
+                    query.andWhere("liveIssue.status = :activeStatus", {
+                        activeStatus: LiveIssueStatus.IN_PROGRESS
+                    });
+                    break;
+
+                case 'closed':
+                    // Closed tab: Show all closed statuses
+                    query.andWhere("liveIssue.status IN (:...closedStatuses)", {
+                        closedStatuses: [
+                            LiveIssueStatus.CLOSED_RESOLVED,
+                            LiveIssueStatus.CLOSED_FAILED,
+                            LiveIssueStatus.CLOSED_NEGOTIATED,
+                            LiveIssueStatus.CLOSED_TRAPPED,
+                        ]
+                    });
+                    break;
+
+                default:
+                    // If tab is provided but not recognized, use existing status filter logic
+                    if (status && status.length > 0) {
+                        query.andWhere("liveIssue.status IN (:...status)", { status });
+                    }
+                    break;
+            }
+        } else {
+            // Legacy status filter (when no tab is specified)
+            if (status && status.length > 0) {
+                query.andWhere("liveIssue.status IN (:...status)", { status });
+            }
+        }
+
+        // Property filter
+        if (propertyId && propertyId.length > 0) {
+            query.andWhere("liveIssue.propertyId IN (:...propertyId)", { 
+                propertyId: propertyId.map(id => Number(id)) 
+            });
+        }
+
+        // Assignee filter
+        if (assignee) {
+            query.andWhere("liveIssue.assignee = :assignee", { assignee });
+        }
+
+        // Keyword filter (search in summary)
+        if (keyword) {
+            query.andWhere(
+                "LOWER(liveIssue.summary) LIKE :keyword",
+                { keyword: `%${keyword.toLowerCase()}%` }
+            );
+        }
+
+        if (guestName) {
+            query.andWhere(
+                "LOWER(liveIssue.guestName) LIKE :guestName",
+                { guestName: `%${guestName.toLowerCase()}%` }
+            );
+        }
+
+        query.skip((page - 1) * limit).take(limit);
+        query.orderBy("liveIssue.createdAt", "DESC");
+
+        const [liveIssueList, total] = await query.getManyAndCount();
+
+        // Get users for assignee mapping
+        const users = await this.usersRepo.find();
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
+        // Get listing information for properties
+        const listingService = new ListingService();
+        const listingRepository = appDatabase.getRepository(Listing);
+        const propertyIds = [...new Set(liveIssueList.map(li => li.propertyId).filter(Boolean))];
+        const propertyMap = new Map<number, string>();
+
+        if (propertyIds.length > 0) {
+            try {
+                const listings = await listingRepository.find({
+                    where: { id: In(propertyIds) }
+                });
+
+                listings.forEach(listing => {
+                    propertyMap.set(listing.id, listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
+                });
+            } catch (error) {
+                logger.error(`Error fetching listing info:`, error);
+            }
+        }
+
+        const transformedData = liveIssueList.map(li => {
+            const propertyId = Number(li.propertyId);
+            const propertyName = propertyMap.get(propertyId) || (li.propertyId ? `Property ${li.propertyId}` : 'N/A');
+            
+            return {
+                ...li,
+                assigneeName: userMap.get(li.assignee) || li.assignee,
+                assigneeList: users.map((user) => {
+                    return { uid: user.uid, name: `${user.firstName} ${user.lastName}` };
+                }),
+                propertyName: propertyName,
+                createdBy: userMap.get(li.createdBy) || li.createdBy,
+                updatedBy: userMap.get(li.updatedBy) || li.updatedBy,
+                liveIssueUpdates: li.liveIssueUpdates ? li.liveIssueUpdates.map(update => {
+                    return {
+                        ...update,
+                        createdBy: userMap.get(update.createdBy) || update.createdBy,
+                        updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+                    };
+                }) : [],
+            };
+        });
+
+        return { result: transformedData, total };
+    }
+
+    async createLiveIssue(liveIssueData: {
+        status: string;
+        assignee?: string;
+        propertyId: number;
+        summary: string;
+        followUp?: Date | string;
+        guestName: string;
+        reservationId: number;
+    }, userId: string) {
+        const newLiveIssue = this.liveIssueRepo.create({
+            status: liveIssueData.status,
+            assignee: liveIssueData.assignee,
+            propertyId: liveIssueData.propertyId,
+            summary: liveIssueData.summary,
+            followUp: liveIssueData.followUp ? new Date(liveIssueData.followUp) : null,
+            guestName: liveIssueData.guestName,
+            reservationId: liveIssueData.reservationId,
+            createdBy: userId,
+        });
+
+        return await this.liveIssueRepo.save(newLiveIssue);
+    }
+
+    async updateLiveIssue(id: number, liveIssueData: {
+        status?: string;
+        assignee?: string;
+        propertyId?: number;
+        summary?: string;
+        followUp?: Date | string | null;
+        guestName?: string;
+        reservationId?: number;
+    }, userId: string) {
+        const liveIssue = await this.liveIssueRepo.findOne({ where: { id } });
+        if (!liveIssue) {
+            throw CustomErrorHandler.notFound(`Live issue not found with id: ${id}`);
+        }
+
+        if (liveIssueData.status !== undefined) {
+            liveIssue.status = liveIssueData.status;
+        }
+        if (liveIssueData.assignee !== undefined) {
+            liveIssue.assignee = liveIssueData.assignee;
+        }
+        if (liveIssueData.propertyId !== undefined) {
+            liveIssue.propertyId = liveIssueData.propertyId;
+        }
+        if (liveIssueData.summary !== undefined) {
+            liveIssue.summary = liveIssueData.summary;
+        }
+        if (liveIssueData.followUp !== undefined) {
+            liveIssue.followUp = liveIssueData.followUp ? new Date(liveIssueData.followUp) : null;
+        }
+        if (liveIssueData.guestName !== undefined) {
+            liveIssue.guestName = liveIssueData.guestName;
+        }
+        if (liveIssueData.reservationId !== undefined) {
+            liveIssue.reservationId = liveIssueData.reservationId;
+        }
+
+        liveIssue.updatedAt = new Date();
+        liveIssue.updatedBy = userId;
+
+        return await this.liveIssueRepo.save(liveIssue);
+    }
+
+    async createLiveIssueUpdate(liveIssueId: number, updates: string, userId: string) {
+        const liveIssue = await this.liveIssueRepo.findOne({ where: { id: liveIssueId } });
+        if (!liveIssue) {
+            throw CustomErrorHandler.notFound(`Live issue not found with id: ${liveIssueId}`);
+        }
+
+        const newUpdate = {
+            updates,
+            createdBy: userId,
+            liveIssue,
+        };
+
+        const liveIssueUpdate = this.liveIssueUpdatesRepo.create(newUpdate);
+        return await this.liveIssueUpdatesRepo.save(liveIssueUpdate);
+    }
+
 
 }

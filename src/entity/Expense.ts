@@ -80,4 +80,10 @@ export class ExpenseEntity {
 
     @Column({ nullable: true })
     comesFrom: string;
+
+    @Column({ nullable: true })
+    reservationId: string;
+
+    @Column({ nullable: true })
+    guestName: string;
 }

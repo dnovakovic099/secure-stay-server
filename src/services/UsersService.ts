@@ -16,6 +16,7 @@ import { ClientTicket } from "../entity/ClientTicket";
 import { tagIds } from "../constant";
 import { ListingService } from "./ListingService";
 import { format } from "date-fns";
+import { LiveIssue } from "../entity/LiveIssue";
 
 
 interface ApiKey {
@@ -33,6 +34,7 @@ export class UsersService {
     private issuesRepository = appDatabase.getRepository(Issue);
     private actionItemsRepo = appDatabase.getRepository(ActionItems);
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
+    private liveIssuesRepo = appDatabase.getRepository(LiveIssue);
 
 
     async createUser(request: Request, response: Response) {
@@ -633,6 +635,15 @@ export class UsersService {
             order: { urgency: "DESC" },
         });
 
+        //Live Issues
+        const liveIssues = await this.liveIssuesRepo.find({
+            where: {
+                assignee: userId
+            },
+            relations: ["liveIssueUpdates"],
+            order: { followUp: "DESC" },
+        })
+
         const users = await this.usersRepository.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName}`]));
 
@@ -693,7 +704,32 @@ export class UsersService {
             };
         });
 
-        const data = [...transformedActionItems, ...transformedClientTickets, ...transformedIssues].sort((a, b) => b.urgency - a.urgency || (b.createdAt.getTime() - a.createdAt.getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0));
+
+        const transformedLiveIssues = liveIssues.map(issue => {
+            return {
+                id: issue.id,
+                status: issue.status,
+                assignee: issue.assignee,
+                assigneeName: userMap.get(issue.assignee) || issue.assignee,
+                area: "Live Issues",
+                property: listings.find((listing) => listing.id == Number(issue.propertyId))?.internalListingName || issue.propertyId,
+                description: issue.summary,
+                latestUpdate: issue.liveIssueUpdates.sort((a, b) => b.id - a.id)[0]?.updates || '',
+                urgency: 0,
+                mistake: null,
+                mistakeResolvedOn: null,
+                createdAt: issue.createdAt,
+                completedOn: ""
+            };
+
+        });
+
+        const data = [
+            ...transformedActionItems, 
+            ...transformedClientTickets, 
+            ...transformedIssues,
+            ...transformedLiveIssues
+        ].sort((a, b) => b.urgency - a.urgency || (b.createdAt.getTime() - a.createdAt.getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0));
 
         const taggedDataCount = {
             active: data.filter(item => item.status && item.status.toLowerCase() !== "completed").length,

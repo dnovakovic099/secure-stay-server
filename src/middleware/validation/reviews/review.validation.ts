@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import Joi, { custom } from "joi";
+import { BadReviewStatus } from "../../../services/ReviewService";
+import { LiveIssueStatus } from "../../../entity/LiveIssue";
 
 enum ReviewCheckoutStatus {
     TO_CALL = "To Call",
@@ -129,6 +131,145 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
 export const validateCreateLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         reviewCheckoutId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateBadReviewUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        badReviewId: Joi.number().required(),
+        status: Joi.string().required().valid(...Object.values(BadReviewStatus)),
+    });
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateBadReviewLatestUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        badReviewId: Joi.number().required(),
+        updates: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateGetBadReview = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        todayDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().messages({
+            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+            'any.required': 'todayDate is required'
+        }),
+        listingMapId: Joi.array().items(Joi.number()).min(1).allow("", null),
+        guestName: Joi.string().allow(''),
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        actionItems: Joi.array().items(
+            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
+        ).optional(),
+        issues: Joi.array().items(
+            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+        ).optional(),
+        channel: Joi.array().items(Joi.string()).optional(),
+        keyword: Joi.string().optional(),
+        status: Joi.array().items(Joi.string().required().valid(...Object.values(BadReviewStatus))).min(1).allow("", null),
+        isActive: Joi.boolean().optional(),
+        tab: Joi.string().required().valid("today", "active", "closed"),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        next(error);
+    }
+    next();
+};
+
+export const validateGetLiveIssues = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        page: Joi.number().required(),
+        limit: Joi.number().required(),
+        propertyId: Joi.alternatives().try(
+            Joi.number(),
+            Joi.array().items(Joi.number())
+        ).optional(),
+        keyword: Joi.string().optional(),
+        status: Joi.alternatives().try(
+            Joi.string().valid(...Object.values(LiveIssueStatus)),
+            Joi.array().items(Joi.string().valid(...Object.values(LiveIssueStatus)))
+        ).optional(),
+        tab: Joi.string().required().valid("new", "active", "closed"),
+        assignee: Joi.string().optional(),
+        guestName: Joi.string().optional(),
+    });
+
+    const { error } = schema.validate(request.query);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateCreateLiveIssue = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        status: Joi.string().required().valid(...Object.values(LiveIssueStatus)),
+        assignee: Joi.string().allow('', null).optional(),
+        propertyId: Joi.number().required(),
+        summary: Joi.string().required(),
+        guestName: Joi.string().required(),
+        reservationId: Joi.number().required(),
+        followUp: Joi.alternatives().try(
+            Joi.string().isoDate(),
+            Joi.date(),
+            Joi.allow(null)
+        ).optional(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateUpdateLiveIssue = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        status: Joi.string().valid(...Object.values(LiveIssueStatus)).optional(),
+        assignee: Joi.string().allow('', null).optional(),
+        propertyId: Joi.number().optional(),
+        summary: Joi.string().optional(),
+        guestName: Joi.string().optional(),
+        reservationId: Joi.number().optional(),
+        followUp: Joi.alternatives().try(
+            Joi.string().isoDate(),
+            Joi.date(),
+            Joi.allow(null)
+        ).optional(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateCreateLiveIssueUpdate = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        liveIssueId: Joi.number().required(),
         updates: Joi.string().required(),
     });
 

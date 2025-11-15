@@ -1,15 +1,17 @@
 import { appDatabase } from "../utils/database.util";
 import { UpsellOrder } from "../entity/UpsellOrder";
-import { Between, ILike, In, Not } from "typeorm";
+import { Between, ILike, In, IsNull, Not } from "typeorm";
 import { sendUpsellOrderEmail } from './UpsellEmailService';
 import logger from "../utils/logger.utils";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
 import { categoryIds, tagIds } from "../constant";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
     private hostAwayClient = new HostAwayClient();
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
@@ -196,12 +198,83 @@ export class UpsellOrderService {
                     upsell.ha_id = expenseId;
                     await this.upsellOrderRepo.save(upsell);
                     logger.info(`[processCheckoutDateUpsells]Created expense in HostAway with ID: ${expenseId} for upsell ID: ${upsell.id}`);
+
+                    //create expense in internal system as well
+                    const expense = this.expenseRepo.create({
+                        expenseId: Number(expenseId),
+                        listingMapId: Number(upsell.listing_id),
+                        expenseDate: upsell.departure_date,
+                        concept: upsell.type,
+                        amount: upsell.cost,
+                        isDeleted: 0,
+                        categories: JSON.stringify([categoryIds.Upsell]),
+                        contractorName: "",
+                        contractorNumber: "",
+                        dateOfWork: null,
+                        datePaid: null,
+                        status: ExpenseStatus.APPROVED,
+                        userId: 'system',
+                        createdBy: 'system',
+                        reservationId: upsell.booking_id,
+                        guestName: upsell.client_name
+                    });
+
+                    await this.expenseRepo.save(expense);
                 } else {
                     logger.error(`[processCheckoutDateUpsells]Failed to create expense in HostAway for upsell ID: ${upsell.id}`);
                 }
 
             } catch (error) {
                 logger.error(`Error processing upsell for checkout date ${date}: ${error.message}`);
+            }
+        }
+    }
+
+
+    async scriptToCreateMissingExtrasFromUpsell(date: string) {
+        const upsells = await this.upsellOrderRepo.find({
+            where: {
+                departure_date: Between("2025-07-02", date), // process upsells on checkout feature was made live on July 2, 2025
+                status: "Approved",
+                ha_id: Not(IsNull())
+            }
+        });
+
+        logger.info(`[scriptToCreateMissingExtrasFromUpsell] Found ${upsells.length} upsells with HostAway IDs up to date: ${date}`);
+
+        for (const upsell of upsells) {
+            try {
+                //create expense in internal system as well
+                const existingExpense = await this.expenseRepo.findOne({ where: { expenseId: Number(upsell.ha_id) } });
+                if (existingExpense) {
+                    logger.info(`Expense already exists for upsell ID: ${upsell.id}, skipping...`);
+                    continue;
+                }
+
+                const expense = this.expenseRepo.create({
+                    expenseId: Number(upsell.ha_id),
+                    listingMapId: Number(upsell.listing_id),
+                    expenseDate: upsell.departure_date,
+                    concept: upsell.type,
+                    amount: upsell.cost,
+                    isDeleted: 0,
+                    categories: JSON.stringify([categoryIds.Upsell]),
+                    contractorName: "",
+                    contractorNumber: "",
+                    dateOfWork: null,
+                    datePaid: null,
+                    status: ExpenseStatus.APPROVED,
+                    userId: 'system',
+                    createdBy: 'system',
+                    reservationId: upsell.booking_id,
+                    guestName: upsell.client_name,
+                    fileNames: ""
+                });
+
+                await this.expenseRepo.save(expense);
+                logger.info(`Created internal expense record for upsell ID: ${upsell.id}`);
+            } catch (error) {
+                logger.error(`Error creating internal expense for upsell ID ${upsell.id}: ${error.message}`);
             }
         }
     }

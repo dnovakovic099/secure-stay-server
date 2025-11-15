@@ -123,4 +123,153 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async getBadReview(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const reviewService = new ReviewService();
+            const data = await reviewService.getBadReviews(request.query, userId);
+            return response.status(200).json(data);
+        } catch (error) {
+            logger.error("Error fetching bad review:", error);
+            return next(error);
+        }
+    }
+
+    async updateBadReviewStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+
+            const { status, badReviewId } = request.body;
+            const userId = request.user.id;
+
+            const updatedBadReview = await reviewService.updateBadReviewStatus(badReviewId, status, userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedBadReview
+            });
+        } catch (error) {
+            logger.error("Error updating bad review status:", error);
+            return next(error);
+        }
+    }
+
+
+    async createBadReviewUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { badReviewId, updates } = request.body;
+
+            const newUpdate = await reviewService.createBadReviewUpdate(badReviewId, updates, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: newUpdate
+            });
+        } catch (error) {
+            logger.error("Error creating bad review update:", error);
+            return next(error);
+        }
+    }
+
+    async getLiveIssues(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const reviewService = new ReviewService();
+            const { page, limit, propertyId, keyword, status, tab, assignee, guestName } = request.query;
+            
+            const filters = {
+                page: Number(page) || 1,
+                limit: Number(limit) || 10,
+                propertyId: propertyId ? (Array.isArray(propertyId) ? propertyId.map(id => Number(id)) : [Number(propertyId)]) : undefined,
+                keyword: keyword ? String(keyword) : undefined,
+                status: status ? (Array.isArray(status) ? status.map(s => String(s)) : [String(status)]) : undefined,
+                tab: tab ? String(tab) : undefined,
+                assignee: assignee ? String(assignee) : undefined,
+                guestName: guestName ? String(guestName) : undefined,
+            };
+
+            const data = await reviewService.getLiveIssues(filters, userId);
+            return response.status(200).json({
+                success: true,
+                data: data.result,
+                total: data.total
+            });
+        } catch (error) {
+            logger.error("Error fetching live issues:", error);
+            return next(error);
+        }
+    }
+
+    async createLiveIssue(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
+
+            const newLiveIssue = await reviewService.createLiveIssue({
+                status,
+                assignee,
+                propertyId,
+                summary,
+                followUp,
+                guestName,
+                reservationId,
+            }, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: newLiveIssue
+            });
+        } catch (error) {
+            logger.error("Error creating live issue:", error);
+            return next(error);
+        }
+    }
+
+    async updateLiveIssue(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { id, status, assignee, propertyId, summary, followUp, guestName, reservationId } = request.body;
+
+            const updatedLiveIssue = await reviewService.updateLiveIssue(Number(id), {
+                status,
+                assignee,
+                propertyId,
+                summary,
+                followUp,
+                guestName,
+                reservationId,
+            }, userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedLiveIssue
+            });
+        } catch (error) {
+            logger.error("Error updating live issue:", error);
+            return next(error);
+        }
+    }
+
+    async createLiveIssueUpdate(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { liveIssueId, updates } = request.body;
+
+            const newUpdate = await reviewService.createLiveIssueUpdate(liveIssueId, updates, userId);
+
+            return response.status(201).json({
+                success: true,
+                data: newUpdate
+            });
+        } catch (error) {
+            logger.error("Error creating live issue update:", error);
+            return next(error);
+        }
+    }
 }

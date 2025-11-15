@@ -1,7 +1,7 @@
 import { ReviewController } from "../controllers/ReviewController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout, validateCreateLatestUpdate } from "../middleware/validation/reviews/review.validation";
+import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout, validateCreateLatestUpdate, validateBadReviewUpdateStatus, validateBadReviewLatestUpdate, validateGetBadReview, validateGetLiveIssues, validateCreateLiveIssue, validateUpdateLiveIssue, validateCreateLiveIssueUpdate } from "../middleware/validation/reviews/review.validation";
 import { validateReviewDetailsRequest } from "../middleware/validation/reviews/reviewDetail.validation";
 import { ReviewDetailController } from "../controllers/ReviewDetailController";
 
@@ -29,5 +29,20 @@ router.route('/reviewcheckout')
 router.route('/reviewcheckout/update').put(verifySession, validateUpdateReviewForCheckout, reviewController.updateReviewCheckout)
 
 router.route('/reviewcheckout/latest-update/create').post(verifySession,validateCreateLatestUpdate, reviewController.createReviewCheckoutUpdate);
+
+router.route('/liveissues')
+    .get(verifySession, validateGetLiveIssues, reviewController.getLiveIssues)
+    .post(verifySession, validateCreateLiveIssue, reviewController.createLiveIssue)
+
+router.route('/liveissues/update').put(verifySession, validateUpdateLiveIssue, reviewController.updateLiveIssue)
+
+router.route('/liveissues/latest-update/create').post(verifySession, validateCreateLiveIssueUpdate, reviewController.createLiveIssueUpdate)
+
+router.route('/bad-review/update-status').put(verifySession, validateBadReviewUpdateStatus, reviewController.updateBadReviewStatus);
+
+router.route('/bad-review/latest-update/create').post(verifySession, validateBadReviewLatestUpdate, reviewController.createBadReviewUpdate);
+
+router.route('/bad-review')
+    .get(verifySession, validateGetBadReview, reviewController.getBadReview)
 
 export default router;
