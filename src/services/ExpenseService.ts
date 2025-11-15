@@ -17,6 +17,7 @@ import logger from "../utils/logger.utils";
 import { haExpenseUpdateQueue } from "../queue/haQueue";
 import { FileInfo } from "../entity/FileInfo";
 import { IssuesService } from "./IssuesService";
+import { ResolutionService } from "./ResolutionService";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -85,19 +86,19 @@ export class ExpenseService {
         newExpense.issues = issues ? issues : null;
         newExpense.isRecurring = isRecurring ? isRecurring : 0;
 
-        const hostawayExpense = await this.createHostawayExpense({
-            listingMapId,
-            expenseDate,
-            concept,
-            amount: negatedAmount,
-            categories: JSON.parse(categories),
-        }, userId);
+        // const hostawayExpense = await this.createHostawayExpense({
+        //     listingMapId,
+        //     expenseDate,
+        //     concept,
+        //     amount: negatedAmount,
+        //     categories: JSON.parse(categories),
+        // }, userId);
 
-        if (!hostawayExpense) {
-            throw new CustomErrorHandler(500, 'Failed to create expense');
-        } 
+        // if (!hostawayExpense) {
+        //     throw new CustomErrorHandler(500, 'Failed to create expense');
+        // } 
 
-        newExpense.expenseId = hostawayExpense?.id;
+        // newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
         if (fileInfo) {
             for (const file of fileInfo) {
@@ -153,7 +154,7 @@ export class ExpenseService {
             paymentMethod,
             tags,
             propertyType,
-            keyword, 
+            keyword,
             expenseId,
             isRecurring,
             type
@@ -208,9 +209,7 @@ export class ExpenseService {
                     ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
                         paymentMethod: In(paymentMethod),
                     }),
-                    ...(expenseIds.length > 0
-                        ? { expenseId: In(expenseIds) }
-                        : { expenseId: Raw(alias => `${alias} IS NOT NULL`) }),
+                    ...(expenseIds.length > 0 && { id: In(expenseIds) }),
                     ...(Array.isArray(contractorName) && contractorName.length > 0 && {
                         contractorName: In(contractorName),
                     }),
@@ -279,7 +278,7 @@ export class ExpenseService {
                 }
 
                 return {
-                    expenseId: expense.expenseId,
+                    expenseId: expense.id,
                     status: expense.status,
                     amount: expense.amount,
                     listing: listingNameMap[expense.listingMapId] || 'N/A',
@@ -310,16 +309,14 @@ export class ExpenseService {
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
             .select('SUM(ABS(expense.amount))', 'totalExpense')
-            .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 })
+            .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 });
 
         if (fromDate && toDate) {
             qb.andWhere(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
         }
-        
+
         if (expenseIds.length > 0) {
-            qb.andWhere('expense.expenseId IN (:...expenseIds)', { expenseIds });
-        } else {
-            qb.andWhere('expense.expenseId IS NOT NULL');
+            qb.andWhere('expense.id IN (:...expenseIds)', { expenseIds });
         }
 
 
@@ -353,20 +350,68 @@ export class ExpenseService {
 
         const { totalExpense } = await qb.getRawOne();
 
+
+        const excludeResolution = request.hostname == "securestay.ai";
+        const resolutionService = new ResolutionService();
+
+        const resolutions = excludeResolution ?
+            { resolutions: [] } :
+            await resolutionService.getResolutions({
+                listingId,
+                fromDate,
+                toDate,
+                dateType: fromDate && toDate ? "claimDate" : null,
+                page,
+                limit
+            });
+
+
+
+        const refactoredResolutions = resolutions.resolutions.map(resolution => {
+            return {
+                expenseId: resolution.ha_id,
+                status: 'Approved',
+                amount: resolution.amount,
+                listing: resolution.listingName || 'Unkown Listing',
+                listingMapId: resolution.listingMapId,
+                dateAdded: resolution.claimDate,
+                dateOfWork: "",
+                datePaid: '',
+                description: resolution.type,
+                categories: resolution.category,
+                contractorName: "",
+                contractorNumber: '',
+                findings: "",
+                paymentMethod: "",
+                createdAt: resolution.createdAt,
+                updatedAt: resolution.updatedAt,
+                updatedBy: resolution.updatedBy,
+                attachments: '',
+                fileInfo: [],
+                issues: [],
+                issuesList: [],
+                createdBy: resolution.createdBy,
+                guestName: resolution.guestName
+            };
+        });
+
         return {
-            data,
+            data: excludeResolution ? data : [...data, ...refactoredResolutions],
             totalExpense,
             total
         };
     }
 
     async getExpenseById(expenseId: number, userId: string) {
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
         expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
-        return expense;
+        return {
+            ...expense,
+            expenseId: expense.id
+        };
     }
 
     async getExpenses(fromDate: string, toDate: string, listingId: number) {
@@ -400,7 +445,7 @@ export class ExpenseService {
             isRecurring
         } = request.body;
 
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
@@ -422,23 +467,23 @@ export class ExpenseService {
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
         expense.issues = issues ? issues : null;
-        expense.isRecurring = isRecurring ? isRecurring : 0
+        expense.isRecurring = isRecurring ? isRecurring : 0;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
 
         //update hostaway expense
-        const result = expense.expenseId && await this.updateHostawayExpense({
-            listingMapId,
-            expenseDate,
-            concept,
-            amount: negatedAmount,
-            categories: JSON.parse(categories),
-        }, userId, expense.expenseId);
+        // const result = expense.expenseId && await this.updateHostawayExpense({
+        //     listingMapId,
+        //     expenseDate,
+        //     concept,
+        //     amount: negatedAmount,
+        //     categories: JSON.parse(categories),
+        // }, userId, expense.expenseId);
 
-        if(!result){
-            throw new CustomErrorHandler(500,'Unable to update expense');
-        }
+        // if(!result){
+        //     throw new CustomErrorHandler(500,'Unable to update expense');
+        // }
 
         await this.expenseRepo.save(expense);
         if (fileInfo) {
@@ -459,7 +504,7 @@ export class ExpenseService {
 
     async updateExpenseStatus(request: Request, userId: string,) {
         const { expenseId, status, datePaid } = request.body;
-        const expense = await this.expenseRepo.find({ where: { expenseId: In(expenseId) } });
+        const expense = await this.expenseRepo.find({ where: { id: In(expenseId) } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
@@ -473,12 +518,12 @@ export class ExpenseService {
             element.updatedAt = new Date();
         });
         await this.expenseRepo.save(expense);
-        
+
         return expense;
     }
 
     async deleteExpense(expenseId: number, userId: string) {
-        const expense = await this.expenseRepo.findOne({ where: { expenseId: expenseId } });
+        const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
@@ -489,7 +534,7 @@ export class ExpenseService {
         await this.expenseRepo.save(expense);
 
         //delete hostaway expense
-        expense.expenseId && this.deleteHostawayExpense(expense.expenseId, userId);
+        // expense.expenseId && this.deleteHostawayExpense(expense.expenseId, userId);
 
         return expense;
     }
@@ -679,10 +724,10 @@ export class ExpenseService {
         const failedHostawayExpenseUpdate: number[] = [];
 
         for (const id of expenseId) {
-            const expense = await this.expenseRepo.findOne({ where: { expenseId: id } });
+            const expense = await this.expenseRepo.findOne({ where: { id: id } });
 
             if (!expense) {
-                logger.error(`Expense with expenseId ${id} not found.`);
+                logger.error(`Expense with id ${id} not found.`);
                 failedExpenseUpdate.push(id);
                 continue;
             }
@@ -696,10 +741,10 @@ export class ExpenseService {
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
             if (amount !== undefined && amount !== null) expense.amount = amount * -1;
-            if (contractorName !== undefined && contractorName !==null) expense.contractorName = contractorName;
-            if (contractorNumber !== undefined && contractorNumber !==null) expense.contractorNumber = contractorNumber;
-            if (findings !== undefined && findings !==null) expense.findings = findings;
-            if (datePaid !== undefined && datePaid !==null) expense.datePaid = datePaid;
+            if (contractorName !== undefined && contractorName !== null) expense.contractorName = contractorName;
+            if (contractorNumber !== undefined && contractorNumber !== null) expense.contractorNumber = contractorNumber;
+            if (findings !== undefined && findings !== null) expense.findings = findings;
+            if (datePaid !== undefined && datePaid !== null) expense.datePaid = datePaid;
             if (isRecurring !== undefined && isRecurring !== null) expense.isRecurring = isRecurring ? isRecurring : 0;
 
             expense.updatedBy = userId;
@@ -707,26 +752,26 @@ export class ExpenseService {
 
             await this.expenseRepo.save(expense);
             // Sync with Hostaway
-            try {
-                const payload = {
-                    listingMapId: String(listingMapId || expense.listingMapId),
-                    expenseDate: expenseDate || expense.expenseDate,
-                    concept: concept || expense.concept,
-                    amount: amount !== undefined && amount !== null ? amount * -1 : expense.amount,
-                    categories: JSON.parse(categories || expense.categories),
-                };
+            // try {
+            //     const payload = {
+            //         listingMapId: String(listingMapId || expense.listingMapId),
+            //         expenseDate: expenseDate || expense.expenseDate,
+            //         concept: concept || expense.concept,
+            //         amount: amount !== undefined && amount !== null ? amount * -1 : expense.amount,
+            //         categories: JSON.parse(categories || expense.categories),
+            //     };
 
-                await haExpenseUpdateQueue.add('syncHostawayExpense', {
-                    payload,
-                    userId,
-                    expenseId: expense.expenseId,
-                });
+            //     await haExpenseUpdateQueue.add('syncHostawayExpense', {
+            //         payload,
+            //         userId,
+            //         expenseId: expense.expenseId,
+            //     });
 
-            } catch (err) {
-                logger.error(`Queueing Hostaway job failed for expenseId ${id}: ${err.message}`);
-                failedHostawayExpenseUpdate.push(id);
-            }
-            
+            // } catch (err) {
+            //     logger.error(`Queueing Hostaway job failed for expenseId ${id}: ${err.message}`);
+            //     failedHostawayExpenseUpdate.push(id);
+            // }
+
         }
 
         return {
@@ -839,32 +884,32 @@ export class ExpenseService {
                 newExpense.status = expense.status;
                 newExpense.createdBy = expense.userId;
                 newExpense.datePaid = recurringExpenseDateStr;
-                newExpense.paymentMethod=expense.paymentMethod;
+                newExpense.paymentMethod = expense.paymentMethod;
                 newExpense.comesFrom = "recurring_expense";
 
                 logger.info(
                     `Creating recurring expense for listingMapId ${expense.listingMapId} on ${recurringExpenseDateStr}`
                 );
 
-                const hostawayExpense = await this.createHostawayExpense(
-                    {
-                        listingMapId: String(newExpense.listingMapId),
-                        expenseDate: newExpense.expenseDate,
-                        concept: newExpense.concept,
-                        amount: newExpense.amount,
-                        categories: JSON.parse(expense.categories),
-                    },
-                    expense.userId
-                );
+                // const hostawayExpense = await this.createHostawayExpense(
+                //     {
+                //         listingMapId: String(newExpense.listingMapId),
+                //         expenseDate: newExpense.expenseDate,
+                //         concept: newExpense.concept,
+                //         amount: newExpense.amount,
+                //         categories: JSON.parse(expense.categories),
+                //     },
+                //     expense.userId
+                // );
 
-                if (!hostawayExpense) {
-                    logger.error(
-                        `Failed to create recurring expense in Hostaway for listingMapId ${newExpense.listingMapId}`
-                    );
-                    continue;
-                }
+                // if (!hostawayExpense) {
+                //     logger.error(
+                //         `Failed to create recurring expense in Hostaway for listingMapId ${newExpense.listingMapId}`
+                //     );
+                //     continue;
+                // }
 
-                newExpense.expenseId = hostawayExpense.id;
+                // newExpense.expenseId = hostawayExpense.id;
                 await this.expenseRepo.save(newExpense);
             } catch (error) {
                 logger.error(

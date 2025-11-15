@@ -25,6 +25,7 @@ import { BadReviewUpdatesEntity } from "../entity/BadReviewUpdates";
 import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
 import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
 import { Listing } from "../entity/Listing";
+import { Hostify } from "../client/Hostify";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -111,6 +112,7 @@ export class ReviewService {
     private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
+    private hostifyClient = new Hostify();
 
     public async getReviews({
         fromDate,
@@ -339,6 +341,72 @@ export class ReviewService {
         }
     }
 
+    public async syncHostifyReviews() {
+
+        try {
+            const apiKey = process.env.HOSTIFY_API_KEY;
+
+            const reviews = await this.hostifyClient.getReviews(apiKey);
+
+            // Check if reviews were fetched successfully
+            if (!reviews || reviews.length === 0) {
+                logger.info("No reviews fetched from Hostify.");
+                return;
+            }
+
+            const reservationInfoService = new ReservationInfoService();
+
+            // save the reviews in the database
+            for (const reviewData of reviews) {
+                // Check if the review already exists in the database
+                const existingReview = await this.reviewRepository.findOne({
+                    where: { id: reviewData.id },
+                });
+
+                if (!existingReview) {
+                    const reservationInfo = await reservationInfoService.getReservationById(reviewData.reservation_id);
+                    if (!reservationInfo) {
+                        logger.warn(`Reservation not found for review with ID: ${reviewData.id}`);
+                        continue;
+                    }
+                    // Create a new review entity and save it
+                    const newReview = this.reviewRepository.create({
+                        id: reviewData.id,
+                        reviewerName: reservationInfo.guestName,
+                        channelId: reservationInfo.channelId,
+                        rating: reservationInfo.channelName == "Booking.com" ? reviewData.rating / 2 : reviewData.rating,
+                        externalReservationId: null,
+                        publicReview: reviewData.comments,
+                        submittedAt: reviewData.review_published_at,
+                        arrivalDate: format(reservationInfo.arrivalDate, "yyyy-MM-dd"),
+                        departureDate: format(reservationInfo.departureDate, "yyyy-MM-dd"),
+                        listingName: reservationInfo.listingName,
+                        externalListingName: null,
+                        guestName: reservationInfo.guestName,
+                        listingMapId: reviewData.listing_id,
+                        channelName: reservationInfo.channelName,
+                        isHidden: reviewData?.isHidden || 0,
+                        reservationId: reviewData?.reservation_id || null,
+                    });
+                    await this.reviewRepository.save(newReview);
+
+                    //check if there is active claim of the reviewer
+                    await this.checkForActiveClaim(newReview);
+
+                    if (
+                        (reservationInfo.channelName == "Booking.com" && reviewData.rating == 10) ||
+                        (reservationInfo.channelName != "Booking.com" && reviewData.rating == 5)
+                    ) {
+                        await this.process5StarRatings(reviewData);
+                    }
+                }
+            }
+        } catch (error) {
+            logger.error("Error syncing reviews:", error);
+            throw error;
+        }
+    }
+
     async checkForActiveClaim(review: ReviewEntity) {
         const claim = await this.claimRepo.findOne({
             where: {
@@ -379,8 +447,8 @@ export class ReviewService {
 
                 return {
                     ...review,
-                    unresolvedForMoreThanThreeDays: diffInDays > 3 && review.rating < 10,
-                    unresolvedForMoreThanSevenDays: diffInDays > 7 && review.rating < 10,
+                    unresolvedForMoreThanThreeDays: diffInDays > 3 && review.rating < 5,
+                    unresolvedForMoreThanSevenDays: diffInDays > 7 && review.rating < 5,
                 };
             });
     };

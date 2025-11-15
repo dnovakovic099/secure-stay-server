@@ -66,27 +66,51 @@ export class Hostify {
 
     async getReservations(filter: any, apiKey: string) {
         try {
-            const url = `https://api-rms.hostify.com/reservations`;
+            const url = "https://api-rms.hostify.com/reservations";
+            const per_page = 100; // Max allowed per page
+            let page = 1;
+            let hasMore = true;
+            const reservations: any[] = [];
 
-            const response = await axios.get(url, {
-                headers: {
-                    "x-api-key": apiKey,
-                    "Cache-Control": "no-cache",
-                },
-                params: {
-                    ...filter,
-                },
-            });
+            while (hasMore) {
+                const response = await axios.get(url, {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Cache-Control": "no-cache",
+                    },
+                    params: {
+                        page,
+                        per_page,
+                        ...filter
+                    },
+                });
 
-            return response.data.reservations || null;
+                console.log({
+                    page,
+                    per_page,
+                    ...filter
+                });
+
+                const fetchedReservations = response.data?.reservations || [];
+                reservations.push(...fetchedReservations);
+
+                // If fewer than 'per_page' items are returned, we've reached the end
+                if (fetchedReservations.length < per_page) {
+                    hasMore = false;
+                } else {
+                    page += 1;
+                }
+            }
+
+            return reservations;
         } catch (error) {
             logger.error("Error fetching reservations:", error.message);
-            throw error;
+            return [];
         }
     }
 
 
-    async getReservationInfo(apiKey: string, reservationId: string) {
+    async getReservationInfo(apiKey: string, reservationId: number) {
         try {
             const url = `https://api-rms.hostify.com/reservations/${reservationId}`;
 
@@ -125,5 +149,44 @@ export class Hostify {
             throw error;
         }
     }
+
+    async getReviews(apiKey: string) {
+        try {
+            const url = "https://api-rms.hostify.com/reviews";
+            const per_page = 100; // Max allowed per page
+            let page = 1;
+            let hasMore = true;
+            const allReviews: any[] = [];
+
+            while (hasMore) {
+                const response = await axios.get(url, {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Cache-Control": "no-cache",
+                    },
+                    params: {
+                        page,
+                        per_page,
+                    },
+                });
+
+                const reviews = response.data?.reviews || [];
+                allReviews.push(...reviews);
+
+                // If fewer than 'per_page' items are returned, we've reached the end
+                if (reviews.length < per_page) {
+                    hasMore = false;
+                } else {
+                    page += 1;
+                }
+            }
+
+            return allReviews;
+        } catch (error) {
+            logger.error("Error fetching reviews:", error.message);
+            return [];
+        }
+    }
+
 
 }

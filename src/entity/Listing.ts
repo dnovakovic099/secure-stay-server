@@ -6,6 +6,9 @@ import {
   OneToMany,
   ManyToOne,
   PrimaryColumn,
+  CreateDateColumn,
+  DeleteDateColumn,
+  UpdateDateColumn,
 } from "typeorm";
 import { ListingImage } from "./ListingImage";
 import { ListingBedTypes } from "./ListingBedTypes";
@@ -176,4 +179,23 @@ export class Listing {
 
   @Column({ nullable: true })
   tags: string;
+
+  @CreateDateColumn({ type: 'timestamp' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamp' })
+  updatedAt: Date;
+
+  @DeleteDateColumn({ type: 'timestamp', nullable: true })
+  deletedAt: Date;
+
+  @Column({ nullable: true })
+  createdBy: string;
+
+  @Column({ nullable: true })
+  updatedBy: string;
+
+  @Column({ nullable: true })
+  deletedBy: string;
+
 }

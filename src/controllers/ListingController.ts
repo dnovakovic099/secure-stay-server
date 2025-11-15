@@ -161,8 +161,7 @@ export class ListingController {
     try {
       const listingService = new ListingService();
       const userId = request.user.id;
-
-      const pmListings = await listingService.getListingsByTagIds([tagIds.PM],userId);
+      const pmListings = await listingService.getPmListings();
 
       return response.status(200).json(successDataFetch(pmListings));
     } catch (error) {
