@@ -147,7 +147,7 @@ export class UpsellOrderService {
         const categories = JSON.stringify([categoryIds.Upsell]);
 
         const listingService = new ListingService();
-        const pmListings = await listingService.getListingsByTagIds([tagIds.PM]);
+        const pmListings = await listingService.getPmListings();
         const isPmListing = pmListings.some(listing => listing.id == Number(upsell.listing_id));
 
         let netAmount = 0;
