@@ -2,28 +2,56 @@
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ConnectedAccountService } from "./ConnectedAccountService";
+import { appDatabase } from "../utils/database.util";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { Between } from "typeorm";
 
 export class IncomeService {
     private hostAwayClient = new HostAwayClient();
+    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
 
     async generateIncomeStatement(request: Request, userId: string) {
         const { listingId, dateType, fromDate, toDate, page, limit, channelId } = request.body;
         const offset = (page - 1) * limit;
 
-        const connectedAccountService = new ConnectedAccountService();
-        const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
+        // const connectedAccountService = new ConnectedAccountService();
+        // const { clientId, clientSecret } = await connectedAccountService.getPmAccountInfo(userId);
 
-        const reservations = await this.hostAwayClient.getReservations(
-            clientId,
-            clientSecret,
-            listingId,
-            dateType,
-            fromDate,
-            toDate,
-            limit,
-            offset,
-            channelId
-        );
+        // const reservations = await this.hostAwayClient.getReservations(
+        //     clientId,
+        //     clientSecret,
+        //     listingId,
+        //     dateType,
+        //     fromDate,
+        //     toDate,
+        //     limit,
+        //     offset,
+        //     channelId
+        // );
+
+        const whereClause: any = {};
+
+        if (listingId) {
+            whereClause.listingMapId = listingId;
+        }
+
+        if (dateType === 'arrival') {
+            whereClause.arrivalDate = Between(fromDate, toDate);
+        } else if (dateType === 'departure') {
+            whereClause.departureDate = Between(fromDate, toDate);
+        } else {
+            whereClause.arrivalDate = Between(fromDate, toDate);
+        }
+
+        if (channelId) {
+            whereClause.channelId = channelId;
+        }
+
+        const reservations = await this.reservationInfoRepo.find({
+            where: whereClause,
+            skip: offset,
+            take: limit,
+        });
 
         const validReservations = this.filterValidReservation(reservations);
 
@@ -92,7 +120,7 @@ export class IncomeService {
     }
 
     public filterValidReservation(reservations: Object[]): Object[] {
-        const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */];
+        const validReservationStatus = ["new", "modified", "ownerStay",/*"cancelled" */, "accepted", "moved"];
         const filteredReservations = reservations.filter((reservation: { status: string; }) => validReservationStatus.includes(reservation.status));
         return filteredReservations;
     }

@@ -26,11 +26,13 @@ export class ListingImage {
   url: string;
 
   @Column({ nullable: true })
+  thumbnailUrl: string;
+
+  @Column({ nullable: true })
   sortOrder: number;
 
   @ManyToOne(() => Listing, (listing) => listing.images,{
     onDelete: "CASCADE"
   })
-  @JoinColumn({ name: "listing_id" })
-  listing: number;
+  listing: Listing;
 }

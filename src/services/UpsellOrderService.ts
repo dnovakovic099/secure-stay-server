@@ -205,7 +205,7 @@ export class UpsellOrderService {
                         listingMapId: Number(upsell.listing_id),
                         expenseDate: upsell.departure_date,
                         concept: upsell.type,
-                        amount: upsell.cost,
+                        amount: requestBody.amount,
                         isDeleted: 0,
                         categories: JSON.stringify([categoryIds.Upsell]),
                         contractorName: "",
@@ -244,10 +244,13 @@ export class UpsellOrderService {
 
         for (const upsell of upsells) {
             try {
+                const requestBody = await this.prepareExtrasObject(upsell);
                 //create expense in internal system as well
                 const existingExpense = await this.expenseRepo.findOne({ where: { expenseId: Number(upsell.ha_id) } });
                 if (existingExpense) {
                     logger.info(`Expense already exists for upsell ID: ${upsell.id}, skipping...`);
+                    existingExpense.amount = requestBody.amount;
+                    await this.expenseRepo.save(existingExpense);
                     continue;
                 }
 
@@ -256,7 +259,7 @@ export class UpsellOrderService {
                     listingMapId: Number(upsell.listing_id),
                     expenseDate: upsell.departure_date,
                     concept: upsell.type,
-                    amount: upsell.cost,
+                    amount: requestBody.amount,
                     isDeleted: 0,
                     categories: JSON.stringify([categoryIds.Upsell]),
                     contractorName: "",

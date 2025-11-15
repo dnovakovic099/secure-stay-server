@@ -15,6 +15,7 @@ import { MaintenanceService } from "../services/MaintenanceService";
 import { PublishedStatementService } from "../services/PublishedStatementService";
 import { ReviewService } from "../services/ReviewService";
 import { ExpenseService } from "../services/ExpenseService";
+import { updateListingId } from "../scripts/updateListingId";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -24,11 +25,11 @@ export function scheduleGetReservation() {
 
   // schedule.scheduleJob("0 0 * * *", sendCodes);
 
-  schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
+  // schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
 
   schedule.scheduleJob("0 9 * * *", checkForUnresolvedReviews);
 
-  schedule.scheduleJob("0 * * * *", syncReviews);
+  // schedule.scheduleJob("0 * * * *", syncReviews);
 
   schedule.scheduleJob({ hour: 9, minute: 0, dayOfWeek: 1, tz: "America/New_York" }, syncIssue); // Every Monday at 9 AM EST
 
@@ -40,7 +41,7 @@ export function scheduleGetReservation() {
 
   // schedule.scheduleJob({ hour: 4, minute: 52, tz: "America/New_York" }, syncCurrentlyStayingReservations);
 
-  schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
+  // schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
   // Schedule daily occupancy report at 8 AM EST
   schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, async () => {
@@ -144,27 +145,27 @@ export function scheduleGetReservation() {
       }
     });
 
-  schedule.scheduleJob("0 * * * *", async () => {
-    try {
-      logger.info('Checking for new published statements from HostAway...');
-      const publishedStatementService = new PublishedStatementService();
-      await publishedStatementService.savePublishedStatement();
-      logger.info('Checked for new published statements from HostAway successfully.');
-    } catch (error) {
-      logger.error("Error checking for new published statements from HostAway:", error);
-    }
-  });
+  // schedule.scheduleJob("0 * * * *", async () => {
+  //   try {
+  //     logger.info('Checking for new published statements from HostAway...');
+  //     const publishedStatementService = new PublishedStatementService();
+  //     await publishedStatementService.savePublishedStatement();
+  //     logger.info('Checked for new published statements from HostAway successfully.');
+  //   } catch (error) {
+  //     logger.error("Error checking for new published statements from HostAway:", error);
+  //   }
+  // });
 
-  schedule.scheduleJob({ hour: 5, minute: 18, tz: "America/New_York" },  async () => {
-    try {
-      logger.info('Syncing published statements from HostAway...');
-      const publishedStatementService = new PublishedStatementService();
-      await publishedStatementService.syncPublishedStatements();
-      logger.info('Synced published statements from HostAway successfully.');
-    } catch (error) {
-      logger.error("Error syncing published statements from HostAway", error);
-    }
-  });
+  // schedule.scheduleJob({ hour: 5, minute: 18, tz: "America/New_York" },  async () => {
+  //   try {
+  //     logger.info('Syncing published statements from HostAway...');
+  //     const publishedStatementService = new PublishedStatementService();
+  //     await publishedStatementService.syncPublishedStatements();
+  //     logger.info('Synced published statements from HostAway successfully.');
+  //   } catch (error) {
+  //     logger.error("Error syncing published statements from HostAway", error);
+  //   }
+  // });
 
   schedule.scheduleJob(
     { hour: 6, minute: 0, tz: "America/New_York" }, // 1st day of the month at 1 AM EST
@@ -234,19 +235,20 @@ export function scheduleGetReservation() {
       }
     })
 
-  // schedule.scheduleJob(
-  //   { hour: 3, minute: 10, tz: "America/New_York" },
-  //   async () => {
-  //     try {
-  //       logger.info('Processing upsells to create missing extras in the system...');
-  //       const currentDate = format(new Date(), 'yyyy-MM-dd');
-  //       const upsellOrderService = new UpsellOrderService();
-  //       await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
-  //       logger.info('Processed upsells to create missing extras in the system successfully.');
-  //     } catch (error) {
-  //       logger.error("Error processing upsells to create missing extras in the system:", error);
-  //     }
-  //   })
+  schedule.scheduleJob(
+    { hour: 3, minute: 10, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Processing upsells to create missing extras in the system...');
+        const currentDate = format(new Date(), 'yyyy-MM-dd');
+        const upsellOrderService = new UpsellOrderService();
+        await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
+        logger.info('Processed upsells to create missing extras in the system successfully.');
+      } catch (error) {
+        logger.error("Error processing upsells to create missing extras in the system:", error);
+      }
+    })
 
+  schedule.scheduleJob({ hour: 3, minute: 30, tz: "America/New_York" }, updateListingId);
 
 }

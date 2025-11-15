@@ -1,4 +1,4 @@
-import { getStartOfThreeMonthsAgo } from "../helpers/date";
+import { getStartOfThreeMonthsAgo, getStartOfTwoMonthsAgo } from "../helpers/date";
 import { ReservationInfoService } from "../services/ReservationInfoService";
 import logger from "../utils/logger.utils";
 

@@ -85,13 +85,13 @@ export class ResolutionService {
         await this.resolutionRepo.save(resolution);
 
         //add to queue to create resolution in HA
-        try {
-            await haResolutionQueue.add('create-HA-resolution', {
-                resolution,
-            });
-        } catch (error) {
-            logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
-        }
+        // try {
+        //     await haResolutionQueue.add('create-HA-resolution', {
+        //         resolution,
+        //     });
+        // } catch (error) {
+        //     logger.error(`Queueing Hostaway job failed for resolution ${resolution.id}: ${error.message}`);
+        // }
 
         return resolution;
     }
@@ -113,15 +113,15 @@ export class ResolutionService {
         await this.resolutionRepo.save(resolution);
 
         //add to queue to update resolution in HA
-        if (resolution.ha_id) {
-            try {
-                await haResolutionUpdateQueue.add('update-HA-resolution', {
-                    resolution,
-                });
-            } catch (error) {
-                logger.error(`Queueing Hostaway job failed for update resolution ${resolution.id}: ${error.message}`);
-            }
-        }
+        // if (resolution.ha_id) {
+        //     try {
+        //         await haResolutionUpdateQueue.add('update-HA-resolution', {
+        //             resolution,
+        //         });
+        //     } catch (error) {
+        //         logger.error(`Queueing Hostaway job failed for update resolution ${resolution.id}: ${error.message}`);
+        //     }
+        // }
 
         return resolution;
     }
@@ -202,15 +202,15 @@ export class ResolutionService {
         await this.resolutionRepo.save(resolution);
 
         //add to queue to update resolution in HA
-        if (resolution.ha_id) {
-            try {
-                await haResolutionDeleteQueue.add('delete-HA-resolution', {
-                    resolution,
-                });
-            } catch (error) {
-                logger.error(`Queueing Hostaway job failed for delete resolution ${resolution.id}: ${error.message}`);
-            }
-        }
+        // if (resolution.ha_id) {
+        //     try {
+        //         await haResolutionDeleteQueue.add('delete-HA-resolution', {
+        //             resolution,
+        //         });
+        //     } catch (error) {
+        //         logger.error(`Queueing Hostaway job failed for delete resolution ${resolution.id}: ${error.message}`);
+        //     }
+        // }
 
         return resolution
     }
@@ -296,16 +296,16 @@ export class ResolutionService {
             const updatedResolutions = await Promise.all(updatePromises);
             
             // Add to queue to update resolutions in HA for those that have ha_id
-            const resolutionsWithHaId = updatedResolutions.filter(resolution => resolution.ha_id);
-            for (const resolution of resolutionsWithHaId) {
-                try {
-                    await haResolutionUpdateQueue.add('update-HA-resolution', {
-                        resolution,
-                    });
-                } catch (error) {
-                    logger.error(`Queueing Hostaway job failed for bulk update resolution ${resolution.id}: ${error.message}`);
-                }
-            }
+            // const resolutionsWithHaId = updatedResolutions.filter(resolution => resolution.ha_id);
+            // for (const resolution of resolutionsWithHaId) {
+            //     try {
+            //         await haResolutionUpdateQueue.add('update-HA-resolution', {
+            //             resolution,
+            //         });
+            //     } catch (error) {
+            //         logger.error(`Queueing Hostaway job failed for bulk update resolution ${resolution.id}: ${error.message}`);
+            //     }
+            // }
             
             return {
                 success: true,

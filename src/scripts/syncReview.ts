@@ -4,6 +4,6 @@ import logger from "../utils/logger.utils";
 export async function syncReviews() {
     logger.info("Syncing reviews...");
     const reviewServices = new ReviewService();
-    await reviewServices.syncReviews();
+    await reviewServices.syncHostifyReviews();
     logger.info("Review synchronization completed successfully.");
 }
