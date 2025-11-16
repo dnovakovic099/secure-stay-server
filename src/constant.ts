@@ -295,5 +295,13 @@ export const listingIdMappings = [
     { hostaway_id: 301694, hostify_id: 300017779 },
     { hostaway_id: 316719, hostify_id: 300017732 }, 
 
+    { hostaway_id: 431312, hostify_id: 300017910 },
+    { hostaway_id: 446182, hostify_id: 300019199 },
+    { hostaway_id: 445980, hostify_id: 300019203 },
+    { hostaway_id: 444498, hostify_id: 300017924 },
+    { hostaway_id: 431298, hostify_id: 300017909 },
+    { hostaway_id: 431312, hostify_id: 300017910 },
+
+    // { hostaway_id: 448346, hostify_id: "" },// 57th Ave - not present in hostify
 ];
 
