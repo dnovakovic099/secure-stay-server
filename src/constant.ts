@@ -288,7 +288,12 @@ export const listingIdMappings = [
     { hostaway_id: 423326, hostify_id: 300017680 },
     { hostaway_id: 420927, hostify_id: 300017688 },
     { hostaway_id: 288169, hostify_id: 300017734 },
-
+    { hostaway_id: 433974, hostify_id: 300017664 },
+    { hostaway_id: 439950, hostify_id: 300017749 },
+    { hostaway_id: 295028, hostify_id: 300017834 },
+    { hostaway_id: 414765, hostify_id: 300018863 },
+    { hostaway_id: 301694, hostify_id: 300017779 },
+    { hostaway_id: 316719, hostify_id: 300017732 }, 
 
 ];
 
