@@ -92,12 +92,6 @@ export class Hostify {
                     },
                 });
 
-                console.log({
-                    page,
-                    per_page,
-                    ...filter
-                });
-
                 const fetchedReservations = response.data?.reservations || [];
                 reservations.push(...fetchedReservations);
 
