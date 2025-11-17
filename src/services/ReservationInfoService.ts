@@ -64,7 +64,7 @@ export class ReservationInfoService {
           guestName: reservation.guestName,
           arrivalDate: reservation.arrivalDate,
           departureDate: reservation.departureDate,
-          listingMapId: reservation.listingMapId,
+          // listingMapId: reservation.listingMapId,
         },
       });
     }
@@ -86,7 +86,7 @@ export class ReservationInfoService {
     }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const listing = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const listing = reservation.listingMapId && await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
     const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
@@ -115,7 +115,7 @@ export class ReservationInfoService {
     }
     
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const listing = await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
+    const listing = updateData.listingMapId && await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
 
     reservation.listingMapId = updateData.listingMapId;
@@ -1205,11 +1205,15 @@ export class ReservationInfoService {
   }
 
   async syncReservationById(reservationId: number) {
-    const reservation = await this.hostAwayClient.getReservation(reservationId);
-    if (!reservation) {
+    const apiKey = process.env.HOSTIFY_API_KEY || "";
+    const reservation = await this.hostifyClient.getReservationInfo(apiKey, reservationId);
+    if (!reservation.reservation) {
       throw new Error(`Reservation not found with ID: ${reservationId}`);
     }
-    return await this.saveReservationInfo(reservation, "internal");
+    const reservationInfo = reservation.reservation;
+    const guestInfo = reservation.guest;
+    const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
+    return await this.saveReservationInfo(reservationObj, "internal");
   }
 
   async getReservationGenericReport(body: {
@@ -1493,7 +1497,7 @@ export class ReservationInfoService {
 
     return {
       id: reservation.id,
-      listingMapId: reservation.listing_id,
+      listingMapId: reservation?.parent_listing_id ? reservation.parent_listing_id : reservation.listing_id,
       channelId: channel ? channel.channelId : null,
       source: reservation.source,
       channelName: channel ? channel.channelName : reservation.source,

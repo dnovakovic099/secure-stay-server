@@ -36,6 +36,13 @@ export class Hostify {
                 }
             }
 
+            console.log({
+                page,
+                per_page,
+            })
+
+            console.log(allListings.length)
+            console.log(allListings.some((listing) => listing.id === 300019181));
             return allListings;
         } catch (error) {
             logger.error("Error fetching listings:", error.message);
