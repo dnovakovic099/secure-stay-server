@@ -992,7 +992,7 @@ export const buildExpenseSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New Expense: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                    text: `*New Expense: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
@@ -1040,28 +1040,28 @@ export const buildExpenseSlackMessage = (
                                 type: "plain_text",
                                 text: "Pending Approval"
                             },
-                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.PENDING })
+                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.PENDING })
                         },
                         {
                             text: {
                                 type: "plain_text",
                                 text: "Approved"
                             },
-                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.APPROVED })
+                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.APPROVED })
                         },
                         {
                             text: {
                                 type: "plain_text",
                                 text: "Paid"
                             },
-                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.PAID })
+                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.PAID })
                         },
                         {
                             text: {
                                 type: "plain_text",
                                 text: "Overdue"
                             },
-                            value: JSON.stringify({ id: expense.expenseId, status: ExpenseStatus.OVERDUE })
+                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.OVERDUE })
                         }
                     ]
                 }
@@ -1084,7 +1084,7 @@ export const buildExpenseSlackMessageUpdate = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Expense Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                    text: `*Expense Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
@@ -1156,7 +1156,7 @@ export const buildExpenseStatusUpdateMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Expense Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.expenseId}|View>*`
+                    text: `*Expense Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
