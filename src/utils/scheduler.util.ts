@@ -249,6 +249,6 @@ export function scheduleGetReservation() {
       }
     })
 
-  schedule.scheduleJob({ hour: 11, minute: 34, tz: "America/New_York" }, updateListingId);
+  schedule.scheduleJob({ hour: 11, minute: 52, tz: "America/New_York" }, updateListingId);
 
 }

@@ -218,9 +218,9 @@ export const listingIdMappings = [
     { hostaway_id: 413504, hostify_id: 300017892 },
     { hostaway_id: 413509, hostify_id: 300019043 },
     { hostaway_id: 421241, hostify_id: 300017698 },
-    { hostaway_id: 421368, hostify_id: 300017706 },
-    { hostaway_id: 421368, hostify_id: 300017702 },
-    { hostaway_id: 421368, hostify_id: 300017704 },
+    // { hostaway_id: 421368, hostify_id: 300017706 }, // mistake
+    // { hostaway_id: 421368, hostify_id: 300017702 },
+    // { hostaway_id: 421368, hostify_id: 300017704 },
     { hostaway_id: 421368, hostify_id: 300017700 },
     { hostaway_id: 425102, hostify_id: 300017566 },
     { hostaway_id: 430453, hostify_id: 300017669 },
@@ -299,5 +299,59 @@ export const listingIdMappings = [
     { hostaway_id: 431298, hostify_id: 300017909 },
     { hostaway_id: 431312, hostify_id: 300017910 },
     { hostaway_id: 282032, hostify_id: 300017832 },
+    { hostaway_id: 293940, hostify_id: 300017835 },
+    { hostaway_id: 286720, hostify_id: 300018860 },
+    { hostaway_id: 307076, hostify_id: 300017722 },
+    { hostaway_id: 308199, hostify_id: 300017718 },
+    { hostaway_id: 308324, hostify_id: 300017720 },
+    { hostaway_id: 311162, hostify_id: 300017595 },
+    { hostaway_id: 318863, hostify_id: 300017841 },
+    { hostaway_id: 346195, hostify_id: 300017736 },
+    { hostaway_id: 363369, hostify_id: 300017850 },
+    { hostaway_id: 374735, hostify_id: 300017789 },
+    { hostaway_id: 414407, hostify_id: 300017580 },
+    { hostaway_id: 417693, hostify_id: 300017742 },
+    { hostaway_id: 419271, hostify_id: 300017696 },
+    { hostaway_id: 421375, hostify_id: 300017704 },
+    { hostaway_id: 421379, hostify_id: 300017702 },
+    { hostaway_id: 421383, hostify_id: 300017706 },
+    { hostaway_id: 425072, hostify_id: 300017658 },
+    { hostaway_id: 428205, hostify_id: 300018906 },
+    { hostaway_id: 429274, hostify_id: 300017562 },
+    { hostaway_id: 430087, hostify_id: 300017616 }, // Ray Rd - Erna
+    { hostaway_id: 431033, hostify_id: 300017586 }, // Travolta Ave. - Jill Sheena
+    { hostaway_id: 431809, hostify_id: 300017588 },
+    { hostaway_id: 433402, hostify_id: 300017662 },
+    { hostaway_id: 434131, hostify_id: 300017739 },
+    { hostaway_id: 434671, hostify_id: 300017674 },
+    { hostaway_id: 436481, hostify_id: 300017738 },
+    { hostaway_id: 437229, hostify_id: 300017919 },
+    { hostaway_id: 437912, hostify_id: 300017744 },
+    { hostaway_id: 437914, hostify_id: 300017745 },
+    { hostaway_id: 439436, hostify_id: 300017918 },
+    { hostaway_id: 441197, hostify_id: 300018471 },
+    { hostaway_id: 443192, hostify_id: 300017757 },
+    { hostaway_id: 443439, hostify_id: 300017758 },
 ];
+
+export const NotFoundListingIdMappings = [
+    { hostaway_id: 354631, hostify_id: null }, // Cherry Brook - Clay and Mica
+    { hostaway_id: 409057, hostify_id: null }, // 30A (Unit A-303) - Michael
+    { hostaway_id: 416843, hostify_id: null }, // SW Barnard St - Pamela
+    { hostaway_id: 425413, hostify_id: null }, // Davenport - Jamaal
+    { hostaway_id: 426101, hostify_id: null }, // Casa 33 (Residencial Nueva San Miguel) - Jose
+    { hostaway_id: 426579, hostify_id: null }, // Casa 31 (Residencial Nueva San Miguel) - Jose
+    { hostaway_id: 427032, hostify_id: null }, // Casa 24 (Residencial Nueva San Miguel) - Jose
+    { hostaway_id: 427093, hostify_id: null }, // Boyle St - Jacqui
+    { hostaway_id: 427094, hostify_id: null }, // Casa 36 (Residencial Nueva San Miguel) - Jose
+    { hostaway_id: 430401, hostify_id: null }, // Springrun Dr - Neville
+    { hostaway_id: 431719, hostify_id: null }, // Windy Creek Way - Rick
+    { hostaway_id: 432284, hostify_id: null }, // State Hwy 68E (UNIT 9 Twin Pines) - Chadwick
+    { hostaway_id: 432619, hostify_id: null }, // State Hwy 68E (UNIT 10 Family Lodge) - Chadwick
+    { hostaway_id: 435868, hostify_id: null }, // W Alfred St. - Andre
+    { hostaway_id: 437217, hostify_id: null }, // Bullock Hollow Rd. - Chimene
+    { hostaway_id: 439461, hostify_id: null }, // Lux Exp - 14 W Peachtree  Pl NW
+    { hostaway_id: 440351, hostify_id: null }, // Hubbell Pl. (Suite 412) - Seth
+    { hostaway_id: 443933, hostify_id: null } // Jacqueline Ln. (Parent) - Gina
+]
 
