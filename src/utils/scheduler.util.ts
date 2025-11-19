@@ -82,7 +82,7 @@ export function scheduleGetReservation() {
   );
 
   schedule.scheduleJob(
-    { hour: 3, minute: 0, tz: "America/New_York" }, // Daily at 3 AM EST
+    "0 * * * *", // every hour
     async () => {
       try {
         logger.info('Sync listings for all users ran...');

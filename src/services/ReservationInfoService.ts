@@ -57,6 +57,14 @@ export class ReservationInfoService {
   private validStatus = ["new", "accepted", "modified", "ownerStay", "moved"]
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
+    const listings = await this.listingInfoRepository.find();
+    const listingIds = listings.map(l => Number(l.id));
+    const incomingListingId = Number(reservation.listingMapId);
+    if (reservation.listingMapId && !listingIds.includes(incomingListingId)) {
+      logger.info(`[saveReservationInfo] Listing ID ${reservation.listingMapId} not found. Skipping reservation save.`);
+      return null;
+    }
+
     let isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
     if (!isExist) {
       isExist = await this.reservationInfoRepository.findOne({
@@ -64,7 +72,7 @@ export class ReservationInfoService {
           guestName: reservation.guestName,
           arrivalDate: reservation.arrivalDate,
           departureDate: reservation.departureDate,
-          // listingMapId: reservation.listingMapId,
+          listingMapId: reservation.listingMapId,
         },
       });
     }
