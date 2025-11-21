@@ -238,7 +238,7 @@ export function scheduleGetReservation() {
     })
 
   schedule.scheduleJob(
-    { hour: 11, minute: 20, tz: "America/New_York" },
+    { hour: 14, minute: 0, tz: "America/New_York" },
     async () => {
       try {
         logger.info('Processing upsells to create missing extras in the system...');

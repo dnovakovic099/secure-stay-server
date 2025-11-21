@@ -359,6 +359,17 @@ export class ListingService {
     return pmListings;
   }
 
+  async getLaunchListings(){
+    const listings = await this.listingRepository.find();
+    const launchListings = listings.filter(listing => {
+      let tags = [];
+      tags = listing.tags ? listing.tags.split(',') : [];
+      return tags.includes("Launch");
+    });
+
+    return launchListings;
+  }
+
 
   async getListingAddresses(userId: string) {
     const listings = await this.listingRepository.find({

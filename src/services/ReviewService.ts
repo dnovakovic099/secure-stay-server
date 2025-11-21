@@ -797,7 +797,17 @@ export class ReviewService {
         const reservationInfoService = new ReservationInfoService();
         const { reservations } = await reservationInfoService.getCheckoutReservations();
 
+        const listingService = new ListingService();
+        const listing = await listingService.getLaunchListings();
+
         for (const reservation of reservations) {
+            const listingId = reservation.listingMapId;
+            const isLaunchListing = listing.some(l => l.id === listingId);
+            if (isLaunchListing) {
+                logger.info(`Skipping review checkout processing for launch listing ID: ${listingId}`);
+                continue;
+            }
+            
             logger.info(`Processing review checkout for reservation ID: ${reservation.guestName}`);
             //check if there is review checkout entry
             let reviewCheckout = await this.reviewCheckoutRepo.findOne({
@@ -805,8 +815,6 @@ export class ReviewService {
                     reservationInfo: { id: reservation.id },
                 }
             });
-            logger.info(JSON.stringify(reviewCheckout));
-            logger.info(`Existing review checkout found: ${reviewCheckout ? 'Yes' : 'No'}`);
 
             if (!reviewCheckout) {
                 const newReviewCheckout = this.reviewCheckoutRepo.create({
