@@ -4,7 +4,8 @@ export enum ExpenseStatus {
     PENDING = 'Pending Approval',
     APPROVED = 'Approved',
     PAID = 'Paid',
-    OVERDUE = 'Overdue'
+    OVERDUE = 'Overdue',
+    NA = "N/A"
 }
 
 @Entity('expense')
@@ -86,4 +87,10 @@ export class ExpenseEntity {
 
     @Column({ nullable: true })
     guestName: string;
+
+    @Column({ nullable: true })
+    upsellId: number;
+
+    @Column({ nullable: true })
+    resolutionId: number;
 }

@@ -355,3 +355,14 @@ export const NotFoundListingIdMappings = [
     { hostaway_id: 443933, hostify_id: null } // Jacqueline Ln. (Parent) - Gina
 ]
 
+
+export const resolutionCategoryMappings = [
+    { name: 'claim', value: 10001 },
+    { name: 'security_deposit', value: 10002 },
+    { name: 'pet_fee', value: 10003 },
+    { name: 'extra_cleaning', value: 10004 },
+    { name: 'others', value: 23551 },
+    { name: 'resolution', value: 21981 },
+    { name: 'review_removal', value: 10005 },
+    { name: 'dispute', value: 10006 },
+]

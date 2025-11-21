@@ -6,13 +6,14 @@ import logger from "../utils/logger.utils";
 import connection from "../utils/redisConnection";
 import { Worker } from "bullmq";
 import { appDatabase } from "../utils/database.util";
-import { categoryIds } from "../constant";
+import { categoryIds, resolutionCategoryMappings } from "../constant";
 import { format } from "date-fns/format";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Resolution } from "../entity/Resolution";
 import { FileInfo } from "../entity/FileInfo";
 import { initRootFolder, getOrCreateFolder, drive, uploadToDrive } from "../utils/drive";
 import fs from "fs";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
 (async () => {
     if (!appDatabase.isInitialized) {
@@ -206,6 +207,108 @@ import fs from "fs";
         }
     );
 
+    // 🔧 Worker 5: create-expense-from-resolution
+    const createExpenseFromResolutionWorker = new Worker('create-expense-from-resolution', async job => {
+        try {
+            const resolution: Resolution = job.data.resolution;
+            const category = resolutionCategoryMappings.find(cat => cat.name === resolution.category)?.value;
+            const categories = category ? JSON.stringify([category]) : JSON.stringify([categoryIds.Resolutions]);
+
+            const expenseRepo = appDatabase.getRepository(ExpenseEntity);
+            const newExpense = expenseRepo.create({
+                listingMapId: resolution.listingMapId,
+                expenseDate: resolution.claimDate,
+                concept: resolution.type ? `${resolution.type} : ${resolution.guestName}` : `${resolution.guestName}`,
+                amount: resolution.amountToPayout ? resolution.amountToPayout : resolution.amount,
+                isDeleted: 0,
+                categories: categories,
+                contractorName: "",
+                findings: resolution.description ? resolution.description : null,
+                userId: "system",
+                fileNames: "",
+                status: ExpenseStatus.NA,
+                reservationId: String(resolution.reservationId),
+                guestName: resolution.guestName,
+                resolutionId: resolution.id
+            });
+            await expenseRepo.save(newExpense);
+
+            logger.info(`Expense created successfully for resolutionId ${resolution.id}`);
+        } catch (error) {
+            logger.error(`Error processing expense job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
+    // 🔧 Worker 6: update-expense-from-resolution
+    const updateExpenseFromResolutionWorker = new Worker('update-expense-from-resolution', async job => {
+        try {
+            const resolution: Resolution = job.data.resolution;
+
+            const category = resolutionCategoryMappings.find(cat => cat.name === resolution.category)?.value;
+            const categories = category ? JSON.stringify([category]) : JSON.stringify([categoryIds.Resolutions]);
+
+            const expenseRepo = appDatabase.getRepository(ExpenseEntity);
+            const expense = await expenseRepo.findOneBy({ resolutionId: resolution.id });
+            if (!expense) {
+                logger.error(`Expense not found for resolutionId ${resolution.id}`);
+                return;
+            }
+
+            expense.listingMapId = resolution.listingMapId;
+            expense.expenseDate = resolution.claimDate;
+            expense.concept = resolution.type ? `${resolution.type} : ${resolution.guestName}` : `${resolution.guestName}`;
+            expense.amount = resolution.amountToPayout ? resolution.amountToPayout : resolution.amount;
+            expense.categories = categories;
+            expense.findings = resolution.description ? resolution.description : null;
+            expense.reservationId = String(resolution.reservationId);
+            expense.guestName = resolution.guestName;
+            expense.isDeleted = resolution.deletedAt ? 1 : 0;
+
+            await expenseRepo.save(expense);
+
+            logger.info(`Expense updated successfully for resolutionId ${resolution.id}`);
+        } catch (error) {
+            logger.error(`Error processing expense job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
+    // 🔧 Worker 7: update-resolution-from-expense
+    const updateResolutionFromExpense = new Worker('update-resolution-from-expense', async job => {
+        try {
+            const expense: ExpenseEntity = job.data.expense;
+
+            const incomingCategories = JSON.parse(expense.categories);
+            const category = resolutionCategoryMappings.find(cat => cat.value === incomingCategories[0])?.name;
+
+            const resolutionRepo = appDatabase.getRepository(Resolution);
+            const resolution = await resolutionRepo.findOne({ where: { id: expense.resolutionId } });
+            if (!resolution) {
+                logger.error(`Resolution not found for expenseId ${expense.id}`);
+                return;
+            }
+            
+            resolution.listingMapId = expense.listingMapId;
+            resolution.claimDate = expense.expenseDate;
+            resolution.amountToPayout = expense.amount;
+            resolution.deletedAt = expense.isDeleted === 1 ? new Date() : null;
+            resolution.category = category;
+
+            await resolutionRepo.save(resolution);
+
+            logger.info(`Resolution updated successfully for expenseId ${expense.id}`);
+        } catch (error) {
+            logger.error(`Error processing resolution job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
 
 
 
@@ -249,6 +352,30 @@ import fs from "fs";
 
     googleDriveFileUploadWorker.on('failed', (job, err) => {
         logger.error(`❌ File upload Job ${job.id} failed for fileId ${job.data.entity.id}: ${err.message}`);
+    });
+
+    createExpenseFromResolutionWorker.on('completed', job => {
+        logger.info(`✅ Create Expense Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    createExpenseFromResolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Create Expense Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    updateExpenseFromResolutionWorker.on('completed', job => {
+        logger.info(`✅ Update Expense Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    updateExpenseFromResolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Update Expense Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    updateResolutionFromExpense.on('completed', job => {
+        logger.info(`✅ Update Resolution Job ${job.id} completed for expenseId ${job.data.expense.id}`);
+    });
+
+    updateResolutionFromExpense.on('failed', (job, err) => {
+        logger.error(`❌ Update Resolution Job ${job.id} failed for expenseId ${job.data.expense.id}: ${err.message}`);
     });
 
 })();

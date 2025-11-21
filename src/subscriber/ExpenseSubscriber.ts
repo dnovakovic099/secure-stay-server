@@ -18,6 +18,7 @@ import { ExpenseEntity } from '../entity/Expense';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { CategoryEntity } from '../entity/Category';
 import updateSlackMessage from '../utils/updateSlackMsg';
+import { updateResolutionFromExpense } from '../queue/expenseQueue';
 
 @EventSubscriber()
 export class ExpenseSubscriber
@@ -134,6 +135,10 @@ export class ExpenseSubscriber
         }
 
         await this.updateSlackMessage(entity, entity.updatedBy, eventType);
+
+        if (entity.resolutionId) {
+            updateResolutionFromExpense.add('update-resolution-from-expense', { expense: entity });
+        }
 
     }
 

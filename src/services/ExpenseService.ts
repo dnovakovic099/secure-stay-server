@@ -70,7 +70,7 @@ export class ExpenseService {
         newExpense.listingMapId = listingMapId;
         newExpense.expenseDate = expenseDate;
         newExpense.concept = concept;
-        newExpense.amount = negatedAmount;
+        newExpense.amount = amount;
         newExpense.isDeleted = 0;
         newExpense.categories = categories;
         newExpense.contractorName = contractorName;
@@ -351,52 +351,53 @@ export class ExpenseService {
         const { totalExpense } = await qb.getRawOne();
 
 
-        const excludeResolution = request.hostname == "securestay.ai";
-        const resolutionService = new ResolutionService();
+        // const excludeResolution = request.hostname == "securestay.ai";
+        // const resolutionService = new ResolutionService();
 
-        const resolutions = excludeResolution ?
-            { resolutions: [] } :
-            await resolutionService.getResolutions({
-                listingId,
-                fromDate,
-                toDate,
-                dateType: fromDate && toDate ? "claimDate" : null,
-                page,
-                limit
-            });
+        // const resolutions = excludeResolution ?
+        //     { resolutions: [] } :
+        //     await resolutionService.getResolutions({
+        //         listingId,
+        //         fromDate,
+        //         toDate,
+        //         dateType: fromDate && toDate ? "claimDate" : null,
+        //         page,
+        //         limit
+        //     });
 
 
 
-        const refactoredResolutions = resolutions.resolutions.map(resolution => {
-            return {
-                expenseId: resolution.ha_id,
-                status: 'Approved',
-                amount: resolution.amount,
-                listing: resolution.listingName || 'Unkown Listing',
-                listingMapId: resolution.listingMapId,
-                dateAdded: resolution.claimDate,
-                dateOfWork: "",
-                datePaid: '',
-                description: resolution.type,
-                categories: resolution.category,
-                contractorName: "",
-                contractorNumber: '',
-                findings: "",
-                paymentMethod: "",
-                createdAt: resolution.createdAt,
-                updatedAt: resolution.updatedAt,
-                updatedBy: resolution.updatedBy,
-                attachments: '',
-                fileInfo: [],
-                issues: [],
-                issuesList: [],
-                createdBy: resolution.createdBy,
-                guestName: resolution.guestName
-            };
-        });
+        // const refactoredResolutions = resolutions.resolutions.map(resolution => {
+        //     return {
+        //         expenseId: resolution.ha_id,
+        //         status: 'Approved',
+        //         amount: resolution.amount,
+        //         listing: resolution.listingName || 'Unkown Listing',
+        //         listingMapId: resolution.listingMapId,
+        //         dateAdded: resolution.claimDate,
+        //         dateOfWork: "",
+        //         datePaid: '',
+        //         description: resolution.type,
+        //         categories: resolution.category,
+        //         contractorName: "",
+        //         contractorNumber: '',
+        //         findings: "",
+        //         paymentMethod: "",
+        //         createdAt: resolution.createdAt,
+        //         updatedAt: resolution.updatedAt,
+        //         updatedBy: resolution.updatedBy,
+        //         attachments: '',
+        //         fileInfo: [],
+        //         issues: [],
+        //         issuesList: [],
+        //         createdBy: resolution.createdBy,
+        //         guestName: resolution.guestName
+        //     };
+        // });
 
         return {
-            data: excludeResolution ? data : [...data, ...refactoredResolutions],
+            // data: excludeResolution ? data : [...data, ...refactoredResolutions],
+            data,
             totalExpense,
             total
         };
@@ -455,7 +456,7 @@ export class ExpenseService {
         expense.listingMapId = listingMapId;
         expense.expenseDate = expenseDate;
         expense.concept = concept;
-        expense.amount = negatedAmount;
+        expense.amount = amount;
         expense.categories = categories;
         expense.dateOfWork = dateOfWork;
         expense.contractorName = contractorName;

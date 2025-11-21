@@ -21,3 +21,13 @@ INSERT INTO `category` (`categoryName`, `hostawayId`) VALUES
 ('Resolutions', 21981),
 ('Service', 23377),
 ('Upsell', 19780);
+
+
+INSERT INTO `category` (`categoryName`, `hostawayId`) VALUES
+('Claim', 10001),
+('Security Deposit', 10002),
+('Pet Fee', 10003),
+('Extra Cleaning', 10004),
+('Review Removal', 10005),
+('Dispute', 10006);
+

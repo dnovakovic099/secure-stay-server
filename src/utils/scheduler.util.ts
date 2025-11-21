@@ -16,6 +16,8 @@ import { PublishedStatementService } from "../services/PublishedStatementService
 import { ReviewService } from "../services/ReviewService";
 import { ExpenseService } from "../services/ExpenseService";
 import { updateListingId } from "../scripts/updateListingId";
+import { createExpenseLogsFromResolution } from "../scripts/createExpenseLogsFromResolution";
+import { updateMgmtFee } from "../scripts/updateMgmtFee";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -249,6 +251,9 @@ export function scheduleGetReservation() {
       }
     })
 
-  schedule.scheduleJob({ hour: 11, minute: 52, tz: "America/New_York" }, updateListingId);
+  schedule.scheduleJob({ hour: 11, minute: 15, tz: "America/New_York" }, updateListingId);
 
+  schedule.scheduleJob({ hour: 10, minute: 57, tz: "America/New_York" }, createExpenseLogsFromResolution);
+
+  schedule.scheduleJob({ hour: 11, minute: 36, tz: "America/New_York" }, updateMgmtFee);
 }

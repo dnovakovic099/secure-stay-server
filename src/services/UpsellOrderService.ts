@@ -250,6 +250,7 @@ export class UpsellOrderService {
                 if (existingExpense) {
                     logger.info(`Expense already exists for upsell ID: ${upsell.id}, skipping...`);
                     existingExpense.amount = requestBody.amount;
+                    existingExpense.upsellId = upsell.id;
                     await this.expenseRepo.save(existingExpense);
                     continue;
                 }
@@ -271,7 +272,8 @@ export class UpsellOrderService {
                     createdBy: 'system',
                     reservationId: upsell.booking_id,
                     guestName: upsell.client_name,
-                    fileNames: ""
+                    fileNames: "",
+                    upsellId: upsell.id
                 });
 
                 await this.expenseRepo.save(expense);

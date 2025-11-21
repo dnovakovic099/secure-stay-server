@@ -20,6 +20,7 @@ import { Resolution } from "../entity/Resolution";
 import { ReviewEntity } from "../entity/Review";
 import { BadReviewEntity } from "../entity/BadReview";
 import { LiveIssue } from "../entity/LiveIssue";
+import { ListingScore } from "../entity/ListingScore";
 
 export async function updateListingId() {
     logger.info("Updating listing IDs...");
@@ -83,6 +84,9 @@ export async function updateListingId() {
 
             //update live issues
             await tx.update(LiveIssue, { propertyId: hostaway_id }, { propertyId: hostify_id });
+
+            //listing_score_info
+            await tx.update(ListingScore, { listingId: hostaway_id }, { listingId: hostify_id });
         }
 
     });

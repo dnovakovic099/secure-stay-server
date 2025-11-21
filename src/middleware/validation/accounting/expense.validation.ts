@@ -32,7 +32,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required().allow(null),
         findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.NA),
         paymentMethod: Joi.string().required().allow(null, "")
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
@@ -95,7 +95,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         contractorNumber: Joi.string().required().allow(null, ""),
         findings: Joi.string().required().allow(null, ""),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.NA),
         paymentMethod: Joi.string().required().allow(null, "")
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
@@ -131,7 +131,7 @@ export const validateUpdateExpenseStatus = (request: Request, response: Response
     const schema = Joi.object({
         expenseId: Joi.array().items(Joi.number().required()).min(1).required(),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE),
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.NA),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null, "")
@@ -167,7 +167,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
 
         status: Joi.array()
             .items(
-                Joi.string().valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE)
+                Joi.string().valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.NA)
             )
             .min(1)
             .optional()
@@ -215,7 +215,7 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE).allow(null),
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.NA).allow(null),
         paymentMethod: Joi.string().required().allow(null)
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         categories: Joi.alternatives().try(
