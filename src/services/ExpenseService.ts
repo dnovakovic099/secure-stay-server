@@ -220,7 +220,7 @@ export class ExpenseService {
                     ...(type && type == "extras" && { amount: MoreThan(0) }),
                     ...(type && type == "expense" && { amount: LessThan(0) }),
                 },
-            order: { id: "DESC" },
+            order: { expenseDate: "DESC" },
             skip,
             take: limit,
         });
