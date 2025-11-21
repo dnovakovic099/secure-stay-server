@@ -35,7 +35,7 @@ export class ExpenseSubscriber
 
     async afterInsert(event: InsertEvent<ExpenseEntity>) {
         const { entity, manager } = event;
-        await this.sendSlackMessage(entity, entity.createdBy);
+        // await this.sendSlackMessage(entity, entity.createdBy);
     }
 
     private async sendSlackMessage(expense: ExpenseEntity, userId: string) {
@@ -134,7 +134,7 @@ export class ExpenseSubscriber
             eventType = "delete";
         }
 
-        await this.updateSlackMessage(entity, entity.updatedBy, eventType);
+        // await this.updateSlackMessage(entity, entity.updatedBy, eventType);
 
         if (entity.resolutionId) {
             updateResolutionFromExpense.add('update-resolution-from-expense', { expense: entity });
