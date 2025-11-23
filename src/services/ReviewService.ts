@@ -113,6 +113,7 @@ export class ReviewService {
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
     private hostifyClient = new Hostify();
+    private listingRepo = appDatabase.getRepository(Listing);
 
     public async getReviews({
         fromDate,
@@ -809,7 +810,7 @@ export class ReviewService {
             }
 
             //check if the listingMapId is parent_listing_id or not
-            const listingDetail = await appDatabase.getRepository(Listing).findOne({ where: { id: listingId } });
+            const listingDetail = await this.listingRepo.findOne({ where: { id: listingId } });
             if (!listingDetail) {
                 logger.warn(`Listing detail not found for listing ID: ${listingId}`);
                 continue;
