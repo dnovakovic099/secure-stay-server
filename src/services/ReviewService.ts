@@ -809,7 +809,7 @@ export class ReviewService {
             }
 
             //check if the listingMapId is parent_listing_id or not
-            const listingDetail = await listingService.getListingDetail(listingId);
+            const listingDetail = await appDatabase.getRepository(Listing).findOne({ where: { id: listingId } });
             if (!listingDetail) {
                 logger.warn(`Listing detail not found for listing ID: ${listingId}`);
                 continue;
