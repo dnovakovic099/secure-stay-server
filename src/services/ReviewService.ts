@@ -804,10 +804,17 @@ export class ReviewService {
             const listingId = reservation.listingMapId;
             const isLaunchListing = listing.some(l => l.id === listingId);
             if (isLaunchListing) {
-                logger.info(`Skipping review checkout processing for launch listing ID: ${listingId}`);
+                logger.warn(`Skipping review checkout processing for launch listing ID: ${listingId}`);
                 continue;
             }
-            
+
+            //check if the listingMapId is parent_listing_id or not
+            const listingDetail = await listingService.getListingDetail(listingId);
+            if (!listingDetail) {
+                logger.warn(`Listing detail not found for listing ID: ${listingId}`);
+                continue;
+            }
+
             logger.info(`Processing review checkout for reservation ID: ${reservation.guestName}`);
             //check if there is review checkout entry
             let reviewCheckout = await this.reviewCheckoutRepo.findOne({
