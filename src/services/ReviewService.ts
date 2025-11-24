@@ -786,6 +786,14 @@ export class ReviewService {
             if (reviewCheckout.fourteenDaysAfterCheckout < today) {
                 reviewCheckout.status = ReviewCheckoutStatus.CLOSED_NO_REVIEW;
             }
+
+            if(reviewCheckout.status==ReviewCheckoutStatus.CLOSED_BAD_REVIEW){
+                await this.createBadReview({
+                    reservationInfo: reviewCheckout.reservationInfo,
+                    status: 'New',
+                    createdBy: 'system'
+                });
+            }
             reviewCheckout.updatedAt = new Date();
             reviewCheckout.updatedBy = "system";
             await this.reviewCheckoutRepo.save(reviewCheckout);
@@ -918,6 +926,11 @@ export class ReviewService {
     }
 
     private async createBadReview(obj: any) {
+        const existingBadReviewLog = await this.badReviewRepo.findOne({ where: { reservationInfo: { id: obj.reservationInfo.id } } });
+        if(existingBadReviewLog) {
+            logger.info(`Bad review log already exists for reservation id: ${obj.reservationInfo.id}`);
+            return existingBadReviewLog;
+        }
         const newReview = this.badReviewRepo.create(obj);
         return await this.badReviewRepo.save(newReview);
     }
