@@ -780,7 +780,7 @@ export class ReviewService {
                 },
             });
             if (review && review.rating) {
-                reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+                reviewCheckout.status = review.rating == 5 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
             }
             // if no review is placed and fourteenDaysAfterCheckout is today then close the review checkout as no review
             if (reviewCheckout.fourteenDaysAfterCheckout < today) {
@@ -803,7 +803,7 @@ export class ReviewService {
 
         for (const reservation of reservations) {
             const listingId = reservation.listingMapId;
-            const isLaunchListing = listing.some(l => l.id === listingId);
+            const isLaunchListing = listing.some(l => Number(l.id) === Number(listingId));
             if (isLaunchListing) {
                 logger.warn(`Skipping review checkout processing for launch listing ID: ${listingId}`);
                 continue;
@@ -847,7 +847,7 @@ export class ReviewService {
                     },
                 });
                 if (review) {
-                    reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+                    reviewCheckout.status = review.rating == 5 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
                     reviewCheckout.updatedAt = new Date();
                     reviewCheckout.updatedBy = "system";
                     await this.reviewCheckoutRepo.save(reviewCheckout);
