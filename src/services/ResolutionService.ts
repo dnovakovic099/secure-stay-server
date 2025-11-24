@@ -356,7 +356,12 @@ export class ResolutionService {
 
                         const startDate = "2025-09-01";
 
-                        if (formattedDate >= startDate) {
+                        //get 30 days back date from current date
+                        const date30DaysAgo = new Date();
+                        date30DaysAgo.setDate(date30DaysAgo.getDate() - 30);
+                        const past30Date = format(date30DaysAgo, "yyyy-MM-dd");
+
+                        if (formattedDate >= past30Date) {
                             results.push(data);
                         }
                     } catch (err) {
