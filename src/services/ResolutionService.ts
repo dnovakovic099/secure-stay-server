@@ -440,7 +440,7 @@ export class ResolutionService {
             }
 
             const resolutionData: ResolutionData = {
-                category: categoriesList[CategoryKey.RESOLUTION],
+                category: CategoryKey.RESOLUTION,
                 type: row.Type,
                 listingMapId: reservation.listingMapId, 
                 reservationId: reservation.id, 
