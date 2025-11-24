@@ -4,6 +4,8 @@ import { LiveIssueUpdates } from './LiveIssueUpdates';
 export enum LiveIssueStatus {
     NEW = 'New',
     IN_PROGRESS = 'In Progress',
+    TO_BE_TRAPPED = 'To Be Trapped',
+    NEGOTIATING = 'Negotiating',
     CLOSED_RESOLVED = 'Closed - Resolved',
     CLOSED_FAILED = 'Closed - Failed',
     CLOSED_NEGOTIATED = 'Closed - Negotiated',

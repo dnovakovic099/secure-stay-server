@@ -31,7 +31,7 @@ export function scheduleGetReservation() {
 
   schedule.scheduleJob("0 9 * * *", checkForUnresolvedReviews);
 
-  // schedule.scheduleJob("0 * * * *", syncReviews);
+  schedule.scheduleJob("0 * * * *", syncReviews);
 
   schedule.scheduleJob({ hour: 9, minute: 0, dayOfWeek: 1, tz: "America/New_York" }, syncIssue); // Every Monday at 9 AM EST
 

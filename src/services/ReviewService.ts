@@ -1126,8 +1126,12 @@ export class ReviewService {
 
                 case 'active':
                     // Active tab: Show 'In Progress' status
-                    query.andWhere("liveIssue.status = :activeStatus", {
-                        activeStatus: LiveIssueStatus.IN_PROGRESS
+                    query.andWhere("liveIssue.status IN (:...activeStatus)", {
+                        activeStatus: [
+                            LiveIssueStatus.IN_PROGRESS,
+                            LiveIssueStatus.TO_BE_TRAPPED,
+                            LiveIssueStatus.NEGOTIATING
+                        ]
                     });
                     break;
 
@@ -1194,19 +1198,18 @@ export class ReviewService {
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
         // Get listing information for properties
-        const listingService = new ListingService();
-        const listingRepository = appDatabase.getRepository(Listing);
+
         const propertyIds = [...new Set(liveIssueList.map(li => li.propertyId).filter(Boolean))];
-        const propertyMap = new Map<number, string>();
+        const propertyMap = new Map<string, string>();
 
         if (propertyIds.length > 0) {
             try {
-                const listings = await listingRepository.find({
+                const listings = await this.listingRepo.find({
                     where: { id: In(propertyIds) }
                 });
 
                 listings.forEach(listing => {
-                    propertyMap.set(listing.id, listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
+                    propertyMap.set(String(listing.id), listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
                 });
             } catch (error) {
                 logger.error(`Error fetching listing info:`, error);
@@ -1214,8 +1217,8 @@ export class ReviewService {
         }
 
         const transformedData = liveIssueList.map(li => {
-            const propertyId = Number(li.propertyId);
-            const propertyName = propertyMap.get(propertyId) || (li.propertyId ? `Property ${li.propertyId}` : 'N/A');
+            const propertyId = String(li.propertyId);
+            const propertyName = propertyMap.get(propertyId);
             
             return {
                 ...li,
