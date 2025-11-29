@@ -2795,7 +2795,7 @@ export class ClientService {
             existingClient.lastName = primaryContactLastName;
             existingClient.preferredName = primaryContactPreferredName || null;
             existingClient.phone = primaryContactPhone || null;
-            existingClient.timezone = primaryContactTimezone || null;
+            existingClient.timezone = timezoneAmerica.find(tz => tz.value == primaryContactTimezone).id || null;
             existingClient.companyName = primaryContactCompany || null;
             existingClient.clientFolder = clientFolder || null;
             existingClient.updatedBy = userId;
@@ -2809,7 +2809,7 @@ export class ClientService {
               preferredName: primaryContactPreferredName || null,
               email: primaryContactEmail,
               phone: primaryContactPhone || null,
-              timezone: primaryContactTimezone || null,
+              timezone: timezoneAmerica.find(tz => tz.value == primaryContactTimezone).id || null,
               companyName: primaryContactCompany || null,
               clientFolder: clientFolder || null,
               source: "clientsPage",
@@ -2831,7 +2831,7 @@ export class ClientService {
               existingSecondaryContact.preferredName = secondaryContactPreferredName || null;
               existingSecondaryContact.email = secondaryContactEmail;
               existingSecondaryContact.phone = secondaryContactPhone || null;
-              existingSecondaryContact.timezone = secondaryContactTimezone || null;
+              existingSecondaryContact.timezone = timezoneAmerica.find(tz => tz.value == secondaryContactTimezone).id || null;
               existingSecondaryContact.companyName = secondaryContactCompany || null;
               existingSecondaryContact.updatedBy = userId;
               await transactionalEntityManager.save(existingSecondaryContact);
@@ -2843,7 +2843,7 @@ export class ClientService {
                 preferredName: secondaryContactPreferredName || null,
                 email: secondaryContactEmail,
                 phone: secondaryContactPhone || null,
-                timezone: secondaryContactTimezone || null,
+                timezone: timezoneAmerica.find(tz => tz.value == secondaryContactTimezone).id || null,
                 companyName: secondaryContactCompany || null,
                 type: 'secondaryContact',
                 client: client,
@@ -2865,7 +2865,7 @@ export class ClientService {
               existingPointOfContact.preferredName = pointOfContactPreferredName || null;
               existingPointOfContact.email = pointOfContactEmail;
               existingPointOfContact.phone = pointOfContactPhone || null;
-              existingPointOfContact.timezone = pointOfContactTimezone || null;
+              existingPointOfContact.timezone = timezoneAmerica.find(tz => tz.value == pointOfContactTimezone).id || null;
               existingPointOfContact.companyName = pointOfContactCompany || null;
               existingPointOfContact.updatedBy = userId;
               await transactionalEntityManager.save(existingPointOfContact);
@@ -2877,7 +2877,7 @@ export class ClientService {
                 preferredName: pointOfContactPreferredName || null,
                 email: pointOfContactEmail,
                 phone: pointOfContactPhone || null,
-                timezone: pointOfContactTimezone || null,
+                timezone: timezoneAmerica.find(tz => tz.value == pointOfContactTimezone).id || null,
                 companyName: pointOfContactCompany || null,
                 type: 'pointOfContact',
                 client: client,
