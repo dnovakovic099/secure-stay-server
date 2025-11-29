@@ -325,7 +325,7 @@ export class ListingService {
       where: {
         id: listingId,
       },
-      relations: ['images', 'listingBedTypes', 'listingAmenities', 'listingTags']
+      relations: ['images', 'listingAmenities']
     });
 
     return result;

@@ -366,3 +366,42 @@ export const resolutionCategoryMappings = [
     { name: 'review_removal', value: 10005 },
     { name: 'dispute', value: 10006 },
 ]
+
+export const timezoneAmerica = [
+    {
+        id: "America/New_York",
+        value: "Eastern Time",
+    },
+    {
+        id: "America/Chicago",
+        value: "Central Time",
+    },
+    {
+        id: "America/Denver",
+        value: "Mountain Time",
+    },
+    {
+        id: "America/Los_Angeles",
+        value: "Pacific Time",
+    },
+    {
+        id: "America/Anchorage",
+        value: "Alaska Time",
+    },
+    {
+        id: "Pacific/Honolulu",
+        value: "Hawaii Time",
+    },
+    {
+        id: "America/Puerto_Rico",
+        value: "Atlantic Time",
+    },
+    {
+        id: "Pacific/Guam",
+        value: "Chamorro Time",
+    },
+    {
+        id: "Pacific/Pago_Pago",
+        value: "Samoa Time",
+    }
+];
