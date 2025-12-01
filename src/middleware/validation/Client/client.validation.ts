@@ -119,23 +119,30 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
                 address: Joi.string().required(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
-                        managementFee: Joi.number().required().allow(null),
-                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
-                        contractLink: Joi.string().required().allow(null),
-                        serviceNotes: Joi.string().required().allow(null)
-                    }),
+                        managementFee: Joi.number().optional().allow(null),
+                        serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
+                        contractLink: Joi.string().optional().allow(null),
+                        serviceNotes: Joi.string().optional().allow(null)
+                    }).optional(),
                     sales: Joi.object({
-                        salesRepresentative: Joi.string().required().allow(null),
-                        salesNotes: Joi.string().required().allow(null),
-                        projectedRevenue: Joi.number().required().allow(null),
-                        minPrice: Joi.number().required().allow(null),
-                    }),
+                        salesRepresentative: Joi.string().optional().allow(null),
+                        salesNotes: Joi.string().optional().allow(null),
+                        projectedRevenue: Joi.number().optional().allow(null),
+                        minPrice: Joi.number().optional().allow(null),
+                    }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().required().allow(null),
-                        clientListingStatus: Joi.string().required().allow(null).valid(
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
                             "Active (Keeping: Need to Disclose Process)", 
                             "Active (Will Unpublish)",
                             "Active (Keeping + Disclosed Process to Client)",
@@ -143,19 +150,19 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         ),
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-                        }).required().allow(null),
+                        }).optional().allow(null),
                         targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-                        }).required().allow(null),
-                        targetDateNotes: Joi.string().required().allow(null),
-                        upcomingReservations: Joi.string().required().allow(null),
-                    }),
+                        }).optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null),
+                        upcomingReservations: Joi.string().optional().allow(null),
+                    }).optional(),
                     photography: Joi.object({
-                        photographyCoverage: Joi.string().required().allow(null)
+                        photographyCoverage: Joi.string().optional().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
-                        photographyNotes: Joi.string().required().allow(null),
-                    })
-                })
+                        photographyNotes: Joi.string().optional().allow(null),
+                    }).optional()
+                }).optional()
             })
         )
     });
@@ -174,6 +181,13 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
@@ -185,7 +199,7 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         salesRepresentative: Joi.string().optional().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
                         projectedRevenue: Joi.number().optional().allow(null),
-                        minPrice: Joi.number().required().allow(null),
+                        minPrice: Joi.number().optional().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),

@@ -966,6 +966,13 @@ export class ClientService {
       // Create ClientProperty
       const clientProperty = this.propertyRepo.create({
         address: property.address,
+        streetAddress: property.streetAddress ?? null,
+        city: property.city ?? null,
+        state: property.state ?? null,
+        country: property.country ?? null,
+        zipCode: property.zipCode ?? null,
+        latitude: property.latitude ?? null,
+        longitude: property.longitude ?? null,
         status: PropertyStatus.ONBOARDING,
         client: { id: clientId } as any,
         createdBy: userId,
@@ -1060,6 +1067,13 @@ export class ClientService {
       return {
         id: cp.id,
         address: cp.address,
+        streetAddress: cp.streetAddress ?? null,
+        city: cp.city ?? null,
+        state: cp.state ?? null,
+        country: cp.country ?? null,
+        zipCode: cp.zipCode ?? null,
+        latitude: cp.latitude ?? null,
+        longitude: cp.longitude ?? null,
         onboarding: {
           serviceInfo: si
             ? {
@@ -1127,6 +1141,27 @@ export class ClientService {
         if (property.address !== undefined) {
           clientProperty.address = property.address;
         }
+        if (property.streetAddress !== undefined) {
+          clientProperty.streetAddress = property.streetAddress;
+        }
+        if (property.city !== undefined) {
+          clientProperty.city = property.city;
+        }
+        if (property.state !== undefined) {
+          clientProperty.state = property.state;
+        }
+        if (property.country !== undefined) {
+          clientProperty.country = property.country;
+        }
+        if (property.zipCode !== undefined) {
+          clientProperty.zipCode = property.zipCode;
+        }
+        if (property.latitude !== undefined) {
+          clientProperty.latitude = property.latitude;
+        }
+        if (property.longitude !== undefined) {
+          clientProperty.longitude = property.longitude;
+        }
         clientProperty.updatedAt = new Date();
         clientProperty.updatedBy = userId;
         await this.propertyRepo.save(clientProperty);
@@ -1134,6 +1169,13 @@ export class ClientService {
         // Create new property
         clientProperty = this.propertyRepo.create({
           address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
           status: PropertyStatus.ONBOARDING,
           client: { id: clientId } as any,
           createdBy: userId,
