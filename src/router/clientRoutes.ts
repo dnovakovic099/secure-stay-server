@@ -2,6 +2,7 @@ import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
 import { validateCreateClient, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm, validateUpdateManagementInternalForm } from "../middleware/validation/Client/client.validation";
+import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const clientController = new ClientController();
@@ -43,4 +44,12 @@ router.route('/get-client-details/:id').get(verifySession, clientController.getC
 
 router.route('/publish-property/:propertyId').get(verifySession, clientController.publishPropertyToHostaway.bind(clientController));
 
+
+router
+    .route('/upload-csv')
+    .post(
+        verifySession,
+        fileUpload("clients").single("file"),
+        clientController.processCSVForClient.bind(clientController)
+    );
 export default router;

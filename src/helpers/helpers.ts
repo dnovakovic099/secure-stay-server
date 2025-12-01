@@ -342,6 +342,12 @@ export function generateSlackMessageLink(workspaceDomain: string, channelId: str
     return `${workspaceDomain}/archives/${channelId}/p${tsClean}`;
 }
 
+export function isEmail(value: string) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(value);
+}
+
+
 
 // | Status | Emoji |
 // | ----------- | ----- |

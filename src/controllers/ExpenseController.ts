@@ -73,9 +73,9 @@ export class ExpenseController {
         try {
             const expenseService = new ExpenseService();
             const userId = request.user.id;
-            const expenseId = parseInt(request.params.expenseId);
+            const id = parseInt(request.params.id);
 
-            await expenseService.deleteExpense(expenseId, userId);
+            await expenseService.deleteExpense(id, userId);
 
             return response.send({ message: 'Expense deleted successfully' });
         } catch (error) {
@@ -110,8 +110,8 @@ export class ExpenseController {
         try {
             const expenseService = new ExpenseService();
             const userId = request.user.id;
-            const expenseId = parseInt(request.params.expenseId);
-            return response.send(await expenseService.getExpenseById(expenseId, userId));
+            const id = parseInt(request.params.id);
+            return response.send(await expenseService.getExpenseById(id, userId));
         } catch (error) {
             return next(error);
         }

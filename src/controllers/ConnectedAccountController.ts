@@ -10,10 +10,10 @@ export class ConnectedAccountController {
         try {
             const connectedAccountService = new ConnectedAccountService();
 
-            const { clientId, clientSecret } = request.body;
+            const { clientId, clientSecret, apiKey } = request.body;
             const userId = request.user.id;
 
-            await connectedAccountService.savePmAccountInfo(clientId, clientSecret, userId);
+            await connectedAccountService.savePmAccountInfo(clientId, clientSecret, apiKey, userId);
 
             return response.status(201).json(dataSaved(`PM account info saved successfully`));
         } catch (error) {

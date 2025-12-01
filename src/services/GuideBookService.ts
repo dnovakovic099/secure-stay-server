@@ -13,7 +13,7 @@ export class GuideBookService {
     console.log(request.file.path);
 
     const newGuideBook = new GuideBook();
-    newGuideBook.listing = Number(listingId);
+
     newGuideBook.title = title;
     newGuideBook.description = description;
     newGuideBook.photo = request.file.path;
@@ -44,7 +44,7 @@ export class GuideBookService {
       }
     });
 
-    data.listing = Number(listingId);
+
     data.title = title;
     data.description = description;
     if (request.file.path) {

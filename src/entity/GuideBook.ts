@@ -21,9 +21,4 @@ export class GuideBook {
   @Column()
   photo: string;
 
-  @ManyToOne(() => Listing, (listing) => listing.guideBook, {
-    onDelete: "CASCADE",
-  })
-  @JoinColumn({ name: "listing_id" })
-  listing: number;
 }

@@ -143,6 +143,22 @@ export function getStartOfThreeMonthsAgo() {
   return `${year}-${month}-${day}`;
 }
 
+export function getStartOfTwoMonthsAgo() {
+  const today = new Date();
+
+  // Move back 1 months because we want the starting month of the 2nd month before
+  today.setMonth(today.getMonth() - 1);
+
+  // Set the date to the 1st
+  today.setDate(1);
+
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+  const day = '01'; // Always 1st day
+
+  return `${year}-${month}-${day}`;
+}
+
 export function getDatesBetween(start: Date, end: Date): string[] {
   const dates = [];
   const current = new Date(start);

@@ -18,6 +18,10 @@ import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
 import { SuppliesToRestock } from "../entity/SuppliesToRestock";
 import { VendorInfo } from "../entity/VendorInfo";
 import { HostAwayClient } from "../client/HostAwayClient";
+import fs from "fs";
+import csv from "csv-parser";
+import { timezoneAmerica } from "../constant";
+import { isEmail } from "../helpers/helpers";
 
 interface ClientFilter {
   page: number;
@@ -238,6 +242,37 @@ interface Financials {
   techFeeNotes?: string | null;
 }
 
+interface CsvRow {
+  "PC_First_Name": string;
+  "PC_Last_Name": string;
+  "PC_Preferred_Name": string;
+  "PC_Email": string;
+  "PC_Phone": string;
+  "PC_Timezone": string;
+  "PC_Company": string;
+  "Client_Folder": string;
+
+  "SC_First_Name": string;
+  "SC_Last_Name": string;
+  "SC_Preferred_Name": string;
+  "SC_Email": string;
+  "SC_Phone": string;
+  "SC_Timezone": string;
+  "SC_Company": string;
+
+  "POC_First_Name": string;
+  "POC_Last_Name": string;
+  "POC_Preferred_Name": string;
+  "POC_Email": string;
+  "POC_Phone": string;
+  "POC_Timezone": string;
+  "POC_Company": string;
+
+  "Property_Id": string;
+  "Service_Type": string;
+  "PM_Fee": string;
+}
+
 enum PropertyStatus {
   ACTIVE = "active",
   ONBOARDING = "onboarding",
@@ -366,24 +401,24 @@ export class ClientService {
             const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
 
             // --- Set amenities as simple array ---
-            if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
-              savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
-              await transactionalEntityManager.save(savedPropertyInfo);
-            }
+            // if (listingInfo.listingAmenities && listingInfo.listingAmenities.length > 0) {
+            //   savedPropertyInfo.amenities = listingInfo.listingAmenities.map((amenity) => String(amenity.amenityId));
+            //   await transactionalEntityManager.save(savedPropertyInfo);
+            // }
 
             // --- Save property bed types ---
-            if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-              const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                transactionalEntityManager.create(PropertyBedTypes, {
-                  haId: bedType.id,
-                  bedroomNumber: bedType.bedroomNumber,
-                  bedTypeId: bedType.bedTypeId,
-                  quantity: bedType.quantity,
-                  propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                })
-              );
-              await transactionalEntityManager.save(bedTypes);
-            }
+            // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+            //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+            //     transactionalEntityManager.create(PropertyBedTypes, {
+            //       haId: bedType.id,
+            //       bedroomNumber: bedType.bedroomNumber,
+            //       bedTypeId: bedType.bedTypeId,
+            //       quantity: bedType.quantity,
+            //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+            //     })
+            //   );
+            //   await transactionalEntityManager.save(bedTypes);
+            // }
 
             // --- Update property with propertyInfo relation ---
             savedProperty.propertyInfo = savedPropertyInfo;
@@ -576,18 +611,18 @@ export class ClientService {
                   await transactionalEntityManager.remove(propertyInfo.propertyBedTypes);
                 }
 
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
+                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                //     transactionalEntityManager.create(PropertyBedTypes, {
+                //       haId: bedType.id,
+                //       bedroomNumber: bedType.bedroomNumber,
+                //       bedTypeId: bedType.bedTypeId,
+                //       quantity: bedType.quantity,
+                //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+                //     })
+                //   );
+                //   await transactionalEntityManager.save(bedTypes);
+                // }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -637,18 +672,18 @@ export class ClientService {
                 }
 
                 // Create bed types
-                if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                  const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                    transactionalEntityManager.create(PropertyBedTypes, {
-                      haId: bedType.id,
-                      bedroomNumber: bedType.bedroomNumber,
-                      bedTypeId: bedType.bedTypeId,
-                      quantity: bedType.quantity,
-                      propertyId: savedPropertyInfo,
-                    })
-                  );
-                  await transactionalEntityManager.save(bedTypes);
-                }
+                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+                //     transactionalEntityManager.create(PropertyBedTypes, {
+                //       haId: bedType.id,
+                //       bedroomNumber: bedType.bedroomNumber,
+                //       bedTypeId: bedType.bedTypeId,
+                //       quantity: bedType.quantity,
+                //       propertyId: savedPropertyInfo,
+                //     })
+                //   );
+                //   await transactionalEntityManager.save(bedTypes);
+                // }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -718,19 +753,19 @@ export class ClientService {
                 await transactionalEntityManager.save(savedPropertyInfo);
               }
 
-              // --- Save property bed types ---
-              if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                  transactionalEntityManager.create(PropertyBedTypes, {
-                    haId: bedType.id,
-                    bedroomNumber: bedType.bedroomNumber,
-                    bedTypeId: bedType.bedTypeId,
-                    quantity: bedType.quantity,
-                    propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                  })
-                );
-                await transactionalEntityManager.save(bedTypes);
-              }
+              // // --- Save property bed types ---
+              // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
+              //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
+              //     transactionalEntityManager.create(PropertyBedTypes, {
+              //       haId: bedType.id,
+              //       bedroomNumber: bedType.bedroomNumber,
+              //       bedTypeId: bedType.bedTypeId,
+              //       quantity: bedType.quantity,
+              //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
+              //     })
+              //   );
+              //   await transactionalEntityManager.save(bedTypes);
+              // }
 
               // --- Update property with propertyInfo relation ---
               savedProperty.propertyInfo = savedPropertyInfo;
@@ -2548,6 +2583,523 @@ export class ClientService {
     }
 
     return { message: "Internal management updated", updated };
+  }
+
+  async processCSVData(filePath: string): Promise<CsvRow[]> {
+
+    const allowedTimezones = timezoneAmerica.map(tz => tz.value);
+
+    return new Promise((resolve, reject) => {
+      const results: CsvRow[] = [];
+
+      fs.createReadStream(filePath)
+        .pipe(csv({
+          mapHeaders: ({ header }) => header.replace(/^\uFEFF/, "").trim()
+        }))
+        .on("headers", (headers: string[]) => {
+          // ✅ validate headers once, not per row
+          const requiredHeaders = [
+            "PC_First_Name",
+            "PC_Last_Name",
+            "PC_Email",
+          ];
+          const missing = requiredHeaders.filter(h => !headers.includes(h));
+          if (missing.length > 0) {
+            fs.unlinkSync(filePath);
+            reject(new CustomErrorHandler(400, `Missing required headers in the CSV file: ${missing.join(", ")}`));
+          }
+        })
+        .on("data", (data: CsvRow) => {
+          try {
+            results.push(data);
+          } catch (err) {
+            // skip rows with invalid date format
+            logger.warn(`Skipping row with err: ${err}`);
+          }
+        })
+        .on("end", () => {
+          resolve(results);
+        })
+        .on("error", (err) => {
+          fs.unlinkSync(filePath);
+          reject(err);
+        });
+    });
+  }
+
+
+  async processCSVFileForClientCreation(filePath: string, userId: string) {
+    const filteredRows = await this.processCSVData(filePath);
+    const failedToProcessData: (CsvRow & { reason?: string; })[] = [];
+    const successfullyProcessedData: CsvRow[] = [];
+
+    if (filteredRows.length === 0) {
+      fs.unlinkSync(filePath); // Delete the file after processing
+      return { successfullyProcessedData, failedToProcessData };
+    }
+
+    for (const row of filteredRows) {
+      const primaryContactFirstName = row.PC_First_Name?.trim();
+      const primaryContactLastName = row.PC_Last_Name?.trim();
+      const primaryContactEmail = row.PC_Email?.trim();
+      const primaryContactPreferredName = row.PC_Preferred_Name?.trim();
+      const primaryContactPhone = row.PC_Phone?.trim();
+      const primaryContactTimezone = row.PC_Timezone?.trim();
+      const primaryContactCompany = row.PC_Company?.trim();
+
+      const clientFolder = row.Client_Folder?.trim();
+
+      const secondaryContactFirstName = row.SC_First_Name?.trim();
+      const secondaryContactLastName = row.SC_Last_Name?.trim();
+      const secondaryContactEmail = row.SC_Email?.trim();
+      const secondaryContactPreferredName = row.SC_Preferred_Name?.trim();
+      const secondaryContactPhone = row.SC_Phone?.trim();
+      const secondaryContactTimezone = row.SC_Timezone?.trim();
+      const secondaryContactCompany = row.SC_Company?.trim();
+
+      const pointOfContactFirstName = row.POC_First_Name?.trim();
+      const pointOfContactLastName = row.POC_Last_Name?.trim();
+      const pointOfContactEmail = row.POC_Email?.trim();
+      const pointOfContactPreferredName = row.POC_Preferred_Name?.trim();
+      const pointOfContactPhone = row.POC_Phone?.trim();
+      const pointOfContactTimezone = row.POC_Timezone?.trim();
+      const pointOfContactCompany = row.POC_Company?.trim();
+
+      const propertyId = row.Property_Id?.trim();
+      const propertyIds = propertyId ? propertyId.split(",").map(id => id.trim()) : [];
+
+      const serviceTypeStr = row.Service_Type?.trim();
+      const rawServiceTypes = serviceTypeStr ? serviceTypeStr.split(",").map(st => st.trim()) : [];
+
+      const pmFeeStr = row.PM_Fee?.trim();
+      const rawPmFees = pmFeeStr ? pmFeeStr.split(",").map(fee => fee.trim()) : [];
+
+      // Validate that Service_Type and PM_Fee arrays match Property_Id array length
+      if (propertyIds.length > 0) {
+        if (rawServiceTypes.length > 0 && rawServiceTypes.length !== propertyIds.length) {
+          failedToProcessData.push({ ...row, reason: "Service_Type count must match Property_Id count" });
+          logger.warn(`Skipping row due to mismatched Service_Type count: ${JSON.stringify(row)}`);
+          continue;
+        }
+        if (rawPmFees.length > 0 && rawPmFees.length !== propertyIds.length) {
+          failedToProcessData.push({ ...row, reason: "PM_Fee count must match Property_Id count" });
+          logger.warn(`Skipping row due to mismatched PM_Fee count: ${JSON.stringify(row)}`);
+          continue;
+        }
+      }
+
+      // Validate and normalize Service_Type values
+      const allowedServiceTypes = ['LAUNCH', 'FULL', 'PRO'];
+      const serviceTypes: (string | null)[] = [];
+      let hasInvalidServiceType = false;
+      for (const st of rawServiceTypes) {
+        if (st) {
+          const upperSt = st.toUpperCase();
+          if (!allowedServiceTypes.includes(upperSt)) {
+            failedToProcessData.push({ ...row, reason: `Invalid Service_Type "${st}". Must be one of: Launch, Full, Pro` });
+            logger.warn(`Skipping row due to invalid Service_Type: ${JSON.stringify(row)}`);
+            hasInvalidServiceType = true;
+            break;
+          }
+          serviceTypes.push(upperSt);
+        } else {
+          serviceTypes.push(null);
+        }
+      }
+      if (hasInvalidServiceType) continue;
+
+      // Validate and normalize PM_Fee values
+      const pmFees: (string | null)[] = [];
+      let hasInvalidPmFee = false;
+      for (const fee of rawPmFees) {
+        if (fee) {
+          // Remove % symbol if present
+          const cleanedFee = fee.replace('%', '').trim();
+
+          // Validate it's a valid number
+          if (cleanedFee && isNaN(Number(cleanedFee))) {
+            failedToProcessData.push({ ...row, reason: `Invalid PM_Fee "${fee}". Must be a valid number` });
+            logger.warn(`Skipping row due to invalid PM_Fee: ${JSON.stringify(row)}`);
+            hasInvalidPmFee = true;
+            break;
+          }
+
+          pmFees.push(cleanedFee || null);
+        } else {
+          pmFees.push(null);
+        }
+      }
+      if (hasInvalidPmFee) continue;
+
+      if (!primaryContactFirstName || !primaryContactLastName || !primaryContactEmail) {
+        failedToProcessData.push({ ...row, reason: "Missing primary contact information like firstName, lastName and email" });
+        logger.warn(`Skipping row due to missing primary contact info: ${JSON.stringify(row)}`);
+        continue;
+      }
+      const allowedTimezones = timezoneAmerica.map(tz => tz.value);
+      if (primaryContactTimezone && !allowedTimezones.includes(primaryContactTimezone || "")) {
+        failedToProcessData.push({ ...row, reason: "Invalid primary contact timezone" });
+        logger.warn(`Skipping row due to invalid primary contact timezone: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      if (secondaryContactTimezone && !allowedTimezones.includes(secondaryContactTimezone)) {
+        failedToProcessData.push({ ...row, reason: "Invalid secondary contact timezone" });
+        logger.warn(`Skipping row due to invalid secondary contact timezone: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      if (pointOfContactTimezone && !allowedTimezones.includes(pointOfContactTimezone || "")) {
+        failedToProcessData.push({ ...row, reason: "Invalid point of contact timezone" });
+        logger.warn(`Skipping row due to invalid point of contact timezone: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      //check email
+      if (!isEmail(primaryContactEmail)) {
+        failedToProcessData.push({ ...row, reason: "Invalid primary contact email format" });
+        logger.warn(`Skipping row due to invalid primary contact email: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      if (secondaryContactEmail && !isEmail(secondaryContactEmail)) {
+        failedToProcessData.push({ ...row, reason: "Invalid secondary contact email format" });
+        logger.warn(`Skipping row due to invalid secondary contact email: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      if (pointOfContactEmail && !isEmail(pointOfContactEmail)) {
+        failedToProcessData.push({ ...row, reason: "Invalid point of contact email format" });
+        logger.warn(`Skipping row due to invalid point of contact email: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+
+      //check if client already exists
+      const existingClient = await this.clientRepo.findOne({
+        where: {
+          email: primaryContactEmail
+        },
+        relations: ['secondaryContacts', 'properties', 'properties.propertyInfo', 'properties.serviceInfo', 'properties.propertyInfo.vendorManagementInfo']
+      });
+
+      //create or update client - wrap everything in a single transaction for atomicity
+      try {
+        await appDatabase.transaction(async (transactionalEntityManager) => {
+          let client: ClientEntity;
+
+          if (existingClient) {
+            // Update existing client
+            logger.info(`🔄 Updating existing client: ${existingClient.id} (${primaryContactEmail})`);
+            existingClient.firstName = primaryContactFirstName;
+            existingClient.lastName = primaryContactLastName;
+            existingClient.preferredName = primaryContactPreferredName || null;
+            existingClient.phone = primaryContactPhone || null;
+            existingClient.timezone = timezoneAmerica.find(tz => tz.value == primaryContactTimezone).id || null;
+            existingClient.companyName = primaryContactCompany || null;
+            existingClient.clientFolder = clientFolder || null;
+            existingClient.updatedBy = userId;
+            client = await transactionalEntityManager.save(existingClient);
+          } else {
+            // Create new client
+            logger.info(`✨ Creating new client: ${primaryContactEmail}`);
+            const newClient = transactionalEntityManager.create(ClientEntity, {
+              firstName: primaryContactFirstName,
+              lastName: primaryContactLastName,
+              preferredName: primaryContactPreferredName || null,
+              email: primaryContactEmail,
+              phone: primaryContactPhone || null,
+              timezone: timezoneAmerica.find(tz => tz.value == primaryContactTimezone).id || null,
+              companyName: primaryContactCompany || null,
+              clientFolder: clientFolder || null,
+              source: "clientsPage",
+              createdBy: userId,
+              status: "active"
+            });
+            client = await transactionalEntityManager.save(newClient);
+          }
+
+          //handle secondary contact - update if exists, create if new
+          const isSecondaryContactProvided = secondaryContactFirstName && secondaryContactLastName && secondaryContactEmail;
+          if (isSecondaryContactProvided) {
+            const existingSecondaryContact = existingClient?.secondaryContacts?.find(c => c.type === 'secondaryContact');
+
+            if (existingSecondaryContact) {
+              // Update existing secondary contact
+              existingSecondaryContact.firstName = secondaryContactFirstName;
+              existingSecondaryContact.lastName = secondaryContactLastName;
+              existingSecondaryContact.preferredName = secondaryContactPreferredName || null;
+              existingSecondaryContact.email = secondaryContactEmail;
+              existingSecondaryContact.phone = secondaryContactPhone || null;
+              existingSecondaryContact.timezone = timezoneAmerica.find(tz => tz.value == secondaryContactTimezone).id || null;
+              existingSecondaryContact.companyName = secondaryContactCompany || null;
+              existingSecondaryContact.updatedBy = userId;
+              await transactionalEntityManager.save(existingSecondaryContact);
+            } else {
+              // Create new secondary contact
+              const secondaryContact = transactionalEntityManager.create(ClientSecondaryContact, {
+                firstName: secondaryContactFirstName,
+                lastName: secondaryContactLastName,
+                preferredName: secondaryContactPreferredName || null,
+                email: secondaryContactEmail,
+                phone: secondaryContactPhone || null,
+                timezone: timezoneAmerica.find(tz => tz.value == secondaryContactTimezone).id || null,
+                companyName: secondaryContactCompany || null,
+                type: 'secondaryContact',
+                client: client,
+                createdBy: userId,
+              });
+              await transactionalEntityManager.save(secondaryContact);
+            }
+          }
+
+          //handle point of contact - update if exists, create if new
+          const isPointOfContactProvided = pointOfContactFirstName && pointOfContactLastName && pointOfContactEmail;
+          if (isPointOfContactProvided) {
+            const existingPointOfContact = existingClient?.secondaryContacts?.find(c => c.type === 'pointOfContact');
+
+            if (existingPointOfContact) {
+              // Update existing point of contact
+              existingPointOfContact.firstName = pointOfContactFirstName;
+              existingPointOfContact.lastName = pointOfContactLastName;
+              existingPointOfContact.preferredName = pointOfContactPreferredName || null;
+              existingPointOfContact.email = pointOfContactEmail;
+              existingPointOfContact.phone = pointOfContactPhone || null;
+              existingPointOfContact.timezone = timezoneAmerica.find(tz => tz.value == pointOfContactTimezone).id || null;
+              existingPointOfContact.companyName = pointOfContactCompany || null;
+              existingPointOfContact.updatedBy = userId;
+              await transactionalEntityManager.save(existingPointOfContact);
+            } else {
+              // Create new point of contact
+              const pointOfContact = transactionalEntityManager.create(ClientSecondaryContact, {
+                firstName: pointOfContactFirstName,
+                lastName: pointOfContactLastName,
+                preferredName: pointOfContactPreferredName || null,
+                email: pointOfContactEmail,
+                phone: pointOfContactPhone || null,
+                timezone: timezoneAmerica.find(tz => tz.value == pointOfContactTimezone).id || null,
+                companyName: pointOfContactCompany || null,
+                type: 'pointOfContact',
+                client: client,
+                createdBy: userId,
+              });
+              await transactionalEntityManager.save(pointOfContact);
+            }
+          }
+
+          // Process properties within the same transaction
+          if (propertyIds.length > 0) {
+            const listingService = new ListingService();
+            for (let i = 0; i < propertyIds.length; i++) {
+              const listingId = propertyIds[i];
+              const serviceType = serviceTypes[i] || null;
+              const managementFee = pmFees[i] || null;
+
+              const listingInfo = await listingService.getListingInfo(Number(listingId), userId);
+
+              if (!listingInfo) {
+                logger.error(`❌ Listing not found for listingId: ${listingId}`);
+                throw new Error(`Listing not found for listingId: ${listingId}`);
+              }
+
+              logger.info(`🔄 Processing listingId: ${listingId} for client: ${client.id}`);
+
+              // Check if property already exists for this client
+              const existingProperty = existingClient?.properties?.find(p => p.listingId === listingId);
+              let savedProperty: ClientPropertyEntity;
+
+              if (existingProperty) {
+                // Update existing property
+                logger.info(`🔄 Updating existing property: ${existingProperty.id} for listingId: ${listingId}`);
+                existingProperty.address = listingInfo.address;
+                existingProperty.status = PropertyStatus.ACTIVE;
+                existingProperty.updatedBy = userId;
+                savedProperty = await transactionalEntityManager.save(existingProperty);
+
+                // Update propertyInfo if it exists
+                if (existingProperty.propertyInfo) {
+                  const propertyInfo = existingProperty.propertyInfo;
+                  propertyInfo.externalListingName = listingInfo.externalListingName;
+                  propertyInfo.internalListingName = listingInfo.internalListingName;
+                  propertyInfo.price = listingInfo.price;
+                  propertyInfo.priceForExtraPerson = listingInfo.priceForExtraPerson;
+                  propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
+                  propertyInfo.roomType = listingInfo.roomType;
+                  propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
+                  propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
+                  propertyInfo.bathroomType = listingInfo.bathroomType;
+                  propertyInfo.guestBathroomsNumber = listingInfo.guestBathroomsNumber;
+                  propertyInfo.address = listingInfo.address;
+                  propertyInfo.currencyCode = listingInfo.currencyCode;
+                  propertyInfo.personCapacity = listingInfo.personCapacity;
+                  propertyInfo.petFee = listingInfo.airbnbPetFeeAmount;
+                  propertyInfo.checkOutTime = listingInfo.checkOutTime;
+                  propertyInfo.checkInTimeStart = listingInfo.checkInTimeStart;
+                  propertyInfo.checkInTimeEnd = listingInfo.checkInTimeEnd;
+                  propertyInfo.squareMeters = listingInfo.squareMeters;
+                  propertyInfo.wifiUsername = listingInfo.wifiUsername;
+                  propertyInfo.wifiPassword = listingInfo.wifiPassword;
+                  propertyInfo.minNights = listingInfo.minNights;
+                  propertyInfo.maxNights = listingInfo.maxNights;
+                  propertyInfo.propertyLicenseNumber = listingInfo.propertyLicenseNumber;
+                  propertyInfo.updatedBy = userId;
+
+                  // Update vendorManagementInfo
+                  if (propertyInfo.vendorManagementInfo) {
+                    propertyInfo.vendorManagementInfo.cleaningFee = listingInfo.cleaningFee;
+                    await transactionalEntityManager.save(propertyInfo.vendorManagementInfo);
+                  }
+
+                  await transactionalEntityManager.save(propertyInfo);
+                } else {
+                  // Create propertyInfo if it doesn't exist
+                  const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+                    externalListingName: listingInfo.externalListingName,
+                    internalListingName: listingInfo.internalListingName,
+                    price: listingInfo.price,
+                    priceForExtraPerson: listingInfo.priceForExtraPerson,
+                    propertyTypeId: listingInfo.propertyTypeId,
+                    roomType: listingInfo.roomType,
+                    bedroomsNumber: listingInfo.bedroomsNumber,
+                    bathroomsNumber: listingInfo.bathroomsNumber,
+                    bathroomType: listingInfo.bathroomType,
+                    guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                    address: listingInfo.address,
+                    currencyCode: listingInfo.currencyCode,
+                    personCapacity: listingInfo.personCapacity,
+                    petFee: listingInfo.airbnbPetFeeAmount,
+                    checkOutTime: listingInfo.checkOutTime,
+                    checkInTimeStart: listingInfo.checkInTimeStart,
+                    checkInTimeEnd: listingInfo.checkInTimeEnd,
+                    squareMeters: listingInfo.squareMeters,
+                    wifiUsername: listingInfo.wifiUsername,
+                    wifiPassword: listingInfo.wifiPassword,
+                    minNights: listingInfo.minNights,
+                    maxNights: listingInfo.maxNights,
+                    propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                    createdBy: userId,
+                    clientProperty: savedProperty,
+                  });
+
+                  const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+                    cleaningFee: listingInfo.cleaningFee,
+                  });
+                  const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+                  propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+                  const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+                  savedProperty.propertyInfo = savedPropertyInfo;
+                  await transactionalEntityManager.save(savedProperty);
+                }
+
+                // Update or create serviceInfo
+                if (serviceType || managementFee) {
+                  if (existingProperty.serviceInfo) {
+                    existingProperty.serviceInfo.serviceType = serviceType;
+                    existingProperty.serviceInfo.managementFee = managementFee;
+                    existingProperty.serviceInfo.updatedBy = userId;
+                    await transactionalEntityManager.save(existingProperty.serviceInfo);
+                    logger.info(`✅ Updated service info for listingId: ${listingId} - ServiceType: ${serviceType}, ManagementFee: ${managementFee}`);
+                  } else {
+                    const propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+                      serviceType: serviceType,
+                      managementFee: managementFee,
+                      createdBy: userId,
+                      clientProperty: savedProperty,
+                    });
+                    const savedServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
+                    savedProperty.serviceInfo = savedServiceInfo;
+                    await transactionalEntityManager.save(savedProperty);
+                    logger.info(`✅ Created service info for listingId: ${listingId} - ServiceType: ${serviceType}, ManagementFee: ${managementFee}`);
+                  }
+                }
+              } else {
+                // Create new property
+                logger.info(`✨ Creating new property for listingId: ${listingId}`);
+                const property = transactionalEntityManager.create(ClientPropertyEntity, {
+                  listingId,
+                  address: listingInfo.address,
+                  status: PropertyStatus.ACTIVE,
+                  createdBy: userId,
+                  client: client,
+                });
+
+                savedProperty = await transactionalEntityManager.save(property);
+
+                // Create propertyInfo
+                const propertyInfo = transactionalEntityManager.create(PropertyInfo, {
+                  externalListingName: listingInfo.externalListingName,
+                  internalListingName: listingInfo.internalListingName,
+                  price: listingInfo.price,
+                  priceForExtraPerson: listingInfo.priceForExtraPerson,
+                  propertyTypeId: listingInfo.propertyTypeId,
+                  roomType: listingInfo.roomType,
+                  bedroomsNumber: listingInfo.bedroomsNumber,
+                  bathroomsNumber: listingInfo.bathroomsNumber,
+                  bathroomType: listingInfo.bathroomType,
+                  guestBathroomsNumber: listingInfo.guestBathroomsNumber,
+                  address: listingInfo.address,
+                  currencyCode: listingInfo.currencyCode,
+                  personCapacity: listingInfo.personCapacity,
+                  petFee: listingInfo.airbnbPetFeeAmount,
+                  checkOutTime: listingInfo.checkOutTime,
+                  checkInTimeStart: listingInfo.checkInTimeStart,
+                  checkInTimeEnd: listingInfo.checkInTimeEnd,
+                  squareMeters: listingInfo.squareMeters,
+                  wifiUsername: listingInfo.wifiUsername,
+                  wifiPassword: listingInfo.wifiPassword,
+                  minNights: listingInfo.minNights,
+                  maxNights: listingInfo.maxNights,
+                  propertyLicenseNumber: listingInfo.propertyLicenseNumber,
+                  createdBy: userId,
+                  clientProperty: savedProperty,
+                });
+
+                const vendorManagementInfo = transactionalEntityManager.create(PropertyVendorManagement, {
+                  cleaningFee: listingInfo.cleaningFee,
+                });
+                const savedVendorManagementInfo = await transactionalEntityManager.save(vendorManagementInfo);
+                propertyInfo.vendorManagementInfo = savedVendorManagementInfo;
+
+                const savedPropertyInfo = await transactionalEntityManager.save(propertyInfo);
+                savedProperty.propertyInfo = savedPropertyInfo;
+                await transactionalEntityManager.save(savedProperty);
+
+                // Create serviceInfo
+                if (serviceType || managementFee) {
+                  const propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+                    serviceType: serviceType,
+                    managementFee: managementFee,
+                    createdBy: userId,
+                    clientProperty: savedProperty,
+                  });
+                  const savedServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
+                  savedProperty.serviceInfo = savedServiceInfo;
+                  await transactionalEntityManager.save(savedProperty);
+                  logger.info(`✅ Created service info for listingId: ${listingId} - ServiceType: ${serviceType}, ManagementFee: ${managementFee}`);
+                }
+              }
+
+              logger.info(`✅ Successfully processed property for listingId: ${listingId}`);
+            }
+          }
+        });
+
+        // Only add to successful if the entire transaction succeeds
+        successfullyProcessedData.push(row);
+      } catch (error) {
+        failedToProcessData.push({ ...row, reason: `Error processing client: ${error}` });
+        logger.error(`Error processing client for row ${JSON.stringify(row)}: ${error}`);
+        continue;
+      }
+
+
+
+    }
+
+    fs.unlinkSync(filePath); // Delete the file after processing
+
+    return { successfullyProcessedData, failedToProcessData };
   }
 
 

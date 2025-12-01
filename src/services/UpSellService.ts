@@ -367,7 +367,7 @@ export class UpSellServices {
           await Promise.all(
             listingData.map(async (data: any) => {
               const listingsInfo: any = await this.listingInfoRepository.find({
-                where: { listingId: data.listingId },
+                where: { id: data.listingId },
               });
               listingsInfo[0].status = 1;
               upSellListing.push(listingsInfo[0]);

@@ -11,10 +11,12 @@ import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
 import { ownerDetails, tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
-import { ListingTags } from "../entity/ListingTags";
+
 import logger from "../utils/logger.utils";
 import { ListingBedTypes } from "../entity/ListingBedTypes";
 import { ListingAmenities } from "../entity/ListingAmenities";
+import { Hostify } from "../client/Hostify";
+
 
 interface ListingUpdate {
   listingId: number;
@@ -31,69 +33,71 @@ export class ListingService {
   private listingUpdateRepo = appDatabase.getRepository(ListingUpdateEntity);
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
+  private hostifyClient = new Hostify();
+
   // Fetch listings from hostaway client and save in our database if not present
-  async syncHostawayListing(userId: string) {
-    const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({
-      where: { userId, account: "pm" },
-    });
+  // async syncHostawayListing(userId: string) {
+  //   const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({
+  //     where: { userId, account: "pm", status: true },
+  //   });
 
-    if (!hostawayCredentials) {
-      throw CustomErrorHandler.notFound('Hostaway credentials not found');
-    }
+  //   if (!hostawayCredentials) {
+  //     throw CustomErrorHandler.notFound('Hostaway credentials not found');
+  //   }
 
-    const { clientId, clientSecret } = hostawayCredentials;
-    const listings = await this.hostAwayClient.getListing(clientId, clientSecret);
+  //   const { clientId, clientSecret } = hostawayCredentials;
+  //   const listings = await this.hostAwayClient.getListing(clientId, clientSecret);
 
-    try {
-      await appDatabase.manager.transaction(async (transactionalEntityManager) => {
-        // Step 1: Fetch all listings for user and delete them (cascade deletes images too)
-        const existingUserListings = await transactionalEntityManager.find(Listing, {
-          where: { userId },
-        });
+  //   try {
+  //     await appDatabase.manager.transaction(async (transactionalEntityManager) => {
+  //       // Step 1: Fetch all listings for user and delete them (cascade deletes images too)
+  //       const existingUserListings = await transactionalEntityManager.find(Listing, {
+  //         where: { userId },
+  //       });
 
-        if (existingUserListings.length > 0) {
-          const userListingIds = existingUserListings.map(l => l.listingId);
-          await transactionalEntityManager.delete(Listing, { listingId: In(userListingIds) });
-        }
+  //       if (existingUserListings.length > 0) {
+  //         const userListingIds = existingUserListings.map(l => l.listingId);
+  //         await transactionalEntityManager.delete(Listing, { listingId: In(userListingIds) });
+  //       }
 
-        // Step 2: Insert fresh listings from Hostaway
-        for (const listing of listings) {
-          const listingObj = this.createListingObject(listing, userId);
-          const savedListing = await transactionalEntityManager.save(Listing, listingObj);
+  //       // Step 2: Insert fresh listings from Hostaway
+  //       for (const listing of listings) {
+  //         const listingObj = this.createListingObject(listing, userId);
+  //         const savedListing = await transactionalEntityManager.save(Listing, listingObj);
 
-          await this.saveListingImages(
-            transactionalEntityManager,
-            listing["listingImages"],
-            savedListing.listingId
-          );
+  //         await this.saveListingImages(
+  //           transactionalEntityManager,
+  //           listing["listingImages"],
+  //           savedListing.listingId
+  //         );
 
-          await this.saveListingTags(
-            transactionalEntityManager,
-            listing["listingTags"],
-            savedListing.listingId
-          )
+  //         await this.saveListingTags(
+  //           transactionalEntityManager,
+  //           listing["listingTags"],
+  //           savedListing.listingId
+  //         )
 
-          await this.saveListingBedTypes(
-            transactionalEntityManager,
-            listing["listingBedTypes"],
-            savedListing.listingId
-          );
+  //         await this.saveListingBedTypes(
+  //           transactionalEntityManager,
+  //           listing["listingBedTypes"],
+  //           savedListing.listingId
+  //         );
 
 
-          await this.saveListingAmenities(
-            transactionalEntityManager,
-            listing["listingAmenities"],
-            savedListing.listingId
-          )
-        }
-      });
+  //         await this.saveListingAmenities(
+  //           transactionalEntityManager,
+  //           listing["listingAmenities"],
+  //           savedListing.listingId
+  //         )
+  //       }
+  //     });
 
-      return 1;
-    } catch (error) {
-      console.error("Error syncing listings:", error);
-      throw error;
-    }
-  }
+  //     return 1;
+  //   } catch (error) {
+  //     logger.error("Error syncing listings:", error);
+  //     throw error;
+  //   }
+  // }
 
 
   // Create a listing object from hostaway client data
@@ -151,52 +155,107 @@ export class ListingService {
     };
   }
 
-  // Save listing images
-  private async saveListingImages(
-    entityManager: EntityManager,
-    images: any[],
-    listingId: number
-  ) {
-    // const imageObjs = images.map((image) => ({
-    //   caption: image.caption,
-    //   vrboCaption: image.vrboCaption,
-    //   airbnbCaption: image.airbnbCaption,
-    //   url: image.url,
-    //   sortOrder: image.sortOrder,
-    //   listing: listingId,
-    // }));
-
-    // await entityManager.save(ListingImage, imageObjs);
-
-    if (!images || images.length === 0) return;
-
-    const firstImage = images[0];
-
-    const imageObj = {
-      caption: firstImage.caption,
-      vrboCaption: firstImage.vrboCaption,
-      airbnbCaption: firstImage.airbnbCaption,
-      url: firstImage.url,
-      sortOrder: firstImage.sortOrder,
-      listing: listingId,
+  // Create a listing object from hostaway client data
+  private createHostifyListingObject(data: any) {
+    return {
+      id: data?.id,
+      name: data?.name,
+      description: data?.description,
+      externalListingName: data?.name,
+      address: data?.address || "",
+      personCapacity: data?.personCapacity,
+      guests: data?.person_capacity || 0,
+      price: data?.default_daily_price || 0,
+      guestsIncluded: data?.guests_included || 0,
+      priceForExtraPerson: data?.priceForExtraPerson || 0,
+      currencyCode: data?.currency || "USD",
+      internalListingName: data?.nickname || "",
+      country: data?.country || "",
+      countryCode: data?.countryCode || "",
+      state: data?.state || "",
+      city: data?.city || "",
+      street: data?.street || "",
+      zipcode: data?.zipcode || "",
+      lat: data?.lat || 0,
+      lng: data?.lng || 0,
+      propertyType: data?.property_type || "",
+      checkInTimeStart: (data.checkin_start && parseInt(data.checkin_start.split(":")[0], 10)) || 0,
+      checkInTimeEnd: (data.checkin_end && parseInt(data.checkin_end.split(":")[0], 10)) || 0,
+      checkOutTime: (data.checkout && parseInt(data.checkout.split(":")[0], 10)) || 0,
+      wifiUsername: data?.wifiUsername || "(NO WIFI)",
+      wifiPassword: data?.wifiPassword || "(NO PASSWORD)",
+      bookingcomPropertyRoomName: data?.bookingcomPropertyRoomName || "",
+      ownerName: data?.ownerName || "",
+      ownerEmail: data?.ownerEmail || "",
+      ownerPhone: data?.ownerPhone || "",
+      propertyTypeId: data?.property_type_id || null,
+      roomType: data?.room_type || "",
+      bedroomsNumber: data?.bedrooms || 0,
+      bathroomsNumber: data?.bathrooms || 0,
+      // bathroomType: data?.bathroomType || "",
+      // guestBathroomsNumber: data?.guestBathroomsNumber || 0,
+      cleaningFee: data?.cleaning_fee || 0,
+      airbnbPetFeeAmount: data?.pets_fee || 0,
+      squareMeters: data?.area || 0,
+      language: data?.language || "",
+      instantBookable: data?.instant_booking || null,
+      instantBookableLeadTime: data?.instantBookableLeadTime || null,
+      minNights: data?.min_nights || null,
+      maxNights: data?.max_nights || null,
+      contactName: data?.contactName || "",
+      contactPhone1: data?.contactPhone1 || "",
+      contactLanguage: data?.contactLanguage || "",
+      propertyLicenseNumber: data?.propertyLicenseNumber || "",
+      tags: data?.tags || null,
     };
-
-    await entityManager.save(ListingImage, imageObj);
   }
+
+  // Save listing images
+  // private async saveListingImages(
+  //   entityManager: EntityManager,
+  //   images: any[],
+  //   listingId: number
+  // ) {
+  //   // const imageObjs = images.map((image) => ({
+  //   //   caption: image.caption,
+  //   //   vrboCaption: image.vrboCaption,
+  //   //   airbnbCaption: image.airbnbCaption,
+  //   //   url: image.url,
+  //   //   sortOrder: image.sortOrder,
+  //   //   listing: listingId,
+  //   // }));
+
+  //   // await entityManager.save(ListingImage, imageObjs);
+
+  //   if (!images || images.length === 0) return;
+
+  //   const firstImage = images[0];
+
+  //   const imageObj = {
+  //     caption: firstImage.caption,
+  //     vrboCaption: firstImage.vrboCaption,
+  //     airbnbCaption: firstImage.airbnbCaption,
+  //     url: firstImage.url,
+  //     sortOrder: firstImage.sortOrder,
+  //     listing: listingId,
+  //   };
+
+  //   await entityManager.save(ListingImage, imageObj);
+  // }
 
   // Save listing tags
-  private async saveListingTags(
-    entityManager: EntityManager,
-    tags: {id:number;name:string}[],
-    listingId: number
-  ) {
-    const listingTagsObjs = tags.map((tag) => ({
-      tagId: tag.id,
-      name: tag.name,
-      listing: listingId,
-    }))
-    await entityManager.save(ListingTags, listingTagsObjs);
-  }
+  // private async saveListingTags(
+  //   entityManager: EntityManager,
+  //   tags: {id:number;name:string}[],
+  //   listingId: number
+  // ) {
+  //   const listingTagsObjs = tags.map((tag) => ({
+  //     tagId: tag.id,
+  //     name: tag.name,
+  //     listing: listingId,
+  //   }))
+  //   await entityManager.save(ListingTags, listingTagsObjs);
+  // }
 
   // Save listing bedTypes
   private async saveListingBedTypes(
@@ -215,28 +274,24 @@ export class ListingService {
   }
 
   // Save listing amenities
-  private async saveListingAmenities(
-    entityManager: EntityManager,
-    amenities: { id: number; amenityId: number; amenityName: string; }[],
-    listingId: number
-  ) {
-    const listingAmenitiesObj = amenities.map((amenity) => ({
-      id: amenity.id,
-      amenityId: amenity.amenityId,
-      amenityName: amenity.amenityName,
-      listing: listingId,
-    }));
-    await entityManager.save(ListingAmenities, listingAmenitiesObj);
-  }
+  // private async saveListingAmenities(
+  //   entityManager: EntityManager,
+  //   amenities: { id: number; amenityId: number; amenityName: string; }[],
+  //   listingId: number
+  // ) {
+  //   const listingAmenitiesObj = amenities.map((amenity) => ({
+  //     id: amenity.id,
+  //     amenityId: amenity.amenityId,
+  //     amenityName: amenity.amenityName,
+  //     listing: listingId,
+  //   }));
+  //   await entityManager.save(ListingAmenities, listingAmenitiesObj);
+  // }
 
   async getListings(userId: string) {
     const listings = await this.listingRepository
         .createQueryBuilder("listing")
-        .leftJoinAndSelect("listing.images", "listingImages")
-        .leftJoinAndSelect("listing.guideBook", "GuideBook")
-      .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
-      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
-        .where("listing.userId = :userId", { userId })
+      .leftJoinAndSelect("listing.images", "listingImages")
         .getMany();
 
     return listings;
@@ -246,7 +301,7 @@ export class ListingService {
     const listings = await this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName"])
-      .where("listing.userId = :userId", { userId })
+      // .where("listing.userId = :userId", { userId })
       .getMany();
 
     return listings;
@@ -259,7 +314,7 @@ export class ListingService {
       .leftJoinAndSelect("listing.listingBedTypes", "listingBedTypes")
       .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .where("listing.listingId = :id", { id: Number(listing_id) })
-      .andWhere("listing.userId = :userId", { userId })
+      // .andWhere("listing.userId = :userId", { userId })
       .getOne();
 
     return result;
@@ -269,9 +324,8 @@ export class ListingService {
     const result = await this.listingRepository.findOne({
       where: {
         id: listingId,
-        userId: userId
       },
-      relations: ['images', 'listingBedTypes', 'listingAmenities', 'listingTags']
+      relations: ['images', 'listingAmenities']
     });
 
     return result;
@@ -294,23 +348,31 @@ export class ListingService {
     return listings;
   }
 
-  async getDeviceIdByListingId(listing_id: number) {
-    const listing = await this.listingRepository.findOne({
-      where: { id: listing_id },
+  async getPmListings() {
+    const listings = await this.listingRepository.find();
+    const pmListings = listings.filter(listing => {
+      let tags = [];
+      tags = listing.tags ? listing.tags.split(',') : [];
+      return tags.includes("pm");
     });
-    if (listing) {
-      const listingLockInfo = await this.listingLockRepository.findOne({
-        where: { listing_id: listing.listingId, status: 1 },
-      });
-      return listingLockInfo?.lock_id;
-    } else {
-      return null;
-    }
+
+    return pmListings;
   }
+
+  async getLaunchListings(){
+    const listings = await this.listingRepository.find();
+    const launchListings = listings.filter(listing => {
+      let tags = [];
+      tags = listing.tags ? listing.tags.split(',') : [];
+      return tags.includes("Launch");
+    });
+
+    return launchListings;
+  }
+
 
   async getListingAddresses(userId: string) {
     const listings = await this.listingRepository.find({
-      where: { userId },
       select: ['id', 'address']
     });
 
@@ -444,16 +506,21 @@ export class ListingService {
   }
 
   public async autoSyncListings(){
-    const connectedAccounts = await this.connectedAccountInfoRepository.find({
-      where: { account: "pm" },
-    });
+    // const connectedAccounts = await this.connectedAccountInfoRepository.find({
+    //   where: { account: "pm" },
+    // });
 
-    for (const account of connectedAccounts) {
-      try {
-        await this.syncHostawayListing(account.userId);
-      } catch (error) {
-        logger.error(`Error syncing listings for user ${account.userId}:`, error);
-      }
+    // for (const account of connectedAccounts) {
+    //   try {
+    //     await this.syncHostifyListings(account.userId);
+    //   } catch (error) {
+    //     logger.error(`Error syncing listings for user ${account.userId}:`, error);
+    //   }
+    // }
+    try {
+      await this.syncHostifyListings('system');
+    } catch (error) {
+      logger.error(`Error syncing listings for system user:`, error);
     }
   }
 
@@ -573,6 +640,246 @@ export class ListingService {
     };
   }
 
+  // async syncHostifyListings(userId: string) {
+  //   const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+
+  //   if (!hostifyApiKey) {
+  //     throw CustomErrorHandler.notFound('Hostify credentials not found');
+  //   }
+
+  //   const listings = await this.hostifyClient.getListings(hostifyApiKey);
+  //   if (listings.length === 0) {
+  //     throw new CustomErrorHandler(500, 'No listings found from Hostify');
+  //   }
+
+  //   //add/updated listing in db
+  //   try {
+  //     await appDatabase.manager.transaction(async (transactionalEntityManager) => {
+  //       // Step 1: Fetch all listings for user
+  //       const existingListings = await transactionalEntityManager.find(Listing);
+
+  //       const existingListingIds = existingListings.map((l) => String(l.id));
+  //       const listingIds = listings.map((l) => String(l.id));
+
+
+  //       // Step 2: Update existing listings and add new listings
+  //       for (const listing of listings) {
+  //         const listingId = String(listing.id);
+
+  //         //fetch listingDetails from hostify
+  //         const listingInfo = await this.hostifyClient.getListingDetails(hostifyApiKey, listing.id);
+  //         if (!listingInfo) continue;
+
+  //         const photos = listingInfo.photos || [];
+  //         const users = listingInfo?.users || [];
+  //         const amenities = listingInfo?.amenities || [];
+  //         const rooms = listingInfo?.rooms || [];
+  //         const description = listingInfo?.description?.description || '';
+
+  //         const ownerDetails = users.find((user: any) => user.roles === 'Listing Owner');
+  //         const ownerName = ownerDetails && ownerDetails.first_name && ownerDetails.last_name ? `${ownerDetails.first_name} ${ownerDetails.last_name}` : '';
+  //         const ownerEmail = ownerDetails?.username || '';
+  //         const ownerPhone = ownerDetails?.phone || '';
+
+  //         const listingObj = this.createHostifyListingObject({
+  //           ...listing,
+  //           address: listingInfo.listing.address,
+  //           ownerEmail,
+  //           ownerName,
+  //           ownerPhone,
+  //           description
+  //         });
+
+
+  //         const imageObj = photos && photos.length > 0 ? {
+  //           url: photos[0]?.original_file,
+  //           thumbnailUrl: photos[0]?.thumbnail_file,
+  //           sortOrder: photos[0]?.sort_order,
+  //           listing: listing.id,
+  //         } : null;
+
+  //         logger.info(`Syncing listing ID: ${listing.id} - ${listing.name}`);
+
+  //         if (existingListingIds.includes(listingId)) {
+  //           logger.info(`Updating listing ID: ${listing.id}`);
+  //           await transactionalEntityManager.update(Listing, listing.id, listingObj);
+  //           // handle images
+  //           imageObj && await this.handleListingImages(listingObj as Listing, imageObj, transactionalEntityManager);
+
+  //         } else {
+  //           logger.info(`Adding new listing ID: ${listing.id}`);
+  //           const savedListing = await transactionalEntityManager.save(Listing, listingObj);
+  //           if (savedListing) {
+  //             // handle images
+  //             imageObj && await this.handleListingImages(savedListing as Listing, imageObj, transactionalEntityManager);
+  //           }
+  //         }
+
+
+  //       }
+
+
+
+  //     });
+
+  //     return 1;
+  //   } catch (error) {
+  //     logger.error("Error syncing listings:", error);
+  //     throw error;
+  //   }
+
+
+  // }
+
+  async syncHostifyListings(userId: string) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    // 1. Fetch all listings from Hostify (FAST)
+    const listings = await this.hostifyClient.getListings(hostifyApiKey);
+    if (!listings || listings.length === 0)
+      throw new CustomErrorHandler(500, 'No listings found from Hostify');
+
+    // Extract incoming IDs
+    const incomingListingIds = listings.map((l) => String(l.id));
+
+    // 2. Fetch listing details IN PARALLEL for max performance
+    const listingDetails = await Promise.all(
+      listings.map((l) => this.hostifyClient.getListingDetails(hostifyApiKey, l.id))
+    );
+
+    // Build a map for convenience
+    const detailsMap = new Map<string, any>();
+    listings.forEach((l, idx) => {
+      detailsMap.set(String(l.id), listingDetails[idx]);
+    });
+
+    // Run everything inside transaction
+    try {
+      await appDatabase.manager.transaction(async (tx) => {
+        // 3. Fetch existing listings once
+        const existingListings = await tx.find(Listing);
+        const existingListingIds = existingListings.map((l) => String(l.id));
+
+        // 🤝 NEW listings = Hostify - DB
+        const newListingIds = incomingListingIds.filter((id) => !existingListingIds.includes(id));
+
+        // 🔄 UPDATED listings = intersection
+        const updatedListingIds = incomingListingIds.filter((id) => existingListingIds.includes(id));
+
+        // ❌ REMOVED listings = DB - Hostify
+        const removedListingIds = existingListingIds.filter((id) => !incomingListingIds.includes(id));
+
+        // ------------------------------
+        // 🆕 4. Handle NEW LISTINGS
+        // ------------------------------
+        for (const listingId of newListingIds) {
+          const listing = listings.find((x) => String(x.id) === listingId);
+          const info = detailsMap.get(listingId);
+          if (!listing || !info) continue;
+
+          const listingObj = this.buildListingObject(listing, info);
+
+          const saved = await tx.save(Listing, listingObj);
+
+          if (info.photos?.[0]) {
+            const imageObj = this.buildImageObject(listing.id, info.photos[0]);
+            await this.handleListingImages(saved, imageObj, tx);
+          }
+
+          logger.info(`Added new listing ID: ${listingId}`);
+        }
+
+        // ------------------------------
+        // ♻️ 5. Handle UPDATED LISTINGS
+        // ------------------------------
+        for (const listingId of updatedListingIds) {
+          const listing = listings.find((x) => String(x.id) === listingId);
+          const info = detailsMap.get(listingId);
+          if (!listing || !info) continue;
+
+          const listingObj = this.buildListingObject(listing, info);
+
+          await tx.update(Listing, listing.id, listingObj);
+
+          if (info.photos?.[0]) {
+            const imageObj = this.buildImageObject(listing.id, info.photos[0]);
+            await this.handleListingImages(listingObj, imageObj, tx);
+          }
+
+          logger.info(`Updated listing ID: ${listingId}`);
+        }
+
+        // ------------------------------
+        // ❌ 6. Handle REMOVED LISTINGS
+        // ------------------------------
+        for (const listingId of removedListingIds) {
+          logger.info(`Listing removed from Hostify: ${listingId}`);
+
+          // Soft delete (recommended)
+          await tx.update(Listing, listingId, { deletedAt: new Date(), deletedBy: "system" });
+
+          // If you prefer hard delete, replace with:
+          // await tx.delete(Listing, listingId);
+        }
+      });
+
+      return 1;
+
+    } catch (error) {
+      logger.error("Error syncing listings:", error);
+      throw error;
+    }
+  }
+
+  private buildListingObject(listing: any, info: any) {
+    const photos = info.photos || [];
+    const users = info.users || [];
+    const description = info.description?.description || '';
+
+    const owner = users.find((u: any) => u.roles === 'Listing Owner');
+
+    return this.createHostifyListingObject({
+      ...listing,
+      address: info.listing.address,
+      ownerEmail: owner?.username || '',
+      ownerName: owner ? `${owner.first_name} ${owner.last_name}` : '',
+      ownerPhone: owner?.phone || '',
+      description
+    });
+  }
+
+  private buildImageObject(listingId: number, photo: any) {
+    return {
+      url: photo.original_file,
+      thumbnailUrl: photo.thumbnail_file,
+      sortOrder: photo.sort_order,
+      listing: listingId
+    };
+  }
+
+
+  async handleListingImages(listing: any, imageInfo: any, transactionalEntityManager: EntityManager) {
+    //delete existing images
+    await transactionalEntityManager.delete(ListingImage, { listing: { id: listing.id } });
+    //add new image
+    await transactionalEntityManager.save(ListingImage, imageInfo);
+  }
+
+  async handleListingAmenities(listing: Listing, amenitiesInfo: any[], transactionalEntityManager: EntityManager) {
+    //delete existing amenities
+    await transactionalEntityManager.delete(ListingAmenities, { listing: { id: listing.id } });
+    //add new amenities
+    for (const amenity of amenitiesInfo) {
+      const amenityObj = {
+        id: amenity.id,
+        amenityId: amenity.target_id,
+        amenityName: amenity.name,
+        description: amenity.description,
+        listing: listing,
+      };
+      await transactionalEntityManager.save(ListingAmenities, amenityObj);
+    }
+  }
 
 }
-

@@ -188,7 +188,7 @@ export class ClientTicketService {
       },
     });
 
-    const listings = await listingService.getListingsByTagIds([tagIds.PM]);
+    const listings = await listingService.getPmListings();
 
     const transformedTickets = clientTickets.map((ticket) => {
       return {

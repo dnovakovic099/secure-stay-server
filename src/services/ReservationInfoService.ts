@@ -24,6 +24,8 @@ import { ListingService } from "./ListingService";
 import { IssuesService } from "./IssuesService";
 import { ActionItemsService } from "./ActionItemsService";
 import { GenericReport } from "../entity/GenericReport";
+import { Hostify } from "../client/Hostify";
+import { ReservationService } from "./ReservationService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -37,17 +39,49 @@ export class ReservationInfoService {
   private postStayAuditService = new ReservationDetailPostStayAuditService();
   private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
+  private hostifyClient = new Hostify();
 
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
 
+  private excludedStatus = [
+    "cancelled", "pending", "awaitingPayment",
+    "declined", "expired", "inquiry",
+    "inquiryPreapproved", "inquiryDenied",
+    "inquiryTimedout", "inquiryNotPossible",
+    "denied", "no_show", "awaiting_payment",
+    "declined_inq", "preapproved", "offer",
+    "withdrawn", "timedout", "not_possible", "deleted"
+  ];
+
+  private validStatus = ["new", "accepted", "modified", "ownerStay", "moved"]
+
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
-    const isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
-    if (isExist) {
-      return await this.updateReservationInfo(reservation.id, reservation, source);
+    const listings = await this.listingInfoRepository.find();
+    const listingIds = listings.map(l => Number(l.id));
+    const incomingListingId = Number(reservation.listingMapId);
+    if (reservation.listingMapId && !listingIds.includes(incomingListingId)) {
+      logger.info(`[saveReservationInfo] Listing ID ${reservation.listingMapId} not found. Skipping reservation save.`);
+      return null;
     }
 
-    const validReservationStatuses = ["new", "modified", "ownerStay"];
+    let isExist = await this.reservationInfoRepository.findOne({ where: { id: reservation.id } });
+    if (!isExist) {
+      isExist = await this.reservationInfoRepository.findOne({
+        where: {
+          guestName: reservation.guestName,
+          arrivalDate: reservation.arrivalDate,
+          departureDate: reservation.departureDate,
+          listingMapId: reservation.listingMapId,
+        },
+      });
+    }
+
+    if (isExist) {
+      return await this.updateReservationInfo(isExist.id, reservation, source);
+    }
+
+    const validReservationStatuses = this.validStatus;
     const isValidReservationStatus = validReservationStatuses.includes(reservation.status);
     if (isValidReservationStatus && source == "webhook") {
       runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
@@ -60,7 +94,7 @@ export class ReservationInfoService {
     }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const listing = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
+    const listing = reservation.listingMapId && await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
     const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
@@ -74,7 +108,7 @@ export class ReservationInfoService {
       return null;
     }
 
-    const validReservationStatuses = ["new", "modified", "ownerStay"];
+    const validReservationStatuses = this.validStatus;
 
     const isCurrentStatusValid = validReservationStatuses.includes(reservation.status);
     const isUpdatedStatusValid = validReservationStatuses.includes(updateData.status);
@@ -84,12 +118,12 @@ export class ReservationInfoService {
       runAsync(this.notifyMobileUser(updateData), "notifyMobileUser");
     }
 
-    if (reservation.status !== "inquiryPreapproved" && updateData.status == "inquiryPreapproved" && updateData.channelId == 2018 && source == "webhook") {
+    if (reservation.status !== "preapproved" && updateData.status == "preapproved" && updateData.channelId == 2018 && source == "webhook") {
       runAsync(this.notifyPreApprovedInquiryReservation(updateData), "notifyPreApprovedInquiryReservation");
     }
     
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const listing = await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
+    const listing = updateData.listingMapId && await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
 
     reservation.listingMapId = updateData.listingMapId;
@@ -253,7 +287,7 @@ export class ReservationInfoService {
     }
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today: todayDateStr });
     qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      excludedStatuses: this.excludedStatus
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
@@ -263,7 +297,7 @@ export class ReservationInfoService {
     }
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today: todayDateStr });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      excludedStatuses: this.excludedStatus
     });
     qbFuture.orderBy("reservation.arrivalDate", "ASC");
     const futureReservations = await qbFuture.getMany();
@@ -275,7 +309,7 @@ export class ReservationInfoService {
     }
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today: todayDateStr });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      excludedStatuses: this.excludedStatus
     });
     qbPast.orderBy("reservation.arrivalDate", "DESC");
     const pastReservations = await qbPast.getMany();
@@ -352,7 +386,7 @@ export class ReservationInfoService {
       });
 
       qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+        excludedStatuses: this.excludedStatus
       });
 
       qb.orderBy("reservation.arrivalDate", "ASC");
@@ -364,7 +398,7 @@ export class ReservationInfoService {
       });
 
       qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-        excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+        excludedStatuses: this.excludedStatus
       });
 
       qb.orderBy("reservation.departureDate", "ASC");
@@ -440,7 +474,7 @@ export class ReservationInfoService {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
     qbCurrentlyStaying.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      excludedStatuses: this.excludedStatus
     });
 
     // Main condition
@@ -626,7 +660,7 @@ export class ReservationInfoService {
   }
 
   private filterValidReservation(reservations: ReservationInfoEntity[], fromDate: string): Object[] {
-    const validReservationStatus = ["new", "modified", "ownerStay"];
+    const validReservationStatus = this.validStatus;
 
     const filteredReservations = reservations.filter((reservation) => {
       // Filter by status and exclude reservations ending on the `fromDate`
@@ -637,11 +671,26 @@ export class ReservationInfoService {
   }
 
 
-  async syncReservations(startingDate: string) {
-    const reservations = await this.hostAwayClient.syncReservations(startingDate);
+  async syncReservations(start_date: string) {
+    // const reservations = await this.hostAwayClient.syncReservations(startingDate);
+    const apiKey = process.env.HOSTIFY_API_KEY || "";
+    const reservations = await this.hostifyClient.getReservations({ start_date }, apiKey);
+
     for (const reservation of reservations) {
-      // logger.info(`ReservationID: ${reservation.id}`);
-      await this.saveReservationInfo(reservation, "internal");
+
+      const guestInfo = {
+        name: reservation?.guest_name || "",
+        zip_code: reservation?.zip_code || "",
+        address: reservation?.address || "",
+        city: reservation?.city || "",
+        country: reservation?.country || "",
+        email: reservation?.guest_email || "",
+        phones: reservation?.guest_phone || "",
+        state: reservation?.state || "",
+
+      };
+      const reservationObj = await this.createReservationObjectFromHostify(reservation, guestInfo);
+      await this.saveReservationInfo(reservationObj, "internal");
     }
     return {
       success: true,
@@ -656,7 +705,7 @@ export class ReservationInfoService {
 
     const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
     qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: ["cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry", "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible"]
+      excludedStatuses: this.excludedStatus
     });
     qb.andWhere(" (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)", { today: currentDate });
     const [result, total] = await qb.addOrderBy("arrivalDate", "DESC").getManyAndCount();
@@ -1164,11 +1213,15 @@ export class ReservationInfoService {
   }
 
   async syncReservationById(reservationId: number) {
-    const reservation = await this.hostAwayClient.getReservation(reservationId);
-    if (!reservation) {
+    const apiKey = process.env.HOSTIFY_API_KEY || "";
+    const reservation = await this.hostifyClient.getReservationInfo(apiKey, reservationId);
+    if (!reservation.reservation) {
       throw new Error(`Reservation not found with ID: ${reservationId}`);
     }
-    return await this.saveReservationInfo(reservation, "internal");
+    const reservationInfo = reservation.reservation;
+    const guestInfo = reservation.guest;
+    const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
+    return await this.saveReservationInfo(reservationObj, "internal");
   }
 
   async getReservationGenericReport(body: {
@@ -1289,7 +1342,21 @@ export class ReservationInfoService {
       "inquiryPreapproved",
       "inquiryDenied",
       "inquiryTimedout",
-      "inquiryNotPossible"
+      "inquiryNotPossible",
+      "accepted",
+      "no_show",
+      "awaiting_payment",
+      "moved",
+      "extended",
+      "edited",
+      "retracted",
+      "declined_inq",
+      "preapproved",
+      "offer",
+      "withdrawn",
+      "timedout",
+      "not_possible",
+      "deleted"
     ];
     const dimension1 = "status";
 
@@ -1399,14 +1466,101 @@ export class ReservationInfoService {
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
         departureDate: Between(startOfDay(today), endOfDay(today)),
-        status: In(["new", "modified", "ownerStay"]),
-        channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
+        status: In(this.validStatus),
+        // channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
       },
       relations: ["reviewCheckout"],
       order: { departureDate: "ASC" },
     });
 
     return { reservations, total };
+  }
+
+
+  async handleHostifyReservationEvent(event: any, reservationId: number) {
+    if (!reservationId) {
+      logger.info(`[handleHostifyReservationEvent] No reservationId found in the event payload.`);
+      return;
+    }
+
+    logger.info(`[handleHostifyReservationEvent] Processing Hostify reservation event for reservationId: ${reservationId}`);
+
+    const apiKey = process.env.HOSTIFY_API_KEY || "";
+    const hostifyReservationObj = await this.hostifyClient.getReservationInfo(apiKey, reservationId);
+    if (!hostifyReservationObj) {
+      logger.info(`[handleHostifyReservationEvent] No reservation info found for reservationId: ${reservationId}`);
+      return;
+    }
+
+    const reservationInfo = hostifyReservationObj.reservation;
+    const guestInfo = hostifyReservationObj.guest;
+    const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
+    await this.saveReservationInfo(reservationObj, "webhook");
+  }
+
+  async createReservationObjectFromHostify(reservation: any, guest: any) {
+    const reservationService = new ReservationService();
+    const channelList = await reservationService.getChannelList();
+    const channel = channelList.find(c => c.channelName?.toLowerCase() == reservation?.source?.toLowerCase());
+
+    return {
+      id: reservation.id,
+      listingMapId: reservation?.parent_listing_id ? reservation.parent_listing_id : reservation.listing_id,
+      channelId: channel ? channel.channelId : null,
+      source: reservation.source,
+      channelName: channel ? channel.channelName : reservation.source,
+      reservationId: null,
+      hostawayReservationId: null,
+      channelReservationId: reservation.channel_reservation_id,
+      externalPropertyId: reservation.channel_listing_id,
+      isProcessed: null,
+      reservationDate: reservation.created_at,
+      guestName: guest.name?.length > 100
+        ? guest.name.substring(0, 100)
+        : guest.name,
+      guestFirstName: guest.name ? guest.name.split(' ')[0] : '',
+      guestLastName: guest.name ? guest.name.split(' ').slice(1).join(' ') : '',
+      guestExternalAccountId: null,
+      guestZipCode: guest.zip_code,
+      guestAddress: guest.address,
+      guestCity: guest.city,
+      guestCountry: guest.country,
+      guestEmail: guest.email,
+      numberOfGuests: reservation.guests,
+      adults: reservation.adults,
+      children: reservation.children,
+      infants: reservation.infants,
+      pets: reservation.pets,
+      arrivalDate: reservation.checkIn,
+      departureDate: reservation.checkOut,
+      checkInTime: null,
+      checkOutTime: null,
+      nights: reservation.nights,
+      //guest.phones can be either string or array of phones so handle both case
+      phone: Array.isArray(guest.phones) ? guest.phones.join(', ') : guest.phones,
+      totalPrice: reservation.subtotal + reservation.tax_amount, //subtotal + tax_amount gives the totalPrice
+      taxAmount: reservation.tax_amount,
+      channelCommissionAmount: reservation.channel_commission,
+      hostawayCommissionAmount: null,
+      cleaningFee: reservation.cleaning_fee,
+      securityDepositFee: null,
+      isPaid: null,
+      currency: reservation.currency,
+      status: reservation.status,
+      hostNote: null,
+      airbnbExpectedPayoutAmount: null,
+      airbnbListingBasePrice: null,
+      airbnbListingCancellationHostFee: null,
+      airbnbListingCancellationPayout: null,
+      airbnbListingCleaningFee: null,
+      airbnbListingHostFee: null,
+      airbnbListingSecurityPrice: null,
+      airbnbOccupancyTaxAmountPaidToHost: null,
+      airbnbTotalPaidAmount: null,
+      airbnbTransientOccupancyTaxPaidAmount: null,
+      airbnbCancellationPolicy: null,
+      paymentStatus: null,
+    };
   }
 
 

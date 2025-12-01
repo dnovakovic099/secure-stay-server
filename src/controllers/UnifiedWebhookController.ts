@@ -316,15 +316,35 @@ export class UnifiedWebhookController {
                 } catch (err: any) {
                     logger.error("❌ Failed to confirm SNS subscription:", err.message);
                 }
-            } else if (message.Type === "Notification") {
-                logger.info("📩 Hostify event received:", message);
-
-                // You can inspect the inner notification here
-                // Example:
-                // const notification = JSON.parse(message.Message);
-                // logger.info("Hostify payload:", notification);
             } else {
-                logger.info("ℹ️ Unrecognized SNS message type:", message.Type);
+                const action = message.action;
+                switch (action) {
+                    case "new_reservation":
+                        {
+                            logger.info("[handleHostifyWebhook] Processing new_reservation action");
+                            const reservationInfoService = new ReservationInfoService();
+                            await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                            break;
+                        }
+                    case "update_reservation":
+                        {
+                            logger.info("[handleHostifyWebhook] Processing update_reservation action");
+                            const reservationInfoService = new ReservationInfoService();
+                            await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                            break;
+                        }
+                    case "move_reservation":{
+                        logger.info("[handleHostifyWebhook] Processing move_reservation action");
+                        const reservationInfoService = new ReservationInfoService();
+                        await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                        break;
+                    }
+                    default:
+                        {
+                            logger.info(`[handleHostifyWebhook] Unhandled Hostify action: ${action}`);
+                            break;
+                        }
+                }
             }
 
             return response.sendStatus(200);

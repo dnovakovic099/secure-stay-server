@@ -46,9 +46,9 @@ router.route('/getexpenses').get(verifySession, validateGetExpenseList, expenseC
 
 router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getTotalExpenseByUserId);
 
-router.route('/getexpense/:expenseId').get(verifySession, expenseController.getExpenseById);
+router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseById);
 
-router.route('/deleteexpense/:expenseId').delete(verifySession, expenseController.deleteExpense);
+router.route('/deleteexpense/:id').delete(verifySession, expenseController.deleteExpense);
 
 router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 

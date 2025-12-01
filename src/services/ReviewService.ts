@@ -25,6 +25,7 @@ import { BadReviewUpdatesEntity } from "../entity/BadReviewUpdates";
 import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
 import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
 import { Listing } from "../entity/Listing";
+import { Hostify } from "../client/Hostify";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -111,6 +112,8 @@ export class ReviewService {
     private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
+    private hostifyClient = new Hostify();
+    private listingRepo = appDatabase.getRepository(Listing);
 
     public async getReviews({
         fromDate,
@@ -339,6 +342,72 @@ export class ReviewService {
         }
     }
 
+    public async syncHostifyReviews() {
+
+        try {
+            const apiKey = process.env.HOSTIFY_API_KEY;
+
+            const reviews = await this.hostifyClient.getReviews(apiKey);
+
+            // Check if reviews were fetched successfully
+            if (!reviews || reviews.length === 0) {
+                logger.info("No reviews fetched from Hostify.");
+                return;
+            }
+
+            const reservationInfoService = new ReservationInfoService();
+
+            // save the reviews in the database
+            for (const reviewData of reviews) {
+                // Check if the review already exists in the database
+                const existingReview = await this.reviewRepository.findOne({
+                    where: { id: reviewData.id },
+                });
+
+                if (!existingReview) {
+                    const reservationInfo = await reservationInfoService.getReservationById(reviewData.reservation_id);
+                    if (!reservationInfo) {
+                        logger.warn(`Reservation not found for review with ID: ${reviewData.id}`);
+                        continue;
+                    }
+                    // Create a new review entity and save it
+                    const newReview = this.reviewRepository.create({
+                        id: reviewData.id,
+                        reviewerName: reservationInfo.guestName,
+                        channelId: reservationInfo.channelId,
+                        rating: reservationInfo.channelName == "Booking.com" ? reviewData.rating / 2 : reviewData.rating,
+                        externalReservationId: null,
+                        publicReview: reviewData.comments,
+                        submittedAt: reviewData.review_published_at,
+                        arrivalDate: format(reservationInfo.arrivalDate, "yyyy-MM-dd"),
+                        departureDate: format(reservationInfo.departureDate, "yyyy-MM-dd"),
+                        listingName: reservationInfo.listingName,
+                        externalListingName: null,
+                        guestName: reservationInfo.guestName,
+                        listingMapId: reviewData.listing_id,
+                        channelName: reservationInfo.channelName,
+                        isHidden: reviewData?.isHidden || 0,
+                        reservationId: reviewData?.reservation_id || null,
+                    });
+                    await this.reviewRepository.save(newReview);
+
+                    //check if there is active claim of the reviewer
+                    await this.checkForActiveClaim(newReview);
+
+                    if (
+                        (reservationInfo.channelName == "Booking.com" && reviewData.rating == 10) ||
+                        (reservationInfo.channelName != "Booking.com" && reviewData.rating == 5)
+                    ) {
+                        await this.process5StarRatings(reviewData);
+                    }
+                }
+            }
+        } catch (error) {
+            logger.error("Error syncing reviews:", error);
+            throw error;
+        }
+    }
+
     async checkForActiveClaim(review: ReviewEntity) {
         const claim = await this.claimRepo.findOne({
             where: {
@@ -379,8 +448,8 @@ export class ReviewService {
 
                 return {
                     ...review,
-                    unresolvedForMoreThanThreeDays: diffInDays > 3 && review.rating < 10,
-                    unresolvedForMoreThanSevenDays: diffInDays > 7 && review.rating < 10,
+                    unresolvedForMoreThanThreeDays: diffInDays > 3 && review.rating < 5,
+                    unresolvedForMoreThanSevenDays: diffInDays > 7 && review.rating < 5,
                 };
             });
     };
@@ -711,11 +780,19 @@ export class ReviewService {
                 },
             });
             if (review && review.rating) {
-                reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+                reviewCheckout.status = review.rating == 5 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
             }
             // if no review is placed and fourteenDaysAfterCheckout is today then close the review checkout as no review
             if (reviewCheckout.fourteenDaysAfterCheckout < today) {
                 reviewCheckout.status = ReviewCheckoutStatus.CLOSED_NO_REVIEW;
+            }
+
+            if(reviewCheckout.status==ReviewCheckoutStatus.CLOSED_BAD_REVIEW){
+                await this.createBadReview({
+                    reservationInfo: reviewCheckout.reservationInfo,
+                    status: 'New',
+                    createdBy: 'system'
+                });
             }
             reviewCheckout.updatedAt = new Date();
             reviewCheckout.updatedBy = "system";
@@ -729,7 +806,24 @@ export class ReviewService {
         const reservationInfoService = new ReservationInfoService();
         const { reservations } = await reservationInfoService.getCheckoutReservations();
 
+        const listingService = new ListingService();
+        const listing = await listingService.getLaunchListings();
+
         for (const reservation of reservations) {
+            const listingId = reservation.listingMapId;
+            const isLaunchListing = listing.some(l => Number(l.id) === Number(listingId));
+            if (isLaunchListing) {
+                logger.warn(`Skipping review checkout processing for launch listing ID: ${listingId}`);
+                continue;
+            }
+
+            //check if the listingMapId is parent_listing_id or not
+            const listingDetail = await this.listingRepo.findOne({ where: { id: listingId } });
+            if (!listingDetail) {
+                logger.warn(`Listing detail not found for listing ID: ${listingId}`);
+                continue;
+            }
+
             logger.info(`Processing review checkout for reservation ID: ${reservation.guestName}`);
             //check if there is review checkout entry
             let reviewCheckout = await this.reviewCheckoutRepo.findOne({
@@ -737,8 +831,6 @@ export class ReviewService {
                     reservationInfo: { id: reservation.id },
                 }
             });
-            logger.info(JSON.stringify(reviewCheckout));
-            logger.info(`Existing review checkout found: ${reviewCheckout ? 'Yes' : 'No'}`);
 
             if (!reviewCheckout) {
                 const newReviewCheckout = this.reviewCheckoutRepo.create({
@@ -763,7 +855,7 @@ export class ReviewService {
                     },
                 });
                 if (review) {
-                    reviewCheckout.status = review.rating == 10 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
+                    reviewCheckout.status = review.rating == 5 ? ReviewCheckoutStatus.CLOSED_FIVE_STAR : ReviewCheckoutStatus.CLOSED_BAD_REVIEW;
                     reviewCheckout.updatedAt = new Date();
                     reviewCheckout.updatedBy = "system";
                     await this.reviewCheckoutRepo.save(reviewCheckout);
@@ -834,6 +926,11 @@ export class ReviewService {
     }
 
     private async createBadReview(obj: any) {
+        const existingBadReviewLog = await this.badReviewRepo.findOne({ where: { reservationInfo: { id: obj.reservationInfo.id } } });
+        if(existingBadReviewLog) {
+            logger.info(`Bad review log already exists for reservation id: ${obj.reservationInfo.id}`);
+            return existingBadReviewLog;
+        }
         const newReview = this.badReviewRepo.create(obj);
         return await this.badReviewRepo.save(newReview);
     }
@@ -1042,8 +1139,12 @@ export class ReviewService {
 
                 case 'active':
                     // Active tab: Show 'In Progress' status
-                    query.andWhere("liveIssue.status = :activeStatus", {
-                        activeStatus: LiveIssueStatus.IN_PROGRESS
+                    query.andWhere("liveIssue.status IN (:...activeStatus)", {
+                        activeStatus: [
+                            LiveIssueStatus.IN_PROGRESS,
+                            LiveIssueStatus.TO_BE_TRAPPED,
+                            LiveIssueStatus.NEGOTIATING
+                        ]
                     });
                     break;
 
@@ -1110,19 +1211,18 @@ export class ReviewService {
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
         // Get listing information for properties
-        const listingService = new ListingService();
-        const listingRepository = appDatabase.getRepository(Listing);
+
         const propertyIds = [...new Set(liveIssueList.map(li => li.propertyId).filter(Boolean))];
-        const propertyMap = new Map<number, string>();
+        const propertyMap = new Map<string, string>();
 
         if (propertyIds.length > 0) {
             try {
-                const listings = await listingRepository.find({
+                const listings = await this.listingRepo.find({
                     where: { id: In(propertyIds) }
                 });
 
                 listings.forEach(listing => {
-                    propertyMap.set(listing.id, listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
+                    propertyMap.set(String(listing.id), listing.internalListingName || listing.name || listing.externalListingName || `Property ${listing.id}`);
                 });
             } catch (error) {
                 logger.error(`Error fetching listing info:`, error);
@@ -1130,8 +1230,8 @@ export class ReviewService {
         }
 
         const transformedData = liveIssueList.map(li => {
-            const propertyId = Number(li.propertyId);
-            const propertyName = propertyMap.get(propertyId) || (li.propertyId ? `Property ${li.propertyId}` : 'N/A');
+            const propertyId = String(li.propertyId);
+            const propertyName = propertyMap.get(propertyId);
             
             return {
                 ...li,

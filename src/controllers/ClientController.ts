@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { ClientService } from "../services/ClientService";
+import { unparse } from "papaparse";
 
 interface CustomRequest extends Request {
   user?: any;
@@ -251,5 +252,35 @@ export class ClientController {
   }
 
 
+  async processCSVForClient(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const userId = request.user.id;
+      const clientService = new ClientService();
+      if (!request.file) {
+        return response.status(400).json({ message: "No file uploaded" });
+      }
+
+      const { failedToProcessData, successfullyProcessedData } = await clientService.processCSVFileForClientCreation(request.file.path, userId);
+
+      if (failedToProcessData.length > 0) {
+        const csv = unparse(failedToProcessData);
+
+        response.setHeader("Content-Disposition", "attachment; filename=failed_client_creation.csv");
+        response.setHeader("Content-Type", "text/csv");
+        response.status(200).send(csv);
+      } else {
+        response.status(200).json({
+          success: true,
+          message: successfullyProcessedData.length > 0 ? `${successfullyProcessedData.length} records processed successfully` : "No records to process",
+          successfullyProcessedData,
+          failedToProcessData
+        });
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
 }
+

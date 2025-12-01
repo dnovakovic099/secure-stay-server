@@ -52,7 +52,7 @@ export class ActionItemsService {
 
     const listing = await this.listingRepo.findOne({
       where: { internalListingName: property_name },
-      order: { listingId: "DESC" },
+      order: { id: "DESC" },
     });
 
     if (!listing) {
