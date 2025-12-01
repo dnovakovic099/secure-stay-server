@@ -42,6 +42,13 @@ interface PropertyOnboardingRequest {
 interface Property {
   id?: string; // Optional for create/update logic
   address: string;
+  streetAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  zipCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   onboarding: Onboarding;
 }
 
@@ -1271,6 +1278,13 @@ export class ClientService {
           throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
         }
         clientProperty.address = property.address;
+        clientProperty.streetAddress = property.streetAddress ?? null;
+        clientProperty.city = property.city ?? null;
+        clientProperty.state = property.state ?? null;
+        clientProperty.country = property.country ?? null;
+        clientProperty.zipCode = property.zipCode ?? null;
+        clientProperty.latitude = property.latitude ?? null;
+        clientProperty.longitude = property.longitude ?? null;
         clientProperty.updatedAt = new Date();
         clientProperty.updatedBy = userId;
         clientProperty = await this.propertyRepo.save(clientProperty);
@@ -1278,6 +1292,13 @@ export class ClientService {
         // Create new property
         clientProperty = this.propertyRepo.create({
           address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
           client: { id: clientId } as any,
           createdBy: userId,
           status: PropertyStatus.ONBOARDING,
@@ -1364,6 +1385,27 @@ export class ClientService {
 
       if (property.address !== undefined) {
         clientProperty.address = property.address;
+      }
+      if (property.streetAddress !== undefined) {
+        clientProperty.streetAddress = property.streetAddress ?? null;
+      }
+      if (property.city !== undefined) {
+        clientProperty.city = property.city ?? null;
+      }
+      if (property.state !== undefined) {
+        clientProperty.state = property.state ?? null;
+      }
+      if (property.country !== undefined) {
+        clientProperty.country = property.country ?? null;
+      }
+      if (property.zipCode !== undefined) {
+        clientProperty.zipCode = property.zipCode ?? null;
+      }
+      if (property.latitude !== undefined) {
+        clientProperty.latitude = property.latitude ?? null;
+      }
+      if (property.longitude !== undefined) {
+        clientProperty.longitude = property.longitude ?? null;
       }
       clientProperty.updatedAt = new Date();
       clientProperty.updatedBy = userId;
@@ -2027,6 +2069,13 @@ export class ClientService {
           throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
         }
         clientProperty.address = property.address;
+        clientProperty.streetAddress = property.streetAddress ?? null;
+        clientProperty.city = property.city ?? null;
+        clientProperty.state = property.state ?? null;
+        clientProperty.country = property.country ?? null;
+        clientProperty.zipCode = property.zipCode ?? null;
+        clientProperty.latitude = property.latitude ?? null;
+        clientProperty.longitude = property.longitude ?? null;
         clientProperty.updatedAt = new Date();
         clientProperty.updatedBy = userId;
         await this.propertyRepo.save(clientProperty);
@@ -2034,6 +2083,13 @@ export class ClientService {
         // Create new property
         clientProperty = this.propertyRepo.create({
           address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
           client: { id: clientId } as any,
           createdBy: userId,
           status: PropertyStatus.ONBOARDING,
@@ -2098,6 +2154,13 @@ export class ClientService {
 
         if ((property as any).address !== undefined) {
           clientProperty.address = property.address;
+          clientProperty.streetAddress = property.streetAddress ?? null;
+          clientProperty.city = property.city ?? null;
+          clientProperty.state = property.state ?? null;
+          clientProperty.country = property.country ?? null;
+          clientProperty.zipCode = property.zipCode ?? null;
+          clientProperty.latitude = property.latitude ?? null;
+          clientProperty.longitude = property.longitude ?? null;
           clientProperty.updatedAt = new Date();
           clientProperty.updatedBy = userId;
           await this.propertyRepo.save(clientProperty);
@@ -2106,6 +2169,13 @@ export class ClientService {
         // Create new property
         clientProperty = this.propertyRepo.create({
           address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
           client: { id: clientId } as any,
           createdBy: userId,
           status: PropertyStatus.ONBOARDING,
@@ -3100,6 +3170,98 @@ export class ClientService {
     fs.unlinkSync(filePath); // Delete the file after processing
 
     return { successfullyProcessedData, failedToProcessData };
+  }
+
+
+  async publishPropertyToHostify(propertyId: string, userId: string) {
+    const listingIntake = await this.propertyRepo.findOne({
+      where: { id: propertyId },
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
+    });
+
+
+    if (!listingIntake) {
+      throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
+    }
+
+    // Here you would implement the logic to publish the property to Hostaway
+    // This is a placeholder for the actual implementation
+    logger.info("Publishing property to Hostaway");
+
+    // Simulate successful publishing
+    let status = this.getListingIntakeStatus(listingIntake.propertyInfo);
+    if (status === "draft") {
+      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
+    }
+    if (listingIntake.listingId) {
+      throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
+    }
+
+    //prepare hostaway payload
+    const hostawayPayload = {
+      name: listingIntake.propertyInfo.externalListingName,
+      externalListingName: listingIntake.propertyInfo.externalListingName,
+      internalListingName: listingIntake.propertyInfo.internalListingName,
+      price: listingIntake.propertyInfo.price || 3000,
+      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
+      propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
+      roomType: listingIntake.propertyInfo.roomType,
+      bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
+      bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
+      bathroomType: listingIntake.propertyInfo.bathroomType,
+      guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
+      address: listingIntake.address,
+      timeZoneName: listingIntake.client.timezone,
+      currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
+      personCapacity: listingIntake.propertyInfo.personCapacity,
+      cleaningFee: listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
+      airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
+      checkOutTime: listingIntake.propertyInfo.checkOutTime,
+      checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
+      checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
+      squareMeters: listingIntake.propertyInfo.squareMeters,
+      language: "en",
+      instantBookable: listingIntake.propertyInfo?.canAnyoneBookAnytime?.includes("Yes") || false,
+      instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || null,
+      wifiUsername: listingIntake.propertyInfo.wifiUsername,
+      wifiPassword: listingIntake.propertyInfo.wifiPassword,
+      minNights: listingIntake.propertyInfo.minNights,
+      maxNights: listingIntake.propertyInfo.maxNights,
+      contactName: "Luxury Lodging",
+      contactPhone1: "(813) 531-8988",
+      contactLanguage: "English",
+      guestsIncluded: listingIntake.propertyInfo.guestsIncluded || 1,
+
+      amenities: listingIntake.propertyInfo?.amenities?.map((amenity: any) => {
+        return { amenityId: Number(amenity) };
+      }),
+
+      listingBedTypes: listingIntake.propertyInfo?.propertyBedTypes?.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
+        .map(bedType => ({
+          bedTypeId: bedType.bedTypeId,
+          quantity: bedType.quantity,
+          bedroomNumber: bedType.bedroomNumber,
+        })),
+
+      propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
+    };
+
+    logger.info(JSON.stringify(hostawayPayload));
+
+    //simulate taking time of 10s
+    // await new Promise(resolve => setTimeout(resolve, 10000));
+
+    const response = await this.hostawayClient.createListing(hostawayPayload);
+    if (!response) {
+      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+    }
+    // Update the listingIntake status to published
+    listingIntake.status = PropertyStatus.ACTIVE;
+    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
+    listingIntake.updatedBy = userId;
+    await this.propertyRepo.save(listingIntake);
+
+    return { message: "Property published to Hostaway successfully", listingIntake };
   }
 
 

@@ -230,6 +230,13 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().required(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     sales: Joi.object({
@@ -291,6 +298,13 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 listingId: Joi.string().optional().allow(null),
                 status: Joi.string().optional(),
                 onboarding: Joi.object({
@@ -1053,6 +1067,13 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().required(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
@@ -1088,6 +1109,13 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().optional(),
+                streetAddress: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({

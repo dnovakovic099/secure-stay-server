@@ -183,4 +183,195 @@ export class Hostify {
     }
 
 
+
+    /*
+     Create Listing involves multiple steps:
+        1. Process Location.
+        2. Process Layout.
+        3. Process Amenities.
+        4. Process Translations.
+        5. Process Booking Restrictions.
+        6. Process Photos.
+    **/
+
+    async createListing(apiKey: string, payload: {
+        location?: any;
+        layout?: any;
+        amenities?: any;
+        translations?: any;
+        bookingRestrictions?: any;
+        photos?: any;
+    }) {
+        const baseUrl = "https://api-rms.hostify.com/listings";
+        const headers = {
+            "x-api-key": apiKey,
+            "Cache-Control": "no-cache",
+            "Content-Type": "application/json",
+        };
+
+        const results: any = {};
+        const completedSteps: string[] = [];
+        let failedStep: string | null = null;
+        let errorMessage: string | null = null;
+
+        // Step 1: Process Location (must succeed before proceeding)
+        if (payload.location) {
+            try {
+                const locationResponse = await axios.post(
+                    `${baseUrl}/process_location`,
+                    payload.location,
+                    { headers }
+                );
+                results.location = locationResponse.data;
+                completedSteps.push("location");
+                logger.info("Location processed successfully");
+            } catch (error: any) {
+                failedStep = "location";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing location:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // Step 2: Process Layout (only runs if Step 1 succeeded)
+        if (payload.layout) {
+            try {
+                const layoutResponse = await axios.post(
+                    `${baseUrl}/process_layout`,
+                    payload.layout,
+                    { headers }
+                );
+                results.layout = layoutResponse.data;
+                completedSteps.push("layout");
+                logger.info("Layout processed successfully");
+            } catch (error: any) {
+                failedStep = "layout";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing layout:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // Step 3: Process Amenities (only runs if previous steps succeeded)
+        if (payload.amenities) {
+            try {
+                const amenitiesResponse = await axios.post(
+                    `${baseUrl}/process_amenities`,
+                    payload.amenities,
+                    { headers }
+                );
+                results.amenities = amenitiesResponse.data;
+                completedSteps.push("amenities");
+                logger.info("Amenities processed successfully");
+            } catch (error: any) {
+                failedStep = "amenities";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing amenities:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // Step 4: Process Translations (only runs if previous steps succeeded)
+        if (payload.translations) {
+            try {
+                const translationsResponse = await axios.post(
+                    `${baseUrl}/process_translations`,
+                    payload.translations,
+                    { headers }
+                );
+                results.translations = translationsResponse.data;
+                completedSteps.push("translations");
+                logger.info("Translations processed successfully");
+            } catch (error: any) {
+                failedStep = "translations";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing translations:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // Step 5: Process Booking Restrictions (only runs if previous steps succeeded)
+        if (payload.bookingRestrictions) {
+            try {
+                const bookingRestrictionsResponse = await axios.post(
+                    `${baseUrl}/process_booking_restrictions`,
+                    payload.bookingRestrictions,
+                    { headers }
+                );
+                results.bookingRestrictions = bookingRestrictionsResponse.data;
+                completedSteps.push("bookingRestrictions");
+                logger.info("Booking restrictions processed successfully");
+            } catch (error: any) {
+                failedStep = "bookingRestrictions";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing booking restrictions:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // Step 6: Process Photos (only runs if all previous steps succeeded)
+        if (payload.photos) {
+            try {
+                const photosResponse = await axios.post(
+                    `${baseUrl}/process_photos`,
+                    payload.photos,
+                    { headers }
+                );
+                results.photos = photosResponse.data;
+                completedSteps.push("photos");
+                logger.info("Photos processed successfully");
+            } catch (error: any) {
+                failedStep = "photos";
+                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
+                logger.error("Error processing photos:", errorMessage);
+                return {
+                    success: false,
+                    completedSteps,
+                    failedStep,
+                    error: errorMessage,
+                    results,
+                };
+            }
+        }
+
+        // All steps completed successfully
+        return {
+            success: true,
+            completedSteps,
+            failedStep: null,
+            error: null,
+            results,
+        };
+    }
+
 }

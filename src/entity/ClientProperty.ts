@@ -23,6 +23,27 @@ export class ClientPropertyEntity {
     address: string;
 
     @Column({ nullable: true })
+    streetAddress: string;
+
+    @Column({ nullable: true })
+    city: string;
+
+    @Column({ nullable: true })
+    state: string;
+
+    @Column({ nullable: true })
+    country: string;
+
+    @Column({ nullable: true })
+    zipCode: string;
+
+    @Column({ type: "decimal", precision: 10, scale: 6, nullable: true })
+    latitude: number;
+
+    @Column({ type: "decimal", precision: 11, scale: 6, nullable: true })
+    longitude: number;
+
+    @Column({ nullable: true })
     listingId: string;             // HA listing id
 
     @Column({ nullable: true })

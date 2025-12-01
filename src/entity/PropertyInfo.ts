@@ -50,6 +50,9 @@ export class PropertyInfo {
     propertyTypeId: number;
 
     @Column({ nullable: true })
+    propertyType: string;
+
+    @Column({ nullable: true })
     noOfFloors: number;
 
     @Column({ nullable: true })
