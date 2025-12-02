@@ -17,6 +17,12 @@ export class PropertyVendorManagement {
     cleanerManagedByReason: string;
 
     @Column({ nullable: true })
+    maintenanceBy: string;
+
+    @Column({ nullable: true })
+    biWeeklyInspection: string;
+
+    @Column({ nullable: true })
     hasCurrentCleaner: string;
 
     @Column({ nullable: true })

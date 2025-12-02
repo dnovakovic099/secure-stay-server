@@ -290,6 +290,24 @@ export class PropertyInfo {
     @Column({ nullable: true })
     techFeeNotes: string;
 
+    @Column({ nullable: true })
+    onboardingFee: string;
+
+    @Column({ type: "text", nullable: true })
+    onboardingFeeAmountAndConditions: string;
+
+    @Column({ nullable: true })
+    offboardingFee: string;
+
+    @Column({ type: "text", nullable: true })
+    offboardingFeeAmountAndConditions: string;
+
+    @Column({ nullable: true })
+    payoutSchdule: string;
+
+    @Column({ nullable: true })
+    taxesAddedum: string;
+
 
     //amenities
     @Column({ type: "simple-array", nullable: true })

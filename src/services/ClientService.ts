@@ -43,6 +43,7 @@ interface Property {
   id?: string; // Optional for create/update logic
   address: string;
   streetAddress?: string | null;
+  unitNumber?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
@@ -57,6 +58,8 @@ interface Onboarding {
   sales: Sales;
   listing: Listing;
   photography: Photography;
+  contractorsVendor?: ContractorsVendor;
+  financial?: Financial;
   financials?: Financials;
   clientAcknowledgement?: {
     acknowledgePropertyReadyByStartDate?: boolean | null;
@@ -65,10 +68,27 @@ interface Onboarding {
   };
 }
 
+interface ContractorsVendor {
+  cleaning: string | null;
+  maintenance: string | null;
+  biWeeklyInspection: string | null;
+}
+
+interface Financial {
+  claimsFee: string | null;
+  onboardingFee: string | null;
+  onboardingFeeDetails: string | null;
+  offboardingFee: string | null;
+  offboardingFeeDetails: string | null;
+  techFee: string | null;
+  techFeeDetails: string | null;
+  payoutSchedule: string | null;
+  taxesAddendum: string | null;
+}
+
 interface ServiceInfo {
   managementFee: number | null;
   serviceType: "LAUNCH" | "PRO" | "FULL";
-  contractLink: string | null;
   serviceNotes: string | null;
 }
 
@@ -967,6 +987,7 @@ export class ClientService {
       const clientProperty = this.propertyRepo.create({
         address: property.address,
         streetAddress: property.streetAddress ?? null,
+        unitNumber: property.unitNumber ?? null,
         city: property.city ?? null,
         state: property.state ?? null,
         country: property.country ?? null,
@@ -984,17 +1005,18 @@ export class ClientService {
       const serviceInfoEntity = this.propertyServiceInfoRepo.create({
         managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
         serviceType: serviceInfoPayload?.serviceType ?? null,
-        contractLink: serviceInfoPayload?.contractLink ?? null,
         serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
         clientProperty: savedClientProperty,
         createdBy: userId,
       });
       const savedServiceInfo = await this.propertyServiceInfoRepo.save(serviceInfoEntity);
 
-      // Map Onboarding (sales, listing, photography)
+      // Map Onboarding (sales, listing, photography, contractors, financial)
       const sales = property.onboarding?.sales;
       const listing = property.onboarding?.listing;
       const photography = property.onboarding?.photography;
+      const contractorsVendor = property.onboarding?.contractorsVendor;
+      const financial = property.onboarding?.financial;
 
       const onboardingEntity = this.propertyOnboardingRepo.create({
         // sales
@@ -1020,14 +1042,34 @@ export class ClientService {
       });
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
 
-      // Create PropertyInfo record to store minPrice from sales
-      if (sales?.minPrice !== undefined) {
+      // Create PropertyInfo record to store minPrice from sales and financial data
+      if (sales?.minPrice !== undefined || financial) {
         const propertyInfoEntity = this.propertyInfoRepo.create({
-          minPrice: sales.minPrice,
+          minPrice: sales?.minPrice ?? null,
+          claimFee: financial?.claimsFee ?? null,
+          techFee: financial?.techFee ?? null,
+          techFeeNotes: financial?.techFeeDetails ?? null,
+          onboardingFee: financial?.onboardingFee ?? null,
+          onboardingFeeAmountAndConditions: financial?.onboardingFeeDetails ?? null,
+          offboardingFee: financial?.offboardingFee ?? null,
+          offboardingFeeAmountAndConditions: financial?.offboardingFeeDetails ?? null,
+          payoutSchdule: financial?.payoutSchedule ?? null,
+          taxesAddedum: financial?.taxesAddendum ?? null,
           clientProperty: savedClientProperty,
           createdBy: userId,
         });
-        await this.propertyInfoRepo.save(propertyInfoEntity);
+        const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfoEntity);
+
+        // Create PropertyVendorManagement record if contractors/vendor data is provided
+        if (contractorsVendor) {
+          const vendorManagementEntity = this.propertyVendorManagementRepo.create({
+            cleanerManagedBy: contractorsVendor.cleaning ?? null,
+            maintenanceBy: contractorsVendor.maintenance ?? null,
+            biWeeklyInspection: contractorsVendor.biWeeklyInspection ?? null,
+            propertyInfo: savedPropertyInfo,
+          });
+          await this.propertyVendorManagementRepo.save(vendorManagementEntity);
+        }
       }
 
       results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
@@ -1046,6 +1088,8 @@ export class ClientService {
       .createQueryBuilder("cp")
       .leftJoinAndSelect("cp.onboarding", "onboarding")
       .leftJoinAndSelect("cp.serviceInfo", "serviceInfo")
+      .leftJoinAndSelect("cp.propertyInfo", "propertyInfo")
+      .leftJoinAndSelect("propertyInfo.vendorManagementInfo", "vendorManagementInfo")
       .where("cp.clientId = :clientId", { clientId })
       .andWhere("cp.deletedAt IS NULL")
       .getMany();
@@ -1053,6 +1097,8 @@ export class ClientService {
     const data = clientProperties.map((cp) => {
       const si = cp.serviceInfo;
       const ob = cp.onboarding;
+      const pi = cp.propertyInfo;
+      const vm = pi?.vendorManagementInfo;
 
       const parsedClientCurrentListingLink = (() => {
         if (!ob?.clientCurrentListingLink) return null;
@@ -1068,6 +1114,7 @@ export class ClientService {
         id: cp.id,
         address: cp.address,
         streetAddress: cp.streetAddress ?? null,
+        unitNumber: cp.unitNumber ?? null,
         city: cp.city ?? null,
         state: cp.state ?? null,
         country: cp.country ?? null,
@@ -1079,7 +1126,6 @@ export class ClientService {
             ? {
               managementFee: si.managementFee != null ? Number(si.managementFee) : null,
               serviceType: si.serviceType ?? null,
-              contractLink: si.contractLink ?? null,
               serviceNotes: si.serviceNotes ?? null,
             }
             : null,
@@ -1107,6 +1153,26 @@ export class ClientService {
               photographyNotes: ob.photographyNotes ?? null,
             }
             : null,
+          contractorsVendor: vm
+            ? {
+              cleaning: vm.cleanerManagedBy ?? null,
+              maintenance: vm.maintenanceBy ?? null,
+              biWeeklyInspection: vm.biWeeklyInspection ?? null,
+            }
+            : null,
+          financial: pi
+            ? {
+              claimsFee: pi.claimFee ?? null,
+              techFee: pi.techFee ?? null,
+              techFeeDetails: pi.techFeeNotes ?? null,
+              onboardingFee: pi.onboardingFee ?? null,
+              onboardingFeeDetails: pi.onboardingFeeAmountAndConditions ?? null,
+              offboardingFee: pi.offboardingFee ?? null,
+              offboardingFeeDetails: pi.offboardingFeeAmountAndConditions ?? null,
+              payoutSchedule: pi.payoutSchdule ?? null,
+              taxesAddendum: pi.taxesAddedum ?? null,
+            }
+            : null,
         },
       };
     });
@@ -1130,7 +1196,10 @@ export class ClientService {
 
       if (property.id) {
         // Update existing property
-        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "serviceInfo"] });
+        clientProperty = await this.propertyRepo.findOne({ 
+          where: { id: property.id }, 
+          relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.vendorManagementInfo"] 
+        });
         if (!clientProperty) {
           throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
         }
@@ -1143,6 +1212,9 @@ export class ClientService {
         }
         if (property.streetAddress !== undefined) {
           clientProperty.streetAddress = property.streetAddress;
+        }
+        if (property.unitNumber !== undefined) {
+          clientProperty.unitNumber = property.unitNumber;
         }
         if (property.city !== undefined) {
           clientProperty.city = property.city;
@@ -1170,6 +1242,7 @@ export class ClientService {
         clientProperty = this.propertyRepo.create({
           address: property.address,
           streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
           city: property.city ?? null,
           state: property.state ?? null,
           country: property.country ?? null,
@@ -1194,13 +1267,11 @@ export class ClientService {
             createdBy: userId,
             managementFee: siPayload.managementFee != null ? String(siPayload.managementFee) : null,
             serviceType: siPayload.serviceType ?? null,
-            contractLink: siPayload.contractLink ?? null,
             serviceNotes: siPayload.serviceNotes ?? null
           });
         } else {
           if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
           if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
-          if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
           if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
           si.updatedBy = userId;
         }
@@ -1211,6 +1282,8 @@ export class ClientService {
       const sales = property.onboarding?.sales;
       const listing = property.onboarding?.listing;
       const photography = property.onboarding?.photography;
+      const contractorsVendor = property.onboarding?.contractorsVendor;
+      const financial = property.onboarding?.financial;
 
       if (sales || listing || photography) {
 
@@ -1268,27 +1341,68 @@ export class ClientService {
         await this.propertyOnboardingRepo.save(ob);
       }
 
-      // Handle minPrice from sales - create or update PropertyInfo
-      if (sales?.minPrice !== undefined) {
+      // Handle minPrice from sales and financial data - create or update PropertyInfo
+      if (sales?.minPrice !== undefined || financial || contractorsVendor) {
         let propertyInfo = clientProperty.propertyInfo;
         if (!propertyInfo) {
           // Create new PropertyInfo record
           propertyInfo = this.propertyInfoRepo.create({
-            minPrice: sales.minPrice,
+            minPrice: sales?.minPrice ?? null,
+            claimFee: financial?.claimsFee ?? null,
+            techFee: financial?.techFee ?? null,
+            techFeeNotes: financial?.techFeeDetails ?? null,
+            onboardingFee: financial?.onboardingFee ?? null,
+            onboardingFeeAmountAndConditions: financial?.onboardingFeeDetails ?? null,
+            offboardingFee: financial?.offboardingFee ?? null,
+            offboardingFeeAmountAndConditions: financial?.offboardingFeeDetails ?? null,
+            payoutSchdule: financial?.payoutSchedule ?? null,
+            taxesAddedum: financial?.taxesAddendum ?? null,
             clientProperty: clientProperty,
             createdBy: userId,
           });
         } else {
           // Update existing PropertyInfo record
-          propertyInfo.minPrice = sales.minPrice;
+          if (sales?.minPrice !== undefined) propertyInfo.minPrice = sales.minPrice;
+          if (financial?.claimsFee !== undefined) propertyInfo.claimFee = financial.claimsFee ?? null;
+          if (financial?.techFee !== undefined) propertyInfo.techFee = financial.techFee ?? null;
+          if (financial?.techFeeDetails !== undefined) propertyInfo.techFeeNotes = financial.techFeeDetails ?? null;
+          if (financial?.onboardingFee !== undefined) propertyInfo.onboardingFee = financial.onboardingFee ?? null;
+          if (financial?.onboardingFeeDetails !== undefined) propertyInfo.onboardingFeeAmountAndConditions = financial.onboardingFeeDetails ?? null;
+          if (financial?.offboardingFee !== undefined) propertyInfo.offboardingFee = financial.offboardingFee ?? null;
+          if (financial?.offboardingFeeDetails !== undefined) propertyInfo.offboardingFeeAmountAndConditions = financial.offboardingFeeDetails ?? null;
+          if (financial?.payoutSchedule !== undefined) propertyInfo.payoutSchdule = financial.payoutSchedule ?? null;
+          if (financial?.taxesAddendum !== undefined) propertyInfo.taxesAddedum = financial.taxesAddendum ?? null;
           propertyInfo.updatedBy = userId;
         }
-        await this.propertyInfoRepo.save(propertyInfo);
+        const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+
+        // Handle PropertyVendorManagement
+        if (contractorsVendor) {
+          let vendorManagement = propertyInfo.vendorManagementInfo;
+          if (!vendorManagement) {
+            // Create new PropertyVendorManagement record
+            vendorManagement = this.propertyVendorManagementRepo.create({
+              cleanerManagedBy: contractorsVendor.cleaning ?? null,
+              maintenanceBy: contractorsVendor.maintenance ?? null,
+              biWeeklyInspection: contractorsVendor.biWeeklyInspection ?? null,
+              propertyInfo: savedPropertyInfo,
+            });
+          } else {
+            // Update existing PropertyVendorManagement record
+            if (contractorsVendor.cleaning !== undefined) vendorManagement.cleanerManagedBy = contractorsVendor.cleaning ?? null;
+            if (contractorsVendor.maintenance !== undefined) vendorManagement.maintenanceBy = contractorsVendor.maintenance ?? null;
+            if (contractorsVendor.biWeeklyInspection !== undefined) vendorManagement.biWeeklyInspection = contractorsVendor.biWeeklyInspection ?? null;
+          }
+          await this.propertyVendorManagementRepo.save(vendorManagement);
+        }
       }
 
       // Refresh the property to get the latest data with relations
       const propertyId = property.id || clientProperty.id;
-      const refreshed = await this.propertyRepo.findOne({ where: { id: propertyId }, relations: ["onboarding", "serviceInfo"] });
+      const refreshed = await this.propertyRepo.findOne({ 
+        where: { id: propertyId }, 
+        relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.vendorManagementInfo"] 
+      });
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
     }
 
@@ -1321,6 +1435,7 @@ export class ClientService {
         }
         clientProperty.address = property.address;
         clientProperty.streetAddress = property.streetAddress ?? null;
+        clientProperty.unitNumber = property.unitNumber ?? null;
         clientProperty.city = property.city ?? null;
         clientProperty.state = property.state ?? null;
         clientProperty.country = property.country ?? null;
@@ -1335,6 +1450,7 @@ export class ClientService {
         clientProperty = this.propertyRepo.create({
           address: property.address,
           streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
           city: property.city ?? null,
           state: property.state ?? null,
           country: property.country ?? null,
@@ -1430,6 +1546,9 @@ export class ClientService {
       }
       if (property.streetAddress !== undefined) {
         clientProperty.streetAddress = property.streetAddress ?? null;
+      }
+      if (property.unitNumber !== undefined) {
+        clientProperty.unitNumber = property.unitNumber ?? null;
       }
       if (property.city !== undefined) {
         clientProperty.city = property.city ?? null;
@@ -1554,7 +1673,6 @@ export class ClientService {
       }
       serviceInfoEntity.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
       serviceInfoEntity.serviceType = serviceInfoPayload.serviceType ?? null;
-      serviceInfoEntity.contractLink = serviceInfoPayload.contractLink ?? null;
       serviceInfoEntity.serviceNotes = serviceInfoPayload.serviceNotes ?? null;
       serviceInfoEntity.updatedBy = userId;
 
@@ -1598,7 +1716,6 @@ export class ClientService {
         }
         if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
         if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
-        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
         if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
         si.updatedBy = userId;
         await this.propertyServiceInfoRepo.save(si);
@@ -2112,6 +2229,7 @@ export class ClientService {
         }
         clientProperty.address = property.address;
         clientProperty.streetAddress = property.streetAddress ?? null;
+        clientProperty.unitNumber = property.unitNumber ?? null;
         clientProperty.city = property.city ?? null;
         clientProperty.state = property.state ?? null;
         clientProperty.country = property.country ?? null;
@@ -2126,6 +2244,7 @@ export class ClientService {
         clientProperty = this.propertyRepo.create({
           address: property.address,
           streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
           city: property.city ?? null,
           state: property.state ?? null,
           country: property.country ?? null,
@@ -2212,6 +2331,7 @@ export class ClientService {
         clientProperty = this.propertyRepo.create({
           address: property.address,
           streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
           city: property.city ?? null,
           state: property.state ?? null,
           country: property.country ?? null,

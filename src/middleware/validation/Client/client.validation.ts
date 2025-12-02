@@ -120,6 +120,7 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
             Joi.object({
                 address: Joi.string().required(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),
@@ -128,13 +129,12 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
-                        managementFee: Joi.number().optional().allow(null),
-                        serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
-                        contractLink: Joi.string().optional().allow(null),
-                        serviceNotes: Joi.string().optional().allow(null)
+                        managementFee: Joi.number().required().allow(null),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
+                        serviceNotes: Joi.string().required().allow(null)
                     }).optional(),
                     sales: Joi.object({
-                        salesRepresentative: Joi.string().optional().allow(null),
+                        salesRepresentative: Joi.string().required().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
                         projectedRevenue: Joi.number().optional().allow(null),
                         minPrice: Joi.number().optional().allow(null),
@@ -158,9 +158,25 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         upcomingReservations: Joi.string().optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
-                        photographyCoverage: Joi.string().optional().allow(null)
+                        photographyCoverage: Joi.string().required().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().optional().allow(null),
+                    }).optional(),
+                    contractorsVendor: Joi.object({
+                        cleaning: Joi.string().optional().allow(null),
+                        maintenance: Joi.string().optional().allow(null),
+                        biWeeklyInspection: Joi.string().optional().allow(null),
+                    }).optional(),
+                    financial: Joi.object({
+                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null),
+                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null),
+                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null),
+                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
                     }).optional()
                 }).optional()
             })
@@ -182,6 +198,7 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),
@@ -192,7 +209,6 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
                         serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
-                        contractLink: Joi.string().optional().allow(null),
                         serviceNotes: Joi.string().optional().allow(null)
                     }).optional(),
                     sales: Joi.object({
@@ -223,6 +239,22 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         photographyCoverage: Joi.string().optional().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
                         photographyNotes: Joi.string().optional().allow(null),
+                    }).optional(),
+                    contractorsVendor: Joi.object({
+                        cleaning: Joi.string().optional().allow(null),
+                        maintenance: Joi.string().optional().allow(null),
+                        biWeeklyInspection: Joi.string().optional().allow(null),
+                    }).optional(),
+                    financial: Joi.object({
+                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null),
+                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null),
+                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null),
+                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
                     }).optional()
                 }).optional()
             })
@@ -245,6 +277,7 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().required(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),
@@ -313,6 +346,7 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),
@@ -1082,6 +1116,7 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().required(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),
@@ -1124,6 +1159,7 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().optional(),
                 streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
                 city: Joi.string().optional().allow(null),
                 state: Joi.string().optional().allow(null),
                 country: Joi.string().optional().allow(null),

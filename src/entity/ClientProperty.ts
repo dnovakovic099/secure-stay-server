@@ -26,6 +26,9 @@ export class ClientPropertyEntity {
     streetAddress: string;
 
     @Column({ nullable: true })
+    unitNumber: string;
+
+    @Column({ nullable: true })
     city: string;
 
     @Column({ nullable: true })
