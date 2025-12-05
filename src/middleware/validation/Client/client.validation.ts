@@ -343,7 +343,7 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
         clientId: Joi.string().required(),
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
-                id: Joi.string().required(),
+                id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
                 streetAddress: Joi.string().optional().allow(null),
                 unitNumber: Joi.string().optional().allow(null),
@@ -804,7 +804,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
                                 Joi.object({
-                                    id: Joi.optional().required(), // if id is passed then update else if id is not present then create
+                                    id: Joi.number().optional().allow(null), // if id is passed then update else if id is not present then create
                                     supplyName: Joi.string().required(),
                                     notes: Joi.string().optional().allow(null, ""),
                                 })
@@ -983,9 +983,12 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             .items(
                                 Joi.string()
                                     .valid(
-                                        "24-hr checkin",
-                                        "In person Check-in",
-                                        "Doorman"
+                                        "Smartlock",
+                                        "Keypad",
+                                        "Lockbox",
+                                        "Doorman",
+                                        "Host Check-In",
+                                        "Other Check-In"
                                     )
                             ),
                         doorLockType: Joi.array().min(1).optional().allow(null)
@@ -1004,7 +1007,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
+                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
                         standardDoorCode: Joi.string().optional().allow(null),
                         doorLockAppName: Joi.string().optional().allow(null),
@@ -1028,7 +1031,8 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 allowUpsell: Joi.boolean().optional(),
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
                                 fee: Joi.number().optional().allow(null),
-                                maxAdditionalHours: Joi.number().optional().allow(null)
+                                maxAdditionalHours: Joi.number().optional().allow(null),
+                                notes: Joi.string().optional().allow(null)
                             })
                         ),
                         additionalServiceNotes: Joi.string().optional().allow(null),
@@ -1051,22 +1055,29 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
                         otherHouseRules: Joi.string().optional().allow(null),
 
-
+                        //WiFi
+                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        wifiUsername: Joi.string().optional().allow(null),
+                        wifiPassword: Joi.string().optional().allow(null),
+                        wifiSpeed: Joi.string().optional().allow(null),
+                        locationOfModem: Joi.string().optional().allow(null),
+                        ethernetCable: Joi.boolean().optional().allow(null),
+                        pocketWifi: Joi.boolean().optional().allow(null),
+                        paidWifi: Joi.boolean().optional().allow(null),
 
                         //Contractors/Vendor Management
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             cleanerManagedByReason: Joi.string().optional().allow(null),
                             hasCurrentCleaner: Joi.string().optional().allow(null)
                                 .valid(
-                                    "Yes-Continue Current Cleaner",
-                                    "Yes-Switch Different Cleaner",
-                                    "No-Find New Cleaner",
                                     "Yes",
-                                    "No"
+                                    "Yes, but I'd like to request for a new cleaner",
+                                    "No, please source a cleaner for me"
                                 ),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
                             cleaningFee: Joi.number().optional().allow(null),
                             cleanerName: Joi.string().optional().allow(null),
                             cleanerPhone: Joi.string().optional().allow(null),
@@ -1080,6 +1091,8 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
                             luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
                             cleaningTurnoverNotes: Joi.string().optional().allow(null),
 
                             //Restocking Supplies
@@ -1100,7 +1113,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             //Other Contractors/Vendors
                             vendorInfo: Joi.array().optional().allow(null).items(
                                 Joi.object({
-                                    id: Joi.number().optional(), // if id is passed then update else if id is not present then create
+                                    id: Joi.number().optional().allow(null), // if id is passed then update else if id is not present then create
                                     workCategory: Joi.string().required(),
                                     managedBy: Joi.string().required().valid("Luxury Lodging", "Owner"),
                                     name: Joi.string().required().allow(null),

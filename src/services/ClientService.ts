@@ -1575,7 +1575,7 @@ export class ClientService {
   }
 
   async updatedOnboardingDetails(body: PropertyOnboardingRequest, userId: string) {
-    const { clientId, clientProperties } = body;
+    const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id?: string; }>; };
 
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
@@ -1584,46 +1584,67 @@ export class ClientService {
 
     const updated: Array<{ clientProperty: ClientPropertyEntity; onboarding?: PropertyOnboarding | null; }> = [];
 
-    // Proper update loop using id
-    for (const property of clientProperties as Array<Property & { id: string; }>) {
-      const clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
-      if (!clientProperty) {
-        throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
-      }
-      if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
-        throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
-      }
+    for (const property of clientProperties) {
+      let clientProperty: ClientPropertyEntity;
 
-      if (property.address !== undefined) {
-        clientProperty.address = property.address;
+      if (property.id) {
+        // Update existing property
+        clientProperty = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding", "client"] });
+        if (!clientProperty) {
+          throw CustomErrorHandler.notFound(`Client property not found: ${property.id}`);
+        }
+        if ((clientProperty.client as any)?.id && (clientProperty.client as any).id !== clientId) {
+          throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
+        }
+
+        if (property.address !== undefined) {
+          clientProperty.address = property.address;
+        }
+        if (property.streetAddress !== undefined) {
+          clientProperty.streetAddress = property.streetAddress ?? null;
+        }
+        if (property.unitNumber !== undefined) {
+          clientProperty.unitNumber = property.unitNumber ?? null;
+        }
+        if (property.city !== undefined) {
+          clientProperty.city = property.city ?? null;
+        }
+        if (property.state !== undefined) {
+          clientProperty.state = property.state ?? null;
+        }
+        if (property.country !== undefined) {
+          clientProperty.country = property.country ?? null;
+        }
+        if (property.zipCode !== undefined) {
+          clientProperty.zipCode = property.zipCode ?? null;
+        }
+        if (property.latitude !== undefined) {
+          clientProperty.latitude = property.latitude ?? null;
+        }
+        if (property.longitude !== undefined) {
+          clientProperty.longitude = property.longitude ?? null;
+        }
+        clientProperty.updatedAt = new Date();
+        clientProperty.updatedBy = userId;
+        await this.propertyRepo.save(clientProperty);
+      } else {
+        // Create new property
+        clientProperty = this.propertyRepo.create({
+          address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
+          client: { id: clientId } as any,
+          createdBy: userId,
+          status: PropertyStatus.ONBOARDING,
+        });
+        clientProperty = await this.propertyRepo.save(clientProperty);
       }
-      if (property.streetAddress !== undefined) {
-        clientProperty.streetAddress = property.streetAddress ?? null;
-      }
-      if (property.unitNumber !== undefined) {
-        clientProperty.unitNumber = property.unitNumber ?? null;
-      }
-      if (property.city !== undefined) {
-        clientProperty.city = property.city ?? null;
-      }
-      if (property.state !== undefined) {
-        clientProperty.state = property.state ?? null;
-      }
-      if (property.country !== undefined) {
-        clientProperty.country = property.country ?? null;
-      }
-      if (property.zipCode !== undefined) {
-        clientProperty.zipCode = property.zipCode ?? null;
-      }
-      if (property.latitude !== undefined) {
-        clientProperty.latitude = property.latitude ?? null;
-      }
-      if (property.longitude !== undefined) {
-        clientProperty.longitude = property.longitude ?? null;
-      }
-      clientProperty.updatedAt = new Date();
-      clientProperty.updatedBy = userId;
-      await this.propertyRepo.save(clientProperty);
 
       // Update Onboarding if provided (no serviceInfo for internal onboarding)
       if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography || property.onboarding?.clientAcknowledgement) {
@@ -1674,7 +1695,7 @@ export class ClientService {
         await this.propertyOnboardingRepo.save(ob);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["onboarding"] });
+      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
       updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
     }
 
@@ -2914,6 +2935,16 @@ export class ClientService {
         if (listingPayload.childrenInfantsRestrictionReason !== undefined) propertyInfo.childrenInfantsRestrictionReason = listingPayload.childrenInfantsRestrictionReason ?? null;
         if (listingPayload.allowLuggageDropoffBeforeCheckIn !== undefined) propertyInfo.allowLuggageDropoffBeforeCheckIn = listingPayload.allowLuggageDropoffBeforeCheckIn ?? null;
         if (listingPayload.otherHouseRules !== undefined) propertyInfo.otherHouseRules = listingPayload.otherHouseRules ?? null;
+
+        // WiFi
+        if (listingPayload.wifiAvailable !== undefined) propertyInfo.wifiAvailable = listingPayload.wifiAvailable ?? null;
+        if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
+        if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
+        if (listingPayload.wifiSpeed !== undefined) propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
+        if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
+        if (listingPayload.ethernetCable !== undefined) propertyInfo.ethernetCable = listingPayload.ethernetCable ?? null;
+        if (listingPayload.pocketWifi !== undefined) propertyInfo.pocketWifi = listingPayload.pocketWifi ?? null;
+        if (listingPayload.paidWifi !== undefined) propertyInfo.paidWifi = listingPayload.paidWifi ?? null;
 
         // Vendor Management
         if (listingPayload.vendorManagement) {
