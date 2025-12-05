@@ -25,6 +25,9 @@ export class PropertyVendorManagement {
     @Column({ nullable: true })
     hasCurrentCleaner: string;
 
+    @Column({ type: "text", nullable: true })
+    hasCurrentCleanerReason: string;
+
     @Column({ nullable: true })
     cleaningFee: number;
 
@@ -61,6 +64,12 @@ export class PropertyVendorManagement {
     @Column({ type: "text", nullable: true })
     luxuryLodgingReadyAssumptionReason: string;
 
+    @Column({ type: "boolean", nullable: true })
+    requestCalendarAccessForCleaner: boolean;
+
+    @Column({ type: "text", nullable: true })
+    requestCalendarAccessForCleanerReason: string;
+
     @Column({ type: "text", nullable: true })
     cleaningTurnoverNotes: string;
 
@@ -71,6 +80,12 @@ export class PropertyVendorManagement {
 
     @Column({ type: "text", nullable: true })
     restockingSuppliesManagedByReason: string;
+
+    @Column({ nullable: true })
+    supplyClosetLocation: string;
+
+    @Column({ nullable: true })
+    supplyClosetCode: string;
 
     @Column({ type: "boolean", nullable: true })
     luxuryLodgingRestockWithoutApproval: boolean;

@@ -29,3 +29,9 @@ CREATE INDEX IF NOT EXISTS idx_client_properties_country ON client_properties("c
 CREATE INDEX IF NOT EXISTS idx_client_properties_location ON client_properties("latitude", "longitude");
 
 
+
+
+
+
+
+

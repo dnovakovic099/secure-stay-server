@@ -21,6 +21,9 @@ export class PropertyUpsells {
     @Column({ nullable: true })
     maxAdditionalHours: number;
 
+    @Column({ type: "text", nullable: true })
+    notes: string;
+
     @ManyToOne(() => PropertyInfo, (listing) => listing.propertyUpsells, {
         onDelete: "CASCADE"
     })

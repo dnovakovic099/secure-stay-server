@@ -85,7 +85,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
                 type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
             }),
         ).allow(null),
-        properties: Joi.array().items(Joi.number().required()).allow(null)
+        properties: Joi.array().items(Joi.number().required()).allow(null),
     });
 
     const { error } = schema.validate(request.body);
@@ -471,7 +471,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //General
-                        propertyTypeId: Joi.number().required().allow(null),
+                        propertyTypeId: Joi.string().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
                         personCapacity: Joi.number().required().allow(null),
@@ -484,7 +484,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                             Joi.object({
                                 floorLevel: Joi.string().required(),
                                 bedroomNumber: Joi.number().required(),
-                                bedTypeId: Joi.number().required(),
+                                bedTypeId: Joi.string().required(),
                                 quantity: Joi.number().required()
                             })
                         ),
@@ -586,7 +586,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
 
 
                         //amenities
-                        amenities: Joi.array().items(Joi.number()).min(1).required().allow(null),
+                        amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
@@ -625,8 +625,9 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         externalListingName: Joi.string().optional().allow(null),
 
                         //General
-                        propertyTypeId: Joi.number().optional().allow(null),
+                        propertyTypeId: Joi.string().optional().allow(null),
                         noOfFloors: Joi.number().optional().allow(null),
+                        unitFloor: Joi.string().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
@@ -639,7 +640,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 id: Joi.number().optional(), // if id is passed then update else create new
                                 floorLevel: Joi.number().optional().allow(null),
                                 bedroomNumber: Joi.number().optional().allow(null),
-                                bedTypeId: Joi.number().optional().allow(null),
+                                bedTypeId: Joi.string().optional().allow(null),
                                 quantity: Joi.number().optional().allow(null)
                             })
                         ),
@@ -707,9 +708,12 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             .items(
                                 Joi.string()
                                     .valid(
-                                        "24-hr checkin",
-                                        "In person Check-in",
-                                        "Doorman"
+                                        "Smartlock",
+                                        "Keypad",
+                                        "Lockbox",
+                                        "Doorman",
+                                        "Host Check-In",
+                                        "Other Check-In"
                                     )
                             ),
                         doorLockType: Joi.array().min(1).optional().allow(null)
@@ -728,7 +732,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
+                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
                         standardDoorCode: Joi.string().optional().allow(null),
                         doorLockAppName: Joi.string().optional().allow(null),
@@ -751,7 +755,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 allowUpsell: Joi.boolean().optional(),
                                 fee: Joi.number().optional().allow(null),
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
-                                maxAdditionalHours: Joi.number().optional().allow(null)
+                                maxAdditionalHours: Joi.number().optional().allow(null),
+                                notes: Joi.string().optional().allow(null)
                             })
                         ),
                         additionalServiceNotes: Joi.string().optional().allow(null),
@@ -764,16 +769,15 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             cleanerManagedByReason: Joi.string().optional().allow(null),
                             hasCurrentCleaner: Joi.string().optional().allow(null)
                                 .valid(
-                                    "Yes-Continue Current Cleaner",
-                                    "Yes-Switch Different Cleaner",
-                                    "No-Find New Cleaner",
                                     "Yes",
-                                    "No"
+                                    "Yes, but I'd like to request for a new cleaner",
+                                    "No, please source a cleaner for me"
                                 ),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
                             cleaningFee: Joi.number().optional().allow(null),
                             cleanerName: Joi.string().optional().allow(null),
                             cleanerPhone: Joi.string().optional().allow(null),
@@ -787,11 +791,15 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
                             luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
                             cleaningTurnoverNotes: Joi.string().optional().allow(null),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
+                            supplyClosetLocation: Joi.string().optional().allow(null),
+                            supplyClosetCode: Joi.string().optional().allow(null),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -845,18 +853,37 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 
+                        //Standard Booking Settings
+                        instantBooking: Joi.boolean().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNotice: Joi.boolean().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        preparationDays: Joi.boolean().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        bookingWindow: Joi.boolean().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        minimumStay: Joi.boolean().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null),
+                        maximumStay: Joi.boolean().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null),
+
                         //amenities
-                        amenities: Joi.array().items(Joi.number()).min(1).optional().allow(null),
+                        amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),
                         wifiSpeed: Joi.string().optional().allow(null),
                         locationOfModem: Joi.string().optional().allow(null),
+                        ethernetCable: Joi.boolean().optional().allow(null),
+                        pocketWifi: Joi.boolean().optional().allow(null),
+                        paidWifi: Joi.boolean().optional().allow(null),
                         swimmingPoolNotes: Joi.string().optional().allow(null),
                         hotTubInstructions: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
+                        securityCameraLocations: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
@@ -1056,8 +1083,10 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             cleaningTurnoverNotes: Joi.string().optional().allow(null),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
+                            supplyClosetLocation: Joi.string().optional().allow(null),
+                            supplyClosetCode: Joi.string().optional().allow(null),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -1321,7 +1350,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
 
                         //amenities
-                        amenities: Joi.array().items(Joi.number()).min(1).required().allow(null),
+                        amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
@@ -1353,6 +1382,14 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
@@ -1361,8 +1398,9 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                     }).optional(),
                     listing: Joi.object({
                         //General
-                        propertyTypeId: Joi.number().optional().allow(null),
+                        propertyTypeId: Joi.string().optional().allow(null),
                         noOfFloors: Joi.number().optional().allow(null),
+                        unitFloor: Joi.string().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
@@ -1375,7 +1413,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
                                 bedroomNumber: Joi.number().optional().allow(null),
-                                bedTypeId: Joi.number().optional().allow(null),
+                                bedTypeId: Joi.string().optional().allow(null),
                                 quantity: Joi.number().optional().allow(null)
                             })
                         ),
@@ -1390,7 +1428,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
-                                bathroomType: Joi.number().optional().valid("Full", "Half").allow(null),
+                                bathroomType: Joi.string().optional().valid("Full", "Half").allow(null),
                                 bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
                             })
@@ -1444,9 +1482,12 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             .items(
                                 Joi.string()
                                     .valid(
-                                        "24-hr checkin",
-                                        "In person Check-in",
-                                        "Doorman"
+                                        "Smartlock",
+                                        "Keypad",
+                                        "Lockbox",
+                                        "Doorman",
+                                        "Host Check-In",
+                                        "Other Check-In"
                                     )
                             ),
                         doorLockType: Joi.array().min(1).optional().allow(null)
@@ -1465,7 +1506,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging"),
+                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
                         standardDoorCode: Joi.string().optional().allow(null),
                         doorLockAppName: Joi.string().optional().allow(null),
@@ -1488,7 +1529,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 allowUpsell: Joi.boolean().optional().allow(null),
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)").allow(null),
                                 fee: Joi.number().optional().allow(null),
-                                maxAdditionalHours: Joi.number().optional().allow(null)
+                                maxAdditionalHours: Joi.number().optional().allow(null),
+                                notes: Joi.string().optional().allow(null)
                             })
                         ),
                         additionalServiceNotes: Joi.string().optional().allow(null),
@@ -1502,16 +1544,15 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             cleanerManagedByReason: Joi.string().optional().allow(null),
                             hasCurrentCleaner: Joi.string().optional().allow(null)
                                 .valid(
-                                    "Yes-Continue Current Cleaner",
-                                    "Yes-Switch Different Cleaner",
-                                    "No-Find New Cleaner",
                                     "Yes",
-                                    "No"
+                                    "Yes, but I'd like to request for a new cleaner",
+                                    "No, please source a cleaner for me"
                                 ),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
                             cleaningFee: Joi.number().optional().allow(null),
                             cleanerName: Joi.string().optional().allow(null),
                             cleanerPhone: Joi.string().optional().allow(null),
@@ -1525,11 +1566,15 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
                             luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
                             cleaningTurnoverNotes: Joi.string().optional().allow(null),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Luxury Lodging", "Client"),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                             restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
+                            supplyClosetLocation: Joi.string().optional().allow(null),
+                            supplyClosetCode: Joi.string().optional().allow(null),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -1583,18 +1628,37 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
 
+                        //Standard Booking Settings
+                        instantBooking: Joi.boolean().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNotice: Joi.boolean().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        preparationDays: Joi.boolean().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        bookingWindow: Joi.boolean().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        minimumStay: Joi.boolean().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null),
+                        maximumStay: Joi.boolean().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null),
+
                         //amenities
-                        amenities: Joi.array().items(Joi.number()).min(1).optional().allow(null),
+                        amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),
                         wifiSpeed: Joi.string().optional().allow(null),
                         locationOfModem: Joi.string().optional().allow(null),
+                        ethernetCable: Joi.boolean().optional().allow(null),
+                        pocketWifi: Joi.boolean().optional().allow(null),
+                        paidWifi: Joi.boolean().optional().allow(null),
                         swimmingPoolNotes: Joi.string().optional().allow(null),
                         hotTubInstructions: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
+                        securityCameraLocations: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })

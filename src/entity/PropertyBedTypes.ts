@@ -13,7 +13,7 @@ export class PropertyBedTypes {
     floorLevel: number;
 
     @Column({ nullable: true })
-    bedTypeId: number;
+    bedTypeId: string;
 
     @Column({ nullable: true })
     quantity: number;

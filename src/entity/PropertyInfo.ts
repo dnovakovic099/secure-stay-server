@@ -47,13 +47,16 @@ export class PropertyInfo {
 
     //general
     @Column({ nullable: true })
-    propertyTypeId: number;
+    propertyTypeId: string;
 
     @Column({ nullable: true })
     propertyType: string;
 
     @Column({ nullable: true })
     noOfFloors: number;
+
+    @Column({ nullable: true })
+    unitFloor: string;  // Unit Floor (If applicable)
 
     @Column({ nullable: true })
     squareMeters: number;
@@ -320,6 +323,9 @@ export class PropertyInfo {
     heatControlInstructions: string;
 
     @Column({ nullable: true })
+    wifiAvailable: string;  // Yes/No
+
+    @Column({ nullable: true })
     wifiUsername: string;
 
     @Column({ nullable: true })
@@ -330,6 +336,15 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     locationOfModem: string;
+
+    @Column({ type: "boolean", nullable: true })
+    ethernetCable: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    pocketWifi: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    paidWifi: boolean;
 
     @Column({ type: "text", nullable: true })
     swimmingPoolNotes: string;
@@ -342,6 +357,47 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     firepitNotes: string;
+
+    // Standard Booking Settings
+    @Column({ type: "boolean", nullable: true })
+    instantBooking: boolean;
+
+    @Column({ type: "text", nullable: true })
+    instantBookingNotes: string;
+
+    @Column({ type: "boolean", nullable: true })
+    minimumAdvanceNotice: boolean;
+
+    @Column({ type: "text", nullable: true })
+    minimumAdvanceNoticeNotes: string;
+
+    @Column({ type: "boolean", nullable: true })
+    preparationDays: boolean;
+
+    @Column({ type: "text", nullable: true })
+    preparationDaysNotes: string;
+
+    @Column({ type: "boolean", nullable: true })
+    bookingWindow: boolean;
+
+    @Column({ type: "text", nullable: true })
+    bookingWindowNotes: string;
+
+    @Column({ type: "boolean", nullable: true })
+    minimumStay: boolean;
+
+    @Column({ type: "text", nullable: true })
+    minimumStayNotes: string;
+
+    @Column({ type: "boolean", nullable: true })
+    maximumStay: boolean;
+
+    @Column({ type: "text", nullable: true })
+    maximumStayNotes: string;
+
+    // Security Camera Details
+    @Column({ type: "text", nullable: true })
+    securityCameraLocations: string;
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()

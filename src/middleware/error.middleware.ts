@@ -33,6 +33,7 @@ export const errorHandler = (
     statusCode = customError.status;
     data = {
       message: customError.message,
+      ...(customError.data && { existingClient: customError.data.existingClient }),
     };
   }
 

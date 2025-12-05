@@ -117,7 +117,7 @@ interface Listing {
   acknowledgesResponsibilityToInform?: boolean | null;
 
   // Property listing info fields
-  propertyTypeId?: number | null;
+  propertyTypeId?: string | null;
   noOfFloors?: number | null;
   squareMeters?: number | null;
   personCapacity?: number | null;
@@ -126,7 +126,7 @@ interface Listing {
   propertyBedTypes?: Array<{
     floorLevel: number;
     bedroomNumber: number;
-    bedTypeId: number;
+    bedTypeId: string;
     quantity: number;
   }> | null;
   bathroomType?: string | null;
@@ -329,6 +329,14 @@ export class ClientService {
 
   private hostawayClient = new HostAwayClient();
 
+  async checkEmailExists(email: string) {
+    const existingClient = await this.clientRepo.findOne({
+      where: { email },
+      relations: ["secondaryContacts", "properties"],
+    });
+    return existingClient;
+  }
+
   async saveClient(
     clientData: Partial<ClientEntity>,
     userId: string,
@@ -337,6 +345,27 @@ export class ClientService {
     clientProperties?: string[],
   ) {
     const listingService = new ListingService();
+
+    // Check if email already exists
+    if (clientData.email) {
+      const existingClient = await this.checkEmailExists(clientData.email);
+      if (existingClient) {
+        throw CustomErrorHandler.alreadyExists("A client with this email already exists", {
+          existingClient: {
+            id: existingClient.id,
+            firstName: existingClient.firstName,
+            lastName: existingClient.lastName,
+            email: existingClient.email,
+            phone: existingClient.phone,
+            companyName: existingClient.companyName,
+            status: existingClient.status,
+            serviceType: existingClient.serviceType,
+            propertiesCount: existingClient.properties?.length || 0,
+            secondaryContactsCount: existingClient.secondaryContacts?.length || 0,
+          }
+        });
+      }
+    }
 
     // 1️⃣ Determine status based on properties
     if (clientProperties && clientProperties.length > 0) {
@@ -394,7 +423,7 @@ export class ClientService {
               internalListingName: listingInfo.internalListingName,
               price: listingInfo.price,
               priceForExtraPerson: listingInfo.priceForExtraPerson,
-              propertyTypeId: listingInfo.propertyTypeId,
+              propertyTypeId: listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null,
               roomType: listingInfo.roomType,
               bedroomsNumber: listingInfo.bedroomsNumber,
               bathroomsNumber: listingInfo.bathroomsNumber,
@@ -489,6 +518,30 @@ export class ClientService {
     const client = await this.clientRepo.findOne({ where: { id: clientData.id } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
+    }
+
+    // Check if email is being changed and if the new email already exists for another client
+    if (clientData.email && clientData.email !== client.email) {
+      const existingClient = await this.clientRepo.findOne({
+        where: { email: clientData.email },
+        relations: ["secondaryContacts", "properties"],
+      });
+      if (existingClient && existingClient.id !== client.id) {
+        throw CustomErrorHandler.alreadyExists("A client with this email already exists", {
+          existingClient: {
+            id: existingClient.id,
+            firstName: existingClient.firstName,
+            lastName: existingClient.lastName,
+            email: existingClient.email,
+            phone: existingClient.phone,
+            companyName: existingClient.companyName,
+            status: existingClient.status,
+            serviceType: existingClient.serviceType,
+            propertiesCount: existingClient.properties?.length || 0,
+            secondaryContactsCount: existingClient.secondaryContacts?.length || 0,
+          }
+        });
+      }
     }
 
     Object.assign(client, clientData);
@@ -592,7 +645,7 @@ export class ClientService {
                 propertyInfo.internalListingName = listingInfo.internalListingName;
                 propertyInfo.price = listingInfo.price;
                 propertyInfo.priceForExtraPerson = listingInfo.priceForExtraPerson;
-                propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
+                propertyInfo.propertyTypeId = listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null;
                 propertyInfo.roomType = listingInfo.roomType;
                 propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
                 propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
@@ -660,7 +713,7 @@ export class ClientService {
                   internalListingName: listingInfo.internalListingName,
                   price: listingInfo.price,
                   priceForExtraPerson: listingInfo.priceForExtraPerson,
-                  propertyTypeId: listingInfo.propertyTypeId,
+                  propertyTypeId: listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null,
                   roomType: listingInfo.roomType,
                   bedroomsNumber: listingInfo.bedroomsNumber,
                   bathroomsNumber: listingInfo.bathroomsNumber,
@@ -741,7 +794,7 @@ export class ClientService {
                 internalListingName: listingInfo.internalListingName,
                 price: listingInfo.price,
                 priceForExtraPerson: listingInfo.priceForExtraPerson,
-                propertyTypeId: listingInfo.propertyTypeId,
+                propertyTypeId: listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null,
                 roomType: listingInfo.roomType,
                 bedroomsNumber: listingInfo.bedroomsNumber,
                 bathroomsNumber: listingInfo.bathroomsNumber,
@@ -1885,6 +1938,7 @@ export class ClientService {
     // General info
     if (listingPayload.propertyTypeId !== undefined) propertyInfo.propertyTypeId = listingPayload.propertyTypeId ?? null;
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
+    if (listingPayload.unitFloor !== undefined) propertyInfo.unitFloor = listingPayload.unitFloor ?? null;
     if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
     if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
 
@@ -1957,18 +2011,37 @@ export class ClientService {
     if (listingPayload.tax !== undefined) propertyInfo.tax = listingPayload.tax ?? null;
     if (listingPayload.financialNotes !== undefined) propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
 
+    // Standard Booking Settings
+    if (listingPayload.instantBooking !== undefined) propertyInfo.instantBooking = listingPayload.instantBooking ?? null;
+    if (listingPayload.instantBookingNotes !== undefined) propertyInfo.instantBookingNotes = listingPayload.instantBookingNotes ?? null;
+    if (listingPayload.minimumAdvanceNotice !== undefined) propertyInfo.minimumAdvanceNotice = listingPayload.minimumAdvanceNotice ?? null;
+    if (listingPayload.minimumAdvanceNoticeNotes !== undefined) propertyInfo.minimumAdvanceNoticeNotes = listingPayload.minimumAdvanceNoticeNotes ?? null;
+    if (listingPayload.preparationDays !== undefined) propertyInfo.preparationDays = listingPayload.preparationDays ?? null;
+    if (listingPayload.preparationDaysNotes !== undefined) propertyInfo.preparationDaysNotes = listingPayload.preparationDaysNotes ?? null;
+    if (listingPayload.bookingWindow !== undefined) propertyInfo.bookingWindow = listingPayload.bookingWindow ?? null;
+    if (listingPayload.bookingWindowNotes !== undefined) propertyInfo.bookingWindowNotes = listingPayload.bookingWindowNotes ?? null;
+    if (listingPayload.minimumStay !== undefined) propertyInfo.minimumStay = listingPayload.minimumStay ?? null;
+    if (listingPayload.minimumStayNotes !== undefined) propertyInfo.minimumStayNotes = listingPayload.minimumStayNotes ?? null;
+    if (listingPayload.maximumStay !== undefined) propertyInfo.maximumStay = listingPayload.maximumStay ?? null;
+    if (listingPayload.maximumStayNotes !== undefined) propertyInfo.maximumStayNotes = listingPayload.maximumStayNotes ?? null;
+
     // Amenities
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
+    if (listingPayload.wifiAvailable !== undefined) propertyInfo.wifiAvailable = listingPayload.wifiAvailable ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
     if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
     if (listingPayload.wifiSpeed !== undefined) propertyInfo.wifiSpeed = listingPayload.wifiSpeed ?? null;
     if (listingPayload.locationOfModem !== undefined) propertyInfo.locationOfModem = listingPayload.locationOfModem ?? null;
+    if (listingPayload.ethernetCable !== undefined) propertyInfo.ethernetCable = listingPayload.ethernetCable ?? null;
+    if (listingPayload.pocketWifi !== undefined) propertyInfo.pocketWifi = listingPayload.pocketWifi ?? null;
+    if (listingPayload.paidWifi !== undefined) propertyInfo.paidWifi = listingPayload.paidWifi ?? null;
     if (listingPayload.swimmingPoolNotes !== undefined) propertyInfo.swimmingPoolNotes = listingPayload.swimmingPoolNotes ?? null;
     if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
     if (listingPayload.firePlaceNotes !== undefined) propertyInfo.firePlaceNotes = listingPayload.firePlaceNotes ?? null;
     if (listingPayload.firepitNotes !== undefined) propertyInfo.firepitNotes = listingPayload.firepitNotes ?? null;
     if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
     if (listingPayload.locationOfThemostat !== undefined) propertyInfo.locationOfThemostat = listingPayload.locationOfThemostat ?? null;
+    if (listingPayload.securityCameraLocations !== undefined) propertyInfo.securityCameraLocations = listingPayload.securityCameraLocations ?? null;
   }
 
   private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
@@ -2036,6 +2109,7 @@ export class ClientService {
           if (upsellData.feeType !== undefined) existingUpsell.feeType = upsellData.feeType;
           if (upsellData.fee !== undefined) existingUpsell.fee = upsellData.fee;
           if (upsellData.maxAdditionalHours !== undefined) existingUpsell.maxAdditionalHours = upsellData.maxAdditionalHours;
+          if (upsellData.notes !== undefined) existingUpsell.notes = upsellData.notes ?? null;
           await this.propertyUpsellsRepo.save(existingUpsell);
         }
       } else {
@@ -2046,6 +2120,7 @@ export class ClientService {
           feeType: upsellData.feeType,
           fee: upsellData.fee,
           maxAdditionalHours: upsellData.maxAdditionalHours,
+          notes: upsellData.notes ?? null,
           propertyId: propertyInfo
         });
         await this.propertyUpsellsRepo.save(newUpsell);
@@ -2094,6 +2169,7 @@ export class ClientService {
     if (vendorPayload.cleanerManagedBy !== undefined) vm.cleanerManagedBy = vendorPayload.cleanerManagedBy ?? null;
     if (vendorPayload.cleanerManagedByReason !== undefined) vm.cleanerManagedByReason = vendorPayload.cleanerManagedByReason ?? null;
     if (vendorPayload.hasCurrentCleaner !== undefined) vm.hasCurrentCleaner = vendorPayload.hasCurrentCleaner ?? null;
+    if (vendorPayload.hasCurrentCleanerReason !== undefined) vm.hasCurrentCleanerReason = vendorPayload.hasCurrentCleanerReason ?? null;
     if (vendorPayload.cleaningFee !== undefined) vm.cleaningFee = vendorPayload.cleaningFee ?? null;
     if (vendorPayload.cleanerName !== undefined) vm.cleanerName = vendorPayload.cleanerName ?? null;
     if (vendorPayload.cleanerPhone !== undefined) vm.cleanerPhone = vendorPayload.cleanerPhone ?? null;
@@ -2106,11 +2182,15 @@ export class ClientService {
     if (vendorPayload.propertyCleanedBeforeNextCheckInReason !== undefined) vm.propertyCleanedBeforeNextCheckInReason = vendorPayload.propertyCleanedBeforeNextCheckInReason ?? null;
     if (vendorPayload.luxuryLodgingReadyAssumption !== undefined) vm.luxuryLodgingReadyAssumption = vendorPayload.luxuryLodgingReadyAssumption ?? null;
     if (vendorPayload.luxuryLodgingReadyAssumptionReason !== undefined) vm.luxuryLodgingReadyAssumptionReason = vendorPayload.luxuryLodgingReadyAssumptionReason ?? null;
+    if (vendorPayload.requestCalendarAccessForCleaner !== undefined) vm.requestCalendarAccessForCleaner = vendorPayload.requestCalendarAccessForCleaner ?? null;
+    if (vendorPayload.requestCalendarAccessForCleanerReason !== undefined) vm.requestCalendarAccessForCleanerReason = vendorPayload.requestCalendarAccessForCleanerReason ?? null;
     if (vendorPayload.cleaningTurnoverNotes !== undefined) vm.cleaningTurnoverNotes = vendorPayload.cleaningTurnoverNotes ?? null;
 
     // Restocking supplies policy
     if (vendorPayload.restockingSuppliesManagedBy !== undefined) vm.restockingSuppliesManagedBy = vendorPayload.restockingSuppliesManagedBy ?? null;
     if (vendorPayload.restockingSuppliesManagedByReason !== undefined) vm.restockingSuppliesManagedByReason = vendorPayload.restockingSuppliesManagedByReason ?? null;
+    if (vendorPayload.supplyClosetLocation !== undefined) vm.supplyClosetLocation = vendorPayload.supplyClosetLocation ?? null;
+    if (vendorPayload.supplyClosetCode !== undefined) vm.supplyClosetCode = vendorPayload.supplyClosetCode ?? null;
     if (vendorPayload.luxuryLodgingRestockWithoutApproval !== undefined) vm.luxuryLodgingRestockWithoutApproval = vendorPayload.luxuryLodgingRestockWithoutApproval ?? null;
     if (vendorPayload.luxuryLodgingConfirmBeforePurchase !== undefined) vm.luxuryLodgingConfirmBeforePurchase = vendorPayload.luxuryLodgingConfirmBeforePurchase ?? null;
 
@@ -2467,8 +2547,45 @@ export class ClientService {
         throw CustomErrorHandler.validationError("Property does not belong to provided clientId");
       }
 
+      // Handle address fields
+      let addressFieldsUpdated = false;
       if ((property as any).address !== undefined) {
         clientProperty.address = property.address;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).streetAddress !== undefined) {
+        clientProperty.streetAddress = property.streetAddress ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).unitNumber !== undefined) {
+        clientProperty.unitNumber = property.unitNumber ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).city !== undefined) {
+        clientProperty.city = property.city ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).state !== undefined) {
+        clientProperty.state = property.state ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).country !== undefined) {
+        clientProperty.country = property.country ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).zipCode !== undefined) {
+        clientProperty.zipCode = property.zipCode ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).latitude !== undefined) {
+        clientProperty.latitude = property.latitude ?? null;
+        addressFieldsUpdated = true;
+      }
+      if ((property as any).longitude !== undefined) {
+        clientProperty.longitude = property.longitude ?? null;
+        addressFieldsUpdated = true;
+      }
+      if (addressFieldsUpdated) {
         clientProperty.updatedAt = new Date();
         clientProperty.updatedBy = userId;
         await this.propertyRepo.save(clientProperty);
@@ -3155,7 +3272,7 @@ export class ClientService {
                   propertyInfo.internalListingName = listingInfo.internalListingName;
                   propertyInfo.price = listingInfo.price;
                   propertyInfo.priceForExtraPerson = listingInfo.priceForExtraPerson;
-                  propertyInfo.propertyTypeId = listingInfo.propertyTypeId;
+                  propertyInfo.propertyTypeId = listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null;
                   propertyInfo.roomType = listingInfo.roomType;
                   propertyInfo.bedroomsNumber = listingInfo.bedroomsNumber;
                   propertyInfo.bathroomsNumber = listingInfo.bathroomsNumber;
@@ -3190,7 +3307,7 @@ export class ClientService {
                     internalListingName: listingInfo.internalListingName,
                     price: listingInfo.price,
                     priceForExtraPerson: listingInfo.priceForExtraPerson,
-                    propertyTypeId: listingInfo.propertyTypeId,
+                    propertyTypeId: listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null,
                     roomType: listingInfo.roomType,
                     bedroomsNumber: listingInfo.bedroomsNumber,
                     bathroomsNumber: listingInfo.bathroomsNumber,
@@ -3264,7 +3381,7 @@ export class ClientService {
                   internalListingName: listingInfo.internalListingName,
                   price: listingInfo.price,
                   priceForExtraPerson: listingInfo.priceForExtraPerson,
-                  propertyTypeId: listingInfo.propertyTypeId,
+                  propertyTypeId: listingInfo.propertyTypeId != null ? String(listingInfo.propertyTypeId) : null,
                   roomType: listingInfo.roomType,
                   bedroomsNumber: listingInfo.bedroomsNumber,
                   bathroomsNumber: listingInfo.bathroomsNumber,

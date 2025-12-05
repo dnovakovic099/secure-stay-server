@@ -1,14 +1,16 @@
 class CustomErrorHandler {
     status: number;
     message: string;
+    data?: any;
 
-    constructor(status: number, msg: string) {
+    constructor(status: number, msg: string, data?: any) {
         this.status = status;
-        this.message=msg
+        this.message=msg;
+        this.data = data;
     }
 
-    static alreadyExists(message: string): CustomErrorHandler {
-        return new CustomErrorHandler(409, message);
+    static alreadyExists(message: string, data?: any): CustomErrorHandler {
+        return new CustomErrorHandler(409, message, data);
     }
 
     static unAthorized(message: string = "Unauthorized"): CustomErrorHandler {
