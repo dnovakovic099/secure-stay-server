@@ -24,7 +24,7 @@ export class ClientEntity {
   @Column({ nullable: true })
   preferredName: string;
 
-  @Column({ unique: true })
+  @Column()
   email: string;
 
   @Column({ nullable: true })

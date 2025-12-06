@@ -69,6 +69,61 @@ export class ClientController {
     }
   }
 
+  async checkExistingClient(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { firstName, lastName, email, phone } = request.query;
+      const existingClient = await clientService.checkExistingClient(
+        firstName as string,
+        lastName as string,
+        email as string,
+        phone as string
+      );
+      
+      if (existingClient) {
+        return response.status(200).json({
+          exists: true,
+          client: {
+            id: existingClient.id,
+            firstName: existingClient.firstName,
+            lastName: existingClient.lastName,
+            email: existingClient.email,
+            phone: existingClient.phone,
+            dialCode: existingClient.dialCode,
+            companyName: existingClient.companyName,
+            status: existingClient.status,
+            serviceType: existingClient.serviceType,
+            propertiesCount: existingClient.properties?.length || 0,
+            secondaryContactsCount: existingClient.secondaryContacts?.length || 0,
+          }
+        });
+      }
+      
+      return response.status(200).json({ exists: false });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createClientWithPreOnboarding(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { primaryContact, secondaryContacts, clientProperties, source, existingClientId } = request.body;
+      const userId = request.user.id;
+      const createdClient = await clientService.saveClientWithPreOnboarding(
+        primaryContact,
+        userId,
+        source,
+        secondaryContacts,
+        clientProperties || [],
+        existingClientId
+      );
+      return response.status(existingClientId ? 200 : 201).json(createdClient);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async savePropertyPreOnboardingInfo(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();

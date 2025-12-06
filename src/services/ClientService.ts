@@ -3,7 +3,7 @@ import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { In, IsNull, Not } from "typeorm";
+import { In, IsNull, Not, Or } from "typeorm";
 import { ListingService } from "./ListingService";
 import { ClientTicket } from "../entity/ClientTicket";
 import { PropertyOnboarding } from "../entity/PropertyOnboarding";
@@ -331,9 +331,46 @@ export class ClientService {
 
   async checkEmailExists(email: string) {
     const existingClient = await this.clientRepo.findOne({
-      where: { email },
+      where: { email, deletedAt: IsNull() },
       relations: ["secondaryContacts", "properties"],
     });
+    return existingClient;
+  }
+
+  async checkExistingClient(firstName?: string, lastName?: string, email?: string, phone?: string) {
+    const qb = this.clientRepo.createQueryBuilder("client")
+      .leftJoinAndSelect("client.secondaryContacts", "secondaryContacts")
+      .leftJoinAndSelect("client.properties", "properties")
+      .where("client.deletedAt IS NULL");
+
+    const orConditions: string[] = [];
+    const params: any = {};
+
+    if (firstName && lastName) {
+      orConditions.push("(client.firstName = :firstName AND client.lastName = :lastName)");
+      params.firstName = firstName;
+      params.lastName = lastName;
+    }
+
+    if (email) {
+      orConditions.push("client.email = :email");
+      params.email = email;
+    }
+
+    if (phone) {
+      orConditions.push("client.phone = :phone");
+      params.phone = phone;
+    }
+
+    if (orConditions.length === 0) {
+      return null;
+    }
+
+    qb.andWhere(`(${orConditions.join(" OR ")})`);
+    qb.setParameters(params);
+
+    const existingClient = await qb.getOne();
+
     return existingClient;
   }
 
@@ -1022,6 +1059,254 @@ export class ClientService {
     });
 
     return ticketCount;
+  }
+
+  async saveClientWithPreOnboarding(
+    primaryContact: Partial<ClientEntity>,
+    userId: string,
+    source: string,
+    secondaryContacts: Partial<ClientSecondaryContact>[] | undefined,
+    clientProperties: any[],
+    existingClientId?: string,
+  ) {
+    // Use transaction to ensure atomicity
+    return await appDatabase.transaction(async (transactionalEntityManager) => {
+      const clientRepo = transactionalEntityManager.getRepository(ClientEntity);
+      const contactRepo = transactionalEntityManager.getRepository(ClientSecondaryContact);
+      const propertyRepo = transactionalEntityManager.getRepository(ClientPropertyEntity);
+      const serviceInfoRepo = transactionalEntityManager.getRepository(PropertyServiceInfo);
+      const onboardingRepo = transactionalEntityManager.getRepository(PropertyOnboarding);
+      const propertyInfoRepo = transactionalEntityManager.getRepository(PropertyInfo);
+      const vendorManagementRepo = transactionalEntityManager.getRepository(PropertyVendorManagement);
+
+      let savedClient: ClientEntity;
+
+      // If existingClientId is provided, update existing client
+      if (existingClientId) {
+        savedClient = await clientRepo.findOne({
+          where: { id: existingClientId, deletedAt: IsNull() },
+        });
+
+        if (!savedClient) {
+          throw CustomErrorHandler.notFound("Client not found");
+        }
+
+        // Update client information
+        Object.assign(savedClient, {
+          ...primaryContact,
+          updatedAt: new Date(),
+          updatedBy: userId,
+        });
+
+        // Update status based on properties
+        savedClient.status = clientProperties && clientProperties.length > 0 ? "active" : "onboarding";
+
+        savedClient = await clientRepo.save(savedClient);
+      } else {
+        // 1. Check if email already exists (only for new clients)
+        if (primaryContact.email) {
+          const existingClient = await clientRepo.findOne({
+            where: { email: primaryContact.email, deletedAt: IsNull() },
+          });
+          if (existingClient) {
+            throw CustomErrorHandler.alreadyExists("A client with this email already exists", {
+              existingClient: {
+                id: existingClient.id,
+                firstName: existingClient.firstName,
+                lastName: existingClient.lastName,
+                email: existingClient.email,
+                phone: existingClient.phone,
+                companyName: existingClient.companyName,
+                status: existingClient.status,
+                serviceType: existingClient.serviceType,
+                propertiesCount: 0,
+                secondaryContactsCount: 0,
+              }
+            });
+          }
+        }
+
+        // 2. Create and save client
+        const client = clientRepo.create({
+          ...primaryContact,
+          createdBy: userId,
+          source,
+          status: "onboarding", // Will be updated after properties are saved
+        });
+        savedClient = await clientRepo.save(client);
+      }
+
+      // 3. Save secondary contacts (if any)
+      if (secondaryContacts && secondaryContacts.length > 0) {
+        if (existingClientId) {
+          // For existing client, handle update/create/delete of secondary contacts
+          const existingContacts = await contactRepo.find({
+            where: { client: { id: existingClientId }, deletedAt: IsNull() },
+          });
+          const existingContactIds = existingContacts.map((c) => c.id);
+          const incomingContactIds = secondaryContacts.map((c) => c.id).filter((id): id is string => !!id);
+
+          // Soft delete contacts that are not in the incoming list
+          const contactsToDelete = existingContacts.filter((c) => !incomingContactIds.includes(c.id));
+          if (contactsToDelete.length > 0) {
+            contactsToDelete.forEach(contact => {
+              contact.deletedAt = new Date();
+              contact.deletedBy = userId;
+            });
+            await contactRepo.save(contactsToDelete);
+          }
+
+          // Update or create contacts
+          const contactsToSave = secondaryContacts.map((contact) => {
+            if (contact.id && existingContactIds.includes(contact.id)) {
+              const existingContact = existingContacts.find((c) => c.id === contact.id)!;
+              Object.assign(existingContact, contact);
+              existingContact.updatedAt = new Date();
+              existingContact.updatedBy = userId;
+              return existingContact;
+            } else {
+              return contactRepo.create({
+                ...contact,
+                createdBy: userId,
+                client: savedClient,
+              });
+            }
+          });
+          await contactRepo.save(contactsToSave);
+        } else {
+          // For new client, just create contacts
+          const createdContacts = secondaryContacts.map((contact) =>
+            contactRepo.create({
+              ...contact,
+              createdBy: userId,
+              client: savedClient,
+            })
+          );
+          await contactRepo.save(createdContacts);
+        }
+      }
+
+      // 4. Save pre-onboarding properties
+      for (const property of clientProperties) {
+        // Create ClientProperty
+        const clientProperty = propertyRepo.create({
+          address: property.address,
+          streetAddress: property.streetAddress ?? null,
+          unitNumber: property.unitNumber ?? null,
+          city: property.city ?? null,
+          state: property.state ?? null,
+          country: property.country ?? null,
+          zipCode: property.zipCode ?? null,
+          latitude: property.latitude ?? null,
+          longitude: property.longitude ?? null,
+          status: PropertyStatus.ONBOARDING,
+          client: savedClient,
+          createdBy: userId,
+        });
+        const savedClientProperty = await propertyRepo.save(clientProperty);
+
+        // Map Service Info
+        const serviceInfoPayload = property.onboarding?.serviceInfo;
+        const serviceInfoEntity = serviceInfoRepo.create({
+          managementFee: serviceInfoPayload?.managementFee != null ? String(serviceInfoPayload.managementFee) : null,
+          serviceType: serviceInfoPayload?.serviceType ?? null,
+          serviceNotes: serviceInfoPayload?.serviceNotes ?? null,
+          clientProperty: savedClientProperty,
+          createdBy: userId,
+        });
+        await serviceInfoRepo.save(serviceInfoEntity);
+
+        // Map Onboarding
+        const sales = property.onboarding?.sales;
+        const listing = property.onboarding?.listing;
+        const photography = property.onboarding?.photography;
+        const contractorsVendor = property.onboarding?.contractorsVendor;
+        const financial = property.onboarding?.financial;
+
+        // Get projectedRevenue from financial section first, fallback to sales for backward compatibility
+        // Store as text/string as entered by user (e.g., "$50,000", "$50k", etc.)
+        let projectedRevenueValue: string | null = null;
+
+        // Check financial section first
+        if (financial && financial.projectedRevenue != null && String(financial.projectedRevenue).trim() !== '') {
+          const rawValue = financial.projectedRevenue;
+          // Store the value as-is (trimmed) to preserve user's text format
+          if (typeof rawValue === 'string') {
+            projectedRevenueValue = rawValue.trim() || null;
+          } else if (typeof rawValue === 'number') {
+            // If it's a number, convert to string
+            projectedRevenueValue = String(rawValue);
+          }
+        }
+        // Fallback to sales section for backward compatibility
+        else if (sales && sales.projectedRevenue != null) {
+          // If coming from sales, convert to string (could be number from old data)
+          projectedRevenueValue = String(sales.projectedRevenue);
+        }
+
+        const onboardingEntity = onboardingRepo.create({
+          salesRepresentative: sales?.salesRepresentative ?? null,
+          salesNotes: sales?.salesNotes ?? null,
+          projectedRevenue: projectedRevenueValue,
+          clientCurrentListingLink: Array.isArray(listing?.clientCurrentListingLink)
+            ? JSON.stringify(listing?.clientCurrentListingLink)
+            : (listing?.clientCurrentListingLink as unknown as string) ?? null,
+          listingOwner: listing?.listingOwner ?? null,
+          clientListingStatus: listing?.clientListingStatus ?? null,
+          targetLiveDate: listing?.targetLiveDate ?? null,
+          targetStartDate: listing?.targetStartDate ?? null,
+          targetDateNotes: listing?.targetDateNotes ?? null,
+          upcomingReservations: listing?.upcomingReservations ?? null,
+          photographyCoverage: photography?.photographyCoverage ?? null,
+          photographyNotes: photography?.photographyNotes ?? null,
+          clientProperty: savedClientProperty,
+          createdBy: userId,
+        });
+        await onboardingRepo.save(onboardingEntity);
+
+        // Create PropertyInfo
+        if (sales?.minPrice !== undefined || financial) {
+          const propertyInfoEntity = propertyInfoRepo.create({
+            minPrice: sales?.minPrice ?? null,
+            claimFee: financial?.claimsFee ?? null,
+            techFee: financial?.techFee ?? null,
+            techFeeNotes: financial?.techFeeDetails ?? null,
+            onboardingFee: financial?.onboardingFee ?? null,
+            onboardingFeeAmountAndConditions: financial?.onboardingFeeDetails ?? null,
+            offboardingFee: financial?.offboardingFee ?? null,
+            offboardingFeeAmountAndConditions: financial?.offboardingFeeDetails ?? null,
+            payoutSchdule: financial?.payoutSchedule ?? null,
+            taxesAddedum: financial?.taxesAddendum ?? null,
+            clientProperty: savedClientProperty,
+            createdBy: userId,
+          });
+          const savedPropertyInfo = await propertyInfoRepo.save(propertyInfoEntity);
+
+          // Create PropertyVendorManagement
+          if (contractorsVendor) {
+            const vendorManagementEntity = vendorManagementRepo.create({
+              cleanerManagedBy: contractorsVendor.cleaning ?? null,
+              maintenanceBy: contractorsVendor.maintenance ?? null,
+              biWeeklyInspection: contractorsVendor.biWeeklyInspection ?? null,
+              propertyInfo: savedPropertyInfo,
+            });
+            await vendorManagementRepo.save(vendorManagementEntity);
+          }
+        }
+      }
+
+      // 5. Update client status if properties were added (only if not already set)
+      if (clientProperties.length > 0 && savedClient.status !== "active") {
+        savedClient.status = "active";
+        await clientRepo.save(savedClient);
+      }
+
+      // 6. Return full client with relations
+      return await clientRepo.findOne({
+        where: { id: savedClient.id },
+        relations: ["secondaryContacts", "properties", "properties.propertyInfo"],
+      });
+    });
   }
 
   async savePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {

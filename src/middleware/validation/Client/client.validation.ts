@@ -53,6 +53,113 @@ export const validateCreateClient = (request: Request, response: Response, next:
     next();
 };
 
+export const validateCreateClientWithPreOnboarding = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        primaryContact: Joi.object({
+            firstName: Joi.string().required(),
+            lastName: Joi.string().required(),
+            preferredName: Joi.string().required().allow(null, ''),
+            email: Joi.string().email().required(),
+            dialCode: Joi.string().required().allow(null, ''),
+            phone: Joi.string().required().allow(null, ''),
+            timezone: Joi.string().required().allow(null, ''),
+            companyName: Joi.string().required().allow(null, ''),
+            status: Joi.string().required().allow(null, ''),
+            notes: Joi.string().required().allow(null, ''),
+            clientFolder: Joi.string().optional().allow(null, ''), 
+        }),
+        secondaryContacts: Joi.array().items(
+            Joi.object({
+                firstName: Joi.string().required(),
+                lastName: Joi.string().required(),
+                preferredName: Joi.string().required().allow(null, ''),
+                email: Joi.string().email().required(),
+                dialCode: Joi.string().required().allow(null, ''),
+                phone: Joi.string().required().allow(null, ''),
+                timezone: Joi.string().required().allow(null, ''),
+                companyName: Joi.string().required().allow(null, ''),
+                status: Joi.string().required().allow(null, ''),
+                notes: Joi.string().required().allow(null, ''),
+                type: Joi.string().required().valid("secondaryContact", "pointOfContact"),
+            }),
+        ).allow(null),
+        existingClientId: Joi.string().optional().allow(null, ''),
+        clientProperties: Joi.array().required().min(1).items(
+            Joi.object({
+                address: Joi.string().required(),
+                streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
+                onboarding: Joi.object({
+                    serviceInfo: Joi.object({
+                        managementFee: Joi.number().required().allow(null),
+                        serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
+                        serviceNotes: Joi.string().optional().allow(null)
+                    }).optional(),
+                    sales: Joi.object({
+                        salesRepresentative: Joi.string().required().allow(null),
+                        salesNotes: Joi.string().optional().allow(null),
+                        projectedRevenue: Joi.number().optional().allow(null),
+                        minPrice: Joi.number().optional().allow(null),
+                    }).optional(),
+                    listing: Joi.object({
+                        clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
+                        listingOwner: Joi.string().optional().allow(null),
+                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                            "Active (Keeping: Need to Disclose Process)", 
+                            "Active (Will Unpublish)",
+                            "Active (Keeping + Disclosed Process to Client)",
+                            "Inactive/Unpublished"
+                        ),
+                        targetLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+                            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+                        }).optional().allow(null),
+                        targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
+                            'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
+                        }).optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null),
+                        upcomingReservations: Joi.string().optional().allow(null),
+                    }).optional(),
+                    photography: Joi.object({
+                        photographyCoverage: Joi.string().required().allow(null)
+                            .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
+                        photographyNotes: Joi.string().optional().allow(null),
+                    }).optional(),
+                    contractorsVendor: Joi.object({
+                        cleaning: Joi.string().optional().allow(null),
+                        maintenance: Joi.string().optional().allow(null),
+                        biWeeklyInspection: Joi.string().optional().allow(null),
+                    }).optional(),
+                    financial: Joi.object({
+                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null),
+                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null),
+                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null),
+                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        projectedRevenue: Joi.string().optional().allow(null),
+                    }).optional()
+                }).optional()
+            })
+        ),
+        source: Joi.string().optional().valid("listingIntakePage", "clientsPage")
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
 export const validateUpdateClient = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         primaryContact: Joi.object({
