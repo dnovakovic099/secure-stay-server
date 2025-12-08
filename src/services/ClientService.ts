@@ -2645,8 +2645,9 @@ export class ClientService {
       }
 
       const listingPayload = property.onboarding?.listing;
-      if (!listingPayload) {
-        throw CustomErrorHandler.validationError("listing payload is required");
+      const photographyPayload = property.onboarding?.photography;
+      if (!listingPayload && !photographyPayload) {
+        throw CustomErrorHandler.validationError("listing or photography payload is required");
       }
 
       let onboarding = clientProperty.onboarding;
@@ -2654,19 +2655,25 @@ export class ClientService {
         onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
       }
 
-      // Map client-facing onboarding fields
-      if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
-      if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
-      if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+      if (listingPayload) {
+        // Map client-facing onboarding fields
+        if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+        if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+        if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
 
-      // Store client-facing specific fields in targetDateNotes as JSON
-      const clientFormData = {
-        acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
-        agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
-        externalListingNotes: listingPayload.externalListingNotes ?? null,
-        acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
-      };
-      onboarding.targetDateNotes = JSON.stringify(clientFormData);
+        // Store client-facing specific fields in targetDateNotes as JSON
+        const clientFormData = {
+          acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+          agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+          externalListingNotes: listingPayload.externalListingNotes ?? null,
+          acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+        };
+        onboarding.targetDateNotes = JSON.stringify(clientFormData);
+      }
+
+      if (photographyPayload) {
+        if (photographyPayload.photographyNotes !== undefined) onboarding.photographyNotes = photographyPayload.photographyNotes ?? null;
+      }
 
       onboarding.updatedBy = userId;
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
@@ -2732,28 +2739,36 @@ export class ClientService {
       }
 
       const listingPayload = property.onboarding?.listing;
-      if (listingPayload) {
+      const photographyPayload = property.onboarding?.photography;
+      if (listingPayload || photographyPayload) {
         let onboarding = clientProperty.onboarding;
         if (!onboarding) {
           onboarding = this.propertyOnboardingRepo.create({ clientProperty, createdBy: userId });
         }
 
-        // Map client-facing onboarding fields
-        if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
-        if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
-        if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
-        if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
-        if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? false;
-        if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? false;
-        if (listingPayload.acknowledgesResponsibilityToInform !== undefined) onboarding.acknowledgesResponsibilityToInform = listingPayload.acknowledgesResponsibilityToInform ?? false;
+        if (listingPayload) {
+          // Map client-facing onboarding fields
+          if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
+          if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
+          if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+          if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
+          if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? false;
+          if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? false;
+          if (listingPayload.acknowledgesResponsibilityToInform !== undefined) onboarding.acknowledgesResponsibilityToInform = listingPayload.acknowledgesResponsibilityToInform ?? false;
 
-        // Store client-facing specific fields in targetDateNotes as JSON
-        const clientFormData = {
-          acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
-          agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
-          externalListingNotes: listingPayload.externalListingNotes ?? null,
-          acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
-        };
+          // Store client-facing specific fields in targetDateNotes as JSON
+          const clientFormData = {
+            acknowledgePropertyReadyByStartDate: listingPayload.acknowledgePropertyReadyByStartDate ?? null,
+            agreesUnpublishExternalListings: listingPayload.agreesUnpublishExternalListings ?? null,
+            externalListingNotes: listingPayload.externalListingNotes ?? null,
+            acknowledgesResponsibilityToInform: listingPayload.acknowledgesResponsibilityToInform ?? null,
+          };
+          onboarding.targetDateNotes = JSON.stringify(clientFormData);
+        }
+
+        if (photographyPayload) {
+          if (photographyPayload.photographyNotes !== undefined) onboarding.photographyNotes = photographyPayload.photographyNotes ?? null;
+        }
 
         onboarding.updatedBy = userId;
         await this.propertyOnboardingRepo.save(onboarding);

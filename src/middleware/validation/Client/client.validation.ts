@@ -1285,7 +1285,10 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
                         upcomingReservations: Joi.string().required().allow(null),
                         externalListingNotes: Joi.string().required().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().required().allow(null),
-                    })
+                    }),
+                    photography: Joi.object({
+                        photographyNotes: Joi.string().required().allow(null),
+                    }).optional()
                 })
             })
         )
@@ -1328,6 +1331,9 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                         upcomingReservations: Joi.string().optional().allow(null),
                         targetDateNotes: Joi.string().optional().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
+                    }).optional(),
+                    photography: Joi.object({
+                        photographyNotes: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
