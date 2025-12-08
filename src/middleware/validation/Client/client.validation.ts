@@ -618,6 +618,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         allowSmoking: Joi.boolean().required().allow(null),
                         allowPets: Joi.boolean().required().allow(null),
                         petFee: Joi.number().required().allow(null),
+                        petFeeType: Joi.string().required().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().required().allow(null),
                         petRestrictionsNotes: Joi.string().required().allow(null),
                         allowChildreAndInfants: Joi.boolean().required().allow(null),
@@ -700,6 +701,32 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         locationOfModem: Joi.string().required().allow(null),
                         swimmingPoolNotes: Joi.string().required().allow(null),
                         hotTubInstructions: Joi.string().required().allow(null),
+                        firePlaceNotes: Joi.string().required().allow(null),
+                        firepitNotes: Joi.string().required().allow(null),
+                        firepitType: Joi.string().required().allow(null),
+                        gameConsoleType: Joi.string().required().allow(null),
+                        gameConsoleNotes: Joi.string().required().allow(null),
+                        safeBoxLocationInstructions: Joi.string().required().allow(null),
+                        gymPrivacy: Joi.string().required().allow(null),
+                        gymNotes: Joi.string().required().allow(null),
+                        saunaPrivacy: Joi.string().required().allow(null),
+                        saunaNotes: Joi.string().required().allow(null),
+                        exerciseEquipmentTypes: Joi.string().required().allow(null),
+                        exerciseEquipmentNotes: Joi.string().required().allow(null),
+                        golfType: Joi.string().required().allow(null),
+                        golfNotes: Joi.string().required().allow(null),
+                        basketballPrivacy: Joi.string().required().allow(null),
+                        basketballNotes: Joi.string().required().allow(null),
+                        tennisPrivacy: Joi.string().required().allow(null),
+                        tennisNotes: Joi.string().required().allow(null),
+                        workspaceLocation: Joi.string().required().allow(null),
+                        workspaceInclusion: Joi.string().required().allow(null),
+                        workspaceNotes: Joi.string().required().allow(null),
+                        boatDockPrivacy: Joi.string().required().allow(null),
+                        boatDockNotes: Joi.string().required().allow(null),
+                        heatControlInstructions: Joi.string().required().allow(null),
+                        locationOfThemostat: Joi.string().required().allow(null),
+                        securityCameraLocations: Joi.string().required().allow(null),
 
 
 
@@ -785,6 +812,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
+                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
                         petRestrictionsNotes: Joi.string().optional().allow(null),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
@@ -921,8 +949,13 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             vendorInfo: Joi.array().optional().allow(null).items(
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
-                                    workCategory: Joi.string().required(),
-                                    managedBy: Joi.string().required().valid("Luxury Lodging", "Owner"),
+                                    role: Joi.string().when('id', {
+                                        is: Joi.exist(),
+                                        then: Joi.optional(),
+                                        otherwise: Joi.required()
+                                    }),
+                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                                     name: Joi.string().required().allow(null),
                                     contact: Joi.string().required().allow(null),
                                     email: Joi.string().required().allow(null),
@@ -988,6 +1021,27 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         hotTubInstructions: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
+                        firepitType: Joi.string().optional().allow(null),
+                        gameConsoleType: Joi.string().optional().allow(null),
+                        gameConsoleNotes: Joi.string().optional().allow(null),
+                        safeBoxLocationInstructions: Joi.string().optional().allow(null),
+                        gymPrivacy: Joi.string().optional().allow(null),
+                        gymNotes: Joi.string().optional().allow(null),
+                        saunaPrivacy: Joi.string().optional().allow(null),
+                        saunaNotes: Joi.string().optional().allow(null),
+                        exerciseEquipmentTypes: Joi.string().optional().allow(null),
+                        exerciseEquipmentNotes: Joi.string().optional().allow(null),
+                        golfType: Joi.string().optional().allow(null),
+                        golfNotes: Joi.string().optional().allow(null),
+                        basketballPrivacy: Joi.string().optional().allow(null),
+                        basketballNotes: Joi.string().optional().allow(null),
+                        tennisPrivacy: Joi.string().optional().allow(null),
+                        tennisNotes: Joi.string().optional().allow(null),
+                        workspaceLocation: Joi.string().optional().allow(null),
+                        workspaceInclusion: Joi.string().optional().allow(null),
+                        workspaceNotes: Joi.string().optional().allow(null),
+                        boatDockPrivacy: Joi.string().optional().allow(null),
+                        boatDockNotes: Joi.string().optional().allow(null),
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
@@ -1155,6 +1209,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
+                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
                         petRestrictionsNotes: Joi.string().optional().allow(null),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
@@ -1216,6 +1271,10 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                     notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
+
+                            //Maintenance
+                            maintenanceManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            maintenanceManagedByReason: Joi.string().optional().allow(null),
 
                             //Other Contractors/Vendors
                             vendorInfo: Joi.array().optional().allow(null).items(
@@ -1368,7 +1427,12 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
+                        listingType: Joi.string().optional().allow(null), // alias for roomType
                         bedroomsNumber: Joi.number().required().allow(null),
+                        chargeForExtraGuests: Joi.boolean().optional().allow(null),
+                        guestsIncluded: Joi.number().optional().allow(null),
+                        priceForExtraPerson: Joi.number().optional().allow(null),
+                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().required().min(1).allow(null).items(
                             Joi.object({
@@ -1401,6 +1465,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         allowSmoking: Joi.boolean().required().allow(null),
                         allowPets: Joi.boolean().required().allow(null),
                         petFee: Joi.number().required().allow(null),
+                        petFeeType: Joi.string().required().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().required().allow(null),
                         petRestrictionsNotes: Joi.string().required().allow(null),
                         allowChildreAndInfants: Joi.boolean().required().allow(null),
@@ -1483,6 +1548,32 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         locationOfModem: Joi.string().required().allow(null),
                         swimmingPoolNotes: Joi.string().required().allow(null),
                         hotTubInstructions: Joi.string().required().allow(null),
+                        firePlaceNotes: Joi.string().required().allow(null),
+                        firepitNotes: Joi.string().required().allow(null),
+                        firepitType: Joi.string().required().allow(null),
+                        gameConsoleType: Joi.string().required().allow(null),
+                        gameConsoleNotes: Joi.string().required().allow(null),
+                        safeBoxLocationInstructions: Joi.string().required().allow(null),
+                        gymPrivacy: Joi.string().required().allow(null),
+                        gymNotes: Joi.string().required().allow(null),
+                        saunaPrivacy: Joi.string().required().allow(null),
+                        saunaNotes: Joi.string().required().allow(null),
+                        exerciseEquipmentTypes: Joi.string().required().allow(null),
+                        exerciseEquipmentNotes: Joi.string().required().allow(null),
+                        golfType: Joi.string().required().allow(null),
+                        golfNotes: Joi.string().required().allow(null),
+                        basketballPrivacy: Joi.string().required().allow(null),
+                        basketballNotes: Joi.string().required().allow(null),
+                        tennisPrivacy: Joi.string().required().allow(null),
+                        tennisNotes: Joi.string().required().allow(null),
+                        workspaceLocation: Joi.string().required().allow(null),
+                        workspaceInclusion: Joi.string().required().allow(null),
+                        workspaceNotes: Joi.string().required().allow(null),
+                        boatDockPrivacy: Joi.string().required().allow(null),
+                        boatDockNotes: Joi.string().required().allow(null),
+                        heatControlInstructions: Joi.string().required().allow(null),
+                        locationOfThemostat: Joi.string().required().allow(null),
+                        securityCameraLocations: Joi.string().required().allow(null),
 
 
 
@@ -1532,7 +1623,12 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
 
                         //Bedrooms
                         roomType: Joi.string().optional().allow(null),
+                        listingType: Joi.string().optional().allow(null), // alias for roomType
                         bedroomsNumber: Joi.number().optional().allow(null),
+                        chargeForExtraGuests: Joi.boolean().optional().allow(null),
+                        guestsIncluded: Joi.number().optional().allow(null),
+                        priceForExtraPerson: Joi.number().optional().allow(null),
+                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
@@ -1578,6 +1674,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
+                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
                         petRestrictionsNotes: Joi.string().optional().allow(null),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
@@ -1711,12 +1808,21 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 })
                             ),
 
+                            //Maintenance
+                            maintenanceManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            maintenanceManagedByReason: Joi.string().optional().allow(null),
+
                             //Other Contractors/Vendors
                             vendorInfo: Joi.array().optional().allow(null).items(
                                 Joi.object({
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
-                                    workCategory: Joi.string().required(),
-                                    managedBy: Joi.string().required().valid("Luxury Lodging", "Owner"),
+                                    role: Joi.string().when('id', {
+                                        is: Joi.exist(),
+                                        then: Joi.optional(),
+                                        otherwise: Joi.required()
+                                    }),
+                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                                     name: Joi.string().required().allow(null),
                                     contact: Joi.string().required().allow(null),
                                     email: Joi.string().required().allow(null),
@@ -1747,9 +1853,13 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         managementNotes: Joi.string().optional().allow(null),
 
                         //Financials
-                        minPrice: Joi.number().optional().allow(null),
-                        minNights: Joi.number().optional().allow(null),
+                        minPriceWeekday: Joi.number().optional().allow(null),
+                        minPriceWeekend: Joi.number().optional().allow(null),
+                        minNightsWeekday: Joi.number().optional().allow(null),
+                        minNightsWeekend: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
+                        pricingStrategyPreference: Joi.string().optional().allow(null),
+                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null).valid("Yes", "No"),
                         propertyLicenseNumber: Joi.string().optional().allow(null, ""),
                         tax: Joi.string().optional().allow(null),
                         financialNotes: Joi.string().optional().allow(null),
@@ -1782,6 +1892,27 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         hotTubInstructions: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
+                        firepitType: Joi.string().optional().allow(null),
+                        gameConsoleType: Joi.string().optional().allow(null),
+                        gameConsoleNotes: Joi.string().optional().allow(null),
+                        safeBoxLocationInstructions: Joi.string().optional().allow(null),
+                        gymPrivacy: Joi.string().optional().allow(null),
+                        gymNotes: Joi.string().optional().allow(null),
+                        saunaPrivacy: Joi.string().optional().allow(null),
+                        saunaNotes: Joi.string().optional().allow(null),
+                        exerciseEquipmentTypes: Joi.string().optional().allow(null),
+                        exerciseEquipmentNotes: Joi.string().optional().allow(null),
+                        golfType: Joi.string().optional().allow(null),
+                        golfNotes: Joi.string().optional().allow(null),
+                        basketballPrivacy: Joi.string().optional().allow(null),
+                        basketballNotes: Joi.string().optional().allow(null),
+                        tennisPrivacy: Joi.string().optional().allow(null),
+                        tennisNotes: Joi.string().optional().allow(null),
+                        workspaceLocation: Joi.string().optional().allow(null),
+                        workspaceInclusion: Joi.string().optional().allow(null),
+                        workspaceNotes: Joi.string().optional().allow(null),
+                        boatDockPrivacy: Joi.string().optional().allow(null),
+                        boatDockNotes: Joi.string().optional().allow(null),
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
@@ -1790,6 +1921,22 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
             })
         )
     });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
+
+export const validateSubmitAllClientForms = (request: Request, response: Response, next: NextFunction) => {
+    // This validation allows all three data objects to be optional or null
+    // The individual service methods will validate their respective data
+    const schema = Joi.object({
+        clientData: Joi.object().optional().allow(null),
+        onboardingData: Joi.object().optional().allow(null),
+        listingData: Joi.object().optional().allow(null),
+    }).min(1); // At least one of the three must be present
 
     const { error } = schema.validate(request.body);
     if (error) {

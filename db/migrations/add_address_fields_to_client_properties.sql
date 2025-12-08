@@ -37,3 +37,5 @@ CREATE INDEX IF NOT EXISTS idx_client_properties_location ON client_properties("
 
 
 
+
+

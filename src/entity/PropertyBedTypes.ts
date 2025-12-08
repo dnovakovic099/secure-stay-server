@@ -21,6 +21,15 @@ export class PropertyBedTypes {
     @Column({ nullable: true })
     bedroomNumber: number;
 
+    @Column({ nullable: true })
+    airMattressSize: string;
+
+    @Column({ nullable: true })
+    upperBunkSize: string;
+
+    @Column({ nullable: true })
+    lowerBunkSize: string;
+
     @ManyToOne(() => PropertyInfo, (listing) => listing.propertyBedTypes, {
         onDelete: "CASCADE"
     })

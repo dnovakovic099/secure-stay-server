@@ -18,6 +18,9 @@ export class VendorInfo {
     workCategory: string;
 
     @Column({ nullable: true })
+    role: string;
+
+    @Column({ nullable: true })
     managedBy: string;
 
     @Column({ nullable: true })

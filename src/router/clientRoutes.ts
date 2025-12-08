@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateClient, validateCreateClientWithPreOnboarding, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm, validateUpdateManagementInternalForm } from "../middleware/validation/Client/client.validation";
+import { validateCreateClient, validateCreateClientWithPreOnboarding, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm, validateUpdateManagementInternalForm, validateSubmitAllClientForms } from "../middleware/validation/Client/client.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -41,6 +41,7 @@ router.route('/client-facing/onboarding').put(verifySession, validateUpdateOnboa
 
 // router.route('/client-facing/listing-info').post(verifySession, validateSaveListingDetailsClientForm, clientController.saveListingDetailsClientForm.bind(clientController));
 router.route('/client-facing/listing-info').put(verifySession, validateUpdateListingDetailsClientForm, clientController.updateListingDetailsClientForm.bind(clientController));
+router.route('/client-facing/submit-all').post(verifySession, validateSubmitAllClientForms, clientController.submitAllClientForms.bind(clientController));
 
 
 router.route('/publish-property/:propertyId').get(verifySession, clientController.publishPropertyToHostaway.bind(clientController));

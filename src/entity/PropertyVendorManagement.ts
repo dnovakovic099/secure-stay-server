@@ -20,6 +20,12 @@ export class PropertyVendorManagement {
     maintenanceBy: string;
 
     @Column({ nullable: true })
+    maintenanceManagedBy: string;
+
+    @Column({ type: "text", nullable: true })
+    maintenanceManagedByReason: string;
+
+    @Column({ nullable: true })
     biWeeklyInspection: string;
 
     @Column({ nullable: true })

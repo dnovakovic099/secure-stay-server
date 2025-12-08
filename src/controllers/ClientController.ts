@@ -336,6 +336,16 @@ export class ClientController {
     }
   }
 
+  async submitAllClientForms(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.submitAllClientForms(request.body, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
 }
 

@@ -44,6 +44,9 @@ export class PropertyInfo {
     @Column({ type: "int", nullable: true })
     guestsIncluded: number;
 
+    @Column({ nullable: true })
+    extraGuestFeeType: string;
+
 
     //general
     @Column({ nullable: true })
@@ -133,6 +136,9 @@ export class PropertyInfo {
 
     @Column({ type: "decimal", nullable: true })
     petFee: number;
+
+    @Column({ nullable: true })
+    petFeeType: string;
 
     @Column({ type: "int", nullable: true })
     numberOfPetsAllowed: number;
@@ -257,11 +263,29 @@ export class PropertyInfo {
     @Column({ type: "float", nullable: true })
     minPrice: number;
 
+    @Column({ type: "float", nullable: true })
+    minPriceWeekday: number;
+
+    @Column({ type: "float", nullable: true })
+    minPriceWeekend: number;
+
     @Column({ nullable: true })
     minNights: number;
 
     @Column({ nullable: true })
+    minNightsWeekday: number;
+
+    @Column({ nullable: true })
+    minNightsWeekend: number;
+
+    @Column({ nullable: true })
     maxNights: number;
+
+    @Column({ nullable: true })
+    pricingStrategyPreference: string;
+
+    @Column({ nullable: true })
+    minimumNightsRequiredByLaw: string;
 
     @Column({ nullable: true })
     propertyLicenseNumber: string;
@@ -357,6 +381,79 @@ export class PropertyInfo {
 
     @Column({ type: "text", nullable: true })
     firepitNotes: string;
+
+    @Column({ nullable: true })
+    firepitType: string;
+
+    // Game Console Details
+    @Column({ nullable: true })
+    gameConsoleType: string;
+
+    @Column({ type: "text", nullable: true })
+    gameConsoleNotes: string;
+
+    // Safe Box Details
+    @Column({ type: "text", nullable: true })
+    safeBoxLocationInstructions: string;
+
+    // Gym Details
+    @Column({ nullable: true })
+    gymPrivacy: string;
+
+    @Column({ type: "text", nullable: true })
+    gymNotes: string;
+
+    // Sauna Details
+    @Column({ nullable: true })
+    saunaPrivacy: string;
+
+    @Column({ type: "text", nullable: true })
+    saunaNotes: string;
+
+    // Exercise Equipment Details
+    @Column({ type: "text", nullable: true })
+    exerciseEquipmentTypes: string;
+
+    @Column({ type: "text", nullable: true })
+    exerciseEquipmentNotes: string;
+
+    // Golf Details
+    @Column({ nullable: true })
+    golfType: string;
+
+    @Column({ type: "text", nullable: true })
+    golfNotes: string;
+
+    // Basketball Details
+    @Column({ nullable: true })
+    basketballPrivacy: string;
+
+    @Column({ type: "text", nullable: true })
+    basketballNotes: string;
+
+    // Tennis Details
+    @Column({ nullable: true })
+    tennisPrivacy: string;
+
+    @Column({ type: "text", nullable: true })
+    tennisNotes: string;
+
+    // Dedicated Workspace Details
+    @Column({ nullable: true })
+    workspaceLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    workspaceInclusion: string;
+
+    @Column({ type: "text", nullable: true })
+    workspaceNotes: string;
+
+    // Boat Dock Details
+    @Column({ nullable: true })
+    boatDockPrivacy: string;
+
+    @Column({ type: "text", nullable: true })
+    boatDockNotes: string;
 
     // Standard Booking Settings
     @Column({ type: "boolean", nullable: true })

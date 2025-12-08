@@ -12,6 +12,9 @@ export class PropertyParkingInfo {
     @Column({ type: "decimal", nullable: true })
     parkingFee: number;
 
+    @Column({ nullable: true })
+    parkingFeeType: string;
+
     @Column({ type: "int", nullable: true })
     numberOfParkingSpots: number;
 

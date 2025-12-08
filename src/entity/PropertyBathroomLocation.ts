@@ -18,6 +18,12 @@ export class PropertyBathroomLocation {
     @Column({ nullable: true })
     ensuite: number;
 
+    @Column({ nullable: true })
+    bathroomFeatures: string;
+
+    @Column({ nullable: true })
+    privacyType: string;
+
     @ManyToOne(() => PropertyInfo, (listing) => listing.propertyBathroomLocation, {
         onDelete: "CASCADE"
     })

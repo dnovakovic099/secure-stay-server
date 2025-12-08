@@ -254,7 +254,11 @@ interface Photography {
 
 interface Financials {
   minPrice?: number | null;
+  minPriceWeekday?: number | null;
+  minPriceWeekend?: number | null;
   minNights?: number | null;
+  minNightsWeekday?: number | null;
+  minNightsWeekend?: number | null;
   maxNights?: number | null;
   propertyLicenseNumber?: string | null;
   tax?: string | null;
@@ -2247,6 +2251,9 @@ export class ClientService {
     if (listingPayload.unitFloor !== undefined) propertyInfo.unitFloor = listingPayload.unitFloor ?? null;
     if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
     if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+    if (listingPayload.guestsIncluded !== undefined) propertyInfo.guestsIncluded = listingPayload.guestsIncluded ?? null;
+    if (listingPayload.priceForExtraPerson !== undefined) propertyInfo.priceForExtraPerson = listingPayload.priceForExtraPerson ?? null;
+    if (listingPayload.extraGuestFeeType !== undefined) propertyInfo.extraGuestFeeType = listingPayload.extraGuestFeeType ?? null;
 
     // Bedrooms
     if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
@@ -2268,6 +2275,7 @@ export class ClientService {
     if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
     if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
     if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
+    if (listingPayload.petFeeType !== undefined) propertyInfo.petFeeType = listingPayload.petFeeType ?? null;
     if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
     if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
     if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
@@ -2311,8 +2319,14 @@ export class ClientService {
 
     //Financials
     if (listingPayload.minPrice !== undefined) propertyInfo.minPrice = listingPayload.minPrice ?? null;
+    if (listingPayload.minPriceWeekday !== undefined) propertyInfo.minPriceWeekday = listingPayload.minPriceWeekday ?? null;
+    if (listingPayload.minPriceWeekend !== undefined) propertyInfo.minPriceWeekend = listingPayload.minPriceWeekend ?? null;
     if (listingPayload.minNights !== undefined) propertyInfo.minNights = listingPayload.minNights ?? null;
+    if (listingPayload.minNightsWeekday !== undefined) propertyInfo.minNightsWeekday = listingPayload.minNightsWeekday ?? null;
+    if (listingPayload.minNightsWeekend !== undefined) propertyInfo.minNightsWeekend = listingPayload.minNightsWeekend ?? null;
     if (listingPayload.maxNights !== undefined) propertyInfo.maxNights = listingPayload.maxNights ?? null;
+    if (listingPayload.pricingStrategyPreference !== undefined) propertyInfo.pricingStrategyPreference = listingPayload.pricingStrategyPreference ?? null;
+    if (listingPayload.minimumNightsRequiredByLaw !== undefined) propertyInfo.minimumNightsRequiredByLaw = listingPayload.minimumNightsRequiredByLaw ?? null;
     if (listingPayload.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = listingPayload.propertyLicenseNumber ?? null;
     if (listingPayload.tax !== undefined) propertyInfo.tax = listingPayload.tax ?? null;
     if (listingPayload.financialNotes !== undefined) propertyInfo.financialNotes = listingPayload.financialNotes ?? null;
@@ -2345,6 +2359,27 @@ export class ClientService {
     if (listingPayload.hotTubInstructions !== undefined) propertyInfo.hotTubInstructions = listingPayload.hotTubInstructions ?? null;
     if (listingPayload.firePlaceNotes !== undefined) propertyInfo.firePlaceNotes = listingPayload.firePlaceNotes ?? null;
     if (listingPayload.firepitNotes !== undefined) propertyInfo.firepitNotes = listingPayload.firepitNotes ?? null;
+    if (listingPayload.firepitType !== undefined) propertyInfo.firepitType = listingPayload.firepitType ?? null;
+    if (listingPayload.gameConsoleType !== undefined) propertyInfo.gameConsoleType = listingPayload.gameConsoleType ?? null;
+    if (listingPayload.gameConsoleNotes !== undefined) propertyInfo.gameConsoleNotes = listingPayload.gameConsoleNotes ?? null;
+    if (listingPayload.safeBoxLocationInstructions !== undefined) propertyInfo.safeBoxLocationInstructions = listingPayload.safeBoxLocationInstructions ?? null;
+    if (listingPayload.gymPrivacy !== undefined) propertyInfo.gymPrivacy = listingPayload.gymPrivacy ?? null;
+    if (listingPayload.gymNotes !== undefined) propertyInfo.gymNotes = listingPayload.gymNotes ?? null;
+    if (listingPayload.saunaPrivacy !== undefined) propertyInfo.saunaPrivacy = listingPayload.saunaPrivacy ?? null;
+    if (listingPayload.saunaNotes !== undefined) propertyInfo.saunaNotes = listingPayload.saunaNotes ?? null;
+    if (listingPayload.exerciseEquipmentTypes !== undefined) propertyInfo.exerciseEquipmentTypes = listingPayload.exerciseEquipmentTypes ? JSON.stringify(listingPayload.exerciseEquipmentTypes) : null;
+    if (listingPayload.exerciseEquipmentNotes !== undefined) propertyInfo.exerciseEquipmentNotes = listingPayload.exerciseEquipmentNotes ?? null;
+    if (listingPayload.golfType !== undefined) propertyInfo.golfType = listingPayload.golfType ?? null;
+    if (listingPayload.golfNotes !== undefined) propertyInfo.golfNotes = listingPayload.golfNotes ?? null;
+    if (listingPayload.basketballPrivacy !== undefined) propertyInfo.basketballPrivacy = listingPayload.basketballPrivacy ?? null;
+    if (listingPayload.basketballNotes !== undefined) propertyInfo.basketballNotes = listingPayload.basketballNotes ?? null;
+    if (listingPayload.tennisPrivacy !== undefined) propertyInfo.tennisPrivacy = listingPayload.tennisPrivacy ?? null;
+    if (listingPayload.tennisNotes !== undefined) propertyInfo.tennisNotes = listingPayload.tennisNotes ?? null;
+    if (listingPayload.workspaceLocation !== undefined) propertyInfo.workspaceLocation = listingPayload.workspaceLocation ?? null;
+    if (listingPayload.workspaceInclusion !== undefined) propertyInfo.workspaceInclusion = listingPayload.workspaceInclusion ? JSON.stringify(listingPayload.workspaceInclusion) : null;
+    if (listingPayload.workspaceNotes !== undefined) propertyInfo.workspaceNotes = listingPayload.workspaceNotes ?? null;
+    if (listingPayload.boatDockPrivacy !== undefined) propertyInfo.boatDockPrivacy = listingPayload.boatDockPrivacy ?? null;
+    if (listingPayload.boatDockNotes !== undefined) propertyInfo.boatDockNotes = listingPayload.boatDockNotes ?? null;
     if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
     if (listingPayload.locationOfThemostat !== undefined) propertyInfo.locationOfThemostat = listingPayload.locationOfThemostat ?? null;
     if (listingPayload.securityCameraLocations !== undefined) propertyInfo.securityCameraLocations = listingPayload.securityCameraLocations ?? null;
@@ -2355,36 +2390,42 @@ export class ClientService {
     const existingBedTypes = await this.propertyBedTypesRepo.find({
       where: { propertyId: { id: propertyInfo.id } }
     });
-    const existingBedTypeIds = existingBedTypes.map(bt => bt.id);
-    const incomingBedTypeIds = bedTypesData.map(bt => bt.id).filter(id => id !== undefined);
 
-    // Remove bed types that are not in the incoming list
-    const bedTypesToDelete = existingBedTypes.filter(bt => !incomingBedTypeIds.includes(bt.id));
-    if (bedTypesToDelete.length > 0) {
-      await this.propertyBedTypesRepo.remove(bedTypesToDelete);
+    // Delete all existing bed types for this property (easier than trying to match)
+    if (existingBedTypes.length > 0) {
+      await this.propertyBedTypesRepo.remove(existingBedTypes);
     }
 
-    // Process each bed type in the incoming data
-    for (const bedTypeData of bedTypesData) {
-      if (bedTypeData.id && existingBedTypeIds.includes(bedTypeData.id)) {
-        // Update existing bed type
-        const existingBedType = existingBedTypes.find(bt => bt.id === bedTypeData.id);
-        if (existingBedType) {
-          if (bedTypeData.floorLevel !== undefined) existingBedType.floorLevel = Number(bedTypeData.floorLevel);
-          if (bedTypeData.bedroomNumber !== undefined) existingBedType.bedroomNumber = bedTypeData.bedroomNumber;
-          if (bedTypeData.bedTypeId !== undefined) existingBedType.bedTypeId = bedTypeData.bedTypeId;
-          if (bedTypeData.quantity !== undefined) existingBedType.quantity = bedTypeData.quantity;
-          await this.propertyBedTypesRepo.save(existingBedType);
+    // Flatten the new grouped format into individual database rows
+    for (const bedroomData of bedTypesData) {
+      const { bedroomNumber, floorLevel, beds } = bedroomData;
+
+      // Skip if no beds array or empty
+      if (!beds || !Array.isArray(beds) || beds.length === 0) {
+        continue;
+      }
+
+      // Create a separate database row for each bed type in this bedroom
+      for (const bedConfig of beds) {
+        const { bedTypeId, quantity, airMattressSize, upperBunkSize, lowerBunkSize } = bedConfig;
+
+        // Skip if bedTypeId is missing
+        if (!bedTypeId) {
+          continue;
         }
-      } else {
-        // Create new bed type
+
+      // Create new bed type entry
         const newBedType = this.propertyBedTypesRepo.create({
-          floorLevel: Number(bedTypeData.floorLevel),
-          bedroomNumber: bedTypeData.bedroomNumber,
-          bedTypeId: bedTypeData.bedTypeId,
-          quantity: bedTypeData.quantity,
+          floorLevel: floorLevel ? Number(floorLevel) : null,
+          bedroomNumber: bedroomNumber,
+          bedTypeId: bedTypeId,
+          quantity: quantity ?? 1,
+          airMattressSize: airMattressSize ?? null,
+          upperBunkSize: upperBunkSize ?? null,
+          lowerBunkSize: lowerBunkSize ?? null,
           propertyId: propertyInfo
         });
+
         await this.propertyBedTypesRepo.save(newBedType);
       }
     }
@@ -2453,6 +2494,7 @@ export class ClientService {
 
       (row as any).parkingType = p.parkingType;
       if (p.parkingFee !== undefined) row.parkingFee = p.parkingFee ?? null as any;
+      if (p.parkingFeeType !== undefined) row.parkingFeeType = p.parkingFeeType ?? null as any;
       if (p.numberOfParkingSpots !== undefined) row.numberOfParkingSpots = p.numberOfParkingSpots ?? null as any;
       row = await this.propertyParkingInfoRepo.save(row);
       incomingIds.add(row.id);
@@ -2470,6 +2512,10 @@ export class ClientService {
     if (!vm) {
       vm = this.propertyVendorManagementRepo.create({ propertyInfo });
     }
+
+    // Maintenance
+    if (vendorPayload.maintenanceManagedBy !== undefined) vm.maintenanceManagedBy = vendorPayload.maintenanceManagedBy ?? null;
+    if (vendorPayload.maintenanceManagedByReason !== undefined) vm.maintenanceManagedByReason = vendorPayload.maintenanceManagedByReason ?? null;
 
     // Cleaner
     if (vendorPayload.cleanerManagedBy !== undefined) vm.cleanerManagedBy = vendorPayload.cleanerManagedBy ?? null;
@@ -2546,6 +2592,7 @@ export class ClientService {
         } else {
           row = this.vendorInfoRepo.create({ propertyVendorManagementId: vm });
         }
+        if (v.role !== undefined) row.role = v.role ?? null;
         if (v.workCategory !== undefined) row.workCategory = v.workCategory ?? null;
         if (v.managedBy !== undefined) row.managedBy = v.managedBy ?? null;
         if (v.name !== undefined) row.name = v.name ?? null;
@@ -2580,6 +2627,8 @@ export class ClientService {
       if (b.bathroomType !== undefined) row.bathroomType = b.bathroomType ?? null;
       if (b.bathroomNumber !== undefined) row.bathroomNumber = b.bathroomNumber ?? null;
       if (b.ensuite !== undefined) row.ensuite = b.ensuite ?? null;
+      if (b.bathroomFeatures !== undefined) row.bathroomFeatures = b.bathroomFeatures ?? null;
+      if (b.privacyType !== undefined) row.privacyType = b.privacyType ?? null;
       row = await this.propertyBathroomLocationRepo.save(row);
       incomingIds.add(row.id);
     }
@@ -2976,6 +3025,32 @@ export class ClientService {
     return { message: "Client listing details updated", updated };
   }
 
+  async submitAllClientForms(body: any, userId: string) {
+    const { clientData, onboardingData, listingData } = body;
+
+    // Step 1: Update Client (Property Owner Information)
+    if (clientData && typeof clientData === 'object' && !Array.isArray(clientData)) {
+      const { id, ...clientUpdateData } = clientData;
+      const secondaryContacts = clientData.secondaryContacts;
+      await this.updateClient(
+        { id, ...clientUpdateData },
+        userId,
+        secondaryContacts
+      );
+    }
+
+    // Step 2: Update Onboarding Details (Onboarding Information)
+    if (onboardingData && typeof onboardingData === 'object' && !Array.isArray(onboardingData)) {
+      await this.updateOnboardingDetailsClientForm(onboardingData, userId);
+    }
+
+    // Step 3: Update Listing Details (Property and Management Information)
+    if (listingData && typeof listingData === 'object' && !Array.isArray(listingData)) {
+      await this.updateListingDetailsClientForm(listingData, userId);
+    }
+
+    return { message: "All client forms submitted successfully" };
+  }
 
   //publish listingIntake to hostaway
   async publishPropertyToHostaway(propertyId: string, userId: string) {
@@ -3121,7 +3196,11 @@ export class ClientService {
         }
 
         if (financials.minPrice !== undefined) propertyInfo.minPrice = financials.minPrice ?? null;
+        if (financials.minPriceWeekday !== undefined) propertyInfo.minPriceWeekday = financials.minPriceWeekday ?? null;
+        if (financials.minPriceWeekend !== undefined) propertyInfo.minPriceWeekend = financials.minPriceWeekend ?? null;
         if (financials.minNights !== undefined) propertyInfo.minNights = financials.minNights ?? null;
+        if (financials.minNightsWeekday !== undefined) propertyInfo.minNightsWeekday = financials.minNightsWeekday ?? null;
+        if (financials.minNightsWeekend !== undefined) propertyInfo.minNightsWeekend = financials.minNightsWeekend ?? null;
         if (financials.maxNights !== undefined) propertyInfo.maxNights = financials.maxNights ?? null;
         if (financials.propertyLicenseNumber !== undefined) propertyInfo.propertyLicenseNumber = financials.propertyLicenseNumber ?? null;
         if (financials.tax !== undefined) propertyInfo.tax = financials.tax ?? null;
@@ -3229,6 +3308,7 @@ export class ClientService {
         if (listingPayload.allowSmoking !== undefined) propertyInfo.allowSmoking = listingPayload.allowSmoking ?? null;
         if (listingPayload.allowPets !== undefined) propertyInfo.allowPets = listingPayload.allowPets ?? null;
         if (listingPayload.petFee !== undefined) propertyInfo.petFee = listingPayload.petFee ?? null;
+        if (listingPayload.petFeeType !== undefined) propertyInfo.petFeeType = listingPayload.petFeeType ?? null;
         if (listingPayload.numberOfPetsAllowed !== undefined) propertyInfo.numberOfPetsAllowed = listingPayload.numberOfPetsAllowed ?? null;
         if (listingPayload.petRestrictionsNotes !== undefined) propertyInfo.petRestrictionsNotes = listingPayload.petRestrictionsNotes ?? null;
         if (listingPayload.allowChildreAndInfants !== undefined) propertyInfo.allowChildreAndInfants = listingPayload.allowChildreAndInfants ?? null;
