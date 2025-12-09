@@ -924,6 +924,14 @@ export class ClientService {
       .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
       .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
       .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
+      // ✅ NEW: fetch property-related entities for PDF generation
+      .leftJoinAndSelect("propertyInfo.propertyBedTypes", "propertyBedTypes")
+      .leftJoinAndSelect("propertyInfo.propertyBathroomLocation", "propertyBathroomLocation")
+      .leftJoinAndSelect("propertyInfo.propertyParkingInfo", "propertyParkingInfo")
+      .leftJoinAndSelect("propertyInfo.propertyUpsells", "propertyUpsells")
+      .leftJoinAndSelect("propertyInfo.vendorManagementInfo", "vendorManagementInfo")
+      .leftJoinAndSelect("vendorManagementInfo.vendorInfo", "vendorInfo")
+      .leftJoinAndSelect("vendorManagementInfo.suppliesToRestock", "suppliesToRestock")
       .where("client.deletedAt IS NULL")
       .orderBy("client.createdAt", "DESC");
     //order by client.createdAt desc
