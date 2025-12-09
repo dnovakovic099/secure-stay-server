@@ -65,6 +65,9 @@ export class PropertyInfo {
     squareMeters: number;
 
     @Column({ nullable: true })
+    squareFeet: number;
+
+    @Column({ nullable: true })
     personCapacity: number;   //Maximum Capacity
 
 
@@ -74,6 +77,9 @@ export class PropertyInfo {
 
     @Column({ nullable: true })
     bedroomsNumber: number;
+
+    @Column({ type: "text", nullable: true })
+    bedroomNotes: string;
 
 
     //bedroom location and bed types
@@ -94,6 +100,9 @@ export class PropertyInfo {
 
     @Column({ nullable: true })
     guestBathroomsNumber: number;    // Number of Half Baths
+
+    @Column({ type: "text", nullable: true })
+    bathroomNotes: string;
 
     //bathroom location and types
     @OneToMany(() => PropertyBathroomLocation, (bedType) => bedType.propertyId, {

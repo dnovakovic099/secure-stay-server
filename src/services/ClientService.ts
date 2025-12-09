@@ -120,9 +120,11 @@ interface Listing {
   propertyTypeId?: string | null;
   noOfFloors?: number | null;
   squareMeters?: number | null;
+  squareFeet?: number | null;
   personCapacity?: number | null;
   roomType?: string | null;
   bedroomsNumber?: number | null;
+  bedroomNotes?: string | null;
   propertyBedTypes?: Array<{
     floorLevel: number;
     bedroomNumber: number;
@@ -132,6 +134,7 @@ interface Listing {
   bathroomType?: string | null;
   bathroomsNumber?: number | null;
   guestBathroomsNumber?: number | null;
+  bathroomNotes?: string | null;
   propertyBathroomLocation?: Array<{
     id?: number;
     floorLevel?: number | null;
@@ -2250,6 +2253,16 @@ export class ClientService {
     if (listingPayload.noOfFloors !== undefined) propertyInfo.noOfFloors = listingPayload.noOfFloors ?? null;
     if (listingPayload.unitFloor !== undefined) propertyInfo.unitFloor = listingPayload.unitFloor ?? null;
     if (listingPayload.squareMeters !== undefined) propertyInfo.squareMeters = listingPayload.squareMeters ?? null;
+    if (listingPayload.squareFeet !== undefined) {
+      propertyInfo.squareFeet = listingPayload.squareFeet ?? null;
+      // If squareFeet is provided, also calculate and save squareMeters (1 sqft = 0.092903 sqm)
+      if (listingPayload.squareFeet !== null) {
+        propertyInfo.squareMeters = Math.round(listingPayload.squareFeet * 0.092903 * 100) / 100;
+      }
+    } else if (listingPayload.squareMeters !== null && listingPayload.squareMeters !== undefined && !listingPayload.squareFeet) {
+      // If only squareMeters is provided, calculate squareFeet (1 sqm = 10.7639 sqft)
+      propertyInfo.squareFeet = Math.round(listingPayload.squareMeters * 10.7639);
+    }
     if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
     if (listingPayload.guestsIncluded !== undefined) propertyInfo.guestsIncluded = listingPayload.guestsIncluded ?? null;
     if (listingPayload.priceForExtraPerson !== undefined) propertyInfo.priceForExtraPerson = listingPayload.priceForExtraPerson ?? null;
@@ -2258,11 +2271,13 @@ export class ClientService {
     // Bedrooms
     if (listingPayload.roomType !== undefined) propertyInfo.roomType = listingPayload.roomType ?? null;
     if (listingPayload.bedroomsNumber !== undefined) propertyInfo.bedroomsNumber = listingPayload.bedroomsNumber ?? null;
+    if (listingPayload.bedroomNotes !== undefined) propertyInfo.bedroomNotes = listingPayload.bedroomNotes ?? null;
 
     // Bathrooms
     if (listingPayload.bathroomType !== undefined) propertyInfo.bathroomType = listingPayload.bathroomType ?? null;
     if (listingPayload.bathroomsNumber !== undefined) propertyInfo.bathroomsNumber = listingPayload.bathroomsNumber ?? null;
     if (listingPayload.guestBathroomsNumber !== undefined) propertyInfo.guestBathroomsNumber = listingPayload.guestBathroomsNumber ?? null;
+    if (listingPayload.bathroomNotes !== undefined) propertyInfo.bathroomNotes = listingPayload.bathroomNotes ?? null;
 
     // Listing Information
     if (listingPayload.checkInTimeStart !== undefined) propertyInfo.checkInTimeStart = listingPayload.checkInTimeStart ?? null;

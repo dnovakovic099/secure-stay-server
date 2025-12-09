@@ -581,25 +581,36 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         propertyTypeId: Joi.string().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
+                        squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().required().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
                         bedroomsNumber: Joi.number().required().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null),
 
                         propertyBedTypes: Joi.array().required().min(1).allow(null).items(
                             Joi.object({
-                                floorLevel: Joi.string().required(),
-                                bedroomNumber: Joi.number().required(),
-                                bedTypeId: Joi.string().required(),
-                                quantity: Joi.number().required()
+                                floorLevel: Joi.number().optional().allow(null),
+                                bedroomNumber: Joi.number().optional().allow(null),
+                                beds: Joi.array().optional().allow(null).items(
+                                    Joi.object({
+                                        bedTypeId: Joi.string().optional().allow(null),
+                                        quantity: Joi.number().optional().allow(null),
+                                        airMattressSize: Joi.string().optional().allow(null),
+                                        upperBunkSize: Joi.string().optional().allow(null),
+                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                    })
+                                )
                             })
                         ),
+
 
                         // Bathrooms
                         bathroomType: Joi.string().required().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().required().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().required().allow(null), // Number of Half Baths
+                        bathroomNotes: Joi.string().optional().allow(null),
 
                         //Listing Information
                         checkInTimeStart: Joi.number().required().allow(null),
@@ -763,19 +774,28 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         noOfFloors: Joi.number().optional().allow(null),
                         unitFloor: Joi.string().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
+                        squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().optional().allow(null),
                         bedroomsNumber: Joi.number().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null),
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else create new
                                 floorLevel: Joi.number().optional().allow(null),
                                 bedroomNumber: Joi.number().optional().allow(null),
-                                bedTypeId: Joi.string().optional().allow(null),
-                                quantity: Joi.number().optional().allow(null)
+                                beds: Joi.array().optional().allow(null).items(
+                                    Joi.object({
+                                        bedTypeId: Joi.string().optional().allow(null),
+                                        quantity: Joi.number().optional().allow(null),
+                                        airMattressSize: Joi.string().optional().allow(null),
+                                        upperBunkSize: Joi.string().optional().allow(null),
+                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                    })
+                                )
                             })
                         ),
 
@@ -783,15 +803,18 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         bathroomType: Joi.string().optional().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
+                        bathroomNotes: Joi.string().optional().allow(null),
 
                         //bathroom location and types
                         propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
-                                bathroomType: Joi.number().optional().valid("Full", "Half"),
+                                bathroomType: Joi.string().optional().valid("Full", "Half").allow(null),
                                 bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
+                                bathroomFeatures: Joi.string().optional().allow(null),
+                                privacyType: Joi.string().optional().allow(null)
                             })
                         ),
 
@@ -833,6 +856,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                     "No Parking Available"
                                 ).required(),
                                 parkingFee: Joi.number().optional().allow(null),
+                                parkingFeeType: Joi.string().optional().valid("Per Night", "Per Stay").allow(null),
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
@@ -1134,6 +1158,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                     "No Parking Available"
                                 ).required(),
                                 parkingFee: Joi.number().optional().allow(null),
+                                parkingFeeType: Joi.string().optional().valid("Per Night", "Per Stay").allow(null),
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
@@ -1423,12 +1448,14 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         propertyTypeId: Joi.number().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
+                        squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().required().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
                         listingType: Joi.string().optional().allow(null), // alias for roomType
                         bedroomsNumber: Joi.number().required().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null),
                         chargeForExtraGuests: Joi.boolean().optional().allow(null),
                         guestsIncluded: Joi.number().optional().allow(null),
                         priceForExtraPerson: Joi.number().optional().allow(null),
@@ -1436,10 +1463,17 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
                         propertyBedTypes: Joi.array().required().min(1).allow(null).items(
                             Joi.object({
-                                floorLevel: Joi.string().required(),
-                                bedroomNumber: Joi.number().required(),
-                                bedTypeId: Joi.number().required(),
-                                quantity: Joi.number().required()
+                                floorLevel: Joi.number().optional().allow(null),
+                                bedroomNumber: Joi.number().optional().allow(null),
+                                beds: Joi.array().optional().allow(null).items(
+                                    Joi.object({
+                                        bedTypeId: Joi.string().optional().allow(null),
+                                        quantity: Joi.number().optional().allow(null),
+                                        airMattressSize: Joi.string().optional().allow(null),
+                                        upperBunkSize: Joi.string().optional().allow(null),
+                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                    })
+                                )
                             })
                         ),
 
@@ -1447,6 +1481,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         bathroomType: Joi.string().required().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().required().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().required().allow(null), // Number of Half Baths
+                        bathroomNotes: Joi.string().optional().allow(null),
 
                         //Listing Information
                         checkInTimeStart: Joi.number().required().allow(null),
@@ -1619,12 +1654,14 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         noOfFloors: Joi.number().optional().allow(null),
                         unitFloor: Joi.string().optional().allow(null),
                         squareMeters: Joi.number().optional().allow(null),
+                        squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
                         //Bedrooms
                         roomType: Joi.string().optional().allow(null),
                         listingType: Joi.string().optional().allow(null), // alias for roomType
                         bedroomsNumber: Joi.number().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null),
                         chargeForExtraGuests: Joi.boolean().optional().allow(null),
                         guestsIncluded: Joi.number().optional().allow(null),
                         priceForExtraPerson: Joi.number().optional().allow(null),
@@ -1635,8 +1672,15 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                 floorLevel: Joi.number().optional().allow(null),
                                 bedroomNumber: Joi.number().optional().allow(null),
-                                bedTypeId: Joi.string().optional().allow(null),
-                                quantity: Joi.number().optional().allow(null)
+                                beds: Joi.array().optional().allow(null).items(
+                                    Joi.object({
+                                        bedTypeId: Joi.string().optional().allow(null),
+                                        quantity: Joi.number().optional().allow(null),
+                                        airMattressSize: Joi.string().optional().allow(null),
+                                        upperBunkSize: Joi.string().optional().allow(null),
+                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                    })
+                                )
                             })
                         ),
 
@@ -1644,6 +1688,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         bathroomType: Joi.string().optional().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
+                        bathroomNotes: Joi.string().optional().allow(null),
 
                         //bathroom location and types
                         propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
@@ -1653,6 +1698,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 bathroomType: Joi.string().optional().valid("Full", "Half").allow(null),
                                 bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
+                                bathroomFeatures: Joi.string().optional().allow(null),
+                                privacyType: Joi.string().optional().allow(null)
                             })
                         ),
 
@@ -1695,6 +1742,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                     "No Parking Available"
                                 ).required().allow(null),
                                 parkingFee: Joi.number().optional().allow(null),
+                                parkingFeeType: Joi.string().optional().valid("Per Night", "Per Stay").allow(null),
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
