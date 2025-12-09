@@ -712,6 +712,8 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         locationOfModem: Joi.string().required().allow(null),
                         swimmingPoolNotes: Joi.string().required().allow(null),
                         hotTubInstructions: Joi.string().required().allow(null),
+                        hotTubPrivacy: Joi.string().required().allow(null),
+                        hotTubAvailability: Joi.string().required().allow(null),
                         firePlaceNotes: Joi.string().required().allow(null),
                         firepitNotes: Joi.string().required().allow(null),
                         firepitType: Joi.string().required().allow(null),
@@ -738,6 +740,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         heatControlInstructions: Joi.string().required().allow(null),
                         locationOfThemostat: Joi.string().required().allow(null),
                         securityCameraLocations: Joi.string().required().allow(null),
+                        coffeeMakerType: Joi.string().required().allow(null),
 
 
 
@@ -1043,6 +1046,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         paidWifi: Joi.boolean().optional().allow(null),
                         swimmingPoolNotes: Joi.string().optional().allow(null),
                         hotTubInstructions: Joi.string().optional().allow(null),
+                        hotTubPrivacy: Joi.string().optional().allow(null),
+                        hotTubAvailability: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
                         firepitType: Joi.string().optional().allow(null),
@@ -1069,6 +1074,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
+                        coffeeMakerType: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
@@ -1583,6 +1589,8 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         locationOfModem: Joi.string().required().allow(null),
                         swimmingPoolNotes: Joi.string().required().allow(null),
                         hotTubInstructions: Joi.string().required().allow(null),
+                        hotTubPrivacy: Joi.string().required().allow(null),
+                        hotTubAvailability: Joi.string().required().allow(null),
                         firePlaceNotes: Joi.string().required().allow(null),
                         firepitNotes: Joi.string().required().allow(null),
                         firepitType: Joi.string().required().allow(null),
@@ -1609,6 +1617,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         heatControlInstructions: Joi.string().required().allow(null),
                         locationOfThemostat: Joi.string().required().allow(null),
                         securityCameraLocations: Joi.string().required().allow(null),
+                        coffeeMakerType: Joi.string().required().allow(null),
 
 
 
@@ -1938,6 +1947,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         paidWifi: Joi.boolean().optional().allow(null),
                         swimmingPoolNotes: Joi.string().optional().allow(null),
                         hotTubInstructions: Joi.string().optional().allow(null),
+                        hotTubPrivacy: Joi.string().optional().allow(null),
+                        hotTubAvailability: Joi.string().optional().allow(null),
                         firePlaceNotes: Joi.string().optional().allow(null),
                         firepitNotes: Joi.string().optional().allow(null),
                         firepitType: Joi.string().optional().allow(null),
@@ -1964,6 +1975,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         heatControlInstructions: Joi.string().optional().allow(null),
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
+                        coffeeMakerType: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })

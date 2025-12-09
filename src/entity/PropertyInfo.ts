@@ -385,6 +385,12 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     hotTubInstructions: string;
 
+    @Column({ nullable: true })
+    hotTubPrivacy: string;
+
+    @Column({ nullable: true })
+    hotTubAvailability: string;
+
     @Column({ type: "text", nullable: true })
     firePlaceNotes: string;
 
@@ -504,6 +510,10 @@ export class PropertyInfo {
     // Security Camera Details
     @Column({ type: "text", nullable: true })
     securityCameraLocations: string;
+
+    // Coffee Maker Details
+    @Column({ nullable: true })
+    coffeeMakerType: string;
 
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()
