@@ -2398,6 +2398,11 @@ export class ClientService {
     if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
     if (listingPayload.locationOfThemostat !== undefined) propertyInfo.locationOfThemostat = listingPayload.locationOfThemostat ?? null;
     if (listingPayload.securityCameraLocations !== undefined) propertyInfo.securityCameraLocations = listingPayload.securityCameraLocations ?? null;
+    if (listingPayload.carbonMonoxideDetectorLocation !== undefined) propertyInfo.carbonMonoxideDetectorLocation = listingPayload.carbonMonoxideDetectorLocation ?? null;
+    if (listingPayload.smokeDetectorLocation !== undefined) propertyInfo.smokeDetectorLocation = listingPayload.smokeDetectorLocation ?? null;
+    if (listingPayload.fireExtinguisherLocation !== undefined) propertyInfo.fireExtinguisherLocation = listingPayload.fireExtinguisherLocation ?? null;
+    if (listingPayload.firstAidKitLocation !== undefined) propertyInfo.firstAidKitLocation = listingPayload.firstAidKitLocation ?? null;
+    if (listingPayload.emergencyExitLocation !== undefined) propertyInfo.emergencyExitLocation = listingPayload.emergencyExitLocation ?? null;
   }
 
   private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {

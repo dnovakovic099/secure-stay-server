@@ -741,6 +741,11 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         locationOfThemostat: Joi.string().required().allow(null),
                         securityCameraLocations: Joi.string().required().allow(null),
                         coffeeMakerType: Joi.string().required().allow(null),
+                        carbonMonoxideDetectorLocation: Joi.string().required().allow(null),
+                        smokeDetectorLocation: Joi.string().required().allow(null),
+                        fireExtinguisherLocation: Joi.string().required().allow(null),
+                        firstAidKitLocation: Joi.string().required().allow(null),
+                        emergencyExitLocation: Joi.string().required().allow(null),
 
 
 
@@ -1075,6 +1080,11 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
                         coffeeMakerType: Joi.string().optional().allow(null),
+                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null),
+                        smokeDetectorLocation: Joi.string().optional().allow(null),
+                        fireExtinguisherLocation: Joi.string().optional().allow(null),
+                        firstAidKitLocation: Joi.string().optional().allow(null),
+                        emergencyExitLocation: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })
@@ -1618,6 +1628,11 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         locationOfThemostat: Joi.string().required().allow(null),
                         securityCameraLocations: Joi.string().required().allow(null),
                         coffeeMakerType: Joi.string().required().allow(null),
+                        carbonMonoxideDetectorLocation: Joi.string().required().allow(null),
+                        smokeDetectorLocation: Joi.string().required().allow(null),
+                        fireExtinguisherLocation: Joi.string().required().allow(null),
+                        firstAidKitLocation: Joi.string().required().allow(null),
+                        emergencyExitLocation: Joi.string().required().allow(null),
 
 
 
@@ -1976,6 +1991,11 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         locationOfThemostat: Joi.string().optional().allow(null),
                         securityCameraLocations: Joi.string().optional().allow(null),
                         coffeeMakerType: Joi.string().optional().allow(null),
+                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null),
+                        smokeDetectorLocation: Joi.string().optional().allow(null),
+                        fireExtinguisherLocation: Joi.string().optional().allow(null),
+                        firstAidKitLocation: Joi.string().optional().allow(null),
+                        emergencyExitLocation: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })

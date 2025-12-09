@@ -515,6 +515,22 @@ export class PropertyInfo {
     @Column({ nullable: true })
     coffeeMakerType: string;
 
+    // Safety Amenities Location Details
+    @Column({ type: "text", nullable: true })
+    carbonMonoxideDetectorLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    smokeDetectorLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    fireExtinguisherLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    firstAidKitLocation: string;
+
+    @Column({ type: "text", nullable: true })
+    emergencyExitLocation: string;
+
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()
     clientProperty: ClientPropertyEntity;
