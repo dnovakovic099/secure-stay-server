@@ -1325,8 +1325,13 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             vendorInfo: Joi.array().optional().allow(null).items(
                                 Joi.object({
                                     id: Joi.number().optional().allow(null), // if id is passed then update else if id is not present then create
-                                    workCategory: Joi.string().required(),
-                                    managedBy: Joi.string().required().valid("Luxury Lodging", "Owner"),
+                                    role: Joi.string().when('id', {
+                                        is: Joi.exist(),
+                                        then: Joi.optional(),
+                                        otherwise: Joi.required()
+                                    }),
+                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
                                     name: Joi.string().required().allow(null),
                                     contact: Joi.string().required().allow(null),
                                     email: Joi.string().required().allow(null),
@@ -1343,6 +1348,20 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
+
+                        //Standard Booking Settings
+                        instantBooking: Joi.boolean().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNotice: Joi.boolean().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        preparationDays: Joi.boolean().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        bookingWindow: Joi.boolean().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        minimumStay: Joi.boolean().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null),
+                        maximumStay: Joi.boolean().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null),
 
                         //Management Notes
                         managementNotes: Joi.string().optional().allow(null),
@@ -1926,19 +1945,6 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         ),
                         leadTimeDays: Joi.number().optional().allow(null),
                         bookingAcceptanceNotes: Joi.string().optional().allow(null),
-                        managementNotes: Joi.string().optional().allow(null),
-
-                        //Financials
-                        minPriceWeekday: Joi.number().optional().allow(null),
-                        minPriceWeekend: Joi.number().optional().allow(null),
-                        minNightsWeekday: Joi.number().optional().allow(null),
-                        minNightsWeekend: Joi.number().optional().allow(null),
-                        maxNights: Joi.number().optional().allow(null),
-                        pricingStrategyPreference: Joi.string().optional().allow(null),
-                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
-                        tax: Joi.string().optional().allow(null),
-                        financialNotes: Joi.string().optional().allow(null),
 
                         //Standard Booking Settings
                         instantBooking: Joi.boolean().optional().allow(null),
@@ -1953,6 +1959,21 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         minimumStayNotes: Joi.string().optional().allow(null),
                         maximumStay: Joi.boolean().optional().allow(null),
                         maximumStayNotes: Joi.string().optional().allow(null),
+
+                        //Management Notes
+                        managementNotes: Joi.string().optional().allow(null),
+
+                        //Financials
+                        minPriceWeekday: Joi.number().optional().allow(null),
+                        minPriceWeekend: Joi.number().optional().allow(null),
+                        minNightsWeekday: Joi.number().optional().allow(null),
+                        minNightsWeekend: Joi.number().optional().allow(null),
+                        maxNights: Joi.number().optional().allow(null),
+                        pricingStrategyPreference: Joi.string().optional().allow(null),
+                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        propertyLicenseNumber: Joi.string().optional().allow(null, ""),
+                        tax: Joi.string().optional().allow(null),
+                        financialNotes: Joi.string().optional().allow(null),
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),

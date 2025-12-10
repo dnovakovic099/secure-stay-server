@@ -3360,6 +3360,20 @@ export class ClientService {
           await this.handleVendorManagementInfo(propertyInfo, listingPayload.vendorManagement);
         }
 
+        // Standard Booking Settings
+        if (listingPayload.instantBooking !== undefined) propertyInfo.instantBooking = listingPayload.instantBooking ?? null;
+        if (listingPayload.instantBookingNotes !== undefined) propertyInfo.instantBookingNotes = listingPayload.instantBookingNotes ?? null;
+        if (listingPayload.minimumAdvanceNotice !== undefined) propertyInfo.minimumAdvanceNotice = listingPayload.minimumAdvanceNotice ?? null;
+        if (listingPayload.minimumAdvanceNoticeNotes !== undefined) propertyInfo.minimumAdvanceNoticeNotes = listingPayload.minimumAdvanceNoticeNotes ?? null;
+        if (listingPayload.preparationDays !== undefined) propertyInfo.preparationDays = listingPayload.preparationDays ?? null;
+        if (listingPayload.preparationDaysNotes !== undefined) propertyInfo.preparationDaysNotes = listingPayload.preparationDaysNotes ?? null;
+        if (listingPayload.bookingWindow !== undefined) propertyInfo.bookingWindow = listingPayload.bookingWindow ?? null;
+        if (listingPayload.bookingWindowNotes !== undefined) propertyInfo.bookingWindowNotes = listingPayload.bookingWindowNotes ?? null;
+        if (listingPayload.minimumStay !== undefined) propertyInfo.minimumStay = listingPayload.minimumStay ?? null;
+        if (listingPayload.minimumStayNotes !== undefined) propertyInfo.minimumStayNotes = listingPayload.minimumStayNotes ?? null;
+        if (listingPayload.maximumStay !== undefined) propertyInfo.maximumStay = listingPayload.maximumStay ?? null;
+        if (listingPayload.maximumStayNotes !== undefined) propertyInfo.maximumStayNotes = listingPayload.maximumStayNotes ?? null;
+
         // Management Notes
         if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
 
