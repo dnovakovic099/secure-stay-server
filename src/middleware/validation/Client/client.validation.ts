@@ -789,6 +789,10 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         roomType: Joi.string().optional().allow(null),
                         bedroomsNumber: Joi.number().optional().allow(null),
                         bedroomNotes: Joi.string().optional().allow(null),
+                        chargeForExtraGuests: Joi.boolean().optional().allow(null),
+                        guestsIncluded: Joi.number().optional().allow(null),
+                        priceForExtraPerson: Joi.number().optional().allow(null),
+                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({

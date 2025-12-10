@@ -70,6 +70,9 @@ export class PropertyInfo {
     @Column({ nullable: true })
     personCapacity: number;   //Maximum Capacity
 
+    @Column({ type: "boolean", nullable: true })
+    chargeForExtraGuests: boolean;
+
 
     //bedrooms
     @Column({ nullable: true })

@@ -2272,6 +2272,7 @@ export class ClientService {
       propertyInfo.squareFeet = Math.round(listingPayload.squareMeters * 10.7639);
     }
     if (listingPayload.personCapacity !== undefined) propertyInfo.personCapacity = listingPayload.personCapacity ?? null;
+    if (listingPayload.chargeForExtraGuests !== undefined) propertyInfo.chargeForExtraGuests = listingPayload.chargeForExtraGuests ?? null;
     if (listingPayload.guestsIncluded !== undefined) propertyInfo.guestsIncluded = listingPayload.guestsIncluded ?? null;
     if (listingPayload.priceForExtraPerson !== undefined) propertyInfo.priceForExtraPerson = listingPayload.priceForExtraPerson ?? null;
     if (listingPayload.extraGuestFeeType !== undefined) propertyInfo.extraGuestFeeType = listingPayload.extraGuestFeeType ?? null;
@@ -2444,7 +2445,7 @@ export class ClientService {
 
       // Create new bed type entry
         const newBedType = this.propertyBedTypesRepo.create({
-          floorLevel: floorLevel ? Number(floorLevel) : null,
+          floorLevel: floorLevel != null ? Number(floorLevel) : null,
           bedroomNumber: bedroomNumber,
           bedTypeId: bedTypeId,
           quantity: quantity ?? 1,
