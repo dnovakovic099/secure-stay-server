@@ -107,6 +107,7 @@ interface Listing {
   targetStartDate: string | null; // yyyy-mm-dd
   targetDateNotes: string | null;
   upcomingReservations: string | null;
+  onboardingCallSchedule?: string | null;  // yyyy-mm-dd
   actualLiveDate?: string | null;  // yyyy-mm-dd
   actualStartDate?: string | null; // yyyy-mm-dd
 
@@ -1282,6 +1283,7 @@ export class ClientService {
           targetStartDate: listing?.targetStartDate ?? null,
           targetDateNotes: listing?.targetDateNotes ?? null,
           upcomingReservations: listing?.upcomingReservations ?? null,
+          onboardingCallSchedule: listing?.onboardingCallSchedule ?? null,
           photographyCoverage: photography?.photographyCoverage ?? null,
           photographyNotes: photography?.photographyNotes ?? null,
           clientProperty: savedClientProperty,
@@ -1396,6 +1398,7 @@ export class ClientService {
         targetStartDate: listing?.targetStartDate ?? null,
         targetDateNotes: listing?.targetDateNotes ?? null,
         upcomingReservations: listing?.upcomingReservations ?? null,
+        onboardingCallSchedule: listing?.onboardingCallSchedule ?? null,
         // photography
         photographyCoverage: photography?.photographyCoverage ?? null,
         photographyNotes: photography?.photographyNotes ?? null,
@@ -1508,6 +1511,7 @@ export class ClientService {
               targetStartDate: ob.targetStartDate ?? null,
               targetDateNotes: ob.targetDateNotes ?? null,
               upcomingReservations: ob.upcomingReservations ?? null,
+              onboardingCallSchedule: ob.onboardingCallSchedule ?? null,
             }
             : null,
           photography: ob
@@ -1669,6 +1673,7 @@ export class ClientService {
             targetStartDate: listing?.targetStartDate ?? null,
             targetDateNotes: listing?.targetDateNotes ?? null,
             upcomingReservations: listing?.upcomingReservations ?? null,
+            onboardingCallSchedule: listing?.onboardingCallSchedule ?? null,
             photographyCoverage: photography?.photographyCoverage ?? null,
             photographyNotes: photography?.photographyNotes ?? null
           });
@@ -1692,6 +1697,7 @@ export class ClientService {
             if (listing.targetStartDate !== undefined) ob.targetStartDate = listing.targetStartDate ?? null;
             if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
             if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+            if (listing.onboardingCallSchedule !== undefined) ob.onboardingCallSchedule = listing.onboardingCallSchedule ?? null;
           }
 
           if (photography) {
@@ -1862,6 +1868,7 @@ export class ClientService {
         if (listing.actualStartDate !== undefined) onboardingEntity.actualStartDate = listing.actualStartDate ?? null;
         if (listing.targetDateNotes !== undefined) onboardingEntity.targetDateNotes = listing.targetDateNotes ?? null;
         if (listing.upcomingReservations !== undefined) onboardingEntity.upcomingReservations = listing.upcomingReservations ?? null;
+        if (listing.onboardingCallSchedule !== undefined) onboardingEntity.onboardingCallSchedule = listing.onboardingCallSchedule ?? null;
       }
 
       if (photography) {
@@ -1988,6 +1995,7 @@ export class ClientService {
           if (listing.actualStartDate !== undefined) ob.actualStartDate = listing.actualStartDate ?? null;
           if (listing.targetDateNotes !== undefined) ob.targetDateNotes = listing.targetDateNotes ?? null;
           if (listing.upcomingReservations !== undefined) ob.upcomingReservations = listing.upcomingReservations ?? null;
+          if (listing.onboardingCallSchedule !== undefined) ob.onboardingCallSchedule = listing.onboardingCallSchedule ?? null;
         }
 
         if (photography) {
@@ -2748,6 +2756,7 @@ export class ClientService {
         if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
         if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
         if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+        if (listingPayload.onboardingCallSchedule !== undefined) onboarding.onboardingCallSchedule = listingPayload.onboardingCallSchedule ?? null;
 
         // Store client-facing specific fields in targetDateNotes as JSON
         const clientFormData = {
@@ -2839,6 +2848,7 @@ export class ClientService {
           if (listingPayload.targetLiveDate !== undefined) onboarding.targetLiveDate = listingPayload.targetLiveDate ?? null;
           if (listingPayload.targetStartDate !== undefined) onboarding.targetStartDate = listingPayload.targetStartDate ?? null;
           if (listingPayload.upcomingReservations !== undefined) onboarding.upcomingReservations = listingPayload.upcomingReservations ?? null;
+          if (listingPayload.onboardingCallSchedule !== undefined) onboarding.onboardingCallSchedule = listingPayload.onboardingCallSchedule ?? null;
           if (listingPayload.targetDateNotes !== undefined) onboarding.targetDateNotes = listingPayload.targetDateNotes ?? null;
           if (listingPayload.acknowledgePropertyReadyByStartDate !== undefined) onboarding.acknowledgePropertyReadyByStartDate = listingPayload.acknowledgePropertyReadyByStartDate ?? false;
           if (listingPayload.agreesUnpublishExternalListings !== undefined) onboarding.agreesUnpublishExternalListings = listingPayload.agreesUnpublishExternalListings ?? false;

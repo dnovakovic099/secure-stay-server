@@ -55,6 +55,9 @@ export class PropertyOnboarding {
     @Column({ type: "text", nullable: true })
     upcomingReservations: string;
 
+    @Column({ nullable: true })
+    onboardingCallSchedule: string;
+
     //client facing fields
     @Column({ type: "boolean", default: false })
     acknowledgePropertyReadyByStartDate: boolean;

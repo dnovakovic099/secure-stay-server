@@ -124,6 +124,9 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
                         }).optional().allow(null),
                         targetDateNotes: Joi.string().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
                         photographyCoverage: Joi.string().required().allow(null)
@@ -263,6 +266,9 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         }).optional().allow(null),
                         targetDateNotes: Joi.string().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
                         photographyCoverage: Joi.string().required().allow(null)
@@ -341,6 +347,9 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         }).optional().allow(null),
                         targetDateNotes: Joi.string().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
                         photographyCoverage: Joi.string().optional().allow(null)
@@ -421,6 +430,9 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).required().allow(null),
                         upcomingReservations: Joi.string().required().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                     }),
                     photography: Joi.object({
                         photographyCoverage: Joi.string().required().allow(null)
@@ -491,6 +503,9 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
                         photographyCoverage: Joi.string().optional().allow(null)
@@ -1418,6 +1433,9 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
                         acknowledgePropertyReadyByStartDate: Joi.boolean().required().allow(null),
                         agreesUnpublishExternalListings: Joi.boolean().required().allow(null),
                         upcomingReservations: Joi.string().required().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                         externalListingNotes: Joi.string().required().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().required().allow(null),
                     }),
@@ -1464,6 +1482,9 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                         acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
                         agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
                         upcomingReservations: Joi.string().optional().allow(null),
+                        onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
+                            'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
+                        }).optional().allow(null),
                         targetDateNotes: Joi.string().optional().allow(null),
                         acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
                     }).optional(),
