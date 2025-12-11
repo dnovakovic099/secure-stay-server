@@ -466,7 +466,7 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                     sales: Joi.object({
                         salesRepresentative: Joi.string().optional().allow(null),
                         salesNotes: Joi.string().optional().allow(null),
-                        projectedRevenue: Joi.number().optional().allow(null),
+                        projectedRevenue: Joi.string().optional().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
