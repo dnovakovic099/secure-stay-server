@@ -16,6 +16,16 @@ import fs from "fs";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
 (async () => {
+
+    process.on('uncaughtException', (err) => {
+        logger.error('Worker Uncaught Exception:', err);
+        process.exit(1);
+    });
+
+    process.on('unhandledRejection', (reason) => {
+        logger.error('Worker Unhandled Rejection:', reason);
+    });
+
     if (!appDatabase.isInitialized) {
         await appDatabase.initialize();
     }

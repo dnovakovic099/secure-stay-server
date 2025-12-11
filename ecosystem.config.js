@@ -11,6 +11,17 @@ module.exports = {
             },
             max_memory_restart: "900M",
             autorestart: true
+        },
+        {
+            name: "hostaway-worker",
+            script: "dist/out-tsc/worker/haWorker.js",
+            exec_mode: "fork",
+            node_args: "--max-old-space-size=512",
+            max_memory_restart: "500M",
+            autorestart: true,
+            env: {
+                NODE_ENV: "production"
+            }
         }
     ]
 };
