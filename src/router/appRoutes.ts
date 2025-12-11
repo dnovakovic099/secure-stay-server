@@ -32,8 +32,12 @@ import listingScheduleRoutes from "./ListingScheduleRoutes";
 import maintenaceRoutes from "./maintenanceRoutes";
 import listingIntakeRoutes from "./listingIntakeRoutes";
 import clientRoutes from "./clientRoutes";
+import healthRoutes from "./healthRoutes";
 
 const router = Router();
+
+// Health check endpoint (no authentication required)
+router.use('/health', healthRoutes);
 
 router.use('/device', deviceRoutes);
 router.use('/messaging', messagingRoutes);
