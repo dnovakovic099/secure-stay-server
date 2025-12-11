@@ -1131,6 +1131,12 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
                         claimFeeNotes: Joi.string().optional().allow(null),
                         techFee: Joi.string().optional().valid("Yes", "No").allow(null),
                         techFeeNotes: Joi.string().optional().allow(null),
+                        onboardingFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        onboardingFeeAmountAndConditions: Joi.string().optional().allow(null),
+                        offboardingFee: Joi.string().optional().valid("Yes", "No").allow(null),
+                        offboardingFeeAmountAndConditions: Joi.string().optional().allow(null),
+                        payoutSchdule: Joi.string().optional().valid("Monthly", "Bi-weekly", "Weekly").allow(null),
+                        taxesAddedum: Joi.string().optional().valid("Yes", "No").allow(null),
                     }).required()
                 }).required()
             })

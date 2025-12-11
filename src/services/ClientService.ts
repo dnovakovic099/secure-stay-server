@@ -278,6 +278,12 @@ interface Financials {
   maximumStay?: boolean | null;
   pricingStrategyPreference?: string | null;
   minimumNightsRequiredByLaw?: string | null;
+  onboardingFee?: string | null;
+  onboardingFeeAmountAndConditions?: string | null;
+  offboardingFee?: string | null;
+  offboardingFeeAmountAndConditions?: string | null;
+  payoutSchdule?: string | null;
+  taxesAddedum?: string | null;
 }
 
 interface CsvRow {
@@ -3249,6 +3255,12 @@ export class ClientService {
         if (financials.maximumStay !== undefined) propertyInfo.maximumStay = financials.maximumStay ?? null;
         if (financials.pricingStrategyPreference !== undefined) propertyInfo.pricingStrategyPreference = financials.pricingStrategyPreference ?? null;
         if (financials.minimumNightsRequiredByLaw !== undefined) propertyInfo.minimumNightsRequiredByLaw = financials.minimumNightsRequiredByLaw ?? null;
+        if (financials.onboardingFee !== undefined) propertyInfo.onboardingFee = financials.onboardingFee ?? null;
+        if (financials.onboardingFeeAmountAndConditions !== undefined) propertyInfo.onboardingFeeAmountAndConditions = financials.onboardingFeeAmountAndConditions ?? null;
+        if (financials.offboardingFee !== undefined) propertyInfo.offboardingFee = financials.offboardingFee ?? null;
+        if (financials.offboardingFeeAmountAndConditions !== undefined) propertyInfo.offboardingFeeAmountAndConditions = financials.offboardingFeeAmountAndConditions ?? null;
+        if (financials.payoutSchdule !== undefined) propertyInfo.payoutSchdule = financials.payoutSchdule ?? null;
+        if (financials.taxesAddedum !== undefined) propertyInfo.taxesAddedum = financials.taxesAddedum ?? null;
 
 
         propertyInfo.updatedBy = userId;
