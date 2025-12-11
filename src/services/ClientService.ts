@@ -274,6 +274,10 @@ interface Financials {
   claimFeeNotes?: string | null;
   techFee?: string | null;
   techFeeNotes?: string | null;
+  minimumStay?: boolean | null;
+  maximumStay?: boolean | null;
+  pricingStrategyPreference?: string | null;
+  minimumNightsRequiredByLaw?: string | null;
 }
 
 interface CsvRow {
@@ -3241,6 +3245,10 @@ export class ClientService {
         if (financials.claimFeeNotes !== undefined) propertyInfo.claimFeeNotes = financials.claimFeeNotes ?? null;
         if (financials.techFee !== undefined) propertyInfo.techFee = financials.techFee ?? null;
         if (financials.techFeeNotes !== undefined) propertyInfo.techFeeNotes = financials.techFeeNotes ?? null;
+        if (financials.minimumStay !== undefined) propertyInfo.minimumStay = financials.minimumStay ?? null;
+        if (financials.maximumStay !== undefined) propertyInfo.maximumStay = financials.maximumStay ?? null;
+        if (financials.pricingStrategyPreference !== undefined) propertyInfo.pricingStrategyPreference = financials.pricingStrategyPreference ?? null;
+        if (financials.minimumNightsRequiredByLaw !== undefined) propertyInfo.minimumNightsRequiredByLaw = financials.minimumNightsRequiredByLaw ?? null;
 
 
         propertyInfo.updatedBy = userId;
