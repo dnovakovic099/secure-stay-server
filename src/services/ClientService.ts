@@ -962,7 +962,7 @@ export class ClientService {
     }
 
     if (filter.serviceType && filter.serviceType.length > 0) {
-      query.andWhere("client.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
+      query.andWhere("serviceInfo.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
     }
 
     if (filter.status && filter.status.length > 0) {
