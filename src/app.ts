@@ -4,13 +4,13 @@ import "reflect-metadata";
 import express from "express";
 import { scheduleGetReservation } from "./utils/scheduler.util";
 import { createRouting } from "./utils/router.util";
-import { appDatabase } from "./utils/database.util";
+import { initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
 import logger from "./utils/logger.utils";
 
-// 🔹 Handle uncaught exceptions at the very top
+// 🔹 Global error handlers
 process.on("uncaughtException", (err) => {
   logger.error("🔥 Uncaught Exception:", err);
   process.exit(1);
@@ -21,41 +21,46 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const main = async () => {
+  // STEP 1: Connect to DB BEFORE starting server
+  await initDatabase();
+
   const app = express();
   app.use(cors());
 
-  // JSON parser middleware that skips the hostify webhook route (needs raw text body for SNS)
+  // JSON parser with special webhook exception
   app.use((req, res, next) => {
-    // Skip JSON parsing for hostify webhook - it needs raw text body
     if (req.path.includes('/webhook/hostify_v1')) {
       return next();
     }
     express.json({ limit: "50mb" })(req, res, next);
   });
-  // app.use(express.json());
+
   app.use("/uploads", express.static("uploads"));
   app.use("/public", express.static("public"));
-  app.use("/assets",express.static("assets"));
+  app.use("/assets", express.static("assets"));
 
-  app.listen(process.env.PORT);
-  scheduleGetReservation();
+  // STEP 2: Routes should come AFTER DB is connected
   app.use(appRoutes);
-
   createRouting(app);
 
+  // STEP 3: Error for invalid routes
   app.use("*", (req, res, next) => {
-    console.log("error occure");
-
-    next(new Error("invalid Route!"));
+    next(new Error("Invalid route!"));
   });
 
+  // STEP 4: Error handler
   app.use(errorHandler);
-  console.log(
-    "Express application is up and running on port " + process.env.PORT
-  );
-  await appDatabase.initialize();
+
+  // STEP 5: Start server ONLY after everything is ready
+  app.listen(process.env.PORT, () => {
+    logger.info("🚀 Server running on port " + process.env.PORT);
+  });
+
+  // STEP 6: Start cron jobs AFTER server starts
+  scheduleGetReservation();
 };
 
 main().catch((err) => {
-  console.error(err, "-------------------------");
+  logger.error("Fatal startup error:", err);
 });
+
