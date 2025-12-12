@@ -701,6 +701,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         lockboxLocation: Joi.string().required().allow(null),
                         lockboxCode: Joi.string().required().allow(null),
                         doorLockInstructions: Joi.string().required().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().required().allow(null),
@@ -927,6 +928,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         lockboxLocation: Joi.string().optional().allow(null),
                         lockboxCode: Joi.string().optional().allow(null),
                         doorLockInstructions: Joi.string().optional().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().optional().allow(null),
@@ -1249,6 +1251,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         lockboxLocation: Joi.string().optional().allow(null),
                         lockboxCode: Joi.string().optional().allow(null),
                         doorLockInstructions: Joi.string().optional().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null),
 
 
                         //Waste Management
@@ -1629,6 +1632,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         lockboxLocation: Joi.string().required().allow(null),
                         lockboxCode: Joi.string().required().allow(null),
                         doorLockInstructions: Joi.string().required().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().required().allow(null),
@@ -1866,6 +1870,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         lockboxLocation: Joi.string().optional().allow(null),
                         lockboxCode: Joi.string().optional().allow(null),
                         doorLockInstructions: Joi.string().optional().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().optional().allow(null),

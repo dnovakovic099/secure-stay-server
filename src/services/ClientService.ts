@@ -176,6 +176,7 @@ interface Listing {
   lockboxLocation?: string | null;
   lockboxCode?: string | null;
   doorLockInstructions?: string | null;
+  emergencyBackUpCode?: string | null;
   wasteCollectionDays?: string | null;
   wasteBinLocation?: string | null;
   wasteManagementInstructions?: string | null;
@@ -2353,6 +2354,7 @@ export class ClientService {
     if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
     if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
     if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+    if (listingPayload.emergencyBackUpCode !== undefined) propertyInfo.emergencyBackUpCode = listingPayload.emergencyBackUpCode ?? null;
 
     // Waste Management
     if (listingPayload.wasteCollectionDays !== undefined) propertyInfo.wasteCollectionDays = listingPayload.wasteCollectionDays ?? null;
@@ -3357,6 +3359,7 @@ export class ClientService {
         if (listingPayload.lockboxLocation !== undefined) propertyInfo.lockboxLocation = listingPayload.lockboxLocation ?? null;
         if (listingPayload.lockboxCode !== undefined) propertyInfo.lockboxCode = listingPayload.lockboxCode ?? null;
         if (listingPayload.doorLockInstructions !== undefined) propertyInfo.doorLockInstructions = listingPayload.doorLockInstructions ?? null;
+        if (listingPayload.emergencyBackUpCode !== undefined) propertyInfo.emergencyBackUpCode = listingPayload.emergencyBackUpCode ?? null;
         if (listingPayload.standardDoorCode !== undefined) propertyInfo.standardDoorCode = listingPayload.standardDoorCode ?? null;
 
         // Waste Management

@@ -220,6 +220,9 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     doorLockInstructions: string;
 
+    @Column({ type: "text", nullable: true })
+    emergencyBackUpCode: string;
+
 
     // Waste Management Information
     @Column({ type: "text", nullable: true })
