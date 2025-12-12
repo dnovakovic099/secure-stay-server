@@ -1023,6 +1023,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 })
                             ),
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
+                            authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
@@ -1376,6 +1378,8 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 })
                             ),
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
+                            authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
@@ -1970,6 +1974,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 })
                             ),
                             addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
+                            authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 

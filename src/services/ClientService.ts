@@ -244,6 +244,8 @@ interface Listing {
     }> | null;
 
     addtionalVendorManagementNotes?: string | null;
+    acknowledgeMaintenanceResponsibility?: boolean | null;
+    authorizeLuxuryLodgingAction?: boolean | null;
     acknowledgeExpensesBilledToStatement?: any;
   } | null;
 }
@@ -2609,6 +2611,8 @@ export class ClientService {
 
     // Other
     if (vendorPayload.addtionalVendorManagementNotes !== undefined) vm.addtionalVendorManagementNotes = vendorPayload.addtionalVendorManagementNotes ?? null;
+    if (vendorPayload.acknowledgeMaintenanceResponsibility !== undefined) vm.acknowledgeMaintenanceResponsibility = vendorPayload.acknowledgeMaintenanceResponsibility ?? null;
+    if (vendorPayload.authorizeLuxuryLodgingAction !== undefined) vm.authorizeLuxuryLodgingAction = vendorPayload.authorizeLuxuryLodgingAction ?? null;
     if (vendorPayload.acknowledgeExpensesBilledToStatement !== undefined) vm.acknowledgeExpensesBilledToStatement = vendorPayload.acknowledgeExpensesBilledToStatement as any;
 
     // Save base VM first

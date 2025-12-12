@@ -119,6 +119,12 @@ export class PropertyVendorManagement {
     addtionalVendorManagementNotes: string;
 
     @Column({ type: "boolean", nullable: true })
+    acknowledgeMaintenanceResponsibility: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    authorizeLuxuryLodgingAction: boolean;
+
+    @Column({ type: "boolean", nullable: true })
     acknowledgeExpensesBilledToStatement: boolean;
 
     
