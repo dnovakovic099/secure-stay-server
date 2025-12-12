@@ -1023,6 +1023,18 @@ export class ClientService {
     await this.clientRepo.save(client);
   }
 
+  async deleteProperty(propertyId: string, userId: string) {
+    const property = await this.propertyRepo.findOne({ where: { id: propertyId } });
+    if (!property) {
+      throw CustomErrorHandler.notFound("Property not found");
+    }
+
+    // Soft delete by setting deletedAt and deletedBy
+    property.deletedAt = new Date();
+    property.deletedBy = userId;
+    await this.propertyRepo.save(property);
+  }
+
   async getClientMetadata() {
     // find the total no. of clients whose status is other than offboarded
     const totalActiveClients = await this.clientRepo.count({ where: { status: Not(PropertyStatus.INACTIVE), deletedAt: IsNull() } });

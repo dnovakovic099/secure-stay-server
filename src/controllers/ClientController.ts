@@ -47,6 +47,16 @@ export class ClientController {
     }
   }
 
+  async deleteProperty(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      await clientService.deleteProperty(request.params.propertyId, request.user.id);
+      return response.status(200).json({ message: "Property deleted successfully." });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getClients(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
