@@ -127,7 +127,6 @@ export class PropertyVendorManagement {
     @Column({ type: "boolean", nullable: true })
     acknowledgeExpensesBilledToStatement: boolean;
 
-    
 
 
     @OneToOne(() => PropertyInfo, (property) => property.vendorManagementInfo, { onDelete: "CASCADE" })

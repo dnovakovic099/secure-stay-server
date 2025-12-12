@@ -722,6 +722,8 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
+                        acknowledgeAmenitiesAccurate: Joi.boolean().required().allow(null),
+                        acknowledgeSecurityCamerasDisclosed: Joi.boolean().required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
@@ -1039,6 +1041,9 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         leadTimeDays: Joi.number().optional().allow(null),
                         bookingAcceptanceNotes: Joi.string().optional().allow(null),
                         managementNotes: Joi.string().optional().allow(null),
+                        acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
+                        acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
+                        acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
 
                         //Financials
                         minPrice: Joi.number().optional().allow(null),
@@ -1064,6 +1069,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        acknowledgeAmenitiesAccurate: Joi.boolean().optional().allow(null),
+                        acknowledgeSecurityCamerasDisclosed: Joi.boolean().optional().allow(null),
                         wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),
@@ -1399,6 +1406,9 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
 
                         //Management Notes
                         managementNotes: Joi.string().optional().allow(null),
+                        acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
+                        acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
+                        acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
                     }).required()
                 }).required()
             })
@@ -1657,6 +1667,8 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).required().allow(null),
+                        acknowledgeAmenitiesAccurate: Joi.boolean().required().allow(null),
+                        acknowledgeSecurityCamerasDisclosed: Joi.boolean().required().allow(null),
                         wifiUsername: Joi.string().required().allow(null),
                         wifiPassword: Joi.string().required().allow(null),
                         wifiSpeed: Joi.string().required().allow(null),
@@ -2006,6 +2018,9 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
 
                         //Management Notes
                         managementNotes: Joi.string().optional().allow(null),
+                        acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
+                        acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
+                        acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
 
                         //Financials
                         minPriceWeekday: Joi.number().optional().allow(null),
@@ -2021,6 +2036,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
+                        acknowledgeAmenitiesAccurate: Joi.boolean().optional().allow(null),
+                        acknowledgeSecurityCamerasDisclosed: Joi.boolean().optional().allow(null),
                         wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
                         wifiUsername: Joi.string().optional().allow(null),
                         wifiPassword: Joi.string().optional().allow(null),

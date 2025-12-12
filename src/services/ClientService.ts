@@ -2136,26 +2136,26 @@ export class ClientService {
   }
 
   async getClientDetails(id: string, propertyId: string[]) {
-    return await this.clientRepo.findOne({
-      where: {
-        id: id,
-        ...(propertyId && { properties: { id: In(propertyId) } }),
-      },
-      relations: [
-        "properties",
-        "secondaryContacts",
-        "properties.onboarding",
-        "properties.serviceInfo",
-        "properties.propertyInfo",
-        "properties.propertyInfo.propertyBedTypes",
-        "properties.propertyInfo.propertyBathroomLocation",
-        "properties.propertyInfo.propertyUpsells",
-        "properties.propertyInfo.propertyParkingInfo",
-        "properties.propertyInfo.vendorManagementInfo",
-        "properties.propertyInfo.vendorManagementInfo.suppliesToRestock",
-        "properties.propertyInfo.vendorManagementInfo.vendorInfo",
-      ],
-    });
+    const query = this.clientRepo.createQueryBuilder("client")
+      .leftJoinAndSelect("client.properties", "property")
+      .leftJoinAndSelect("client.secondaryContacts", "secondaryContacts")
+      .leftJoinAndSelect("property.onboarding", "onboarding")
+      .leftJoinAndSelect("property.serviceInfo", "serviceInfo")
+      .leftJoinAndSelect("property.propertyInfo", "propertyInfo")
+      .leftJoinAndSelect("propertyInfo.propertyBedTypes", "propertyBedTypes")
+      .leftJoinAndSelect("propertyInfo.propertyBathroomLocation", "propertyBathroomLocation")
+      .leftJoinAndSelect("propertyInfo.propertyUpsells", "propertyUpsells")
+      .leftJoinAndSelect("propertyInfo.propertyParkingInfo", "propertyParkingInfo")
+      .leftJoinAndSelect("propertyInfo.vendorManagementInfo", "vendorManagementInfo")
+      .leftJoinAndSelect("vendorManagementInfo.suppliesToRestock", "suppliesToRestock")
+      .leftJoinAndSelect("vendorManagementInfo.vendorInfo", "vendorInfo")
+      .where("client.id = :id", { id });
+
+    if (propertyId && propertyId.length > 0) {
+      query.andWhere("property.id IN (:...propertyIds)", { propertyIds: propertyId });
+    }
+
+    return await query.getOne();
   }
 
   async saveListingInfo(body: any, userId: string) {
@@ -2374,6 +2374,9 @@ export class ClientService {
     if (listingPayload.leadTimeDays !== undefined) propertyInfo.leadTimeDays = listingPayload.leadTimeDays ?? null;
     if (listingPayload.bookingAcceptanceNotes !== undefined) propertyInfo.bookingAcceptanceNotes = listingPayload.bookingAcceptanceNotes ?? null;
     if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+    if (listingPayload.acknowledgeNoGuestContact !== undefined) propertyInfo.acknowledgeNoGuestContact = listingPayload.acknowledgeNoGuestContact ?? null;
+    if (listingPayload.acknowledgeNoPropertyAccess !== undefined) propertyInfo.acknowledgeNoPropertyAccess = listingPayload.acknowledgeNoPropertyAccess ?? null;
+    if (listingPayload.acknowledgeNoDirectTransactions !== undefined) propertyInfo.acknowledgeNoDirectTransactions = listingPayload.acknowledgeNoDirectTransactions ?? null;
 
     //Financials
     if (listingPayload.minPrice !== undefined) propertyInfo.minPrice = listingPayload.minPrice ?? null;
@@ -2405,6 +2408,8 @@ export class ClientService {
 
     // Amenities
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
+    if (listingPayload.acknowledgeAmenitiesAccurate !== undefined) propertyInfo.acknowledgeAmenitiesAccurate = listingPayload.acknowledgeAmenitiesAccurate ?? null;
+    if (listingPayload.acknowledgeSecurityCamerasDisclosed !== undefined) propertyInfo.acknowledgeSecurityCamerasDisclosed = listingPayload.acknowledgeSecurityCamerasDisclosed ?? null;
     if (listingPayload.wifiAvailable !== undefined) propertyInfo.wifiAvailable = listingPayload.wifiAvailable ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
     if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;
@@ -3425,6 +3430,9 @@ export class ClientService {
 
         // Management Notes
         if (listingPayload.managementNotes !== undefined) propertyInfo.managementNotes = listingPayload.managementNotes ?? null;
+        if (listingPayload.acknowledgeNoGuestContact !== undefined) propertyInfo.acknowledgeNoGuestContact = listingPayload.acknowledgeNoGuestContact ?? null;
+        if (listingPayload.acknowledgeNoPropertyAccess !== undefined) propertyInfo.acknowledgeNoPropertyAccess = listingPayload.acknowledgeNoPropertyAccess ?? null;
+        if (listingPayload.acknowledgeNoDirectTransactions !== undefined) propertyInfo.acknowledgeNoDirectTransactions = listingPayload.acknowledgeNoDirectTransactions ?? null;
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);

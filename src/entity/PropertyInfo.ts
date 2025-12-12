@@ -273,6 +273,15 @@ export class PropertyInfo {
     @Column({ type: 'text', nullable: true })
     managementNotes: string;
 
+    @Column({ type: "boolean", nullable: true })
+    acknowledgeNoGuestContact: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    acknowledgeNoPropertyAccess: boolean;
+
+    @Column({ type: "boolean", nullable: true })
+    acknowledgeNoDirectTransactions: boolean;
+
 
     //Financials
     @Column({ type: "float", nullable: true })
@@ -354,6 +363,12 @@ export class PropertyInfo {
     //amenities
     @Column({ type: "simple-array", nullable: true })
     amenities: string[];
+
+    @Column({ type: "boolean", nullable: true, name: "acknowledge_amenities_accurate" })
+    acknowledgeAmenitiesAccurate: boolean;
+
+    @Column({ type: "boolean", nullable: true, name: "acknowledge_security_cameras_disclosed" })
+    acknowledgeSecurityCamerasDisclosed: boolean;
 
     @Column({ type: "text", nullable: true })
     locationOfThemostat: string;
