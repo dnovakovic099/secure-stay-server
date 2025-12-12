@@ -966,7 +966,7 @@ export class ClientService {
     }
 
     if (filter.status && filter.status.length > 0) {
-      query.andWhere("client.status IN (:...statuses)", { statuses: filter.status });
+      query.andWhere("property.status IN (:...statuses)", { statuses: filter.status });
     }
 
     if (filter.source) {
