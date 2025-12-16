@@ -22,6 +22,7 @@ import fs from "fs";
 import csv from "csv-parser";
 import { timezoneAmerica } from "../constant";
 import { isEmail } from "../helpers/helpers";
+import { OpenPhoneService } from "./OpenPhoneService";
 
 interface ClientFilter {
   page: number;
@@ -1344,11 +1345,40 @@ export class ClientService {
       }
 
       // 6. Return full client with relations
-      return await clientRepo.findOne({
+      const fullClient = await clientRepo.findOne({
         where: { id: savedClient.id },
         relations: ["secondaryContacts", "properties", "properties.propertyInfo"],
       });
+
+      // 7. Create contact in OpenPhone (non-blocking, outside transaction)
+      // This is done after the transaction to avoid blocking client creation
+      if (fullClient && !existingClientId) {
+        this.createOpenPhoneContact(fullClient, clientProperties).catch((error) => {
+          logger.error(`Failed to create OpenPhone contact for client ${savedClient.id}:`, error);
+        });
+      }
+
+      return fullClient;
     });
+  }
+
+  /**
+   * Create a contact in OpenPhone for a new client
+   * This is called asynchronously after client creation to avoid blocking
+   */
+  private async createOpenPhoneContact(client: ClientEntity, properties: any[]): Promise<void> {
+    try {
+      const openPhoneService = new OpenPhoneService();
+      if (!openPhoneService.isConfigured()) {
+        logger.info("OpenPhone not configured, skipping contact creation");
+        return;
+      }
+      await openPhoneService.createContactFromClient(client, properties);
+      logger.info(`OpenPhone contact created successfully for client: ${client.id}`);
+    } catch (error) {
+      logger.error(`OpenPhone contact creation failed for client ${client.id}:`, error);
+      // Don't throw - we don't want to affect the main flow
+    }
   }
 
   async savePropertyPreOnboardingInfo(body: PropertyOnboardingRequest, userId: string) {
