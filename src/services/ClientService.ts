@@ -90,6 +90,7 @@ interface Financial {
 interface ServiceInfo {
   managementFee: number | null;
   serviceType: "LAUNCH" | "PRO" | "FULL";
+  contractLink: string | null;
   serviceNotes: string | null;
 }
 
@@ -2110,6 +2111,7 @@ export class ClientService {
       }
       serviceInfoEntity.managementFee = serviceInfoPayload.managementFee != null ? String(serviceInfoPayload.managementFee) : null;
       serviceInfoEntity.serviceType = serviceInfoPayload.serviceType ?? null;
+      serviceInfoEntity.contractLink = serviceInfoPayload.contractLink ?? null;
       serviceInfoEntity.serviceNotes = serviceInfoPayload.serviceNotes ?? null;
       serviceInfoEntity.updatedBy = userId;
 
@@ -2153,6 +2155,7 @@ export class ClientService {
         }
         if (siPayload.managementFee !== undefined) si.managementFee = siPayload.managementFee != null ? String(siPayload.managementFee) : null;
         if (siPayload.serviceType !== undefined) si.serviceType = siPayload.serviceType ?? null;
+        if (siPayload.contractLink !== undefined) si.contractLink = siPayload.contractLink ?? null;
         if (siPayload.serviceNotes !== undefined) si.serviceNotes = siPayload.serviceNotes ?? null;
         si.updatedBy = userId;
         await this.propertyServiceInfoRepo.save(si);
