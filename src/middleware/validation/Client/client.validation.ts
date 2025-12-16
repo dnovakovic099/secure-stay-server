@@ -1388,6 +1388,9 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
                             authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
+                            acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
+                            acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
+                            acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
                         //Standard Booking Settings
