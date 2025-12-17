@@ -116,4 +116,53 @@ export class ResolutionController {
             next(error);
         }
     }
+
+    async processMultipleCSVForResolution(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const resolutionService = new ResolutionService();
+            const files = request.files as Express.Multer.File[];
+
+            if (!files || files.length === 0) {
+                return response.status(400).json({ message: "No files uploaded" });
+            }
+
+            logger.info(`Processing ${files.length} CSV file(s) for resolution`);
+
+            let allFailedData: any[] = [];
+            let allSuccessData: any[] = [];
+
+            // Process each file sequentially
+            for (const file of files) {
+                try {
+                    const { failedToProcessData, successfullyProcessedData } = await resolutionService.processCSVFileForResolution(file.path, userId);
+                    allFailedData = [...allFailedData, ...failedToProcessData];
+                    allSuccessData = [...allSuccessData, ...successfullyProcessedData];
+                } catch (fileError) {
+                    logger.error(`Failed to process file ${file.originalname}: ${fileError.message}`);
+                    // Continue with other files even if one fails
+                }
+            }
+
+            if (allFailedData.length > 0) {
+                const csv = unparse(allFailedData);
+
+                response.setHeader("Content-Disposition", "attachment; filename=failed_resolutions.csv");
+                response.setHeader("Content-Type", "text/csv");
+                response.status(200).send(csv);
+            } else {
+                response.status(200).json({
+                    success: true,
+                    message: allSuccessData.length > 0
+                        ? `${allSuccessData.length} records processed successfully from ${files.length} file(s)`
+                        : "No records to process",
+                    successfullyProcessedData: allSuccessData,
+                    failedToProcessData: allFailedData,
+                    filesProcessed: files.length
+                });
+            }
+        } catch (error) {
+            next(error);
+        }
+    }
 } 
