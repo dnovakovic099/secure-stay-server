@@ -40,6 +40,8 @@ router.route('/liveissues/latest-update/create').post(verifySession, validateCre
 
 router.route('/bad-review/update-status').put(verifySession, validateBadReviewUpdateStatus, reviewController.updateBadReviewStatus);
 
+router.route('/bad-review/update-fields').put(verifySession, reviewController.updateBadReviewFields);
+
 router.route('/bad-review/latest-update/create').post(verifySession, validateBadReviewLatestUpdate, reviewController.createBadReviewUpdate);
 
 router.route('/bad-review')

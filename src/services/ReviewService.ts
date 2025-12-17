@@ -931,6 +931,19 @@ export class ReviewService {
             logger.info(`Bad review log already exists for reservation id: ${obj.reservationInfo.id}`);
             return existingBadReviewLog;
         }
+
+        // Check for existing review and populate publicReview/rating
+        const existingReview = await this.reviewRepository.findOne({
+            where: { reservationId: obj.reservationInfo.id },
+            order: { createdAt: 'DESC' }
+        });
+
+        if (existingReview) {
+            obj.publicReview = existingReview.publicReview || null;
+            obj.rating = existingReview.rating || null;
+            obj.isManuallyEntered = false;
+        }
+
         const newReview = this.badReviewRepo.create(obj);
         return await this.badReviewRepo.save(newReview);
     }
@@ -946,6 +959,27 @@ export class ReviewService {
         badReview.updatedBy = userId;
         await this.badReviewRepo.save(badReview);
         return badReview;
+    }
+
+    async updateBadReviewFields(id: number, data: { publicReview?: string; rating?: number; }, userId: string) {
+        const badReview = await this.badReviewRepo.findOne({ where: { id } });
+        if (!badReview) {
+            throw CustomErrorHandler.notFound(`Bad review not found with id: ${id}`);
+        }
+
+        if (data.publicReview !== undefined) {
+            badReview.publicReview = data.publicReview;
+        }
+        if (data.rating !== undefined) {
+            badReview.rating = data.rating;
+        }
+
+        // Mark as manually entered when user updates
+        badReview.isManuallyEntered = true;
+        badReview.updatedAt = new Date();
+        badReview.updatedBy = userId;
+
+        return await this.badReviewRepo.save(badReview);
     }
 
     async getBadReviews(filters: FilterBadReviews, userId: string) {

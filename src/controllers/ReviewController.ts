@@ -174,6 +174,24 @@ export class ReviewController {
         }
     }
 
+    async updateBadReviewFields(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const userId = request.user.id;
+            const { badReviewId, publicReview, rating } = request.body;
+
+            const updatedBadReview = await reviewService.updateBadReviewFields(badReviewId, { publicReview, rating }, userId);
+
+            return response.status(200).json({
+                success: true,
+                data: updatedBadReview
+            });
+        } catch (error) {
+            logger.error("Error updating bad review fields:", error);
+            return next(error);
+        }
+    }
+
     async getLiveIssues(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;

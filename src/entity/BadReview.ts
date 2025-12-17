@@ -36,6 +36,15 @@ export class BadReviewEntity {
     @Column({ nullable: true })
     mistakeResolvedOn: string;
 
+    @Column({ type: 'text', nullable: true })
+    publicReview: string;
+
+    @Column({ type: 'int', nullable: true })
+    rating: number;
+
+    @Column({ nullable: true, default: false })
+    isManuallyEntered: boolean;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
