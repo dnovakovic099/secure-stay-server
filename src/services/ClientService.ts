@@ -23,6 +23,7 @@ import csv from "csv-parser";
 import { timezoneAmerica } from "../constant";
 import { isEmail } from "../helpers/helpers";
 import { OpenPhoneService } from "./OpenPhoneService";
+import { UsersService } from "./UsersService";
 
 interface ClientFilter {
   page: number;
@@ -1357,6 +1358,27 @@ export class ClientService {
         this.createOpenPhoneContact(fullClient, clientProperties).catch((error) => {
           logger.error(`Failed to create OpenPhone contact for client ${savedClient.id}:`, error);
         });
+
+        // Send onboarding call SMS if onboardingCallSchedule was set
+        for (const property of clientProperties) {
+          const onboardingCallSchedule = property.onboarding?.listing?.onboardingCallSchedule;
+          if (onboardingCallSchedule && fullClient.properties?.length > 0) {
+            // Find the saved property that matches this one (by address)
+            const savedProperty = fullClient.properties.find(
+              (p: any) => p.address === property.address
+            );
+            if (savedProperty) {
+              this.sendOnboardingCallSMS(
+                fullClient,
+                savedProperty,
+                onboardingCallSchedule,
+                userId
+              ).catch((error) => {
+                logger.error(`Failed to send onboarding call SMS for client ${savedClient.id}:`, error);
+              });
+            }
+          }
+        }
       }
 
       return fullClient;
@@ -1378,6 +1400,48 @@ export class ClientService {
       logger.info(`OpenPhone contact created successfully for client: ${client.id}`);
     } catch (error) {
       logger.error(`OpenPhone contact creation failed for client ${client.id}:`, error);
+      // Don't throw - we don't want to affect the main flow
+    }
+  }
+
+  /**
+   * Send onboarding call SMS to client
+   * Called when onboardingCallSchedule is first set
+   */
+  private async sendOnboardingCallSMS(
+    client: ClientEntity,
+    clientProperty: ClientPropertyEntity,
+    onboardingCallSchedule: string,
+    userId: string
+  ): Promise<void> {
+    try {
+      const openPhoneService = new OpenPhoneService();
+      if (!openPhoneService.isConfigured()) {
+        logger.info("OpenPhone not configured, skipping onboarding call SMS");
+        return;
+      }
+
+      // Get API key for the user
+      const usersService = new UsersService();
+      const apiKeyResult = await usersService.getApiKey(userId);
+      const apiKey = apiKeyResult.apiKey;
+
+      // Build the onboarding form URL
+      const baseUrl = "https://securestay.ai";
+      const onboardingFormLink = `${baseUrl}/client-listing-intake-update/${apiKey}/${client.id}?propertyId=${clientProperty.id}`;
+
+      // Send the SMS
+      await openPhoneService.sendOnboardingCallSMS(
+        client.firstName || "there",
+        client.dialCode || "+1",
+        client.phone || "",
+        onboardingCallSchedule,
+        onboardingFormLink
+      );
+
+      logger.info(`Onboarding call SMS sent successfully for client: ${client.id}`);
+    } catch (error) {
+      logger.error(`Failed to send onboarding call SMS for client ${client.id}:`, error);
       // Don't throw - we don't want to affect the main flow
     }
   }
@@ -1753,6 +1817,7 @@ export class ClientService {
 
           ob.updatedBy = userId;
         }
+
         await this.propertyOnboardingRepo.save(ob);
       }
 

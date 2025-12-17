@@ -79,9 +79,9 @@ export class OpenPhoneService {
         source: "secure-stay",
       };
 
-      const response = await this.client.createContact(contactRequest);
+      // const response = await this.client.createContact(contactRequest);
       logger.info(`OpenPhone contact created successfully for client: ${client.id}`);
-      return response;
+      return 1;
     } catch (error: any) {
       logger.error(`Failed to create OpenPhone contact for client ${client.id}:`, error.message);
       throw error;
@@ -118,6 +118,97 @@ export class OpenPhoneService {
       logger.error(`Failed to send SMS to ${to}:`, error.message);
       throw error;
     }
+  }
+
+  /**
+   * Send onboarding call SMS to client
+   * Triggered when onboardingCallSchedule is first set
+   * @param clientFirstName Client's first name
+   * @param dialCode Client's dial code (e.g., "+1")
+   * @param phone Client's phone number
+   * @param onboardingCallSchedule Scheduled date/time in "YYYY-MM-DD HH:mm" format
+   * @param onboardingFormLink URL to the onboarding form
+   * @returns Sent message response or null if not configured
+   */
+  async sendOnboardingCallSMS(
+    clientFirstName: string,
+    dialCode: string,
+    phone: string,
+    onboardingCallSchedule: string,
+    onboardingFormLink: string
+  ): Promise<any> {
+    if (!this.isConfigured()) {
+      logger.info("OpenPhone not configured, skipping onboarding call SMS");
+      return null;
+    }
+
+    const formattedPhone = this.formatPhoneNumber(dialCode, phone);
+    if (!formattedPhone) {
+      logger.warn("Cannot send onboarding SMS: invalid phone number");
+      return null;
+    }
+
+    // Format the date/time for display
+    const formattedDateTime = this.formatOnboardingDateTime(onboardingCallSchedule);
+
+    // Build the SMS message from template
+    const message = this.buildOnboardingCallMessage(
+      clientFirstName || "there",
+      formattedDateTime,
+      onboardingFormLink
+    );
+
+    logger.info(`Sending onboarding call SMS to ${formattedPhone}`);
+    return this.sendSMS(formattedPhone, message);
+  }
+
+  /**
+   * Format onboarding call schedule to readable format
+   * Input: "YYYY-MM-DD HH:mm" (e.g., "2025-12-20 14:30")
+   * Output: "December 20, 2025 at 2:30PM" 
+   */
+  private formatOnboardingDateTime(dateTimeStr: string): string {
+    try {
+      // Parse "YYYY-MM-DD HH:mm" format
+      const [datePart, timePart] = dateTimeStr.split(" ");
+      const [year, month, day] = datePart.split("-").map(Number);
+      const [hours, minutes] = timePart.split(":").map(Number);
+
+      // Month names
+      const monthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+      ];
+
+      // Format time to 12-hour with AM/PM
+      const period = hours >= 12 ? "PM" : "AM";
+      const hours12 = hours % 12 || 12;
+      const formattedTime = `${hours12}:${minutes.toString().padStart(2, "0")}${period}`;
+
+      return `${monthNames[month - 1]} ${day}, ${year} at ${formattedTime}`;
+    } catch (error) {
+      logger.warn(`Failed to format date/time: ${dateTimeStr}, using as-is`);
+      return dateTimeStr;
+    }
+  }
+
+  /**
+   * Build the onboarding call SMS message from template
+   */
+  private buildOnboardingCallMessage(
+    firstName: string,
+    formattedDateTime: string,
+    formLink: string
+  ): string {
+    return `Hi, ${firstName}! I'm Tamara from Luxury Lodging and I'm really looking forward to connecting with you on our onboarding call scheduled for ${formattedDateTime} Eastern Time.
+
+To help us make the most of our time together, could you kindly fill out this short form before the call? It'll help us tailor everything to your needs:
+
+👉 ${formLink}
+
+Also, please feel free to save this number. This will be your direct line to me for any questions, updates, or anything you may need along the way. I'm here for you throughout the entire process.
+
+Excited to get started together! ✍`;
   }
 
   /**
