@@ -218,6 +218,10 @@ export const clientTicketStatusEmoji = (status: string) => {
             emoji = "🔵";
             break;
         }
+        case "Scheduled": {
+            emoji = "⚪";
+            break;
+        }
         default: {
             emoji = "";
         }
