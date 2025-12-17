@@ -481,6 +481,13 @@ export class ClientTicketService {
           clientTicket.clientSatisfaction = updateData.clientSatisfaction;
         }
 
+        if ((updateData as any).latestUpdates) {
+          await this.saveClientTicketUpdates({
+            ticketId: clientTicket.id,
+            updates: (updateData as any).latestUpdates
+          }, userId);
+        }
+
         clientTicket.updatedBy = userId;
         clientTicket.updatedAt = new Date();
         return this.clientTicketRepo.save(clientTicket);
@@ -568,7 +575,7 @@ export class ClientTicketService {
         filters.toDate && {
           createdAt: Between(
             new Date(filters.fromDate),
-            new Date(filters.toDate)
+            new Date(new Date(filters.toDate).setHours(23, 59, 59, 999))
           ),
         }),
       ...(filters.keyword && { description: Like(`%${filters.keyword}%`) }),
