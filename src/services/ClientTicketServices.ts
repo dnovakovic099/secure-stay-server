@@ -176,7 +176,10 @@ export class ClientTicketService {
           }),
         ...(fromDate &&
           toDate && {
-            createdAt: Between(new Date(fromDate), new Date(toDate)),
+          createdAt: Between(
+            new Date(fromDate),
+            new Date(new Date(toDate).setHours(23, 59, 59, 999))
+          ),
           }),
         ...(keyword && { description: ILike(`%${keyword}%`) }),
       },
