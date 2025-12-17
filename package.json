@@ -8,7 +8,9 @@
     "dev:haworker": "npx ts-node-dev src/worker/haWorker.ts",
     "build": "tsc",
     "start": "NODE_ENV=production node dist/out-tsc/app.js",
-    "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js"
+    "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js",
+    "migrate": "npx ts-node-dev src/runMigrations.ts",
+    "migrate:prod": "NODE_ENV=production node dist/out-tsc/runMigrations.js"
   },
   "author": "Viktor",
   "license": "ISC",
