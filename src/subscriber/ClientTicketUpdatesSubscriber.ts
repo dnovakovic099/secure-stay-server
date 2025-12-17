@@ -5,7 +5,7 @@ import {
     InsertEvent,
     RemoveEvent,
 } from 'typeorm';
-import { getDiff } from '../helpers/helpers';
+import { getDiff, replaceMentionsWithSlackIds } from '../helpers/helpers';
 import logger from '../utils/logger.utils';
 import { buildClientTicketUpdateMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
@@ -14,6 +14,7 @@ import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
 import { ClientTicketUpdates } from '../entity/ClientTicketUpdates';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import { getSlackUsers } from '../utils/getSlackUsers';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -43,7 +44,14 @@ export class ClientTicketSubscriber
                 }
             });
 
-            const slackMessage = buildClientTicketUpdateMessage(updates, listingInfo?.internalListingName, user);
+            // Fetch slack users for mention replacement
+            const slackUsers = await getSlackUsers();
+
+            // Process mentions in updates text
+            const processedUpdatesText = replaceMentionsWithSlackIds(updates.updates, slackUsers);
+            const updatesWithProcessedText = { ...updates, updates: processedUpdatesText };
+
+            const slackMessage = buildClientTicketUpdateMessage(updatesWithProcessedText, listingInfo?.internalListingName, user);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "client_ticket",

@@ -6,7 +6,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
-import { generateSlackMessageLink, setSelectedSlackUsers } from "../helpers/helpers";
+import { generateSlackMessageLink } from "../helpers/helpers";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -109,9 +109,7 @@ export class ClientTicketService {
       mistakeResolvedOn: body.mistake === "Resolved" ? format(new Date(), "yyyy-MM-dd") : null,
       dueDate: body.dueDate || null,
     };
-    if (body.category.includes("Other") && mentions && mentions.length > 0) {
-      setSelectedSlackUsers(mentions);
-    }
+
     const clientTicket = await this.createClientTicket(ticketData, userId);
     latestUpdates &&
       (await this.createClientTicketUpdates(

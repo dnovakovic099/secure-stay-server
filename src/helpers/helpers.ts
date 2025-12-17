@@ -260,77 +260,27 @@ export const claimStatusEmoji = (status: string) => {
 };
 
 
-const slackUsers = {
-    // PRASANNA_KUMAR_BANIYA: "U07K1N81HMW",
-    // PRABIN_KUMAR_BANIYA: "U07JFDC86H2",
-    // TRIBIKRAM_SEN: "U07HYC3TBF1",
-    FERDY: "U07P974D65P",
-    LOUIS: "U06QKAV9VV5",
-    DARKO: "U06TCAW5YLE",
-    GABBY: "U088XAQ4YP2",
-    JADE: "U08EUTR1H9A",
-    KAJ: "U073DCTHNKY",
-    ANGELICA: "U08END0JTBM",
-    JAZZ: "U093172T6MP",
-    JOREL: "U09278TM6A3",
-    JUSTINE: "U09626Z6JUQ",
-    ALDRIN: "U0974TJ85Q9",
-    RAIN: "U096SNZR9CL",
-    CHRIS: "U0948PQC9UZ",
-    JULIUS: "U08QJBLNG6A",
-    IAN: "U0962L2EG4S",
-    CARYL: "U0977E4NNLX",
-    YSA: "U097P8RNXS6",
-    ABHEY: "U08CL60E6U8"
+export const replaceMentionsWithSlackIds = (text: string, slackUsers: any[]) => {
+    if (!text || !slackUsers || slackUsers.length === 0) return text;
+    let newText = text;
+
+    // Sort users by name length (descending) to avoid partial matches on similar names
+    const sortedUsers = [...slackUsers].sort((a, b) => b.name.length - a.name.length);
+
+    sortedUsers.forEach(user => {
+        // Match @Display Name or @Real Name
+        // We use a regex to match @Name where Name is the user's name
+        // \b ensures we match "User Name" but not "User NameUnknown" if "User Name" is being replaced
+        // converting to case insensitive for better UX
+        const name = user.name || user.real_name || user.display_name;
+        if (name) {
+            const regex = new RegExp(`@${name}`, 'gi');
+            newText = newText.replace(regex, `<@${user.id}>`);
+        }
+    });
+
+    return newText;
 };
-
-let selectedSlackUsers = [];
-
-export function getSelectedSlackUsers() {
-    return selectedSlackUsers;
-}
-
-export function setSelectedSlackUsers(newValue: string[]) {
-    selectedSlackUsers = newValue;
-}
-
-export const clientTicketMentions = (category: string) => {
-    let mentions = [];
-    switch (category) {
-        case "Pricing": {
-            mentions = [slackUsers.GABBY, slackUsers.FERDY];
-            break;
-        }
-        case "Statement": {
-            mentions = [slackUsers.GABBY, slackUsers.FERDY, slackUsers.ABHEY];
-            break;
-        }
-        case "Reservation": {
-            mentions = [slackUsers.GABBY];
-            break;
-        }
-        case "Listing": {
-            mentions = [slackUsers.GABBY];
-            break;
-        }
-        case "Maintenance": {
-            mentions = [slackUsers.GABBY];
-            break;
-        }
-        case "Other": {
-            mentions = selectedSlackUsers;
-            break;
-        }
-        case "Onboarding": {
-            mentions = [slackUsers.GABBY];
-            break;
-        }
-        default: {
-            mentions = [];
-        }
-    }
-    return mentions;
-}
 
 export const getStarRating = (ratingOutOf10: number): string => {
     const ratingOutOf5 = Math.round((ratingOutOf10 / 2) * 2) / 2; // Round to 0.5

@@ -5,7 +5,7 @@ import {
     InsertEvent,
     RemoveEvent,
 } from 'typeorm';
-import { clientTicketMentions, getDiff, setSelectedSlackUsers } from '../helpers/helpers';
+import { getDiff, replaceMentionsWithSlackIds } from '../helpers/helpers';
 import logger from '../utils/logger.utils';
 import { buildClientTicketSlackMessage, buildClientTicketSlackMessageDelete, buildClientTicketSlackMessageUpdate, buildIssueSlackMessage } from '../utils/slackMessageBuilder';
 import sendSlackMessage from '../utils/sendSlackMsg';
@@ -15,6 +15,7 @@ import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import { getSlackUsers } from '../utils/getSlackUsers';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -44,14 +45,16 @@ export class ClientTicketSubscriber
                 }
             });
 
-            const categories = JSON.parse(ticket.category);
-            let mentions = [];
-            categories.map((category: any) => {
-                mentions = [...mentions, ...clientTicketMentions(category),];
-            });
+            // Fetch slack users for mention replacement
+            const slackUsers = await getSlackUsers();
+
+            // Process description for mentions
+            const processedDescription = replaceMentionsWithSlackIds(ticket.description, slackUsers);
+            const ticketWithProcessedDescription = { ...ticket, description: processedDescription };
 
             const slackMessageService = new SlackMessageService();
-            const slackMessage = buildClientTicketSlackMessage(ticket, user, listingInfo?.internalListingName, mentions);
+            // Pass empty array for explicit mentions as we are using inline mentions now
+            const slackMessage = buildClientTicketSlackMessage(ticketWithProcessedDescription, user, listingInfo?.internalListingName, []);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({
@@ -63,8 +66,6 @@ export class ClientTicketSubscriber
                 originalMessage: JSON.stringify(slackMessage)
             });
 
-            //reset selected mentions
-            setSelectedSlackUsers([]);
         } catch (error) {
             logger.error("Slack creation failed", error);
         }
@@ -81,6 +82,9 @@ export class ClientTicketSubscriber
                     id: Number(ticket.listingId),
                 }
             });
+
+            // Fetch slack users for mention replacement
+            const slackUsers = await getSlackUsers();
 
             // ---- 🧠 Preprocess diff ----
             const processedDiff: Record<string, { old: any; new: any; }> = {};
@@ -100,6 +104,12 @@ export class ClientTicketSubscriber
                     processedDiff[key] = {
                         old: oldUser ? `${oldUser.firstName} ${oldUser.lastName}` : value.old,
                         new: newUser ? `${newUser.firstName} ${newUser.lastName}` : value.new
+                    };
+                } else if (key === "description" || key === "resolution") {
+                    // Process text fields for mentions
+                    processedDiff[key] = {
+                        old: replaceMentionsWithSlackIds(value.old, slackUsers),
+                        new: replaceMentionsWithSlackIds(value.new, slackUsers)
                     };
                 } else {
                     processedDiff[key] = value;
