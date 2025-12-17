@@ -80,13 +80,22 @@ async function executeMigration(
     await queryRunner.startTransaction();
 
     try {
-        // Split by semicolon and execute each statement
-        const statements = content
+        // Remove comment lines first, then split by semicolon
+        const cleanedContent = content
+            .split("\n")
+            .filter((line) => !line.trim().startsWith("--"))
+            .join("\n");
+
+        const statements = cleanedContent
             .split(";")
             .map((s) => s.trim())
-            .filter((s) => s.length > 0 && !s.startsWith("--"));
+            .filter((s) => s.length > 0);
 
-        for (const statement of statements) {
+        logger.info(`📝 Executing ${statements.length} statement(s) from ${filename}`);
+
+        for (let i = 0; i < statements.length; i++) {
+            const statement = statements[i];
+            logger.info(`   Statement ${i + 1}: ${statement.substring(0, 50)}...`);
             await queryRunner.query(statement);
         }
 
