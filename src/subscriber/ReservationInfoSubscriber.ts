@@ -45,6 +45,11 @@ export class ReservationInfoSubscriber
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
 
+        // Only save log if nights or totalPrice changed
+        const diffKeys = Object.keys(diff);
+        const hasNightsOrTotalPriceChange = diffKeys.includes('nights') || diffKeys.includes('totalPrice');
+        if (!hasNightsOrTotalPriceChange) return;
+
         const log = manager.create(ReservationInfoLog, {
             reservationInfoId: entity.id,
             oldData,
