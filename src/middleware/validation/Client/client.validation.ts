@@ -788,6 +788,14 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
+                streetAddress: Joi.string().optional().allow(null),
+                unitNumber: Joi.string().optional().allow(null),
+                city: Joi.string().optional().allow(null),
+                state: Joi.string().optional().allow(null),
+                country: Joi.string().optional().allow(null),
+                zipCode: Joi.string().optional().allow(null),
+                latitude: Joi.number().optional().allow(null),
+                longitude: Joi.number().optional().allow(null),
                 listingId: Joi.string().optional().allow(null),
                 onboarding: Joi.object({
                     listing: Joi.object({

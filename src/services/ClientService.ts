@@ -18,6 +18,8 @@ import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
 import { SuppliesToRestock } from "../entity/SuppliesToRestock";
 import { VendorInfo } from "../entity/VendorInfo";
 import { HostAwayClient } from "../client/HostAwayClient";
+import { Hostify } from "../client/Hostify";
+import { HostifyListingMapper } from "../helpers/HostifyListingMapper";
 import fs from "fs";
 import csv from "csv-parser";
 import { timezoneAmerica } from "../constant";
@@ -3997,94 +3999,215 @@ export class ClientService {
 
 
   async publishPropertyToHostify(propertyId: string, userId: string) {
-    const listingIntake = await this.propertyRepo.findOne({
+    const property = await this.propertyRepo.findOne({
       where: { id: propertyId },
-      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.propertyUpsells", "client"]
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "client"]
     });
 
-
-    if (!listingIntake) {
+    if (!property) {
       throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
     }
 
-    // Here you would implement the logic to publish the property to Hostaway
-    // This is a placeholder for the actual implementation
-    logger.info("Publishing property to Hostaway");
+    // Validation - check if already published
+    if (property.listingId) {
+      throw CustomErrorHandler.forbidden("Property is already published to Hostify.");
+    }
 
-    // Simulate successful publishing
-    let status = this.getListingIntakeStatus(listingIntake.propertyInfo);
+    // Validation - check if all required fields are present
+    const status = this.getListingIntakeStatus(property.propertyInfo);
     if (status === "draft") {
-      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostaway.");
-    }
-    if (listingIntake.listingId) {
-      throw CustomErrorHandler.forbidden("Property is already published to Hostaway.");
+      throw CustomErrorHandler.forbidden("Missing required fields. Cannot be published to Hostify.");
     }
 
-    //prepare hostaway payload
-    const hostawayPayload = {
-      name: listingIntake.propertyInfo.externalListingName,
-      externalListingName: listingIntake.propertyInfo.externalListingName,
-      internalListingName: listingIntake.propertyInfo.internalListingName,
-      price: listingIntake.propertyInfo.price || 3000,
-      priceForExtraPerson: listingIntake.propertyInfo.priceForExtraPerson || 0,
-      propertyTypeId: listingIntake.propertyInfo.propertyTypeId,
-      roomType: listingIntake.propertyInfo.roomType,
-      bedroomsNumber: listingIntake.propertyInfo.bedroomsNumber,
-      bathroomsNumber: listingIntake.propertyInfo.bathroomsNumber,
-      bathroomType: listingIntake.propertyInfo.bathroomType,
-      guestBathroomsNumber: listingIntake.propertyInfo.guestBathroomsNumber,
-      address: listingIntake.address,
-      timeZoneName: listingIntake.client.timezone,
-      currencyCode: listingIntake.propertyInfo.currencyCode || "USD",
-      personCapacity: listingIntake.propertyInfo.personCapacity,
-      cleaningFee: listingIntake.propertyInfo?.vendorManagementInfo?.cleaningFee || null,
-      airbnbPetFeeAmount: listingIntake.propertyInfo.petFee,
-      checkOutTime: listingIntake.propertyInfo.checkOutTime,
-      checkInTimeStart: listingIntake.propertyInfo.checkInTimeStart,
-      checkInTimeEnd: listingIntake.propertyInfo.checkInTimeEnd,
-      squareMeters: listingIntake.propertyInfo.squareMeters,
-      language: "en",
-      instantBookable: listingIntake.propertyInfo?.canAnyoneBookAnytime?.includes("Yes") || false,
-      instantBookableLeadTime: listingIntake.propertyInfo.leadTimeDays || null,
-      wifiUsername: listingIntake.propertyInfo.wifiUsername,
-      wifiPassword: listingIntake.propertyInfo.wifiPassword,
-      minNights: listingIntake.propertyInfo.minNights,
-      maxNights: listingIntake.propertyInfo.maxNights,
-      contactName: "Luxury Lodging",
-      contactPhone1: "(813) 531-8988",
-      contactLanguage: "English",
-      guestsIncluded: listingIntake.propertyInfo.guestsIncluded || 1,
+    logger.info(`Publishing property ${propertyId} to Hostify`);
 
-      amenities: listingIntake.propertyInfo?.amenities?.map((amenity: any) => {
-        return { amenityId: Number(amenity) };
-      }),
+    // Update status to publishing
+    property.hostifyPublishStatus = "publishing";
+    property.hostifyLastPublishAttempt = new Date();
+    await this.propertyRepo.save(property);
 
-      listingBedTypes: listingIntake.propertyInfo?.propertyBedTypes?.filter((bedType: any) => bedType.bedTypeId && bedType.quantity && bedType.bedroomNumber)
-        .map(bedType => ({
-          bedTypeId: bedType.bedTypeId,
-          quantity: bedType.quantity,
-          bedroomNumber: bedType.bedroomNumber,
-        })),
+    try {
+      // Check if resuming from a previous failure
+      const completedSteps = property.hostifyCompletedSteps || [];
+      const isResuming = property.hostifyListingId && completedSteps.length > 0;
 
-      propertyLicenseNumber: listingIntake.propertyInfo.propertyLicenseNumber,
-    };
+      if (isResuming) {
+        logger.info(`Resuming publishing for property ${propertyId}. Listing ID: ${property.hostifyListingId}, Completed steps: [${completedSteps.join(", ")}]`);
+      }
 
-    logger.info(JSON.stringify(hostawayPayload));
+      // Call Hostify API
+      const hostifyClient = new Hostify();
+      const apiKey = process.env.HOSTIFY_API_KEY || '';
 
-    //simulate taking time of 10s
-    // await new Promise(resolve => setTimeout(resolve, 10000));
+      let hostifyListingId = property.hostifyListingId;
+      const payload: any = {};
 
-    const response = await this.hostawayClient.createListing(hostawayPayload);
-    if (!response) {
-      throw new CustomErrorHandler(500, "Failed to publish listing intake to Hostaway");
+      // Step 1: Location (only if not already completed or retrying)
+      if (!isResuming || !completedSteps.includes("location")) {
+        const locationPayload = HostifyListingMapper.mapToLocation(property, property.propertyInfo);
+        payload.location = locationPayload;
+
+        // Log the payload for debugging
+        logger.info("Publishing to Hostify with payload:", JSON.stringify(payload, null, 2));
+
+        const result = await hostifyClient.createListing(apiKey, payload);
+
+        if (!result.success) {
+          // Store error info with payload for debugging
+          const errorDetails = {
+            step: result.failedStep,
+            error: result.error,
+            payload: payload[result.failedStep as keyof typeof payload]
+          };
+
+          logger.error(`Hostify publish failed at step: ${result.failedStep}`, errorDetails);
+
+          property.hostifyPublishStatus = "failed";
+          property.hostifyPublishError = JSON.stringify(errorDetails);
+          property.hostifyCompletedSteps = result.completedSteps || [];
+          await this.propertyRepo.save(property);
+
+          throw new CustomErrorHandler(500, `Failed at step: ${result.failedStep}. Error: ${result.error}. Check hostifyPublishError field for payload details.`);
+        }
+
+        // Extract listing ID from location response
+        hostifyListingId = result.results.location?.listingId;
+
+        if (!hostifyListingId) {
+          property.hostifyPublishStatus = "failed";
+          property.hostifyPublishError = JSON.stringify({
+            step: "location",
+            error: "No listing ID returned from Hostify"
+          });
+          await this.propertyRepo.save(property);
+
+          throw new CustomErrorHandler(500, "No listing ID returned from Hostify after location step");
+        }
+
+        // CRITICAL: Save hostifyListingId immediately after location succeeds
+        property.hostifyListingId = String(hostifyListingId);
+        property.hostifyCompletedSteps = ["location"];
+        await this.propertyRepo.save(property);
+        logger.info(`Location step completed. Hostify listing ID: ${hostifyListingId} saved.`);
+
+        // Remove location from payload to prevent reprocessing
+        delete payload.location;
+      }
+
+      // Now add the remaining steps with the listing ID (skip if already completed)
+      const listingIdNum = Number(hostifyListingId);
+
+      if (!completedSteps.includes("layout")) {
+        payload.layout = HostifyListingMapper.mapToLayout(
+          listingIdNum,
+          property.propertyInfo,
+          property.propertyInfo.propertyBedTypes || []
+        );
+      }
+
+      if (!completedSteps.includes("amenities")) {
+        const amenitiesList = HostifyListingMapper.mapToAmenities(
+          listingIdNum,
+          property.propertyInfo.amenities || []
+        );
+        // Only add amenities if the list is not empty
+        if (amenitiesList.amenities && amenitiesList.amenities.length > 0) {
+          payload.amenities = amenitiesList;
+        } else {
+          logger.warn("Skipping amenities step - no valid amenities to send");
+        }
+      }
+
+      if (!completedSteps.includes("translations")) {
+        payload.translations = HostifyListingMapper.mapToTranslations(
+          listingIdNum,
+          property.propertyInfo
+        );
+      }
+
+      if (!completedSteps.includes("bookingRestrictions")) {
+        payload.bookingRestrictions = HostifyListingMapper.mapToBookingRestrictions(
+          listingIdNum,
+          property.propertyInfo
+        );
+      }
+
+      // If all steps already completed, nothing more to do
+      if (Object.keys(payload).length === 0) {
+        logger.info("All steps already completed. Skipping API call.");
+      } else {
+        // Call with remaining steps only
+        logger.info(`Calling Hostify API with steps: [${Object.keys(payload).join(", ")}]`);
+        const finalResult = await hostifyClient.createListing(apiKey, payload);
+
+        if (!finalResult.success) {
+          // Store error info with payload
+          const errorDetails = {
+            step: finalResult.failedStep,
+            error: finalResult.error,
+            payload: payload[finalResult.failedStep as keyof typeof payload]
+          };
+
+          logger.error(`Hostify publish failed at step: ${finalResult.failedStep}`, errorDetails);
+
+          property.hostifyPublishStatus = "failed";
+          property.hostifyPublishError = JSON.stringify(errorDetails);
+          // Merge completed steps from this attempt with previous
+          property.hostifyCompletedSteps = Array.from(new Set([...completedSteps, ...(finalResult.completedSteps || [])]));
+          await this.propertyRepo.save(property);
+
+          throw new CustomErrorHandler(500, `Failed at step: ${finalResult.failedStep}. Error: ${finalResult.error}. Check hostifyPublishError field for payload details.`);
+        }
+
+        // Update completed steps after successful call (merge with already saved steps including location)
+        const previouslyCompleted = property.hostifyCompletedSteps || [];
+        property.hostifyCompletedSteps = Array.from(new Set([...previouslyCompleted, ...(finalResult.completedSteps || [])]));
+        logger.info(`Updated completed steps: [${property.hostifyCompletedSteps.join(", ")}]`);
+        await this.propertyRepo.save(property);
+      }
+
+      // Check if all required steps are now completed
+      const allSteps = ["location", "layout", "amenities", "translations", "bookingRestrictions"];
+      const currentCompletedSteps = property.hostifyCompletedSteps || [];
+      const allComplete = allSteps.every(step => currentCompletedSteps.includes(step));
+
+      if (allComplete) {
+        // SUCCESS - All steps completed, finalize the publish
+        property.listingId = property.hostifyListingId;  // Copy to final listingId
+        property.hostifyPublishStatus = "completed";
+        property.status = PropertyStatus.ACTIVE;
+        property.updatedBy = userId;
+        await this.propertyRepo.save(property);
+
+        logger.info(`Successfully published property ${propertyId} to Hostify with listing ID: ${hostifyListingId}`);
+
+        return {
+          message: "Property published to Hostify successfully",
+          property,
+          hostifyListingId,
+          completedSteps: property.hostifyCompletedSteps || []
+        };
+      } else {
+        // Partial success - some steps completed but not all
+        return {
+          message: `Property partially published. Completed steps: [${currentCompletedSteps.join(", ")}]. Retry to complete remaining steps.`,
+          property,
+          hostifyListingId,
+          completedSteps: currentCompletedSteps
+        };
+      }
+    } catch (error) {
+      // If not already handled, update status
+      if (property.hostifyPublishStatus === "publishing") {
+        property.hostifyPublishStatus = "failed";
+        property.hostifyPublishError = JSON.stringify({
+          step: "unknown",
+          error: error.message || "Unknown error occurred"
+        });
+        await this.propertyRepo.save(property);
+      }
+      throw error;
     }
-    // Update the listingIntake status to published
-    listingIntake.status = PropertyStatus.ACTIVE;
-    listingIntake.listingId = response.id; // Assuming response contains the Hostaway listing ID
-    listingIntake.updatedBy = userId;
-    await this.propertyRepo.save(listingIntake);
-
-    return { message: "Property published to Hostaway successfully", listingIntake };
   }
 
 

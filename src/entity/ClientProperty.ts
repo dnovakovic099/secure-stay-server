@@ -49,8 +49,23 @@ export class ClientPropertyEntity {
     @Column({ nullable: true })
     listingId: string;             // HA listing id
 
+    @Column({ type: "varchar", length: 255, nullable: true })
+    hostifyListingId: string;      // Hostify-specific listing ID (preserved for resume on failures)
+
     @Column({ nullable: true })
     status: string;  // draft, ready, published
+
+    @Column({ nullable: true })
+    hostifyPublishStatus: string;  // "pending" | "publishing" | "completed" | "failed"
+
+    @Column({ type: "text", nullable: true })
+    hostifyPublishError: string;  // JSON: { step: "layout", error: "message" }
+
+    @Column({ type: "simple-array", nullable: true })
+    hostifyCompletedSteps: string[];  // ["location", "layout", "amenities"]
+
+    @Column({ type: "timestamp", nullable: true })
+    hostifyLastPublishAttempt: Date;
 
     @ManyToOne(() => ClientEntity, (client) => client.properties, { onDelete: "CASCADE" })
     client: ClientEntity;

@@ -316,6 +316,17 @@ export class ClientController {
     }
   }
 
+  async publishPropertyToHostify(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.publishPropertyToHostify(request.params.propertyId, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
 
   async processCSVForClient(request: CustomRequest, response: Response, next: NextFunction) {
     try {

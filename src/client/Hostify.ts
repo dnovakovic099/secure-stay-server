@@ -217,6 +217,7 @@ export class Hostify {
         // Step 1: Process Location (must succeed before proceeding)
         if (payload.location) {
             try {
+                logger.info(`Sending location payload to Hostify: ${JSON.stringify(payload.location, null, 2)}`);
                 const locationResponse = await axios.post(
                     `${baseUrl}/process_location`,
                     payload.location,
@@ -224,16 +225,21 @@ export class Hostify {
                 );
                 results.location = locationResponse.data;
                 completedSteps.push("location");
-                logger.info("Location processed successfully");
+                logger.info(`Location processed successfully: ${JSON.stringify(locationResponse.data, null, 2)}`);
             } catch (error: any) {
                 failedStep = "location";
-                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
-                logger.error("Error processing location:", errorMessage);
+                const errorData = error?.response?.data || {};
+                errorMessage = errorData?.message || error?.message || "Unknown error occurred";
+
+                // Log detailed error information
+                logger.error(`Error processing location: Status=${error?.response?.status}, StatusText=${error?.response?.statusText}, Error=${errorMessage}, ErrorData=${JSON.stringify(errorData, null, 2)}, SentPayload=${JSON.stringify(payload.location, null, 2)}`);
+
                 return {
                     success: false,
                     completedSteps,
                     failedStep,
                     error: errorMessage,
+                    errorDetails: errorData, // Include full error response
                     results,
                 };
             }
@@ -267,6 +273,7 @@ export class Hostify {
         // Step 3: Process Amenities (only runs if previous steps succeeded)
         if (payload.amenities) {
             try {
+                logger.info(`Sending amenities payload to Hostify: ${JSON.stringify(payload.amenities, null, 2)}`);
                 const amenitiesResponse = await axios.post(
                     `${baseUrl}/process_amenities`,
                     payload.amenities,
@@ -274,16 +281,20 @@ export class Hostify {
                 );
                 results.amenities = amenitiesResponse.data;
                 completedSteps.push("amenities");
-                logger.info("Amenities processed successfully");
+                logger.info(`Amenities processed successfully: ${JSON.stringify(amenitiesResponse.data, null, 2)}`);
             } catch (error: any) {
                 failedStep = "amenities";
-                errorMessage = error?.response?.data?.message || error?.message || "Unknown error occurred";
-                logger.error("Error processing amenities:", errorMessage);
+                const errorData = error?.response?.data || {};
+                errorMessage = errorData?.message || error?.message || "Unknown error occurred";
+
+                logger.error(`Error processing amenities: Status=${error?.response?.status}, StatusText=${error?.response?.statusText}, Error=${errorMessage}, ErrorData=${JSON.stringify(errorData, null, 2)}, SentPayload=${JSON.stringify(payload.amenities, null, 2)}`);
+
                 return {
                     success: false,
                     completedSteps,
                     failedStep,
                     error: errorMessage,
+                    errorDetails: errorData,
                     results,
                 };
             }

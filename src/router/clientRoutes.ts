@@ -45,6 +45,8 @@ router.route('/client-facing/listing-info').put(verifySession, validateUpdateLis
 router.route('/client-facing/submit-all').post(verifySession, validateSubmitAllClientForms, clientController.submitAllClientForms.bind(clientController));
 
 
+
+router.route('/publish-property-to-hostify/:propertyId').post(verifySession, clientController.publishPropertyToHostify.bind(clientController));
 router.route('/publish-property/:propertyId').get(verifySession, clientController.publishPropertyToHostaway.bind(clientController));
 
 
