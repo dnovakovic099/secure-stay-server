@@ -2445,6 +2445,7 @@ export class ClientService {
     if (listingPayload.amenities !== undefined) propertyInfo.amenities = listingPayload.amenities ?? null;
     if (listingPayload.acknowledgeAmenitiesAccurate !== undefined) propertyInfo.acknowledgeAmenitiesAccurate = listingPayload.acknowledgeAmenitiesAccurate ?? null;
     if (listingPayload.acknowledgeSecurityCamerasDisclosed !== undefined) propertyInfo.acknowledgeSecurityCamerasDisclosed = listingPayload.acknowledgeSecurityCamerasDisclosed ?? null;
+    if (listingPayload.otherAmenities !== undefined) propertyInfo.otherAmenities = listingPayload.otherAmenities ?? null;
     if (listingPayload.wifiAvailable !== undefined) propertyInfo.wifiAvailable = listingPayload.wifiAvailable ?? null;
     if (listingPayload.wifiUsername !== undefined) propertyInfo.wifiUsername = listingPayload.wifiUsername ?? null;
     if (listingPayload.wifiPassword !== undefined) propertyInfo.wifiPassword = listingPayload.wifiPassword ?? null;

@@ -371,6 +371,9 @@ export class PropertyInfo {
     acknowledgeSecurityCamerasDisclosed: boolean;
 
     @Column({ type: "text", nullable: true })
+    otherAmenities: string;
+
+    @Column({ type: "text", nullable: true })
     locationOfThemostat: string;
 
     @Column({ type: "text", nullable: true })
