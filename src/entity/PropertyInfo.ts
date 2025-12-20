@@ -487,6 +487,10 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     workspaceNotes: string;
 
+    // Patio Details
+    @Column({ nullable: true })
+    patioPrivacy: string;
+
     // Boat Dock Details
     @Column({ nullable: true })
     boatDockPrivacy: string;

@@ -2477,6 +2477,7 @@ export class ClientService {
     if (listingPayload.workspaceLocation !== undefined) propertyInfo.workspaceLocation = listingPayload.workspaceLocation ?? null;
     if (listingPayload.workspaceInclusion !== undefined) propertyInfo.workspaceInclusion = listingPayload.workspaceInclusion ? JSON.stringify(listingPayload.workspaceInclusion) : null;
     if (listingPayload.workspaceNotes !== undefined) propertyInfo.workspaceNotes = listingPayload.workspaceNotes ?? null;
+    if (listingPayload.patioPrivacy !== undefined) propertyInfo.patioPrivacy = listingPayload.patioPrivacy ?? null;
     if (listingPayload.boatDockPrivacy !== undefined) propertyInfo.boatDockPrivacy = listingPayload.boatDockPrivacy ?? null;
     if (listingPayload.boatDockNotes !== undefined) propertyInfo.boatDockNotes = listingPayload.boatDockNotes ?? null;
     if (listingPayload.heatControlInstructions !== undefined) propertyInfo.heatControlInstructions = listingPayload.heatControlInstructions ?? null;
