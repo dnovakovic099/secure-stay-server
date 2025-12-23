@@ -28,6 +28,8 @@ interface ClientTicketFilter {
   ids?: number[];
   propertyType?: number[];
   keyword?: string;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
 }
 
 export class ClientTicketService {
@@ -142,6 +144,8 @@ export class ClientTicketService {
       ids,
       propertyType,
       keyword,
+      sortBy,
+      sortOrder,
     } = body;
 
     const users = await this.usersRepo.find();
@@ -184,9 +188,9 @@ export class ClientTicketService {
       relations: ["clientTicketUpdates"],
       skip: (page - 1) * limit,
       take: limit,
-      order: {
-        id: "DESC",
-      },
+      order: sortBy
+        ? { [sortBy]: sortOrder || 'DESC' }
+        : { id: 'DESC' },
     });
 
     const listings = await listingService.getPmListings();

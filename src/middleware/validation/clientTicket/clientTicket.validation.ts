@@ -84,7 +84,9 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
         limit: Joi.number().required(),
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
         propertyType: Joi.array().items(Joi.number()).min(1).optional(),
-        keyword: Joi.string().optional()
+        keyword: Joi.string().optional(),
+        sortBy: Joi.string().optional(),
+        sortOrder: Joi.string().valid('ASC', 'DESC').optional()
     }).custom((value, helpers) => {
         if (value.fromDate && value.toDate && new Date(value.fromDate) > new Date(value.toDate)) {
             return helpers.error('any.invalid', { message: 'fromDate must be before toDate' });
