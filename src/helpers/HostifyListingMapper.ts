@@ -68,7 +68,7 @@ export class HostifyListingMapper {
         }
 
         return {
-            name: propertyInfo.externalListingName,
+            name: propertyInfo.internalListingName,
             property_type: propertyType,
             listing_type: listingType,
             lat: property.latitude,
@@ -125,10 +125,10 @@ export class HostifyListingMapper {
         return {
             listing_id: listingId,
             name: propertyInfo.externalListingName,
-            summary: propertyInfo.internalListingName,
-            house_rules: propertyInfo.otherHouseRules,
-            checkin_place: propertyInfo.checkInInstructions,
-            access: propertyInfo.checkOutInstructions,
+            // summary: propertyInfo.internalListingName,
+            // house_rules: propertyInfo.otherHouseRules,
+            // checkin_place: propertyInfo.checkInInstructions,
+            // access: propertyInfo.checkOutInstructions,
         };
     }
 
