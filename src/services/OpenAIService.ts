@@ -775,4 +775,256 @@ Respond in JSON format: { "houseRules": "Full formatted text here" }`;
         const parsed = JSON.parse(content);
         return parsed.houseRules || "";
     }
+
+    /**
+     * Generate "Summary" section for a property (max 500 characters)
+     */
+    async generateSummary(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        const amenities = propertyData.amenities || [];
+        const keyFeatures: string[] = [];
+        if (amenities.some(a => a.toLowerCase().includes('pool'))) keyFeatures.push('Pool');
+        if (amenities.some(a => a.toLowerCase().includes('hot tub'))) keyFeatures.push('Hot Tub');
+        if (amenities.some(a => a.toLowerCase().includes('game room'))) keyFeatures.push('Game Room');
+        if (amenities.some(a => a.toLowerCase().includes('beach'))) keyFeatures.push('Beach Access');
+
+        let userContent = `Generate a listing summary for this Airbnb property.
+
+## Property Overview
+- Type: ${propertyData.propertyType || "Vacation Rental"}
+- Location: ${propertyData.city || ""}, ${propertyData.state || ""}
+- Bedrooms: ${propertyData.bedroomsNumber || 0}
+- Bathrooms: ${propertyData.bathroomsNumber || 0}
+- Capacity: ${propertyData.personCapacity || 0} guests
+- Key Features: ${keyFeatures.join(', ') || 'None identified'}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter. Generate a compelling listing summary.
+
+## SPECIFICATIONS
+- Maximum: 500 characters
+- Tone: Engaging, professional, welcoming
+- NO emojis
+- NO em dashes (use regular hyphens)
+
+## CONTENT
+- Highlight the property's best features
+- Mention capacity and location appeal
+- Create excitement about the stay experience
+- Be concise but enticing
+
+Respond in JSON format: { "summary": "Your summary text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.summary || "";
+    }
+
+    /**
+     * Generate "Guest Access" section for a property
+     */
+    async generateGuestAccess(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        let userContent = `Generate "Guest Access" section for this Airbnb listing.
+
+## Property Access Details
+- Check-in Process: ${propertyData.checkInProcess?.join(', ') || 'Not specified'}
+- Door Lock Type: ${propertyData.doorLockType?.join(', ') || 'Not specified'}
+- Parking: ${propertyData.parkingInfo.length > 0
+                ? propertyData.parkingInfo.map(p => `${p.parkingType}: ${p.numberOfSpots} spots (${p.isFree ? "Free" : "Paid"})`).join(', ')
+                : 'Not specified'}
+- Parking Instructions: ${propertyData.parkingInstructions || 'None'}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter. Generate "Guest Access" section.
+
+## FORMATTING
+- Use ✔️ for each item
+- NO em dashes (use regular hyphens)
+
+## SECTION STRUCTURE
+
+**If Fully Private Access:**
+✔️ GENERAL: Guests can enjoy full access to the whole property and its amenities. Long-term stays are allowed.
+
+**For Electronic/Smart lock:**
+✔️ KEYLESS SELF CHECK IN: Access the property easily with our keyless entry system using a keypad. The access code will be provided to you on/before check-in.
+
+**For Lockbox:**
+✔️ SELF CHECK IN: Enjoy hassle-free entry with our lockbox. A code will be sent to you on/before check-in.
+
+**Parking:**
+✔️ PARKING: [Include parking details]
+
+**Always end with:**
+✔️ We'll provide detailed check-in & check-out instructions and are available to answer any questions you may have about the property or the surrounding area.
+
+Respond in JSON format: { "guestAccess": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.5,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.guestAccess || "";
+    }
+
+    /**
+     * Generate "Interaction with Guests" section for a property
+     */
+    async generateInteractionWithGuests(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        let userContent = `Generate "Interaction with Guests" section for this Airbnb listing.`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter. Generate "Interaction with Guests" section.
+
+## STANDARD TEXT
+The standard text for this section is:
+✔️ We are available 24/7
+
+You can expand slightly based on any additional notes provided, but keep it brief and professional.
+
+## FORMATTING
+- Use ✔️ for items
+- Keep it very short (1-3 lines max)
+- NO emojis except ✔️
+
+Respond in JSON format: { "interactionWithGuests": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.3,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.interactionWithGuests || "";
+    }
+
+    /**
+     * Generate "Other Things to Note" section for a property
+     */
+    async generateOtherThingsToNote(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        const amenities = propertyData.amenities || [];
+        const hasPool = amenities.some(a => a.toLowerCase().includes('pool'));
+        const hasHotTub = amenities.some(a => a.toLowerCase().includes('hot tub'));
+
+        let userContent = `Generate "Other Things to Note" section for this Airbnb listing.
+
+## Property Details
+- Capacity: ${propertyData.personCapacity || 0} guests
+- Has Pool: ${hasPool ? 'Yes' : 'No'}
+- Has Hot Tub: ${hasHotTub ? 'Yes' : 'No'}
+- Pets Allowed: ${propertyData.allowPets === true ? 'Yes' : 'No'}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter. Generate "Other Things to Note" section.
+
+## FORMATTING
+- Use ▪️ for each item
+- NO em dashes (use regular hyphens)
+
+## STANDARD ITEMS (always include):
+▪️ We use ChargeAutomation to provide a secure guest portal, which can be shared with your group and adds an extra layer of verification to prevent fraudulent bookings. You'll receive this link after your booking is confirmed.
+
+▪️ We hold a security deposit during your stay, which will be fully refunded after check-out, provided there are no damages to the property.
+
+▪️ Please take a moment to read our House Rules in the House Rules section.
+
+▪️ This property comfortably accommodates up to [actual capacity] guests.
+
+## CONDITIONAL ITEMS (add if applicable):
+- If pool/hot tub: ▪️ Pool and hot tub heating is available for an additional fee. To have the pool ready and warm for your arrival, please give us at least 48 hours' notice.
+- If pool/hot tub: ▪️ We'd like to set your expectations that the (heated pool/hot tub) temperature will be determined by the weather temperature.
+- ▪️ We offer options for early check-in and late check-out, subject to availability and fees.
+- ▪️ Mid-stay cleaning and other concierge services are available upon request for an additional fee.
+
+Respond in JSON format: { "otherThingsToNote": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.5,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.otherThingsToNote || "";
+    }
 }

@@ -279,7 +279,18 @@ Get ready for endless fun and excitement! From outdoor adventures to unique loca
 
 ---
 
-## 8. Guest Access Section
+## 8. House Manual Section
+
+> **NOTE**: This section always uses the same static text.
+
+### Standard Text (Always Use):
+```
+Your check-in instructions will be sent on the day of arrival, and your check-out instructions will be sent either on the day of departure or the day before. Please review and follow both carefully.
+```
+
+---
+
+## 9. Guest Access Section
 
 ### 8.1 General Access
 **If Fully Private Access**:

@@ -198,4 +198,128 @@ export class OpenAIController {
             next(error);
         }
     }
+
+    /**
+     * Generate "Summary" section for a property
+     * POST /openai/generate-summary/:propertyId
+     */
+    public async generateSummary(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const summary = await openAIService.generateSummary(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { summary }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
+
+    /**
+     * Generate "Guest Access" section for a property
+     * POST /openai/generate-guest-access/:propertyId
+     */
+    public async generateGuestAccess(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const guestAccess = await openAIService.generateGuestAccess(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { guestAccess }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
+
+    /**
+     * Generate "Interaction with Guests" section for a property
+     * POST /openai/generate-interaction-with-guests/:propertyId
+     */
+    public async generateInteractionWithGuests(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const interactionWithGuests = await openAIService.generateInteractionWithGuests(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { interactionWithGuests }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
+
+    /**
+     * Generate "Other Things to Note" section for a property
+     * POST /openai/generate-other-things-to-note/:propertyId
+     */
+    public async generateOtherThingsToNote(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const otherThingsToNote = await openAIService.generateOtherThingsToNote(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { otherThingsToNote }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
 }

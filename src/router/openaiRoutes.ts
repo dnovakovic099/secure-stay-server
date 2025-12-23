@@ -48,4 +48,28 @@ router.post(
     openAIController.generateHouseRules.bind(openAIController)
 );
 
+// Generate "Summary" section for a property
+router.post(
+    "/generate-summary/:propertyId",
+    openAIController.generateSummary.bind(openAIController)
+);
+
+// Generate "Guest Access" section for a property
+router.post(
+    "/generate-guest-access/:propertyId",
+    openAIController.generateGuestAccess.bind(openAIController)
+);
+
+// Generate "Interaction with Guests" section for a property
+router.post(
+    "/generate-interaction-with-guests/:propertyId",
+    openAIController.generateInteractionWithGuests.bind(openAIController)
+);
+
+// Generate "Other Things to Note" section for a property
+router.post(
+    "/generate-other-things-to-note/:propertyId",
+    openAIController.generateOtherThingsToNote.bind(openAIController)
+);
+
 export default router;
