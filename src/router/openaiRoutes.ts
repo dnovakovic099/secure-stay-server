@@ -36,4 +36,10 @@ router.post(
     openAIController.generateTheSpace.bind(openAIController)
 );
 
+// Generate "The Neighborhood" section for a property
+router.post(
+    "/generate-the-neighborhood/:propertyId",
+    openAIController.generateTheNeighborhood.bind(openAIController)
+);
+
 export default router;

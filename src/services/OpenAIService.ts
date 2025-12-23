@@ -606,4 +606,83 @@ Respond in JSON format: { "theSpace": "Full formatted text here" }`;
         const parsed = JSON.parse(content);
         return parsed.theSpace || "";
     }
+
+    /**
+     * Generate "The Neighborhood" description for a property
+     */
+    async generateTheNeighborhood(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        let userContent = `Generate "The Neighborhood" section for this Airbnb listing.
+
+## Property Location
+- City: ${propertyData.city || "Not specified"}
+- State: ${propertyData.state || "Not specified"}
+- Country: ${propertyData.country || "Not specified"}
+- Address: ${propertyData.address || "Not specified"}
+
+## Property Type
+${propertyData.propertyType || "Vacation Rental"}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes from User\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter for Luxury Lodging. Generate "The Neighborhood" section following these exact rules.
+
+## RULES FROM RULESET
+1. **Distance range**: Recommend activities within 20-30 miles of the property
+2. **Include distances**: Each activity must include approximate mileage
+3. **Verified only**: Only suggest common/typical attractions for the area
+4. **No fillers**: If unable to suggest attractions, keep section minimal
+
+## FORMATTING
+- Use ▪️ for bullet points
+- NO em dashes (use regular hyphens)
+- NO emojis except ▪️
+
+## SECTION STRUCTURE
+
+### ⭐ ACTIVITIES/ATTRACTIONS ⭐
+
+Start with this intro paragraph:
+"Get ready for endless fun and excitement! From outdoor adventures to unique local attractions, there's always something to explore nearby. Whether you're into shopping, dining, or soaking up the local culture, you'll find plenty of ways to make your stay unforgettable!"
+
+Then list 5-8 nearby attractions with distances:
+▪️ [Attraction Name] - [X] miles
+▪️ [Attraction Name] - [X] miles
+▪️ [Attraction Name] - [X] miles
+▪️ [Attraction Name] - [X] miles
+▪️ [Attraction Name] - [X] miles
+
+## CONTENT GUIDELINES
+- Include a mix of: restaurants, shopping, outdoor activities, entertainment, beaches/parks, tourist attractions
+- Base suggestions on typical attractions for the city/state provided
+- Use realistic distance estimates based on the location
+- Focus on popular, well-known attractions in the area
+
+Respond in JSON format: { "theNeighborhood": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.theNeighborhood || "";
+    }
 }

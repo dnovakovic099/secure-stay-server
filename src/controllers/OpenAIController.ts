@@ -134,4 +134,36 @@ export class OpenAIController {
             next(error);
         }
     }
+
+    /**
+     * Generate "The Neighborhood" section for a property
+     * POST /openai/generate-the-neighborhood/:propertyId
+     * Body: { additionalNotes?: string }
+     */
+    public async generateTheNeighborhood(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const theNeighborhood = await openAIService.generateTheNeighborhood(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { theNeighborhood }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
 }
