@@ -4113,6 +4113,7 @@ export class ClientService {
         );
       }
 
+
       if (!completedSteps.includes("amenities")) {
         const amenitiesList = HostifyListingMapper.mapToAmenities(
           listingIdNum,
@@ -4122,7 +4123,10 @@ export class ClientService {
         if (amenitiesList.amenities && amenitiesList.amenities.length > 0) {
           payload.amenities = amenitiesList;
         } else {
-          logger.warn("Skipping amenities step - no valid amenities to send");
+          // Mark amenities as completed even when skipped (no valid amenities to send)
+          logger.warn("Skipping amenities step - no valid amenities to send, marking as completed");
+          property.hostifyCompletedSteps = [...(property.hostifyCompletedSteps || []), "amenities"];
+          await this.propertyRepo.save(property);
         }
       }
 
