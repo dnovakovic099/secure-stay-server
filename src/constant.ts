@@ -439,6 +439,7 @@ export const HostifyListingTypes: Record<string, string> = {
 
 // Hostify Bed Type Mappings
 export const HostifyBedTypes: Record<string, string> = {
+    // Standard names (original)
     "King": "king_bed",
     "King Bed": "king_bed",
     "Queen": "queen_bed",
@@ -455,11 +456,54 @@ export const HostifyBedTypes: Record<string, string> = {
     "Bunk Bed": "bunk_bed",
     "Air Mattress": "air_mattress",
     "Couch": "couch",
-    "Futon": "futon",
+    "Futon": "sofa_bed",
     "Crib": "crib",
     "Toddler Bed": "toddler_bed",
     "Hammock": "hammock",
     "Water Bed": "water_bed",
+    // Lowercase variations
+    "king": "king_bed",
+    "king bed": "king_bed",
+    "queen": "queen_bed",
+    "queen bed": "queen_bed",
+    "double": "double_bed",
+    "double bed": "double_bed",
+    "full": "double_bed",
+    "full bed": "double_bed",
+    "single": "single_bed",
+    "single bed": "single_bed",
+    "twin": "single_bed",
+    "twin bed": "single_bed",
+    "sofa bed": "sofa_bed",
+    "sofabed": "sofa_bed",
+    "bunk bed": "bunk_bed",
+    "bunkbed": "bunk_bed",
+    "air mattress": "air_mattress",
+    "airmattress": "air_mattress",
+    "couch": "couch",
+    "futon": "sofa_bed",
+    "crib": "crib",
+    "toddler bed": "toddler_bed",
+    "toddlerbed": "toddler_bed",
+    "hammock": "hammock",
+    "water bed": "water_bed",
+    "waterbed": "water_bed",
+    // Underscore variations (matching Hostify format)
+    "king_bed": "king_bed",
+    "queen_bed": "queen_bed",
+    "double_bed": "double_bed",
+    "single_bed": "single_bed",
+    "sofa_bed": "sofa_bed",
+    "bunk_bed": "bunk_bed",
+    "air_mattress": "air_mattress",
+    "toddler_bed": "toddler_bed",
+    "water_bed": "water_bed",
+    "floor_mattress": "floor_mattress",
+    "small_double_bed": "small_double_bed",
+    // Additional variations
+    "floor mattress": "floor_mattress",
+    "small double bed": "small_double_bed",
+    "small double": "small_double_bed",
 };
 
 // Hostify Room Type Mappings

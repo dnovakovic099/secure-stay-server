@@ -4003,7 +4003,7 @@ export class ClientService {
   async publishPropertyToHostify(propertyId: string, userId: string) {
     const property = await this.propertyRepo.findOne({
       where: { id: propertyId },
-      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.vendorManagementInfo", "client"]
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.vendorManagementInfo", "propertyInfo.propertyBathroomLocation", "client"]
     });
 
     if (!property) {
@@ -4108,7 +4108,8 @@ export class ClientService {
         payload.layout = HostifyListingMapper.mapToLayout(
           listingIdNum,
           property.propertyInfo,
-          property.propertyInfo.propertyBedTypes || []
+          property.propertyInfo.propertyBedTypes || [],
+          property.propertyInfo.propertyBathroomLocation || []
         );
       }
 

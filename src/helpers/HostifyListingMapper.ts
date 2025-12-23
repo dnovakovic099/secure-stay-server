@@ -3,6 +3,7 @@ import { PropertyInfo } from "../entity/PropertyInfo";
 import { PropertyBedTypes } from "../entity/PropertyBedTypes";
 import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
 import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
+import { PropertyBathroomLocation } from "../entity/PropertyBathroomLocation";
 import {
     HostifyPropertyTypes,
     HostifyListingTypes,
@@ -86,15 +87,24 @@ export class HostifyListingMapper {
     /**
      * Map property layout data to Hostify layout payload (Step 2)
      */
-    static mapToLayout(listingId: number, propertyInfo: PropertyInfo, bedTypes: PropertyBedTypes[]) {
+    static mapToLayout(
+        listingId: number,
+        propertyInfo: PropertyInfo,
+        bedTypes: PropertyBedTypes[],
+        bathroomLocations?: PropertyBathroomLocation[]
+    ) {
+        const fullBathrooms = propertyInfo.bathroomsNumber || 0;
+        const halfBathrooms = propertyInfo.guestBathroomsNumber || 0;
+        const totalBathrooms = fullBathrooms + halfBathrooms;
+
         return {
             listing_id: listingId,
             person_capacity: propertyInfo.personCapacity,
             area: propertyInfo.squareMeters || propertyInfo.squareFeet,
             area_unit: propertyInfo.squareMeters ? "meter" : "feet",
-            bathrooms: propertyInfo.bathroomsNumber,
+            bathrooms: totalBathrooms,
             bathroom_shared: propertyInfo.bathroomType === "Shared",
-            rooms: this.mapRooms(bedTypes),
+            rooms: this.mapRooms(bedTypes, propertyInfo, bathroomLocations),
         };
     }
 
@@ -186,40 +196,98 @@ export class HostifyListingMapper {
     }
 
     /**
-     * Map PropertyBedTypes to Hostify rooms array
+     * Map PropertyBedTypes and bathrooms to Hostify rooms array
      */
-    private static mapRooms(bedTypes: PropertyBedTypes[]) {
-        if (!bedTypes || bedTypes.length === 0) return [];
+    private static mapRooms(
+        bedTypes: PropertyBedTypes[],
+        propertyInfo: PropertyInfo,
+        bathroomLocations?: PropertyBathroomLocation[]
+    ) {
+        const rooms: any[] = [];
 
-        // Group by bedroom number
-        const bedroomMap = new Map<number, any[]>();
+        // Map bedrooms
+        if (bedTypes && bedTypes.length > 0) {
+            // Group by bedroom number
+            const bedroomMap = new Map<number, any[]>();
 
-        for (const bedType of bedTypes) {
-            const bedroomNum = bedType.bedroomNumber || 1;
+            for (const bedType of bedTypes) {
+                const bedroomNum = bedType.bedroomNumber || 1;
 
-            if (!bedroomMap.has(bedroomNum)) {
-                bedroomMap.set(bedroomNum, []);
+                if (!bedroomMap.has(bedroomNum)) {
+                    bedroomMap.set(bedroomNum, []);
+                }
+
+                const hostifyBedType = this.mapBedType(bedType.bedTypeId);
+                logger.info(`Mapping bed type: "${bedType.bedTypeId}" -> "${hostifyBedType}"`);
+                bedroomMap.get(bedroomNum)!.push({
+                    bed_type: hostifyBedType,
+                    bed_number: bedType.quantity || 1,
+                });
             }
 
-            const hostifyBedType = this.mapBedType(bedType.bedTypeId);
-            bedroomMap.get(bedroomNum)!.push({
-                bed_type: hostifyBedType,
-                bed_number: bedType.quantity || 1,
+            // Convert bedroom map to rooms array
+            bedroomMap.forEach((beds, bedroomNum) => {
+                rooms.push({
+                    room_id: "new",
+                    name: `Bedroom ${bedroomNum}`,
+                    room_type: "bedroom",
+                    bed: beds,
+                });
             });
         }
 
-        // Convert map to rooms array
-        const rooms: any[] = [];
-        bedroomMap.forEach((beds, bedroomNum) => {
-            rooms.push({
-                room_id: "new",
-                name: `Bedroom ${bedroomNum}`,
-                room_type: "bedroom",
-                bed: beds,
+        // Map bathrooms
+        if (bathroomLocations && bathroomLocations.length > 0) {
+            // Use detailed bathroom locations if available
+            bathroomLocations.forEach((bathroom, index) => {
+                rooms.push({
+                    room_id: "new",
+                    name: this.getBathroomName(bathroom.bathroomType),
+                    room_type: "bathroom",
+                    person_capacity: 0,
+                    shared: bathroom.privacyType === "Shared" ? 1 : 0,
+                });
             });
-        });
+            logger.info(`Added ${bathroomLocations.length} bathrooms from detailed locations`);
+        } else if (propertyInfo.bathroomsNumber > 0 || propertyInfo.guestBathroomsNumber > 0) {
+            // Fallback: Use counts if no detailed locations
+            const fullBathrooms = propertyInfo.bathroomsNumber || 0;
+            const halfBathrooms = propertyInfo.guestBathroomsNumber || 0;
+
+            for (let i = 0; i < fullBathrooms; i++) {
+                rooms.push({
+                    room_id: "new",
+                    name: "Full bathroom",
+                    room_type: "bathroom",
+                    person_capacity: 0,
+                    shared: propertyInfo.bathroomType === "Shared" ? 1 : 0,
+                });
+            }
+
+            for (let i = 0; i < halfBathrooms; i++) {
+                rooms.push({
+                    room_id: "new",
+                    name: "Half bathroom",
+                    room_type: "bathroom",
+                    person_capacity: 0,
+                    shared: 0,
+                });
+            }
+            logger.info(`Added ${fullBathrooms} full bathrooms and ${halfBathrooms} half bathrooms from counts`);
+        }
 
         return rooms;
+    }
+
+    /**
+     * Get bathroom name based on type
+     */
+    private static getBathroomName(bathroomType: string): string {
+        if (!bathroomType) return "Full bathroom";
+        const lowerType = bathroomType.toLowerCase();
+        if (lowerType.includes("half")) return "Half bathroom";
+        if (lowerType.includes("full")) return "Full bathroom";
+        return bathroomType;
     }
 
     /**
