@@ -34,6 +34,7 @@ import listingIntakeRoutes from "./listingIntakeRoutes";
 import clientRoutes from "./clientRoutes";
 import healthRoutes from "./healthRoutes";
 import slackRoutes from "./slackRoutes";
+import openaiRoutes from "./openaiRoutes";
 
 const router = Router();
 
@@ -74,5 +75,6 @@ router.use('/schedule', listingScheduleRoutes);
 router.use('/maintenance', maintenaceRoutes);
 router.use('/listing-intake', listingIntakeRoutes)
 router.use('/clients', clientRoutes);
+router.use('/openai', openaiRoutes);
 
 export default router;
