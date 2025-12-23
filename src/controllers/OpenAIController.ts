@@ -166,4 +166,36 @@ export class OpenAIController {
             next(error);
         }
     }
+
+    /**
+     * Generate "House Rules" section for a property
+     * POST /openai/generate-house-rules/:propertyId
+     * Body: { additionalNotes?: string }
+     */
+    public async generateHouseRules(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { propertyId } = req.params;
+            const { additionalNotes } = req.body || {};
+
+            if (!propertyId) {
+                return res.status(400).json({ error: "Property ID is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const houseRules = await openAIService.generateHouseRules(propertyId, additionalNotes);
+
+            return res.status(200).json({
+                success: true,
+                data: { houseRules }
+            });
+        } catch (error: any) {
+            if (error.message?.includes("not found")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            next(error);
+        }
+    }
 }

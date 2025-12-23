@@ -42,4 +42,10 @@ router.post(
     openAIController.generateTheNeighborhood.bind(openAIController)
 );
 
+// Generate "House Rules" section for a property
+router.post(
+    "/generate-house-rules/:propertyId",
+    openAIController.generateHouseRules.bind(openAIController)
+);
+
 export default router;

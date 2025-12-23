@@ -685,4 +685,94 @@ Respond in JSON format: { "theNeighborhood": "Full formatted text here" }`;
         const parsed = JSON.parse(content);
         return parsed.theNeighborhood || "";
     }
+
+    /**
+     * Generate "House Rules" section for a property
+     */
+    async generateHouseRules(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        let userContent = `Generate "House Rules" section for this Airbnb listing.
+
+## Property House Rules Settings
+- Allow Pets: ${propertyData.allowPets === true ? "Yes" : propertyData.allowPets === false ? "No" : "Not specified"}
+- Pet Fee: ${propertyData.petFee ? `$${propertyData.petFee}` : "None"}
+- Max Pets Allowed: ${propertyData.numberOfPetsAllowed || "Not specified"}
+- Pet Restrictions: ${propertyData.petRestrictionsNotes || "None"}
+- Allow Smoking: ${propertyData.allowSmoking === true ? "Yes" : "No"}
+- Allow Parties/Events: ${propertyData.allowPartiesAndEvents === true ? "Yes" : "No"}
+- Allow Children/Infants: ${propertyData.allowChildreAndInfants === true ? "Yes" : propertyData.allowChildreAndInfants === false ? "No" : "Not specified"}
+- Other House Rules: ${propertyData.otherHouseRules || "None"}
+
+## Check-in/Check-out
+- Check-in Start: ${propertyData.checkInTimeStart ? `${propertyData.checkInTimeStart}:00` : "Not specified"}
+- Check-in End: ${propertyData.checkInTimeEnd ? `${propertyData.checkInTimeEnd}:00` : "Not specified"}
+- Check-out Time: ${propertyData.checkOutTime ? `${propertyData.checkOutTime}:00` : "Not specified"}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes from User\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter for Luxury Lodging. Generate "House Rules" section following these exact rules.
+
+## CAUTION
+Keep House Rules with minimal edits. Use the standard template but customize based on property settings.
+
+## FORMATTING
+- Use ▪️ for each rule
+- NO em dashes (use regular hyphens)
+- NO emojis except ▪️
+
+## STANDARD RULES (always include these):
+▪️ Unregistered guests are not allowed.
+▪️ No smoking within the property's premises.
+▪️ No parties, events, or large gatherings allowed.
+▪️ Please observe quiet hours from 9PM to 8AM.
+▪️ Respect the neighbors. Do not park on their premises or cause any disturbances.
+▪️ Respect the home. Do not break or damage anything. Maintain cleanliness throughout your stay.
+▪️ Do not flush anything down the toilet to avoid plumbing issues.
+▪️ Follow the check-in/check-out instructions. Guests will be held responsible for any issues that arise from not adhering to these instructions.
+▪️ Adhere to the standard check-in and check-out time. Early check-in and late checkout are subject to the host's approval.
+▪️ All furniture, appliances, and items should be returned to their original place. Missing and/or damaged items may result in additional charges.
+▪️ View Rental Agreement, Photo ID, and Security Deposit may be required upon check-in.
+▪️ We reserve the right to charge a fee if ANY of the policy is violated.
+
+## PET RULES (choose ONE based on property settings):
+
+**If pets allowed (no fee)**:
+▪️ Pets are welcome, but must be registered and reported to the host. Max # of pets: [X]. Host should be informed if you have a service animal. Ensure that they are well-behaved and that you take necessary precautions to prevent any damage and extra cleaning. Pet/Service Animals owners will be responsible for any extra cleaning fees or damages caused.
+
+**If pets NOT allowed**:
+▪️ Strictly no pets (including ESA) allowed. Host should be informed if you have a service animal.
+
+**If pets allowed (with fee)**:
+▪️ Pets are welcome with a fee. Max # of pets: [X]. Pets must be registered and reported to the host. Host should also be informed if you have a service animal. Ensure that they are well-behaved and that you take necessary precautions to prevent any damage and extra cleaning. Pet/Service Animal owners will be responsible for any extra cleaning fees or damages caused.
+
+## OUTPUT
+Combine standard rules with the appropriate pet rule based on property settings. If additional house rules are mentioned, include them as separate bullet points.
+
+Respond in JSON format: { "houseRules": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.5,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.houseRules || "";
+    }
 }
