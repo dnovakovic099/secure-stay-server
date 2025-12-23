@@ -467,4 +467,143 @@ Respond in JSON format: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4",
         const parsed = JSON.parse(content);
         return parsed.titles || [];
     }
+
+    /**
+     * Generate "The Space" description for a property
+     */
+    async generateTheSpace(propertyId: string, additionalNotes?: string): Promise<string> {
+        const propertyData = await this.getPropertyDataForGeneration(propertyId);
+
+        if (!propertyData) {
+            throw new Error(`Property with ID ${propertyId} not found or has no property info`);
+        }
+
+        const amenities = propertyData.amenities || [];
+
+        // Build detailed property info for The Space section
+        let userContent = `Generate "The Space" section for this Airbnb listing.
+
+## Property Overview
+- Property Type: ${propertyData.propertyType || "Vacation Rental"}
+- Size: ${propertyData.squareFeet ? propertyData.squareFeet + " sq ft" : (propertyData.squareMeters ? propertyData.squareMeters + " sq m" : "Not specified")}
+- Maximum Capacity: ${propertyData.personCapacity || 0} guests
+
+## Bedrooms (${propertyData.bedroomsNumber || 0} total)
+${propertyData.bedTypes.length > 0
+                ? propertyData.bedTypes.map(bt => `- ${bt.bedroomName}: ${bt.quantity}x ${bt.bedType}`).join('\n')
+                : '- Bedroom details not specified'}
+
+## Bathrooms
+- Full Bathrooms: ${propertyData.bathroomsNumber || 0}
+- Half Bathrooms: ${propertyData.guestBathroomsNumber || 0}
+${propertyData.bathroomLocations.length > 0
+                ? propertyData.bathroomLocations.map(bl => `- ${bl.bathroomName}: ${bl.bathroomType}${bl.features.length > 0 ? ' (' + bl.features.join(', ') + ')' : ''}`).join('\n')
+                : ''}
+
+## Amenities
+${amenities.length > 0 ? amenities.map(a => `- ${a}`).join('\n') : '- None specified'}
+
+## Parking
+${propertyData.parkingInfo.length > 0
+                ? propertyData.parkingInfo.map(p => `- ${p.parkingType}: ${p.numberOfSpots} spots (${p.isFree ? "Free" : "Paid"})`).join('\n')
+                : '- No parking info'}
+
+## Climate
+- Air Conditioning: ${propertyData.hasAC ? "Yes" : "Not confirmed"}
+- Heating: ${propertyData.hasHeating ? "Yes" : "Not confirmed"}
+
+## WiFi
+- Available: ${propertyData.wifiAvailable || "Not specified"}
+- Speed: ${propertyData.wifiSpeed || "Not specified"}
+
+## Pool/Hot Tub Notes
+${propertyData.swimmingPoolNotes ? `- Pool: ${propertyData.swimmingPoolNotes}` : ''}
+${propertyData.hotTubInstructions ? `- Hot Tub: ${propertyData.hotTubInstructions}` : ''}
+
+## Pet Policy
+- Pets Allowed: ${propertyData.allowPets === true ? "Yes" : propertyData.allowPets === false ? "No" : "Not specified"}`;
+
+        if (additionalNotes && additionalNotes.trim()) {
+            userContent += `\n\n## Additional Notes from User\n${additionalNotes.trim()}`;
+        }
+
+        const systemPrompt = `You are a professional Airbnb listing copywriter for Luxury Lodging. Generate "The Space" section following these exact formatting rules.
+
+## FORMATTING RULES
+- Use ▪️ for main bullet points
+- Use ✔️ for checkmarks/sub-items
+- Use "w/" for "with"
+- NO em dashes (use regular hyphens)
+- NO emojis except ▪️ and ✔️
+
+## SECTION STRUCTURE
+Generate the following sections in order (only include sections with available data):
+
+### ⭐ HIGHLIGHTS ⭐
+Output a single bullet list with this exact format and order:
+▪️ [X] Bedrooms: [bed configuration]
+▪️ [X] Full, [X] Half Bathrooms w/ Complimentary Toiletries
+▪️ Fully Equipped Kitchen
+▪️ Spacious Living Area
+▪️ [Outdoor features if any]: Hot Tub, BBQ Grill, etc.
+▪️ Entertainment: [features if any]
+▪️ Free Wi-Fi w/ [feature]
+▪️ Centralized Air Conditioning & Heating (adjust based on data)
+▪️ Family-friendly Amenities (only if applicable)
+▪️ On-site Washer and Dryer (only if applicable)
+▪️ [Parking info]
+▪️ Pets are welcome! (only if pets allowed)
+▪️ Maximum Capacity: [X]
+
+End with: "Note: Before booking, please ensure that you have reviewed the \\"Other Things to Note\\" and \\"House Rules\\" sections."
+
+### ⭐ BEDROOMS ⭐
+[Creative summary paragraph]
+[Common amenities with ✔️]
+[Each bedroom with ▪️ header and ✔️ details]
+
+### ⭐ BATHROOMS ⭐
+[Creative summary paragraph]
+[Common amenities with ✔️]
+[Each bathroom with ▪️ header and ✔️ details]
+
+### ⭐ KITCHEN & DINING ⭐
+[Creative summary paragraph]
+[Appliances and features with ✔️]
+
+### ⭐ LIVING ROOM ⭐
+[Creative summary with features]
+
+### ⭐ OUTDOOR SPACE ⭐
+[Only if outdoor amenities exist]
+
+### ⭐ ENTERTAINMENT ⭐
+[Only if entertainment amenities exist]
+
+### ⭐ LAUNDRY ⭐
+[Standard text if washer/dryer exists]
+
+End with closing CTA:
+✨Don't miss out on this fantastic vacation home! Book now to experience the best of [city] with all the comforts of a home away from home. ✨
+
+Respond in JSON format: { "theSpace": "Full formatted text here" }`;
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        return parsed.theSpace || "";
+    }
 }

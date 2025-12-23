@@ -30,4 +30,10 @@ router.get(
     openAIController.getPropertyDataForGeneration.bind(openAIController)
 );
 
+// Generate "The Space" section for a property
+router.post(
+    "/generate-the-space/:propertyId",
+    openAIController.generateTheSpace.bind(openAIController)
+);
+
 export default router;
