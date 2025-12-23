@@ -1,6 +1,8 @@
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { PropertyInfo } from "../entity/PropertyInfo";
 import { PropertyBedTypes } from "../entity/PropertyBedTypes";
+import { PropertyServiceInfo } from "../entity/PropertyServiceInfo";
+import { PropertyVendorManagement } from "../entity/PropertyVendorManagement";
 import {
     HostifyPropertyTypes,
     HostifyListingTypes,
@@ -18,9 +20,51 @@ export class HostifyListingMapper {
     /**
      * Map property data to Hostify location payload (Step 1)
      */
-    static mapToLocation(property: ClientPropertyEntity, propertyInfo: PropertyInfo) {
+    static mapToLocation(
+        property: ClientPropertyEntity,
+        propertyInfo: PropertyInfo,
+        serviceInfo?: PropertyServiceInfo | null,
+        vendorManagement?: PropertyVendorManagement | null
+    ) {
         const propertyType = this.mapPropertyType(propertyInfo.propertyType);
         const listingType = this.mapListingType(propertyInfo.roomType);
+
+        // Build tags array based on property data
+        const tags: string[] = ["pm"];
+
+        // Add management fee tag (e.g., "25%")
+        if (serviceInfo?.managementFee != null) {
+            tags.push(`${serviceInfo.managementFee}%`);
+        }
+
+        // Add service type tag (FULL=Full, PRO=Pro, LAUNCH=Launch)
+        if (serviceInfo?.serviceType) {
+            const serviceTypeMap: Record<string, string> = {
+                "FULL": "Full",
+                "PRO": "Pro",
+                "LAUNCH": "Launch"
+            };
+            const mappedServiceType = serviceTypeMap[serviceInfo.serviceType.toUpperCase()] || serviceInfo.serviceType;
+            tags.push(mappedServiceType);
+        }
+
+        // Add claim fee tag
+        if (propertyInfo.claimFee === "Yes") {
+            tags.push("w/claims fee");
+        } else if (propertyInfo.claimFee === "No") {
+            tags.push("no claims fee");
+        }
+        // If claimFee is null or anything else, disregard (don't add tag)
+
+        // Add cleaning tag if cleaner managed by Luxury Lodging
+        if (vendorManagement?.cleanerManagedBy === "Luxury Lodging") {
+            tags.push("cleaning");
+        }
+
+        // Add door code tag if code responsible party is Luxury Lodging
+        if (propertyInfo.codeResponsibleParty === "Luxury Lodging") {
+            tags.push("door code");
+        }
 
         return {
             name: propertyInfo.externalListingName,
@@ -34,6 +78,8 @@ export class HostifyListingMapper {
             country: property.country,
             zipcode: property.zipCode,
             street: property.streetAddress,
+            pms_services: 1,
+            tags: tags,
         };
     }
 
@@ -93,6 +139,7 @@ export class HostifyListingMapper {
             pets_allowed: propertyInfo.allowPets ? 1 : 0,
             smoking_allowed: propertyInfo.allowSmoking ? 1 : 0,
             children_allowed: propertyInfo.allowChildreAndInfants ? 1 : 0,
+            infants_allowed: 1,
         };
     }
 

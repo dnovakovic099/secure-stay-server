@@ -4003,7 +4003,7 @@ export class ClientService {
   async publishPropertyToHostify(propertyId: string, userId: string) {
     const property = await this.propertyRepo.findOne({
       where: { id: propertyId },
-      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "client"]
+      relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.propertyBedTypes", "propertyInfo.vendorManagementInfo", "client"]
     });
 
     if (!property) {
@@ -4046,7 +4046,12 @@ export class ClientService {
 
       // Step 1: Location (only if not already completed or retrying)
       if (!isResuming || !completedSteps.includes("location")) {
-        const locationPayload = HostifyListingMapper.mapToLocation(property, property.propertyInfo);
+        const locationPayload = HostifyListingMapper.mapToLocation(
+          property,
+          property.propertyInfo,
+          property.serviceInfo,
+          property.propertyInfo?.vendorManagementInfo
+        );
         payload.location = locationPayload;
 
         // Log the payload for debugging
