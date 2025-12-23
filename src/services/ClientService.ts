@@ -4187,7 +4187,7 @@ export class ClientService {
         // SUCCESS - All steps completed, finalize the publish
         property.listingId = property.hostifyListingId;  // Copy to final listingId
         property.hostifyPublishStatus = "completed";
-        property.status = PropertyStatus.ACTIVE;
+        property.status = PropertyStatus.ONBOARDING;
         property.updatedBy = userId;
         await this.propertyRepo.save(property);
 
