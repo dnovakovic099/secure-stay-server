@@ -25,6 +25,7 @@ import csv from "csv-parser";
 import { timezoneAmerica } from "../constant";
 import { isEmail } from "../helpers/helpers";
 import { OpenPhoneService } from "./OpenPhoneService";
+import { asanaService } from "./AsanaService";
 
 interface ClientFilter {
   page: number;
@@ -1339,6 +1340,14 @@ export class ClientService {
             await vendorManagementRepo.save(vendorManagementEntity);
           }
         }
+
+        // Create Asana task for newly signed property (non-blocking)
+        asanaService.createOnboardingTask({
+          client: savedClient,
+          property: savedClientProperty,
+          serviceInfo: serviceInfoEntity,
+          onboarding: onboardingEntity,
+        }).catch(err => logger.error('Asana task creation failed:', err));
       }
 
       // 5. Update client status if properties were added (only if not already set)
@@ -1487,6 +1496,14 @@ export class ClientService {
       }
 
       results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
+
+      // Create Asana task for newly signed property (non-blocking)
+      asanaService.createOnboardingTask({
+        client,
+        property: savedClientProperty,
+        serviceInfo: savedServiceInfo,
+        onboarding: savedOnboarding,
+      }).catch(err => logger.error('Asana task creation failed:', err));
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -1608,6 +1625,7 @@ export class ClientService {
     // Handle both update and create scenarios based on id presence
     for (const property of clientProperties as Array<Property & { id?: string; }>) {
       let clientProperty: ClientPropertyEntity;
+      const isNewProperty = !property.id; // Track if this is a new property for Asana task creation
 
       if (property.id) {
         // Update existing property
@@ -1820,6 +1838,17 @@ export class ClientService {
         where: { id: propertyId }, 
         relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.vendorManagementInfo"] 
       });
+
+      // Create Asana task for newly signed property (non-blocking)
+      if (isNewProperty && refreshed) {
+        asanaService.createOnboardingTask({
+          client,
+          property: refreshed,
+          serviceInfo: refreshed.serviceInfo,
+          onboarding: refreshed.onboarding,
+        }).catch(err => logger.error('Asana task creation failed:', err));
+      }
+
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
     }
 
@@ -1840,6 +1869,7 @@ export class ClientService {
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
+      const isNewProperty = !property.id; // Track if this is a new property for Asana task creation
 
       if (property.id) {
         // Update existing property
@@ -1934,6 +1964,18 @@ export class ClientService {
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboardingEntity);
 
       results.push({ clientProperty, onboarding: savedOnboarding });
+
+      // Create Asana task for newly signed property (non-blocking)
+      if (isNewProperty) {
+        // Fetch serviceInfo for Asana task
+        const serviceInfo = await this.propertyServiceInfoRepo.findOne({ where: { clientProperty: { id: clientProperty.id } } });
+        asanaService.createOnboardingTask({
+          client,
+          property: clientProperty,
+          serviceInfo,
+          onboarding: savedOnboarding,
+        }).catch(err => logger.error('Asana task creation failed:', err));
+      }
     }
 
     return { message: "Internal onboarding details saved", results };
@@ -2769,6 +2811,7 @@ export class ClientService {
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
+      const isNewProperty = !property.id; // Track if this is a new property for Asana task creation
 
       if (property.id) {
         // Update existing property
@@ -2846,6 +2889,18 @@ export class ClientService {
       const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
 
       results.push({ clientProperty, onboarding: savedOnboarding });
+
+      // Create Asana task for newly signed property (non-blocking)
+      if (isNewProperty) {
+        // Fetch serviceInfo for Asana task
+        const serviceInfo = await this.propertyServiceInfoRepo.findOne({ where: { clientProperty: { id: clientProperty.id } } });
+        asanaService.createOnboardingTask({
+          client,
+          property: clientProperty,
+          serviceInfo,
+          onboarding: savedOnboarding,
+        }).catch(err => logger.error('Asana task creation failed:', err));
+      }
     }
 
     return { message: "Client onboarding details saved", results };
@@ -2862,6 +2917,7 @@ export class ClientService {
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
+      const isNewProperty = !property.id; // Track if this is a new property for Asana task creation
 
       if (property.id) {
         // Update existing property
@@ -2944,6 +3000,18 @@ export class ClientService {
 
       const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
       updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+
+      // Create Asana task for newly signed property (non-blocking)
+      if (isNewProperty && refreshed) {
+        // Fetch serviceInfo for Asana task
+        const serviceInfo = await this.propertyServiceInfoRepo.findOne({ where: { clientProperty: { id: refreshed.id } } });
+        asanaService.createOnboardingTask({
+          client,
+          property: refreshed,
+          serviceInfo,
+          onboarding: refreshed.onboarding,
+        }).catch(err => logger.error('Asana task creation failed:', err));
+      }
     }
 
     return { message: "Client onboarding details updated", updated };
