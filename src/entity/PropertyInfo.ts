@@ -559,6 +559,31 @@ export class PropertyInfo {
     @Column({ type: "text", nullable: true })
     emergencyExitLocation: string;
 
+    // AI Generated Description Fields
+    @Column({ type: "text", nullable: true })
+    theSpace: string;
+
+    @Column({ type: "text", nullable: true })
+    theNeighborhood: string;
+
+    @Column({ type: "text", nullable: true })
+    houseRulesText: string;
+
+    @Column({ type: "text", nullable: true })
+    houseManualText: string;
+
+    @Column({ type: "text", nullable: true })
+    summaryText: string;
+
+    @Column({ type: "text", nullable: true })
+    guestAccessText: string;
+
+    @Column({ type: "text", nullable: true })
+    interactionWithGuestsText: string;
+
+    @Column({ type: "text", nullable: true })
+    otherThingsToNoteText: string;
+
     @OneToOne(() => ClientPropertyEntity, (property) => property.propertyInfo, { onDelete: "CASCADE" })
     @JoinColumn()
     clientProperty: ClientPropertyEntity;

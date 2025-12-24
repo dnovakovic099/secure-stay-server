@@ -1127,6 +1127,16 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         fireExtinguisherLocation: Joi.string().optional().allow(null),
                         firstAidKitLocation: Joi.string().optional().allow(null),
                         emergencyExitLocation: Joi.string().optional().allow(null),
+
+                        // AI Generated Description Fields
+                        theSpace: Joi.string().optional().allow(null),
+                        theNeighborhood: Joi.string().optional().allow(null),
+                        houseRulesText: Joi.string().optional().allow(null),
+                        houseManualText: Joi.string().optional().allow(null),
+                        summaryText: Joi.string().optional().allow(null),
+                        guestAccessText: Joi.string().optional().allow(null),
+                        interactionWithGuestsText: Joi.string().optional().allow(null),
+                        otherThingsToNoteText: Joi.string().optional().allow(null),
                     }).optional()
                 }).optional()
             })

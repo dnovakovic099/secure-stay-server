@@ -2488,6 +2488,16 @@ export class ClientService {
     if (listingPayload.fireExtinguisherLocation !== undefined) propertyInfo.fireExtinguisherLocation = listingPayload.fireExtinguisherLocation ?? null;
     if (listingPayload.firstAidKitLocation !== undefined) propertyInfo.firstAidKitLocation = listingPayload.firstAidKitLocation ?? null;
     if (listingPayload.emergencyExitLocation !== undefined) propertyInfo.emergencyExitLocation = listingPayload.emergencyExitLocation ?? null;
+
+    // AI Generated Description Fields
+    if (listingPayload.theSpace !== undefined) propertyInfo.theSpace = listingPayload.theSpace ?? null;
+    if (listingPayload.theNeighborhood !== undefined) propertyInfo.theNeighborhood = listingPayload.theNeighborhood ?? null;
+    if (listingPayload.houseRulesText !== undefined) propertyInfo.houseRulesText = listingPayload.houseRulesText ?? null;
+    if (listingPayload.houseManualText !== undefined) propertyInfo.houseManualText = listingPayload.houseManualText ?? null;
+    if (listingPayload.summaryText !== undefined) propertyInfo.summaryText = listingPayload.summaryText ?? null;
+    if (listingPayload.guestAccessText !== undefined) propertyInfo.guestAccessText = listingPayload.guestAccessText ?? null;
+    if (listingPayload.interactionWithGuestsText !== undefined) propertyInfo.interactionWithGuestsText = listingPayload.interactionWithGuestsText ?? null;
+    if (listingPayload.otherThingsToNoteText !== undefined) propertyInfo.otherThingsToNoteText = listingPayload.otherThingsToNoteText ?? null;
   }
 
   private async handlePropertyBedTypes(propertyInfo: PropertyInfo, bedTypesData: any[]) {
