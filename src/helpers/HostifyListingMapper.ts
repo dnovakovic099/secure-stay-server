@@ -125,10 +125,14 @@ export class HostifyListingMapper {
         return {
             listing_id: listingId,
             name: propertyInfo.externalListingName,
-            // summary: propertyInfo.internalListingName,
-            // house_rules: propertyInfo.otherHouseRules,
-            // checkin_place: propertyInfo.checkInInstructions,
-            // access: propertyInfo.checkOutInstructions,
+            summary: propertyInfo.summaryText,
+            space: propertyInfo.theSpace,
+            interaction: propertyInfo.interactionWithGuestsText,
+            notes: propertyInfo.otherThingsToNoteText,
+            neighborhood_overview: propertyInfo.theNeighborhood,
+            house_rules: propertyInfo.houseRulesText,
+            house_manual: propertyInfo.houseManualText,
+            access: propertyInfo.guestAccessText,
         };
     }
 
