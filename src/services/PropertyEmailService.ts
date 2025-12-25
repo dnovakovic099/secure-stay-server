@@ -6,14 +6,16 @@ import logger from "../utils/logger.utils";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { UsersService } from "./UsersService";
+import { OpenPhoneService } from "./OpenPhoneService";
 
 /**
- * Service for handling property-related email notifications.
- * Uses the Support email account for sending.
+ * Service for handling property-related notifications (email and SMS).
+ * Uses the Support email account for emails and OpenPhone for SMS.
  */
 export class PropertyEmailService {
     private templatePath = path.join(process.cwd(), "src", "template");
     private usersService = new UsersService();
+    private openPhoneService = new OpenPhoneService();
 
     /**
      * Send welcome/onboarding email when a new property is added to a client.
@@ -75,6 +77,51 @@ export class PropertyEmailService {
         } catch (error) {
             logger.error(`Failed to send property onboarding email to ${client.email}:`, error);
             // Don't throw - email sending should not block the main flow
+        }
+    }
+
+    /**
+     * Send welcome/onboarding SMS when a new property is added to a client.
+     * This SMS is sent asynchronously and failures do not block the main flow.
+     * 
+     * @param client - The client entity (owner of the property)
+     * @param property - The newly created property entity
+     * @param userId - The ID of the user who created the property (used to get API key)
+     */
+    async sendPropertyOnboardingSMS(
+        client: ClientEntity,
+        property: ClientPropertyEntity,
+        userId: string
+    ): Promise<void> {
+        try {
+            // Format phone number to E.164 format
+            const phoneNumber = this.openPhoneService.formatPhoneNumber(client.dialCode, client.phone);
+            if (!phoneNumber) {
+                logger.warn(`Cannot send onboarding SMS: Client ${client.id} has no phone number`);
+                return;
+            }
+
+            // Fetch the API key for the user who created the property
+            const { apiKey } = await this.usersService.getApiKey(userId);
+            if (!apiKey) {
+                logger.warn(`Cannot send onboarding SMS: No API key found for user ${userId}`);
+                return;
+            }
+
+            // Generate the onboarding form link
+            const obFormLink = `${process.env.CLIENT_URL}/client-listing-intake-update/${client.id}/${apiKey}?propertyId=${property.id}`;
+
+            // Build SMS content
+            const clientFirstName = client.preferredName || client.firstName;
+            const content = `Hi, ${clientFirstName}! Welcome to Luxury Lodging! 🎉 We're excited to partner with you and take great care of your property.\n\nTo get started, please complete your onboarding form here:\n\n👉 ${obFormLink}\n\nOnce submitted, our team will begin setup and follow up if we need anything else. If anything is unclear or you'd rather talk it through, call us at (813) 694-8882. We're happy to help.`;
+
+            // Send SMS via OpenPhone
+            await this.openPhoneService.sendSMS(phoneNumber, content);
+
+            logger.info(`Property onboarding SMS sent to ${phoneNumber} for property ${property.id}`);
+        } catch (error) {
+            logger.error(`Failed to send property onboarding SMS:`, error);
+            // Don't throw - SMS sending should not block the main flow
         }
     }
 }

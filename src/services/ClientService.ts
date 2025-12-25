@@ -1353,6 +1353,10 @@ export class ClientService {
         // Send property onboarding welcome email (non-blocking)
         propertyEmailService.sendPropertyOnboardingEmail(savedClient, savedClientProperty, userId)
           .catch(err => logger.error('Property onboarding email failed:', err));
+
+        // Send property onboarding welcome SMS (non-blocking)
+        propertyEmailService.sendPropertyOnboardingSMS(savedClient, savedClientProperty, userId)
+          .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
 
       // 5. Update client status if properties were added (only if not already set)
@@ -1513,6 +1517,10 @@ export class ClientService {
       // Send property onboarding welcome email (non-blocking)
       propertyEmailService.sendPropertyOnboardingEmail(client, savedClientProperty, userId)
         .catch(err => logger.error('Property onboarding email failed:', err));
+
+      // Send property onboarding welcome SMS (non-blocking)
+      propertyEmailService.sendPropertyOnboardingSMS(client, savedClientProperty, userId)
+        .catch(err => logger.error('Property onboarding SMS failed:', err));
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -1860,6 +1868,10 @@ export class ClientService {
         // Send property onboarding welcome email (non-blocking)
         propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
           .catch(err => logger.error('Property onboarding email failed:', err));
+
+        // Send property onboarding welcome SMS (non-blocking)
+        propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
+          .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
 
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
@@ -2134,6 +2146,10 @@ export class ClientService {
         // Send property onboarding welcome email (non-blocking)
         propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
           .catch(err => logger.error('Property onboarding email failed:', err));
+
+        // Send property onboarding welcome SMS (non-blocking)
+        propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
+          .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
     }
 

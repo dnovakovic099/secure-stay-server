@@ -126,22 +126,29 @@ export class OpenPhoneService {
    * @param phone Phone number (e.g., "2345678901")
    * @returns E.164 formatted number (e.g., "+12345678901")
    */
-  private formatPhoneNumber(dialCode?: string, phone?: string): string | null {
+  public formatPhoneNumber(dialCode?: string, phone?: string): string | null {
     if (!phone) return null;
 
     // Clean the phone number (remove spaces, dashes, parentheses)
-    const cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
+    let cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
+
+    // If phone already has +, return as is (already in E.164 format)
+    if (cleanPhone.startsWith("+")) {
+      return cleanPhone;
+    }
 
     // If dialCode is provided, combine them
     if (dialCode) {
       // Ensure dialCode starts with +
       const cleanDialCode = dialCode.startsWith("+") ? dialCode : `+${dialCode}`;
-      return `${cleanDialCode}${cleanPhone}`;
-    }
+      const dialCodeDigits = cleanDialCode.replace("+", "");
 
-    // If phone already has +, return as is
-    if (cleanPhone.startsWith("+")) {
-      return cleanPhone;
+      // Check if phone already starts with the dial code digits (avoid double dial code)
+      if (cleanPhone.startsWith(dialCodeDigits)) {
+        return `+${cleanPhone}`;
+      }
+
+      return `${cleanDialCode}${cleanPhone}`;
     }
 
     // Default to US if no dial code (assume +1)
