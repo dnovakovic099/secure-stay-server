@@ -26,6 +26,7 @@ import { timezoneAmerica } from "../constant";
 import { isEmail } from "../helpers/helpers";
 import { OpenPhoneService } from "./OpenPhoneService";
 import { asanaService } from "./AsanaService";
+import { propertyEmailService } from "./PropertyEmailService";
 
 interface ClientFilter {
   page: number;
@@ -1348,6 +1349,10 @@ export class ClientService {
           serviceInfo: serviceInfoEntity,
           onboarding: onboardingEntity,
         }).catch(err => logger.error('Asana task creation failed:', err));
+
+        // Send property onboarding welcome email (non-blocking)
+        propertyEmailService.sendPropertyOnboardingEmail(savedClient, savedClientProperty, userId)
+          .catch(err => logger.error('Property onboarding email failed:', err));
       }
 
       // 5. Update client status if properties were added (only if not already set)
@@ -1504,6 +1509,10 @@ export class ClientService {
         serviceInfo: savedServiceInfo,
         onboarding: savedOnboarding,
       }).catch(err => logger.error('Asana task creation failed:', err));
+
+      // Send property onboarding welcome email (non-blocking)
+      propertyEmailService.sendPropertyOnboardingEmail(client, savedClientProperty, userId)
+        .catch(err => logger.error('Property onboarding email failed:', err));
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -1847,6 +1856,10 @@ export class ClientService {
           serviceInfo: refreshed.serviceInfo,
           onboarding: refreshed.onboarding,
         }).catch(err => logger.error('Asana task creation failed:', err));
+
+        // Send property onboarding welcome email (non-blocking)
+        propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
+          .catch(err => logger.error('Property onboarding email failed:', err));
       }
 
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
@@ -1993,6 +2006,7 @@ export class ClientService {
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
+      const isNewProperty = !property.id; // Track if this is a new property
 
       if (property.id) {
         // Update existing property
@@ -2054,6 +2068,7 @@ export class ClientService {
       }
 
       // Update Onboarding if provided (no serviceInfo for internal onboarding)
+      let savedOnboarding: PropertyOnboarding | null = null;
       if (property.onboarding?.sales || property.onboarding?.listing || property.onboarding?.photography || property.onboarding?.clientAcknowledgement) {
         const sales = property.onboarding.sales;
         const listing = property.onboarding.listing;
@@ -2100,11 +2115,26 @@ export class ClientService {
         }
 
         ob.updatedBy = userId;
-        await this.propertyOnboardingRepo.save(ob);
+        savedOnboarding = await this.propertyOnboardingRepo.save(ob);
       }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding"] });
+      const refreshed = await this.propertyRepo.findOne({ where: { id: clientProperty.id }, relations: ["onboarding", "serviceInfo"] });
       updated.push({ clientProperty: refreshed!, onboarding: refreshed!.onboarding });
+
+      // For new properties, create Asana task and send email
+      if (isNewProperty && refreshed) {
+        // Create Asana task for newly signed property (non-blocking)
+        asanaService.createOnboardingTask({
+          client,
+          property: refreshed,
+          serviceInfo: refreshed.serviceInfo,
+          onboarding: savedOnboarding,
+        }).catch(err => logger.error('Asana task creation failed:', err));
+
+        // Send property onboarding welcome email (non-blocking)
+        propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
+          .catch(err => logger.error('Property onboarding email failed:', err));
+      }
     }
 
     return { message: "Internal onboarding details updated", updated };

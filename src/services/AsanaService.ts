@@ -50,6 +50,12 @@ export class AsanaService {
      * Uses custom fields when GIDs are configured, otherwise falls back to description.
      */
     async createOnboardingTask(data: OnboardingTaskData): Promise<void> {
+        // Skip if Asana is not configured
+        if (!this.client.isConfigured()) {
+            logger.info('Asana integration is not configured. Skipping onboarding task creation.');
+            return;
+        }
+
         const { client, property, serviceInfo, onboarding } = data;
 
         // Build task name: Full Client Name - Street Address, Unit #
