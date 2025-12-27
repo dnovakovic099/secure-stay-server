@@ -4347,4 +4347,117 @@ export class ClientService {
   }
 
 
+  /**
+   * Update acknowledgement fields for a property from the client-facing acknowledgement form.
+   * This method updates acknowledgement fields in PropertyOnboarding, PropertyInfo, and PropertyVendorManagement entities.
+   */
+  async updateAcknowledgement(
+    propertyId: string,
+    data: {
+      // Client Acknowledgements (stored in PropertyOnboarding)
+      acknowledgePropertyReadyByStartDate: boolean;
+      agreesUnpublishExternalListings: boolean;
+      acknowledgesResponsibilityToInform: boolean;
+      // Amenities Section (stored in PropertyInfo)
+      acknowledgeAmenitiesAccurate: boolean;
+      acknowledgeSecurityCamerasDisclosed: boolean;
+      // Management Notes (stored in PropertyInfo)
+      acknowledgeNoGuestContact: boolean;
+      acknowledgeNoPropertyAccess: boolean;
+      acknowledgeNoDirectTransactions: boolean;
+      // Property Access (stored in PropertyInfo)
+      responsibilityToSetDoorCodes: boolean;
+      // Vendor Management (stored in PropertyVendorManagement via PropertyInfo)
+      acknowledgeMaintenanceResponsibility: boolean;
+      authorizeLuxuryLodgingAction: boolean;
+      acknowledgeExpensesBilledToStatement: boolean;
+    },
+    userId: string
+  ) {
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId },
+      relations: ["onboarding", "propertyInfo", "propertyInfo.vendorManagementInfo"]
+    });
+
+    if (!property) {
+      throw CustomErrorHandler.notFound(`Property with ID ${propertyId} not found.`);
+    }
+
+    // Update PropertyOnboarding fields
+    if (!property.onboarding) {
+      // Create onboarding if it doesn't exist
+      const onboarding = this.propertyOnboardingRepo.create({
+        acknowledgePropertyReadyByStartDate: data.acknowledgePropertyReadyByStartDate,
+        agreesUnpublishExternalListings: data.agreesUnpublishExternalListings,
+        acknowledgesResponsibilityToInform: data.acknowledgesResponsibilityToInform,
+        clientProperty: property,
+        createdBy: userId,
+      });
+      const savedOnboarding = await this.propertyOnboardingRepo.save(onboarding);
+      property.onboarding = savedOnboarding;
+      await this.propertyRepo.save(property);
+    } else {
+      // Update existing onboarding
+      property.onboarding.acknowledgePropertyReadyByStartDate = data.acknowledgePropertyReadyByStartDate;
+      property.onboarding.agreesUnpublishExternalListings = data.agreesUnpublishExternalListings;
+      property.onboarding.acknowledgesResponsibilityToInform = data.acknowledgesResponsibilityToInform;
+      property.onboarding.updatedBy = userId;
+      await this.propertyOnboardingRepo.save(property.onboarding);
+    }
+
+    // Update PropertyInfo fields (Amenities, Management Notes, and Property Access)
+    if (!property.propertyInfo) {
+      // Create propertyInfo if it doesn't exist
+      const propertyInfo = this.propertyInfoRepo.create({
+        acknowledgeAmenitiesAccurate: data.acknowledgeAmenitiesAccurate,
+        acknowledgeSecurityCamerasDisclosed: data.acknowledgeSecurityCamerasDisclosed,
+        acknowledgeNoGuestContact: data.acknowledgeNoGuestContact,
+        acknowledgeNoPropertyAccess: data.acknowledgeNoPropertyAccess,
+        acknowledgeNoDirectTransactions: data.acknowledgeNoDirectTransactions,
+        responsibilityToSetDoorCodes: data.responsibilityToSetDoorCodes,
+        clientProperty: property,
+        createdBy: userId,
+      });
+      const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+      property.propertyInfo = savedPropertyInfo;
+      await this.propertyRepo.save(property);
+    } else {
+      // Update existing propertyInfo
+      property.propertyInfo.acknowledgeAmenitiesAccurate = data.acknowledgeAmenitiesAccurate;
+      property.propertyInfo.acknowledgeSecurityCamerasDisclosed = data.acknowledgeSecurityCamerasDisclosed;
+      property.propertyInfo.acknowledgeNoGuestContact = data.acknowledgeNoGuestContact;
+      property.propertyInfo.acknowledgeNoPropertyAccess = data.acknowledgeNoPropertyAccess;
+      property.propertyInfo.acknowledgeNoDirectTransactions = data.acknowledgeNoDirectTransactions;
+      property.propertyInfo.responsibilityToSetDoorCodes = data.responsibilityToSetDoorCodes;
+      property.propertyInfo.updatedBy = userId;
+      await this.propertyInfoRepo.save(property.propertyInfo);
+    }
+
+    // Update PropertyVendorManagement fields (accessed through PropertyInfo)
+    if (property.propertyInfo) {
+      if (!property.propertyInfo.vendorManagementInfo) {
+        // Create vendorManagement if it doesn't exist
+        const vendorManagement = this.propertyVendorManagementRepo.create({
+          acknowledgeMaintenanceResponsibility: data.acknowledgeMaintenanceResponsibility,
+          authorizeLuxuryLodgingAction: data.authorizeLuxuryLodgingAction,
+          acknowledgeExpensesBilledToStatement: data.acknowledgeExpensesBilledToStatement,
+          propertyInfo: property.propertyInfo,
+        });
+        await this.propertyVendorManagementRepo.save(vendorManagement);
+      } else {
+        // Update existing vendorManagement
+        property.propertyInfo.vendorManagementInfo.acknowledgeMaintenanceResponsibility = data.acknowledgeMaintenanceResponsibility;
+        property.propertyInfo.vendorManagementInfo.authorizeLuxuryLodgingAction = data.authorizeLuxuryLodgingAction;
+        property.propertyInfo.vendorManagementInfo.acknowledgeExpensesBilledToStatement = data.acknowledgeExpensesBilledToStatement;
+        await this.propertyVendorManagementRepo.save(property.propertyInfo.vendorManagementInfo);
+      }
+    }
+
+    return {
+      message: "Acknowledgement updated successfully",
+      propertyId: property.id,
+    };
+  }
+
+
 }

@@ -367,6 +367,53 @@ export class ClientController {
     }
   }
 
+  async updateAcknowledgement(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const {
+        propertyId,
+        // Client Acknowledgements (stored in PropertyOnboarding)
+        acknowledgePropertyReadyByStartDate,
+        agreesUnpublishExternalListings,
+        acknowledgesResponsibilityToInform,
+        // Amenities Section (stored in PropertyInfo)
+        acknowledgeAmenitiesAccurate,
+        acknowledgeSecurityCamerasDisclosed,
+        // Management Notes (stored in PropertyInfo)
+        acknowledgeNoGuestContact,
+        acknowledgeNoPropertyAccess,
+        acknowledgeNoDirectTransactions,
+        // Property Access (stored in PropertyInfo)
+        responsibilityToSetDoorCodes,
+        // Vendor Management (stored in PropertyVendorManagement via PropertyInfo)
+        acknowledgeMaintenanceResponsibility,
+        authorizeLuxuryLodgingAction,
+        acknowledgeExpensesBilledToStatement,
+      } = request.body;
+      const result = await clientService.updateAcknowledgement(
+        propertyId,
+        {
+          acknowledgePropertyReadyByStartDate,
+          agreesUnpublishExternalListings,
+          acknowledgesResponsibilityToInform,
+          acknowledgeAmenitiesAccurate,
+          acknowledgeSecurityCamerasDisclosed,
+          acknowledgeNoGuestContact,
+          acknowledgeNoPropertyAccess,
+          acknowledgeNoDirectTransactions,
+          responsibilityToSetDoorCodes,
+          acknowledgeMaintenanceResponsibility,
+          authorizeLuxuryLodgingAction,
+          acknowledgeExpensesBilledToStatement,
+        },
+        request.user.id
+      );
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
 }
 

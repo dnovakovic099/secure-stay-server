@@ -2139,3 +2139,33 @@ export const validateSubmitAllClientForms = (request: Request, response: Respons
     }
     next();
 };
+
+// Validation for acknowledgement form submission
+export const validateUpdateAcknowledgement = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        propertyId: Joi.string().required(),
+        // Client Acknowledgements (from Onboarding tab)
+        acknowledgePropertyReadyByStartDate: Joi.boolean().required(),
+        agreesUnpublishExternalListings: Joi.boolean().required(),
+        acknowledgesResponsibilityToInform: Joi.boolean().required(),
+        // Amenities Section (from Listing Info tab)
+        acknowledgeAmenitiesAccurate: Joi.boolean().required(),
+        acknowledgeSecurityCamerasDisclosed: Joi.boolean().required(),
+        // Vendor Management (from Management tab)
+        acknowledgeMaintenanceResponsibility: Joi.boolean().required(),
+        authorizeLuxuryLodgingAction: Joi.boolean().required(),
+        acknowledgeExpensesBilledToStatement: Joi.boolean().required(),
+        // Management Notes (from Management tab)
+        acknowledgeNoGuestContact: Joi.boolean().required(),
+        acknowledgeNoPropertyAccess: Joi.boolean().required(),
+        acknowledgeNoDirectTransactions: Joi.boolean().required(),
+        // Property Access (from Management tab)
+        responsibilityToSetDoorCodes: Joi.boolean().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
