@@ -478,11 +478,15 @@ export class ListingService {
   }
 
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
-    const { propertyOwnershipType, listingId, statementDurationType } = body;
+    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount } = body;
     const listingDetail = new ListingDetail();
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
     listingDetail.statementDurationType = statementDurationType;
+    listingDetail.claimProtection = claimProtection;
+    listingDetail.hidePetFee = hidePetFee;
+    listingDetail.techFee = techFee;
+    listingDetail.techFeeAmount = techFeeAmount;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
@@ -490,8 +494,10 @@ export class ListingService {
   public async updateListingDetail(body: Partial<ListingDetail>, listingDetail: Partial<ListingDetail>, userId: string) {
     listingDetail.propertyOwnershipType = body.propertyOwnershipType;
     listingDetail.statementDurationType = body.statementDurationType;
-    listingDetail.claimProtection= body.claimProtection;
-    listingDetail.hidePetFee=body.hidePetFee;
+    listingDetail.claimProtection = body.claimProtection;
+    listingDetail.hidePetFee = body.hidePetFee;
+    listingDetail.techFee = body.techFee;
+    listingDetail.techFeeAmount = body.techFeeAmount;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }

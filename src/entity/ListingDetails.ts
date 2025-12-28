@@ -20,6 +20,12 @@ export class ListingDetail {
     @Column({default: false, nullable:true})
     hidePetFee: boolean;
 
+    @Column({ name: 'tech_fee', default: false, nullable: true })
+    techFee: boolean;
+
+    @Column({ name: 'tech_fee_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
+    techFeeAmount: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

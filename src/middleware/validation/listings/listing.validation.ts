@@ -80,6 +80,8 @@ export const validateSaveListingDetail = (request: Request, response: Response, 
     statementDurationType: Joi.string().required().valid("Monthly", "Weekly & Bi-weekly").allow(null, ""),
     claimProtection: Joi.boolean().required(),
     hidePetFee: Joi.boolean().required(),
+    techFee: Joi.boolean().optional(),
+    techFeeAmount: Joi.number().precision(2).allow(null).optional(),
   });
 
   const { error } = schema.validate(request.body);
