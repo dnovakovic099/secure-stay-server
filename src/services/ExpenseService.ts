@@ -927,6 +927,105 @@ export class ExpenseService {
             }
         }
     }
+
+    async processTechFeeExpenses() {
+        const listingDetailRepo = appDatabase.getRepository(ListingDetail);
+
+        // Get current date in Eastern Time
+        const now = new Date();
+        const todayInET = new Date(
+            now.toLocaleString("en-US", { timeZone: "America/New_York" })
+        );
+
+        const yyyy = todayInET.getFullYear();
+        const mm = String(todayInET.getMonth() + 1).padStart(2, "0");
+        const dd = String(todayInET.getDate()).padStart(2, "0");
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        logger.info(`Processing tech fee expenses for date: ${todayStr}`);
+
+        // Get all listings with techFee enabled and techFeeAmount set
+        const eligibleListings = await listingDetailRepo.find({
+            where: {
+                techFee: true,
+                techFeeAmount: Not(IsNull()),
+            },
+        });
+
+        if (eligibleListings.length === 0) {
+            logger.info("No listings with tech fee enabled found.");
+            return { created: 0, skipped: 0 };
+        }
+
+        // Get the Tech Fee category
+        const techFeeCategory = await this.categoryRepo.findOne({
+            where: { categoryName: "Tech Fee" },
+        });
+
+        if (!techFeeCategory) {
+            logger.error("Tech Fee category not found in database. Please run the migration.");
+            return { created: 0, skipped: 0, error: "Tech Fee category not found" };
+        }
+
+        let created = 0;
+        let skipped = 0;
+
+        for (const listingDetail of eligibleListings) {
+            try {
+                // Check if expense already exists for this listing and date
+                const existing = await this.expenseRepo.findOne({
+                    where: {
+                        listingMapId: listingDetail.listingId,
+                        expenseDate: todayStr,
+                        isDeleted: 0,
+                        comesFrom: "tech_fee",
+                    },
+                });
+
+                if (existing) {
+                    logger.info(
+                        `Tech fee expense already exists for listingId ${listingDetail.listingId} on ${todayStr}`
+                    );
+                    skipped++;
+                    continue;
+                }
+
+                // Create the expense
+                const newExpense = new ExpenseEntity();
+                newExpense.listingMapId = listingDetail.listingId;
+                newExpense.expenseDate = todayStr;
+                newExpense.concept = "Tech Fees";
+                newExpense.amount = Number(listingDetail.techFeeAmount) * -1; // Negative for expense
+                newExpense.isDeleted = 0;
+                newExpense.categories = JSON.stringify([techFeeCategory.hostawayId]);
+                newExpense.contractorName = "";
+                newExpense.dateOfWork = null;
+                newExpense.contractorNumber = "";
+                newExpense.findings = "";
+                newExpense.userId = "system";
+                newExpense.fileNames = "";
+                newExpense.status = ExpenseStatus.APPROVED;
+                newExpense.createdBy = "system";
+                newExpense.datePaid = todayStr;
+                newExpense.paymentMethod = "";
+                newExpense.comesFrom = "tech_fee";
+
+                await this.expenseRepo.save(newExpense);
+                created++;
+
+                logger.info(
+                    `Created tech fee expense for listingId ${listingDetail.listingId}: $${listingDetail.techFeeAmount}`
+                );
+            } catch (error) {
+                logger.error(
+                    `Error creating tech fee expense for listingId ${listingDetail.listingId}: ${error?.message}`
+                );
+            }
+        }
+
+        logger.info(`Tech fee expense processing complete. Created: ${created}, Skipped: ${skipped}`);
+        return { created, skipped };
+    }
 }
 
 

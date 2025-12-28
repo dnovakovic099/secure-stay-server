@@ -256,4 +256,64 @@ export function scheduleGetReservation() {
   schedule.scheduleJob({ hour: 13, minute: 17, tz: "America/New_York" }, createExpenseLogsFromResolution);
 
   schedule.scheduleJob({ hour: 13, minute: 19, tz: "America/New_York" }, updateMgmtFee);
+
+  // Tech Fee Expense Automation
+  // December 30, 2025 at 8 AM EST (one-time)
+  schedule.scheduleJob({ year: 2025, month: 11, date: 30, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      logger.info('Processing tech fee expenses for December 30, 2025...');
+      const expenseService = new ExpenseService();
+      await expenseService.processTechFeeExpenses();
+      logger.info('Tech fee expenses processed successfully for December 30, 2025.');
+    } catch (error) {
+      logger.error("Error processing tech fee expenses:", error);
+    }
+  });
+
+  // January 15, 2026 at 8 AM EST (one-time)
+  schedule.scheduleJob({ year: 2026, month: 0, date: 15, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      logger.info('Processing tech fee expenses for January 15, 2026...');
+      const expenseService = new ExpenseService();
+      await expenseService.processTechFeeExpenses();
+      logger.info('Tech fee expenses processed successfully for January 15, 2026.');
+    } catch (error) {
+      logger.error("Error processing tech fee expenses:", error);
+    }
+  });
+
+  // February 1, 2026 at 8 AM EST (one-time)
+  schedule.scheduleJob({ year: 2026, month: 1, date: 1, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      logger.info('Processing tech fee expenses for February 1, 2026...');
+      const expenseService = new ExpenseService();
+      await expenseService.processTechFeeExpenses();
+      logger.info('Tech fee expenses processed successfully for February 1, 2026.');
+    } catch (error) {
+      logger.error("Error processing tech fee expenses:", error);
+    }
+  });
+
+  // 1st of every month at 8 AM EST (recurring, starting March 1, 2026)
+  schedule.scheduleJob({ date: 1, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      // Only run from March 2026 onwards
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth(); // 0-indexed
+
+      // Skip if before March 2026 (month 2 = March)
+      if (currentYear < 2026 || (currentYear === 2026 && currentMonth < 2)) {
+        logger.info(`Skipping tech fee processing - before March 2026 (current: ${currentYear}-${currentMonth + 1})`);
+        return;
+      }
+
+      logger.info('Processing monthly tech fee expenses...');
+      const expenseService = new ExpenseService();
+      await expenseService.processTechFeeExpenses();
+      logger.info('Monthly tech fee expenses processed successfully.');
+    } catch (error) {
+      logger.error("Error processing monthly tech fee expenses:", error);
+    }
+  });
 }
