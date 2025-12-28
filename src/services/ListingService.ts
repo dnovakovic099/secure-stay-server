@@ -359,6 +359,16 @@ export class ListingService {
     return pmListings;
   }
 
+  /**
+   * Get all listings for name lookup purposes (includes inactive properties).
+   * Only fetches id and internalListingName for efficiency.
+   */
+  async getAllListingsForLookup() {
+    return await this.listingRepository.find({
+      select: ['id', 'internalListingName']
+    });
+  }
+
   async getLaunchListings(){
     const listings = await this.listingRepository.find();
     const launchListings = listings.filter(listing => {

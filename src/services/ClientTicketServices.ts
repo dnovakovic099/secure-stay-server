@@ -193,7 +193,7 @@ export class ClientTicketService {
         : { id: 'DESC' },
     });
 
-    const listings = await listingService.getPmListings();
+    const listings = await listingService.getAllListingsForLookup();
 
     const transformedTickets = clientTickets.map((ticket) => {
       return {
