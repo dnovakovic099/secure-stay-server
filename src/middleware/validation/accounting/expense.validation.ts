@@ -53,7 +53,8 @@ export const validateCreateExpense = (request: Request, response: Response, next
                 }
             })
         ).optional().allow(null, ""),
-        isRecurring: Joi.number().valid(0,1).optional()
+        isRecurring: Joi.number().valid(0, 1).optional(),
+        llCover: Joi.number().valid(0, 1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -117,7 +118,8 @@ export const validateUpdateExpense = (request: Request, response: Response, next
                 }
             })
         ).optional().allow(null, ""),
-        isRecurring: Joi.number().valid(0,1).optional()
+        isRecurring: Joi.number().valid(0, 1).optional(),
+        llCover: Joi.number().valid(0, 1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -240,7 +242,8 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         contractorNumber: Joi.string().required().allow(null),
         findings: Joi.string().required().allow(null),
         datePaid: Joi.string().required().allow(null),
-        isRecurring: Joi.number().valid(0,1).optional()
+        isRecurring: Joi.number().valid(0, 1).optional(),
+        llCover: Joi.number().valid(0, 1).optional()
     });
 
     const { error } = schema.validate(request.body);

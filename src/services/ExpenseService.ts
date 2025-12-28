@@ -34,6 +34,7 @@ interface ExpenseBulkUpdateObject {
     findings?: string;
     datePaid?: string;
     isRecurring?: number;
+    llCover?: number;
 }
 
 export class ExpenseService {
@@ -61,7 +62,8 @@ export class ExpenseService {
             paymentMethod,
             datePaid,
             issues,
-            isRecurring
+            isRecurring,
+            llCover
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -85,6 +87,7 @@ export class ExpenseService {
         newExpense.datePaid = datePaid ? datePaid : "";
         newExpense.issues = issues ? issues : null;
         newExpense.isRecurring = isRecurring ? isRecurring : 0;
+        newExpense.llCover = llCover ? llCover : 0;
 
         // const hostawayExpense = await this.createHostawayExpense({
         //     listingMapId,
@@ -219,6 +222,8 @@ export class ExpenseService {
                     ...(isRecurring !== undefined && { isRecurring: Number(isRecurring) }),
                     ...(type && type == "extras" && { amount: MoreThan(0) }),
                     ...(type && type == "expense" && { amount: LessThan(0) }),
+                    // Filter out llCover expenses for non-securestay.ai domains
+                    ...(request.hostname !== "securestay.ai" && { llCover: 0 }),
                 },
             order: { expenseDate: "DESC" },
             skip,
@@ -300,7 +305,8 @@ export class ExpenseService {
                     issues: issueIds,
                     issuesList: issueList,
                     createdBy: createdBy,
-                    guestName: expense.guestName
+                    guestName: expense.guestName,
+                    llCover: expense.llCover,
                 };
             })
         );
@@ -443,7 +449,8 @@ export class ExpenseService {
             paymentMethod,
             datePaid,
             issues,
-            isRecurring
+            isRecurring,
+            llCover
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
@@ -469,6 +476,7 @@ export class ExpenseService {
         expense.datePaid = datePaid ? datePaid : "";
         expense.issues = issues ? issues : null;
         expense.isRecurring = isRecurring ? isRecurring : 0;
+        expense.llCover = llCover ? llCover : 0;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }

@@ -93,4 +93,7 @@ export class ExpenseEntity {
 
     @Column({ nullable: true })
     resolutionId: number;
+
+    @Column({ type: "tinyint", default: 0 })
+    llCover: number;
 }
