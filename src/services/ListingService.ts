@@ -773,18 +773,26 @@ export class ListingService {
     // Run everything inside transaction
     try {
       await appDatabase.manager.transaction(async (tx) => {
-        // 3. Fetch existing listings once
-        const existingListings = await tx.find(Listing);
+        // 3. Fetch existing listings once (including soft-deleted to prevent duplicate key errors)
+        const existingListings = await tx.find(Listing, { withDeleted: true });
         const existingListingIds = existingListings.map((l) => String(l.id));
 
-        // 🤝 NEW listings = Hostify - DB
+        // Track which listings are soft-deleted for reactivation
+        const softDeletedListingIds = existingListings
+          .filter((l) => l.deletedAt !== null)
+          .map((l) => String(l.id));
+
+        // 🤝 NEW listings = Hostify - DB (truly new, never existed before)
         const newListingIds = incomingListingIds.filter((id) => !existingListingIds.includes(id));
 
-        // 🔄 UPDATED listings = intersection
+        // 🔄 UPDATED listings = intersection (includes soft-deleted that need reactivation)
         const updatedListingIds = incomingListingIds.filter((id) => existingListingIds.includes(id));
 
-        // ❌ REMOVED listings = DB - Hostify
-        const removedListingIds = existingListingIds.filter((id) => !incomingListingIds.includes(id));
+        // ❌ REMOVED listings = DB - Hostify (only consider active listings for removal)
+        const activeListingIds = existingListings
+          .filter((l) => l.deletedAt === null)
+          .map((l) => String(l.id));
+        const removedListingIds = activeListingIds.filter((id) => !incomingListingIds.includes(id));
 
         // ------------------------------
         // 🆕 4. Handle NEW LISTINGS
@@ -816,14 +824,25 @@ export class ListingService {
 
           const listingObj = this.buildListingObject(listing, info);
 
-          await tx.update(Listing, listing.id, listingObj);
+          // Check if this listing was soft-deleted and needs reactivation
+          const isReactivation = softDeletedListingIds.includes(listingId);
+          if (isReactivation) {
+            // Reactivate soft-deleted listing by clearing deletedAt and deletedBy
+            await tx.update(Listing, listing.id, {
+              ...listingObj,
+              deletedAt: null,
+              deletedBy: null
+            });
+            logger.info(`Reactivated soft-deleted listing ID: ${listingId}`);
+          } else {
+            await tx.update(Listing, listing.id, listingObj);
+            logger.info(`Updated listing ID: ${listingId}`);
+          }
 
           if (info.photos?.[0]) {
             const imageObj = this.buildImageObject(listing.id, info.photos[0]);
             await this.handleListingImages(listingObj, imageObj, tx);
           }
-
-          logger.info(`Updated listing ID: ${listingId}`);
         }
 
         // ------------------------------
