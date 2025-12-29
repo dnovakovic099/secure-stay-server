@@ -18,6 +18,7 @@ import { ExpenseService } from "../services/ExpenseService";
 import { updateListingId } from "../scripts/updateListingId";
 import { createExpenseLogsFromResolution } from "../scripts/createExpenseLogsFromResolution";
 import { updateMgmtFee } from "../scripts/updateMgmtFee";
+import { DatabaseBackupService } from "../services/DatabaseBackupService";
 
 export function scheduleGetReservation() {
   const schedule = require("node-schedule");
@@ -316,4 +317,19 @@ export function scheduleGetReservation() {
       logger.error("Error processing monthly tech fee expenses:", error);
     }
   });
+
+  // Database Backup - Daily at 2 AM EST
+  schedule.scheduleJob(
+    { hour: 2, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Database backup scheduled task started...');
+        const backupService = new DatabaseBackupService();
+        await backupService.processScheduledBackup();
+        logger.info('Database backup scheduled task completed successfully.');
+      } catch (error) {
+        logger.error("Error in database backup scheduled task:", error);
+      }
+    }
+  );
 }
