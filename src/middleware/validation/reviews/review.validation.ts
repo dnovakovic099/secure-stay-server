@@ -5,6 +5,7 @@ import { LiveIssueStatus } from "../../../entity/LiveIssue";
 
 enum ReviewCheckoutStatus {
     TO_CALL = "To Call",
+    CALLED_ONCE = "Called Once",
     FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
     FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
     NO_FURTHER_ACTION_REQUIRED = "No further action required",

@@ -77,6 +77,7 @@ interface FilterBadReviews {
 
 export enum ReviewCheckoutStatus {
     TO_CALL = "To Call",
+    CALLED_ONCE = "Called Once",
     FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
     FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
     NO_FURTHER_ACTION_REQUIRED = "No further action required",
@@ -618,27 +619,33 @@ export class ReviewService {
             switch (tab.toLowerCase()) {
                 case 'today':
                     // Today tab: Show 'To Call' status + follow up statuses with sevenDaysAfterCheckout < todayDate
+                    // + Called Once status where calledOnceDate < todayDate (returns next day)
                     query.andWhere(`
                         (reviewCheckout.status = :toCallStatus) OR 
-                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate)
+                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate) OR
+                        (reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate < :todayDate)
                     `, {
                         toCallStatus: ReviewCheckoutStatus.TO_CALL,
                         followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                        calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
                         todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
                     });
                     break;
 
                 case 'active':
                     // Active tab: Show follow up statuses + Issue + No Further Action
-                    // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses, 
+                    // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses,
                     // only show if isActive is true
+                    // + Called Once status where calledOnceDate = todayDate (same day)
                     query.andWhere(`
                         (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout > :todayDate) OR
                         (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate AND reviewCheckout.isActive = true) OR
-                        (reviewCheckout.status IN (:activeStatuses))
+                        (reviewCheckout.status IN (:activeStatuses)) OR
+                        (reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate = :todayDate)
                     `, {
                         followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
                         activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED, ReviewCheckoutStatus.LAUNCH],
+                        calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
                         todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
                     });
                     break;
@@ -878,6 +885,10 @@ export class ReviewService {
         reviewCheckout.updatedBy = userId;
         if (isActive !== undefined) {
             reviewCheckout.isActive = isActive;
+        }
+        // Set calledOnceDate when status changes to "Called Once"
+        if (status === ReviewCheckoutStatus.CALLED_ONCE) {
+            reviewCheckout.calledOnceDate = format(new Date(), 'yyyy-MM-dd');
         }
         if (reviewCheckout.status == ReviewCheckoutStatus.CLOSED_BAD_REVIEW) {
             logger.info(`Bad review created for review checkout id: ${id}`);

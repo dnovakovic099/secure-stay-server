@@ -29,6 +29,9 @@ export class ReviewCheckout {
     isActive: boolean;
 
     @Column({ nullable: true })
+    calledOnceDate: string; // Date when "Called Once" status was set (yyyy-MM-dd format)
+
+    @Column({ nullable: true })
     assignee: string;
 
     @Column({ nullable: true })
