@@ -890,6 +890,27 @@ export class ReviewService {
         if (status === ReviewCheckoutStatus.CALLED_ONCE) {
             reviewCheckout.calledOnceDate = format(new Date(), 'yyyy-MM-dd');
         }
+        // Create live issue when status changes to "Issue"
+        if (status === ReviewCheckoutStatus.ISSUE) {
+            // Check if live issue already exists for this reservation
+            const existingLiveIssue = await this.liveIssueRepo.findOne({
+                where: {
+                    reservationId: reviewCheckout.reservationInfo.id,
+                }
+            });
+            if (!existingLiveIssue) {
+                await this.createLiveIssue({
+                    status: LiveIssueStatus.NEW,
+                    propertyId: reviewCheckout.reservationInfo.listingMapId,
+                    guestName: reviewCheckout.reservationInfo.guestName,
+                    reservationId: reviewCheckout.reservationInfo.id,
+                    summary: '',
+                }, userId);
+                logger.info(`Live issue created for review checkout id: ${id}`);
+            } else {
+                logger.info(`Live issue already exists for reservation id: ${reviewCheckout.reservationInfo.id}, skipping creation`);
+            }
+        }
         if (reviewCheckout.status == ReviewCheckoutStatus.CLOSED_BAD_REVIEW) {
             logger.info(`Bad review created for review checkout id: ${id}`);
             await this.createBadReview({
