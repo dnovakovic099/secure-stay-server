@@ -35,6 +35,7 @@ import clientRoutes from "./clientRoutes";
 import healthRoutes from "./healthRoutes";
 import slackRoutes from "./slackRoutes";
 import openaiRoutes from "./openaiRoutes";
+import smartLockRoutes from "./smartLockRoutes";
 
 const router = Router();
 
@@ -76,5 +77,6 @@ router.use('/maintenance', maintenaceRoutes);
 router.use('/listing-intake', listingIntakeRoutes)
 router.use('/clients', clientRoutes);
 router.use('/openai', openaiRoutes);
+router.use('/smart-locks', smartLockRoutes);
 
 export default router;
