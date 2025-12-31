@@ -1,6 +1,21 @@
 import { max } from "date-fns";
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
+import logger from "../../../utils/logger.utils";
+
+// Helper function to log validation errors
+const logValidationError = (validatorName: string, error: Joi.ValidationError, requestBody: any) => {
+    logger.warn(`[Validation Error] ${validatorName}`, {
+        error: error.details.map(d => ({
+            message: d.message,
+            path: d.path.join('.'),
+            type: d.type
+        })),
+        // Only log non-sensitive parts of request body for debugging
+        clientId: requestBody?.clientId,
+        propertyCount: requestBody?.clientProperties?.length
+    });
+};
 
 enum PropertyStatus {
     ACTIVE = "active",
@@ -87,30 +102,30 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
                 address: Joi.string().required(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().required().allow(null),
                         serviceType: Joi.string().required().valid("LAUNCH", "PRO", "FULL", null),
-                        serviceNotes: Joi.string().optional().allow(null)
+                        serviceNotes: Joi.string().optional().allow(null, "")
                     }).optional(),
                     sales: Joi.object({
                         salesRepresentative: Joi.string().required().allow(null),
-                        salesNotes: Joi.string().optional().allow(null),
+                        salesNotes: Joi.string().optional().allow(null, ""),
                         projectedRevenue: Joi.number().optional().allow(null),
                         minPrice: Joi.number().optional().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null),
-                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                        listingOwner: Joi.string().optional().allow(null, ""),
+                        clientListingStatus: Joi.string().optional().allow(null, "").valid(
                             "Active (Keeping: Need to Disclose Process)", 
                             "Active (Will Unpublish)",
                             "Active (Keeping + Disclosed Process to Client)",
@@ -122,8 +137,8 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
                         targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
-                        targetDateNotes: Joi.string().optional().allow(null),
-                        upcomingReservations: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null, ""),
+                        upcomingReservations: Joi.string().optional().allow(null, ""),
                         onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
                             'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
                         }).optional().allow(null),
@@ -131,24 +146,24 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
                     photography: Joi.object({
                         photographyCoverage: Joi.string().required().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
-                        photographyNotes: Joi.string().optional().allow(null),
+                        photographyNotes: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     contractorsVendor: Joi.object({
-                        cleaning: Joi.string().optional().allow(null),
-                        maintenance: Joi.string().optional().allow(null),
-                        biWeeklyInspection: Joi.string().optional().allow(null),
+                        cleaning: Joi.string().optional().allow(null, ""),
+                        maintenance: Joi.string().optional().allow(null, ""),
+                        biWeeklyInspection: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     financial: Joi.object({
-                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFeeDetails: Joi.string().optional().allow(null),
-                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        offboardingFeeDetails: Joi.string().optional().allow(null),
-                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        techFeeDetails: Joi.string().optional().allow(null),
-                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
-                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        projectedRevenue: Joi.string().optional().allow(null),
+                        claimsFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        offboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        techFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null, ""),
+                        payoutSchedule: Joi.string().optional().allow(null, "").valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        projectedRevenue: Joi.string().optional().allow(null, ""),
                     }).optional()
                 }).optional()
             })
@@ -229,12 +244,12 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
         clientProperties: Joi.array().required().min(1).items(
             Joi.object({
                 address: Joi.string().required(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
@@ -245,14 +260,14 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                     }).optional(),
                     sales: Joi.object({
                         salesRepresentative: Joi.string().required().allow(null),
-                        salesNotes: Joi.string().optional().allow(null),
+                        salesNotes: Joi.string().optional().allow(null, ""),
                         projectedRevenue: Joi.number().optional().allow(null),
                         minPrice: Joi.number().optional().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null),
-                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                        listingOwner: Joi.string().optional().allow(null, ""),
+                        clientListingStatus: Joi.string().optional().allow(null, "").valid(
                             "Active (Keeping: Need to Disclose Process)", 
                             "Active (Will Unpublish)",
                             "Active (Keeping + Disclosed Process to Client)",
@@ -264,8 +279,8 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                         targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
-                        targetDateNotes: Joi.string().optional().allow(null),
-                        upcomingReservations: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null, ""),
+                        upcomingReservations: Joi.string().optional().allow(null, ""),
                         onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
                             'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
                         }).optional().allow(null),
@@ -273,23 +288,23 @@ export const validateCreatePropertyOnboarding = (request: Request, response: Res
                     photography: Joi.object({
                         photographyCoverage: Joi.string().required().allow(null)
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
-                        photographyNotes: Joi.string().optional().allow(null),
+                        photographyNotes: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     contractorsVendor: Joi.object({
-                        cleaning: Joi.string().optional().allow(null),
-                        maintenance: Joi.string().optional().allow(null),
-                        biWeeklyInspection: Joi.string().optional().allow(null),
+                        cleaning: Joi.string().optional().allow(null, ""),
+                        maintenance: Joi.string().optional().allow(null, ""),
+                        biWeeklyInspection: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     financial: Joi.object({
-                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFeeDetails: Joi.string().optional().allow(null),
-                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        offboardingFeeDetails: Joi.string().optional().allow(null),
-                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        techFeeDetails: Joi.string().optional().allow(null),
-                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
-                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        claimsFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        offboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        techFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null, ""),
+                        payoutSchedule: Joi.string().optional().allow(null, "").valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null, "").valid("Yes", "No"),
                     }).optional()
                 }).optional()
             })
@@ -310,30 +325,30 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
                         serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
-                        serviceNotes: Joi.string().optional().allow(null)
+                        serviceNotes: Joi.string().optional().allow(null, "")
                     }).optional(),
                     sales: Joi.object({
-                        salesRepresentative: Joi.string().optional().allow(null),
-                        salesNotes: Joi.string().optional().allow(null),
+                        salesRepresentative: Joi.string().optional().allow(null, ""),
+                        salesNotes: Joi.string().optional().allow(null, ""),
                         projectedRevenue: Joi.number().optional().allow(null),
                         minPrice: Joi.number().optional().allow(null),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null),
-                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                        listingOwner: Joi.string().optional().allow(null, ""),
+                        clientListingStatus: Joi.string().optional().allow(null, "").valid(
                             "Active (Keeping: Need to Disclose Process)",
                             "Active (Will Unpublish)",
                             "Active (Keeping + Disclosed Process to Client)",
@@ -345,32 +360,32 @@ export const validateUpdatePropertyOnboarding = (request: Request, response: Res
                         targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
-                        targetDateNotes: Joi.string().optional().allow(null),
-                        upcomingReservations: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null, ""),
+                        upcomingReservations: Joi.string().optional().allow(null, ""),
                         onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
                             'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
                         }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
-                        photographyCoverage: Joi.string().optional().allow(null)
+                        photographyCoverage: Joi.string().optional().allow(null, "")
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
-                        photographyNotes: Joi.string().optional().allow(null),
+                        photographyNotes: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     contractorsVendor: Joi.object({
-                        cleaning: Joi.string().optional().allow(null),
-                        maintenance: Joi.string().optional().allow(null),
-                        biWeeklyInspection: Joi.string().optional().allow(null),
+                        cleaning: Joi.string().optional().allow(null, ""),
+                        maintenance: Joi.string().optional().allow(null, ""),
+                        biWeeklyInspection: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     financial: Joi.object({
-                        claimsFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        onboardingFeeDetails: Joi.string().optional().allow(null),
-                        offboardingFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        offboardingFeeDetails: Joi.string().optional().allow(null),
-                        techFee: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        techFeeDetails: Joi.string().optional().allow(null),
-                        payoutSchedule: Joi.string().optional().allow(null).valid("Monthly", "Bi-weekly", "Weekly"),
-                        taxesAddendum: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        claimsFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        onboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        offboardingFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        offboardingFeeDetails: Joi.string().optional().allow(null, ""),
+                        techFee: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        techFeeDetails: Joi.string().optional().allow(null, ""),
+                        payoutSchedule: Joi.string().optional().allow(null, "").valid("Monthly", "Bi-weekly", "Weekly"),
+                        taxesAddendum: Joi.string().optional().allow(null, "").valid("Yes", "No"),
                     }).optional()
                 }).optional()
             })
@@ -392,15 +407,15 @@ export const validateSaveOnboardingDetails = (request: Request, response: Respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().required(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
-                listingId: Joi.string().optional().allow(null),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     sales: Joi.object({
                         salesRepresentative: Joi.string().required().allow(null),
@@ -464,26 +479,26 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if the id is not passed then create
                 address: Joi.string().optional(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
-                listingId: Joi.string().optional().allow(null),
+                listingId: Joi.string().optional().allow(null, ""),
                 status: Joi.string().optional(),
                 onboarding: Joi.object({
                     sales: Joi.object({
-                        salesRepresentative: Joi.string().optional().allow(null),
-                        salesNotes: Joi.string().optional().allow(null),
-                        projectedRevenue: Joi.string().optional().allow(null),
+                        salesRepresentative: Joi.string().optional().allow(null, ""),
+                        salesNotes: Joi.string().optional().allow(null, ""),
+                        projectedRevenue: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     listing: Joi.object({
                         clientCurrentListingLink: Joi.array().items(Joi.string()).min(1).allow(null),
-                        listingOwner: Joi.string().optional().allow(null),
-                        clientListingStatus: Joi.string().optional().allow(null).valid(
+                        listingOwner: Joi.string().optional().allow(null, ""),
+                        clientListingStatus: Joi.string().optional().allow(null, "").valid(
                             "Active (Keeping: Need to Disclose Process)",
                             "Active (Will Unpublish)",
                             "Active (Keeping + Disclosed Process to Client)",
@@ -495,22 +510,22 @@ export const validateUpdateOnboardingDetails = (request: Request, response: Resp
                         targetStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
-                        targetDateNotes: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null, ""),
                         actualLiveDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
                         actualStartDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
                         }).optional().allow(null),
-                        upcomingReservations: Joi.string().optional().allow(null),
+                        upcomingReservations: Joi.string().optional().allow(null, ""),
                         onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
                             'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
                         }).optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
-                        photographyCoverage: Joi.string().optional().allow(null)
+                        photographyCoverage: Joi.string().optional().allow(null, "")
                             .valid("Yes (Covered by Luxury Lodging)", "Yes (Covered by Client)", "No"),
-                        photographyNotes: Joi.string().optional().allow(null),
+                        photographyNotes: Joi.string().optional().allow(null, ""),
                     }).optional(),
                     clientAcknowledgement: Joi.object({
                         acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
@@ -567,8 +582,8 @@ export const validateUpdateServiceInfo = (request: Request, response: Response, 
                     serviceInfo: Joi.object({
                         managementFee: Joi.number().optional().allow(null),
                         serviceType: Joi.string().optional().valid("LAUNCH", "PRO", "FULL", null),
-                        contractLink: Joi.string().optional().allow(null),
-                        serviceNotes: Joi.string().optional().allow(null)
+                        contractLink: Joi.string().optional().allow(null, ""),
+                        serviceNotes: Joi.string().optional().allow(null, "")
                     }).required()
                 }).required()
             })
@@ -602,7 +617,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
                         bedroomsNumber: Joi.number().required().allow(null),
-                        bedroomNotes: Joi.string().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null, ""),
 
                         propertyBedTypes: Joi.array().required().min(1).allow(null).items(
                             Joi.object({
@@ -610,11 +625,11 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                                 bedroomNumber: Joi.number().optional().allow(null),
                                 beds: Joi.array().optional().allow(null).items(
                                     Joi.object({
-                                        bedTypeId: Joi.string().optional().allow(null),
+                                        bedTypeId: Joi.string().optional().allow(null, ""),
                                         quantity: Joi.number().optional().allow(null),
-                                        airMattressSize: Joi.string().optional().allow(null),
-                                        upperBunkSize: Joi.string().optional().allow(null),
-                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                        airMattressSize: Joi.string().optional().allow(null, ""),
+                                        upperBunkSize: Joi.string().optional().allow(null, ""),
+                                        lowerBunkSize: Joi.string().optional().allow(null, "")
                                     })
                                 )
                             })
@@ -625,7 +640,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         bathroomType: Joi.string().required().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().required().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().required().allow(null), // Number of Half Baths
-                        bathroomNotes: Joi.string().optional().allow(null),
+                        bathroomNotes: Joi.string().optional().allow(null, ""),
 
                         //Listing Information
                         checkInTimeStart: Joi.number().required().allow(null),
@@ -701,7 +716,7 @@ export const validateSaveListingInfo = (request: Request, response: Response, ne
                         lockboxLocation: Joi.string().required().allow(null),
                         lockboxCode: Joi.string().required().allow(null),
                         doorLockInstructions: Joi.string().required().allow(null),
-                        emergencyBackUpCode: Joi.string().optional().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null, ""),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().required().allow(null),
@@ -790,37 +805,37 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
-                listingId: Joi.string().optional().allow(null),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //Listing Name
-                        internalListingName: Joi.string().optional().allow(null),
-                        externalListingName: Joi.string().optional().allow(null),
+                        internalListingName: Joi.string().optional().allow(null, ""),
+                        externalListingName: Joi.string().optional().allow(null, ""),
 
                         //General
-                        propertyTypeId: Joi.string().optional().allow(null),
+                        propertyTypeId: Joi.string().optional().allow(null, ""),
                         noOfFloors: Joi.number().optional().allow(null),
-                        unitFloor: Joi.string().optional().allow(null),
+                        unitFloor: Joi.string().optional().allow(null, ""),
                         squareMeters: Joi.number().optional().allow(null),
                         squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
                         //Bedrooms
-                        roomType: Joi.string().optional().allow(null),
+                        roomType: Joi.string().optional().allow(null, ""),
                         bedroomsNumber: Joi.number().optional().allow(null),
-                        bedroomNotes: Joi.string().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null, ""),
                         chargeForExtraGuests: Joi.boolean().optional().allow(null),
                         guestsIncluded: Joi.number().optional().allow(null),
                         priceForExtraPerson: Joi.number().optional().allow(null),
-                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
+                        extraGuestFeeType: Joi.string().optional().allow(null, "").valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
@@ -829,11 +844,11 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 bedroomNumber: Joi.number().optional().allow(null),
                                 beds: Joi.array().optional().allow(null).items(
                                     Joi.object({
-                                        bedTypeId: Joi.string().optional().allow(null),
+                                        bedTypeId: Joi.string().optional().allow(null, ""),
                                         quantity: Joi.number().optional().allow(null),
-                                        airMattressSize: Joi.string().optional().allow(null),
-                                        upperBunkSize: Joi.string().optional().allow(null),
-                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                        airMattressSize: Joi.string().optional().allow(null, ""),
+                                        upperBunkSize: Joi.string().optional().allow(null, ""),
+                                        lowerBunkSize: Joi.string().optional().allow(null, "")
                                     })
                                 )
                             })
@@ -843,7 +858,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         bathroomType: Joi.string().optional().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
-                        bathroomNotes: Joi.string().optional().allow(null),
+                        bathroomNotes: Joi.string().optional().allow(null, ""),
 
                         //bathroom location and types
                         propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
@@ -853,35 +868,35 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 bathroomType: Joi.string().optional().valid("Full", "Half").allow(null),
                                 bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
-                                bathroomFeatures: Joi.string().optional().allow(null),
-                                privacyType: Joi.string().optional().allow(null)
+                                bathroomFeatures: Joi.string().optional().allow(null, ""),
+                                privacyType: Joi.string().optional().allow(null, "")
                             })
                         ),
 
                         //Listing Information
                         checkInTimeStart: Joi.number().optional().allow(null),
                         checkOutTime: Joi.number().optional().allow(null),
-                        canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
+                        canAnyoneBookAnytime: Joi.string().optional().allow(null, "").valid(
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of SAME DAY bookings/changes before accepting",
                             "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
                             "No, please always confirm with me before accepting",
                             "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
-                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
+                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null, ""),
 
                         //house rules
                         allowPartiesAndEvents: Joi.boolean().optional().allow(null),
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
-                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
+                        petFeeType: Joi.string().optional().allow(null, "").valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
-                        petRestrictionsNotes: Joi.string().optional().allow(null),
+                        petRestrictionsNotes: Joi.string().optional().allow(null, ""),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
-                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null, ""),
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
-                        otherHouseRules: Joi.string().optional().allow(null),
+                        otherHouseRules: Joi.string().optional().allow(null, ""),
 
                         //parking
                         parking: Joi.array().min(1).optional().allow(null).items(
@@ -900,7 +915,7 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
-                        parkingInstructions: Joi.string().optional().allow(null),
+                        parkingInstructions: Joi.string().optional().allow(null, ""),
 
                         //Property Access
                         checkInProcess: Joi.array().min(1).optional().allow(null)
@@ -926,26 +941,26 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                         "In-Person Check-in"
                                     ),
                             ),
-                        doorLockCodeType: Joi.string().optional().allow(null)
+                        doorLockCodeType: Joi.string().optional().allow(null, "")
                             .valid(
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
+                        codeResponsibleParty: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
-                        standardDoorCode: Joi.string().optional().allow(null),
-                        doorLockAppName: Joi.string().optional().allow(null),
-                        doorLockAppUsername: Joi.string().optional().allow(null),
-                        doorLockAppPassword: Joi.string().optional().allow(null),
-                        lockboxLocation: Joi.string().optional().allow(null),
-                        lockboxCode: Joi.string().optional().allow(null),
-                        doorLockInstructions: Joi.string().optional().allow(null),
-                        emergencyBackUpCode: Joi.string().optional().allow(null),
+                        standardDoorCode: Joi.string().optional().allow(null, ""),
+                        doorLockAppName: Joi.string().optional().allow(null, ""),
+                        doorLockAppUsername: Joi.string().optional().allow(null, ""),
+                        doorLockAppPassword: Joi.string().optional().allow(null, ""),
+                        lockboxLocation: Joi.string().optional().allow(null, ""),
+                        lockboxCode: Joi.string().optional().allow(null, ""),
+                        doorLockInstructions: Joi.string().optional().allow(null, ""),
+                        emergencyBackUpCode: Joi.string().optional().allow(null, ""),
 
                         //Waste Management
-                        wasteCollectionDays: Joi.string().optional().allow(null),
-                        wasteBinLocation: Joi.string().optional().allow(null),
-                        wasteManagementInstructions: Joi.string().optional().allow(null),
+                        wasteCollectionDays: Joi.string().optional().allow(null, ""),
+                        wasteBinLocation: Joi.string().optional().allow(null, ""),
+                        wasteManagementInstructions: Joi.string().optional().allow(null, ""),
 
                         //additional services/upsells
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
@@ -956,50 +971,50 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                 fee: Joi.number().optional().allow(null),
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
                                 maxAdditionalHours: Joi.number().optional().allow(null),
-                                notes: Joi.string().optional().allow(null)
+                                notes: Joi.string().optional().allow(null, "")
                             })
                         ),
-                        additionalServiceNotes: Joi.string().optional().allow(null),
+                        additionalServiceNotes: Joi.string().optional().allow(null, ""),
 
                         //Special Instructions for Guests
-                        checkInInstructions: Joi.string().optional().allow(null),
-                        checkOutInstructions: Joi.string().optional().allow(null),
+                        checkInInstructions: Joi.string().optional().allow(null, ""),
+                        checkOutInstructions: Joi.string().optional().allow(null, ""),
 
                         //Contractors/Vendor Management
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            cleanerManagedByReason: Joi.string().optional().allow(null),
-                            hasCurrentCleaner: Joi.string().optional().allow(null)
+                            cleanerManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            cleanerManagedByReason: Joi.string().optional().allow(null, ""),
+                            hasCurrentCleaner: Joi.string().optional().allow(null, "")
                                 .valid(
                                     "Yes",
                                     "Yes, but I'd like to request for a new cleaner",
                                     "No, please source a cleaner for me"
                                 ),
-                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null, ""),
                             cleaningFee: Joi.number().optional().allow(null),
-                            cleanerName: Joi.string().optional().allow(null),
-                            cleanerPhone: Joi.string().optional().allow(null),
-                            cleanerEmail: Joi.string().optional().allow(null),
+                            cleanerName: Joi.string().optional().allow(null, ""),
+                            cleanerPhone: Joi.string().optional().allow(null, ""),
+                            cleanerEmail: Joi.string().optional().allow(null, ""),
 
                             acknowledgeCleanerResponsibility: Joi.boolean().optional().allow(null),
-                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null),
+                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null, ""),
                             ensureCleanersScheduled: Joi.boolean().optional().allow(null),
-                            ensureCleanersScheduledReason: Joi.string().optional().allow(null),
+                            ensureCleanersScheduledReason: Joi.string().optional().allow(null, ""),
                             propertyCleanedBeforeNextCheckIn: Joi.boolean().optional().allow(null),
-                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
+                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null, ""),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
-                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null, ""),
                             requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
-                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
-                            cleaningTurnoverNotes: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null, ""),
+                            cleaningTurnoverNotes: Joi.string().optional().allow(null, ""),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
-                            supplyClosetLocation: Joi.string().optional().allow(null),
-                            supplyClosetCode: Joi.string().optional().allow(null),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null, ""),
+                            supplyClosetLocation: Joi.string().optional().allow(null, ""),
+                            supplyClosetCode: Joi.string().optional().allow(null, ""),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -1016,32 +1031,32 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     role: Joi.string().when('id', {
                                         is: Joi.exist(),
-                                        then: Joi.optional(),
+                                        then: Joi.optional().allow(null, ""),
                                         otherwise: Joi.required()
                                     }),
-                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    workCategory: Joi.string().optional().allow(null, ""), // kept for backward compatibility
                                     managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                                    name: Joi.string().required().allow(null),
-                                    contact: Joi.string().required().allow(null),
-                                    email: Joi.string().required().allow(null),
-                                    scheduleType: Joi.string().required().valid(
+                                    name: Joi.string().optional().allow(null, ""),
+                                    contact: Joi.string().optional().allow(null, ""),
+                                    email: Joi.string().optional().allow(null, ""),
+                                    scheduleType: Joi.string().optional().valid(
                                         "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
-                                    ).allow(null),
-                                    intervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
-                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
-                                    weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
-                                    dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
-                                    notes: Joi.string().optional().allow(null),
+                                    ).allow(null, ""),
+                                    intervalMonth: Joi.number().integer().min(1).max(12).optional().allow(null),
+                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6)).optional().allow(null),
+                                    weekOfMonth: Joi.number().integer().min(1).max(5).optional().allow(null),
+                                    dayOfMonth: Joi.number().integer().min(1).max(32).optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
-                            addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            addtionalVendorManagementNotes: Joi.string().optional().allow(null, ""),
                             acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
                             authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
                         //Management
-                        specialInstructions: Joi.string().optional().allow(null).valid(
+                        specialInstructions: Joi.string().optional().allow(null, "").valid(
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of SAME DAY bookings/changes before accepting",
                             "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
@@ -1049,8 +1064,8 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                             "No, auto-decline reservations if check-in is within x number of days from today"
                         ),
                         leadTimeDays: Joi.number().optional().allow(null),
-                        bookingAcceptanceNotes: Joi.string().optional().allow(null),
-                        managementNotes: Joi.string().optional().allow(null),
+                        bookingAcceptanceNotes: Joi.string().optional().allow(null, ""),
+                        managementNotes: Joi.string().optional().allow(null, ""),
                         acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
                         acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
                         acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
@@ -1060,83 +1075,83 @@ export const validateUpdateListingInfo = (request: Request, response: Response, 
                         minNights: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
                         propertyLicenseNumber: Joi.string().optional().allow(null, ""),
-                        tax: Joi.string().optional().allow(null),
-                        financialNotes: Joi.string().optional().allow(null),
+                        tax: Joi.string().optional().allow(null, ""),
+                        financialNotes: Joi.string().optional().allow(null, ""),
 
                         //Standard Booking Settings
                         instantBooking: Joi.boolean().optional().allow(null),
-                        instantBookingNotes: Joi.string().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null, ""),
                         minimumAdvanceNotice: Joi.boolean().optional().allow(null),
-                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null, ""),
                         preparationDays: Joi.boolean().optional().allow(null),
-                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null, ""),
                         bookingWindow: Joi.boolean().optional().allow(null),
-                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null, ""),
                         minimumStay: Joi.boolean().optional().allow(null),
-                        minimumStayNotes: Joi.string().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null, ""),
                         maximumStay: Joi.boolean().optional().allow(null),
-                        maximumStayNotes: Joi.string().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null, ""),
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
                         acknowledgeAmenitiesAccurate: Joi.boolean().optional().allow(null),
                         acknowledgeSecurityCamerasDisclosed: Joi.boolean().optional().allow(null),
-                        otherAmenities: Joi.string().optional().allow(null),
-                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        wifiUsername: Joi.string().optional().allow(null),
-                        wifiPassword: Joi.string().optional().allow(null),
-                        wifiSpeed: Joi.string().optional().allow(null),
-                        locationOfModem: Joi.string().optional().allow(null),
+                        otherAmenities: Joi.string().optional().allow(null, ""),
+                        wifiAvailable: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        wifiUsername: Joi.string().optional().allow(null, ""),
+                        wifiPassword: Joi.string().optional().allow(null, ""),
+                        wifiSpeed: Joi.string().optional().allow(null, ""),
+                        locationOfModem: Joi.string().optional().allow(null, ""),
                         ethernetCable: Joi.boolean().optional().allow(null),
                         pocketWifi: Joi.boolean().optional().allow(null),
                         paidWifi: Joi.boolean().optional().allow(null),
-                        swimmingPoolNotes: Joi.string().optional().allow(null),
-                        hotTubInstructions: Joi.string().optional().allow(null),
-                        hotTubPrivacy: Joi.string().optional().allow(null),
-                        hotTubAvailability: Joi.string().optional().allow(null),
-                        firePlaceNotes: Joi.string().optional().allow(null),
-                        firepitNotes: Joi.string().optional().allow(null),
-                        firepitType: Joi.string().optional().allow(null),
-                        gameConsoleType: Joi.string().optional().allow(null),
-                        gameConsoleNotes: Joi.string().optional().allow(null),
-                        safeBoxLocationInstructions: Joi.string().optional().allow(null),
-                        gymPrivacy: Joi.string().optional().allow(null),
-                        gymNotes: Joi.string().optional().allow(null),
-                        saunaPrivacy: Joi.string().optional().allow(null),
-                        saunaNotes: Joi.string().optional().allow(null),
-                        exerciseEquipmentTypes: Joi.string().optional().allow(null),
-                        exerciseEquipmentNotes: Joi.string().optional().allow(null),
-                        golfType: Joi.string().optional().allow(null),
-                        golfNotes: Joi.string().optional().allow(null),
-                        basketballPrivacy: Joi.string().optional().allow(null),
-                        basketballNotes: Joi.string().optional().allow(null),
-                        tennisPrivacy: Joi.string().optional().allow(null),
-                        tennisNotes: Joi.string().optional().allow(null),
-                        workspaceLocation: Joi.string().optional().allow(null),
-                        workspaceInclusion: Joi.string().optional().allow(null),
-                        workspaceNotes: Joi.string().optional().allow(null),
-                        patioPrivacy: Joi.string().optional().allow(null),
-                        boatDockPrivacy: Joi.string().optional().allow(null),
-                        boatDockNotes: Joi.string().optional().allow(null),
-                        heatControlInstructions: Joi.string().optional().allow(null),
-                        locationOfThemostat: Joi.string().optional().allow(null),
-                        securityCameraLocations: Joi.string().optional().allow(null),
-                        coffeeMakerType: Joi.string().optional().allow(null),
-                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null),
-                        smokeDetectorLocation: Joi.string().optional().allow(null),
-                        fireExtinguisherLocation: Joi.string().optional().allow(null),
-                        firstAidKitLocation: Joi.string().optional().allow(null),
-                        emergencyExitLocation: Joi.string().optional().allow(null),
+                        swimmingPoolNotes: Joi.string().optional().allow(null, ""),
+                        hotTubInstructions: Joi.string().optional().allow(null, ""),
+                        hotTubPrivacy: Joi.string().optional().allow(null, ""),
+                        hotTubAvailability: Joi.string().optional().allow(null, ""),
+                        firePlaceNotes: Joi.string().optional().allow(null, ""),
+                        firepitNotes: Joi.string().optional().allow(null, ""),
+                        firepitType: Joi.string().optional().allow(null, ""),
+                        gameConsoleType: Joi.string().optional().allow(null, ""),
+                        gameConsoleNotes: Joi.string().optional().allow(null, ""),
+                        safeBoxLocationInstructions: Joi.string().optional().allow(null, ""),
+                        gymPrivacy: Joi.string().optional().allow(null, ""),
+                        gymNotes: Joi.string().optional().allow(null, ""),
+                        saunaPrivacy: Joi.string().optional().allow(null, ""),
+                        saunaNotes: Joi.string().optional().allow(null, ""),
+                        exerciseEquipmentTypes: Joi.string().optional().allow(null, ""),
+                        exerciseEquipmentNotes: Joi.string().optional().allow(null, ""),
+                        golfType: Joi.string().optional().allow(null, ""),
+                        golfNotes: Joi.string().optional().allow(null, ""),
+                        basketballPrivacy: Joi.string().optional().allow(null, ""),
+                        basketballNotes: Joi.string().optional().allow(null, ""),
+                        tennisPrivacy: Joi.string().optional().allow(null, ""),
+                        tennisNotes: Joi.string().optional().allow(null, ""),
+                        workspaceLocation: Joi.string().optional().allow(null, ""),
+                        workspaceInclusion: Joi.string().optional().allow(null, ""),
+                        workspaceNotes: Joi.string().optional().allow(null, ""),
+                        patioPrivacy: Joi.string().optional().allow(null, ""),
+                        boatDockPrivacy: Joi.string().optional().allow(null, ""),
+                        boatDockNotes: Joi.string().optional().allow(null, ""),
+                        heatControlInstructions: Joi.string().optional().allow(null, ""),
+                        locationOfThemostat: Joi.string().optional().allow(null, ""),
+                        securityCameraLocations: Joi.string().optional().allow(null, ""),
+                        coffeeMakerType: Joi.string().optional().allow(null, ""),
+                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null, ""),
+                        smokeDetectorLocation: Joi.string().optional().allow(null, ""),
+                        fireExtinguisherLocation: Joi.string().optional().allow(null, ""),
+                        firstAidKitLocation: Joi.string().optional().allow(null, ""),
+                        emergencyExitLocation: Joi.string().optional().allow(null, ""),
 
                         // AI Generated Description Fields
-                        theSpace: Joi.string().optional().allow(null),
-                        theNeighborhood: Joi.string().optional().allow(null),
-                        houseRulesText: Joi.string().optional().allow(null),
-                        houseManualText: Joi.string().optional().allow(null),
-                        summaryText: Joi.string().optional().allow(null),
-                        guestAccessText: Joi.string().optional().allow(null),
-                        interactionWithGuestsText: Joi.string().optional().allow(null),
-                        otherThingsToNoteText: Joi.string().optional().allow(null),
+                        theSpace: Joi.string().optional().allow(null, ""),
+                        theNeighborhood: Joi.string().optional().allow(null, ""),
+                        houseRulesText: Joi.string().optional().allow(null, ""),
+                        houseManualText: Joi.string().optional().allow(null, ""),
+                        summaryText: Joi.string().optional().allow(null, ""),
+                        guestAccessText: Joi.string().optional().allow(null, ""),
+                        interactionWithGuestsText: Joi.string().optional().allow(null, ""),
+                        otherThingsToNoteText: Joi.string().optional().allow(null, ""),
                     }).optional()
                 }).optional()
             })
@@ -1157,7 +1172,7 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
-                listingId: Joi.string().optional().allow(null),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     financials: Joi.object({
                         minPriceWeekday: Joi.number().optional().allow(null),
@@ -1166,23 +1181,23 @@ export const validateUpdateFinancialsInternalForm = (request: Request, response:
                         minNightsWeekend: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
                         propertyLicenseNumber: Joi.string().optional().allow(null, ""),
-                        tax: Joi.string().optional().allow(null),
-                        financialNotes: Joi.string().optional().allow(null),
+                        tax: Joi.string().optional().allow(null, ""),
+                        financialNotes: Joi.string().optional().allow(null, ""),
                         minimumStay: Joi.boolean().optional().allow(null),
                         maximumStay: Joi.boolean().optional().allow(null),
-                        pricingStrategyPreference: Joi.string().optional().allow(null),
-                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null),
+                        pricingStrategyPreference: Joi.string().optional().allow(null, ""),
+                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null, ""),
                         statementSchedule: Joi.string().optional().valid("Weekly", "Bi-Weekly Batch A", "Bi-Weekly Batch B", "Monthly").allow(null),
                         statementType: Joi.string().optional().valid("Check-Out", "Check-In", "Calendar").allow(null),
                         payoutMethod: Joi.string().optional().valid("Bank Transfer", "Zelle", "Venmo", "Others").allow(null),
                         claimFee: Joi.string().optional().valid("Yes", "No").allow(null),
-                        claimFeeNotes: Joi.string().optional().allow(null),
+                        claimFeeNotes: Joi.string().optional().allow(null, ""),
                         techFee: Joi.string().optional().valid("Yes", "No").allow(null),
-                        techFeeNotes: Joi.string().optional().allow(null),
+                        techFeeNotes: Joi.string().optional().allow(null, ""),
                         onboardingFee: Joi.string().optional().valid("Yes", "No").allow(null),
-                        onboardingFeeAmountAndConditions: Joi.string().optional().allow(null),
+                        onboardingFeeAmountAndConditions: Joi.string().optional().allow(null, ""),
                         offboardingFee: Joi.string().optional().valid("Yes", "No").allow(null),
-                        offboardingFeeAmountAndConditions: Joi.string().optional().allow(null),
+                        offboardingFeeAmountAndConditions: Joi.string().optional().allow(null, ""),
                         payoutSchdule: Joi.string().optional().valid("Monthly", "Bi-weekly", "Weekly").allow(null),
                         taxesAddedum: Joi.string().optional().valid("Yes", "No").allow(null),
                     }).required()
@@ -1205,20 +1220,20 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(), // if this is available then only update the address else ignore
-                listingId: Joi.string().optional().allow(null),
+                listingId: Joi.string().optional().allow(null, ""),
                 onboarding: Joi.object({
                     listing: Joi.object({
                         //calendar management
-                        canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
+                        canAnyoneBookAnytime: Joi.string().optional().allow(null, "").valid(
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of SAME DAY bookings/changes before accepting",
                             "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
                             "No, please always confirm with me before accepting",
                             "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
-                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
+                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null, ""),
                         leadTimeDays: Joi.number().optional().allow(null),
-                        calendarManagementNotes: Joi.string().optional().allow(null),
+                        calendarManagementNotes: Joi.string().optional().allow(null, ""),
 
                         // Reservation Management
                         checkInTimeStart: Joi.number().optional().allow(null),
@@ -1242,7 +1257,7 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
-                        parkingInstructions: Joi.string().optional().allow(null),
+                        parkingInstructions: Joi.string().optional().allow(null, ""),
 
                         //Property Access
                         checkInProcess: Joi.array().min(1).optional().allow(null)
@@ -1268,27 +1283,27 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                         "In-Person Check-in"
                                     ),
                             ),
-                        doorLockCodeType: Joi.string().optional().allow(null)
+                        doorLockCodeType: Joi.string().optional().allow(null, "")
                             .valid(
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
+                        codeResponsibleParty: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
-                        standardDoorCode: Joi.string().optional().allow(null),
-                        doorLockAppName: Joi.string().optional().allow(null),
-                        doorLockAppUsername: Joi.string().optional().allow(null),
-                        doorLockAppPassword: Joi.string().optional().allow(null),
-                        lockboxLocation: Joi.string().optional().allow(null),
-                        lockboxCode: Joi.string().optional().allow(null),
-                        doorLockInstructions: Joi.string().optional().allow(null),
-                        emergencyBackUpCode: Joi.string().optional().allow(null),
+                        standardDoorCode: Joi.string().optional().allow(null, ""),
+                        doorLockAppName: Joi.string().optional().allow(null, ""),
+                        doorLockAppUsername: Joi.string().optional().allow(null, ""),
+                        doorLockAppPassword: Joi.string().optional().allow(null, ""),
+                        lockboxLocation: Joi.string().optional().allow(null, ""),
+                        lockboxCode: Joi.string().optional().allow(null, ""),
+                        doorLockInstructions: Joi.string().optional().allow(null, ""),
+                        emergencyBackUpCode: Joi.string().optional().allow(null, ""),
 
 
                         //Waste Management
-                        wasteCollectionDays: Joi.string().optional().allow(null),
-                        wasteBinLocation: Joi.string().optional().allow(null),
-                        wasteManagementInstructions: Joi.string().optional().allow(null),
+                        wasteCollectionDays: Joi.string().optional().allow(null, ""),
+                        wasteBinLocation: Joi.string().optional().allow(null, ""),
+                        wasteManagementInstructions: Joi.string().optional().allow(null, ""),
 
                         //additional services/upsells
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
@@ -1299,15 +1314,15 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)"),
                                 fee: Joi.number().optional().allow(null),
                                 maxAdditionalHours: Joi.number().optional().allow(null),
-                                notes: Joi.string().optional().allow(null)
+                                notes: Joi.string().optional().allow(null, "")
                             })
                         ),
-                        additionalServiceNotes: Joi.string().optional().allow(null),
+                        additionalServiceNotes: Joi.string().optional().allow(null, ""),
 
 
                         //Special Instructions for Guests
-                        checkInInstructions: Joi.string().optional().allow(null),
-                        checkOutInstructions: Joi.string().optional().allow(null),
+                        checkInInstructions: Joi.string().optional().allow(null, ""),
+                        checkOutInstructions: Joi.string().optional().allow(null, ""),
 
 
                         //house rules
@@ -1315,20 +1330,20 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
-                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
+                        petFeeType: Joi.string().optional().allow(null, "").valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
-                        petRestrictionsNotes: Joi.string().optional().allow(null),
+                        petRestrictionsNotes: Joi.string().optional().allow(null, ""),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
-                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null, ""),
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
-                        otherHouseRules: Joi.string().optional().allow(null),
+                        otherHouseRules: Joi.string().optional().allow(null, ""),
 
                         //WiFi
-                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        wifiUsername: Joi.string().optional().allow(null),
-                        wifiPassword: Joi.string().optional().allow(null),
-                        wifiSpeed: Joi.string().optional().allow(null),
-                        locationOfModem: Joi.string().optional().allow(null),
+                        wifiAvailable: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        wifiUsername: Joi.string().optional().allow(null, ""),
+                        wifiPassword: Joi.string().optional().allow(null, ""),
+                        wifiSpeed: Joi.string().optional().allow(null, ""),
+                        locationOfModem: Joi.string().optional().allow(null, ""),
                         ethernetCable: Joi.boolean().optional().allow(null),
                         pocketWifi: Joi.boolean().optional().allow(null),
                         paidWifi: Joi.boolean().optional().allow(null),
@@ -1337,37 +1352,37 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            cleanerManagedByReason: Joi.string().optional().allow(null),
-                            hasCurrentCleaner: Joi.string().optional().allow(null)
+                            cleanerManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            cleanerManagedByReason: Joi.string().optional().allow(null, ""),
+                            hasCurrentCleaner: Joi.string().optional().allow(null, "")
                                 .valid(
                                     "Yes",
                                     "Yes, but I'd like to request for a new cleaner",
                                     "No, please source a cleaner for me"
                                 ),
-                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null, ""),
                             cleaningFee: Joi.number().optional().allow(null),
-                            cleanerName: Joi.string().optional().allow(null),
-                            cleanerPhone: Joi.string().optional().allow(null),
-                            cleanerEmail: Joi.string().optional().allow(null),
+                            cleanerName: Joi.string().optional().allow(null, ""),
+                            cleanerPhone: Joi.string().optional().allow(null, ""),
+                            cleanerEmail: Joi.string().optional().allow(null, ""),
 
                             acknowledgeCleanerResponsibility: Joi.boolean().optional().allow(null),
-                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null),
+                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null, ""),
                             ensureCleanersScheduled: Joi.boolean().optional().allow(null),
-                            ensureCleanersScheduledReason: Joi.string().optional().allow(null),
+                            ensureCleanersScheduledReason: Joi.string().optional().allow(null, ""),
                             propertyCleanedBeforeNextCheckIn: Joi.boolean().optional().allow(null),
-                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
+                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null, ""),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
-                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null, ""),
                             requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
-                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
-                            cleaningTurnoverNotes: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null, ""),
+                            cleaningTurnoverNotes: Joi.string().optional().allow(null, ""),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
-                            supplyClosetLocation: Joi.string().optional().allow(null),
-                            supplyClosetCode: Joi.string().optional().allow(null),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null, ""),
+                            supplyClosetLocation: Joi.string().optional().allow(null, ""),
+                            supplyClosetCode: Joi.string().optional().allow(null, ""),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -1379,8 +1394,8 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                             ),
 
                             //Maintenance
-                            maintenanceManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            maintenanceManagedByReason: Joi.string().optional().allow(null),
+                            maintenanceManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            maintenanceManagedByReason: Joi.string().optional().allow(null, ""),
 
                             //Other Contractors/Vendors
                             vendorInfo: Joi.array().optional().allow(null).items(
@@ -1388,25 +1403,25 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
                                     id: Joi.number().optional().allow(null), // if id is passed then update else if id is not present then create
                                     role: Joi.string().when('id', {
                                         is: Joi.exist(),
-                                        then: Joi.optional(),
+                                        then: Joi.optional().allow(null, ""),
                                         otherwise: Joi.required()
                                     }),
-                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    workCategory: Joi.string().optional().allow(null, ""), // kept for backward compatibility
                                     managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                                    name: Joi.string().required().allow(null),
-                                    contact: Joi.string().required().allow(null),
-                                    email: Joi.string().required().allow(null),
-                                    scheduleType: Joi.string().required().valid(
+                                    name: Joi.string().optional().allow(null, ""),
+                                    contact: Joi.string().optional().allow(null, ""),
+                                    email: Joi.string().optional().allow(null, ""),
+                                    scheduleType: Joi.string().optional().valid(
                                         "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
-                                    ).allow(null),
-                                    intervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
-                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
-                                    weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
-                                    dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
-                                    notes: Joi.string().optional().allow(null),
+                                    ).allow(null, ""),
+                                    intervalMonth: Joi.number().integer().min(1).max(12).optional().allow(null),
+                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6)).optional().allow(null),
+                                    weekOfMonth: Joi.number().integer().min(1).max(5).optional().allow(null),
+                                    dayOfMonth: Joi.number().integer().min(1).max(32).optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
-                            addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            addtionalVendorManagementNotes: Joi.string().optional().allow(null, ""),
                             acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
                             authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
@@ -1417,20 +1432,20 @@ export const validateUpdateManagementInternalForm = (request: Request, response:
 
                         //Standard Booking Settings
                         instantBooking: Joi.boolean().optional().allow(null),
-                        instantBookingNotes: Joi.string().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null, ""),
                         minimumAdvanceNotice: Joi.boolean().optional().allow(null),
-                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null, ""),
                         preparationDays: Joi.boolean().optional().allow(null),
-                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null, ""),
                         bookingWindow: Joi.boolean().optional().allow(null),
-                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null, ""),
                         minimumStay: Joi.boolean().optional().allow(null),
-                        minimumStayNotes: Joi.string().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null, ""),
                         maximumStay: Joi.boolean().optional().allow(null),
-                        maximumStayNotes: Joi.string().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null, ""),
 
                         //Management Notes
-                        managementNotes: Joi.string().optional().allow(null),
+                        managementNotes: Joi.string().optional().allow(null, ""),
                         acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
                         acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
                         acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
@@ -1456,12 +1471,12 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().required(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
@@ -1492,6 +1507,7 @@ export const validateSaveOnboardingDetailsClientForm = (request: Request, respon
 
     const { error } = schema.validate(request.body);
     if (error) {
+        logValidationError('validateSaveOnboardingDetailsClientForm', error, request.body);
         return next(error);
     }
     next();
@@ -1505,12 +1521,12 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
             Joi.object({
                 id: Joi.string().optional(), // if the id is passed then update else if id is not present then create
                 address: Joi.string().optional(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 onboarding: Joi.object({
@@ -1523,15 +1539,15 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
                         }).optional().allow(null),
                         acknowledgePropertyReadyByStartDate: Joi.boolean().optional().allow(null),
                         agreesUnpublishExternalListings: Joi.boolean().optional().allow(null),
-                        upcomingReservations: Joi.string().optional().allow(null),
+                        upcomingReservations: Joi.string().optional().allow(null, ""),
                         onboardingCallSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).messages({
                             'string.pattern.base': 'DateTime must be in the format "yyyy-mm-dd HH:mm"',
                         }).optional().allow(null),
-                        targetDateNotes: Joi.string().optional().allow(null),
+                        targetDateNotes: Joi.string().optional().allow(null, ""),
                         acknowledgesResponsibilityToInform: Joi.boolean().optional().allow(null),
                     }).optional(),
                     photography: Joi.object({
-                        photographyNotes: Joi.string().optional().allow(null),
+                        photographyNotes: Joi.string().optional().allow(null, ""),
                     }).optional()
                 }).optional()
             })
@@ -1540,6 +1556,7 @@ export const validateUpdateOnboardingDetailsClientForm = (request: Request, resp
 
     const { error } = schema.validate(request.body);
     if (error) {
+        logValidationError('validateUpdateOnboardingDetailsClientForm', error, request.body);
         return next(error);
     }
     next();
@@ -1567,13 +1584,13 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
 
                         //Bedrooms
                         roomType: Joi.string().required().allow(null),
-                        listingType: Joi.string().optional().allow(null), // alias for roomType
+                        listingType: Joi.string().optional().allow(null, ""), // alias for roomType
                         bedroomsNumber: Joi.number().required().allow(null),
-                        bedroomNotes: Joi.string().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null, ""),
                         chargeForExtraGuests: Joi.boolean().optional().allow(null),
                         guestsIncluded: Joi.number().optional().allow(null),
                         priceForExtraPerson: Joi.number().optional().allow(null),
-                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
+                        extraGuestFeeType: Joi.string().optional().allow(null, "").valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().required().min(1).allow(null).items(
                             Joi.object({
@@ -1581,11 +1598,11 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                                 bedroomNumber: Joi.number().optional().allow(null),
                                 beds: Joi.array().optional().allow(null).items(
                                     Joi.object({
-                                        bedTypeId: Joi.string().optional().allow(null),
+                                        bedTypeId: Joi.string().optional().allow(null, ""),
                                         quantity: Joi.number().optional().allow(null),
-                                        airMattressSize: Joi.string().optional().allow(null),
-                                        upperBunkSize: Joi.string().optional().allow(null),
-                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                        airMattressSize: Joi.string().optional().allow(null, ""),
+                                        upperBunkSize: Joi.string().optional().allow(null, ""),
+                                        lowerBunkSize: Joi.string().optional().allow(null, "")
                                     })
                                 )
                             })
@@ -1595,7 +1612,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         bathroomType: Joi.string().required().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().required().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().required().allow(null), // Number of Half Baths
-                        bathroomNotes: Joi.string().optional().allow(null),
+                        bathroomNotes: Joi.string().optional().allow(null, ""),
 
                         //Listing Information
                         checkInTimeStart: Joi.number().required().allow(null),
@@ -1671,7 +1688,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                         lockboxLocation: Joi.string().required().allow(null),
                         lockboxCode: Joi.string().required().allow(null),
                         doorLockInstructions: Joi.string().required().allow(null),
-                        emergencyBackUpCode: Joi.string().optional().allow(null),
+                        emergencyBackUpCode: Joi.string().optional().allow(null, ""),
 
                         //Waste Management
                         wasteCollectionDays: Joi.string().required().allow(null),
@@ -1761,12 +1778,12 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
             Joi.object({
                 id: Joi.string().required(),
                 address: Joi.string().optional(),
-                streetAddress: Joi.string().optional().allow(null),
-                unitNumber: Joi.string().optional().allow(null),
-                city: Joi.string().optional().allow(null),
-                state: Joi.string().optional().allow(null),
-                country: Joi.string().optional().allow(null),
-                zipCode: Joi.string().optional().allow(null),
+                streetAddress: Joi.string().optional().allow(null, ""),
+                unitNumber: Joi.string().optional().allow(null, ""),
+                city: Joi.string().optional().allow(null, ""),
+                state: Joi.string().optional().allow(null, ""),
+                country: Joi.string().optional().allow(null, ""),
+                zipCode: Joi.string().optional().allow(null, ""),
                 latitude: Joi.number().optional().allow(null),
                 longitude: Joi.number().optional().allow(null),
                 listingId: Joi.string().optional().allow(null, ""),
@@ -1777,22 +1794,22 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                     }).optional(),
                     listing: Joi.object({
                         //General
-                        propertyTypeId: Joi.string().optional().allow(null),
+                        propertyTypeId: Joi.string().optional().allow(null, ""),
                         noOfFloors: Joi.number().optional().allow(null),
-                        unitFloor: Joi.string().optional().allow(null),
+                        unitFloor: Joi.string().optional().allow(null, ""),
                         squareMeters: Joi.number().optional().allow(null),
                         squareFeet: Joi.number().optional().allow(null),
                         personCapacity: Joi.number().optional().allow(null),
 
                         //Bedrooms
-                        roomType: Joi.string().optional().allow(null),
-                        listingType: Joi.string().optional().allow(null), // alias for roomType
+                        roomType: Joi.string().optional().allow(null, ""),
+                        listingType: Joi.string().optional().allow(null, ""), // alias for roomType
                         bedroomsNumber: Joi.number().optional().allow(null),
-                        bedroomNotes: Joi.string().optional().allow(null),
+                        bedroomNotes: Joi.string().optional().allow(null, ""),
                         chargeForExtraGuests: Joi.boolean().optional().allow(null),
                         guestsIncluded: Joi.number().optional().allow(null),
                         priceForExtraPerson: Joi.number().optional().allow(null),
-                        extraGuestFeeType: Joi.string().optional().allow(null).valid("Per Guest", "Per Guest/Night"),
+                        extraGuestFeeType: Joi.string().optional().allow(null, "").valid("Per Guest", "Per Guest/Night"),
 
                         propertyBedTypes: Joi.array().optional().min(1).allow(null).items(
                             Joi.object({
@@ -1801,11 +1818,11 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 bedroomNumber: Joi.number().optional().allow(null),
                                 beds: Joi.array().optional().allow(null).items(
                                     Joi.object({
-                                        bedTypeId: Joi.string().optional().allow(null),
+                                        bedTypeId: Joi.string().optional().allow(null, ""),
                                         quantity: Joi.number().optional().allow(null),
-                                        airMattressSize: Joi.string().optional().allow(null),
-                                        upperBunkSize: Joi.string().optional().allow(null),
-                                        lowerBunkSize: Joi.string().optional().allow(null)
+                                        airMattressSize: Joi.string().optional().allow(null, ""),
+                                        upperBunkSize: Joi.string().optional().allow(null, ""),
+                                        lowerBunkSize: Joi.string().optional().allow(null, "")
                                     })
                                 )
                             })
@@ -1815,7 +1832,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         bathroomType: Joi.string().optional().valid("private", "shared").allow(null),
                         bathroomsNumber: Joi.number().optional().allow(null), // Number of Full Baths
                         guestBathroomsNumber: Joi.number().optional().allow(null), // Number of Half Baths
-                        bathroomNotes: Joi.string().optional().allow(null),
+                        bathroomNotes: Joi.string().optional().allow(null, ""),
 
                         //bathroom location and types
                         propertyBathroomLocation: Joi.array().optional().min(1).allow(null).items(
@@ -1825,8 +1842,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 bathroomType: Joi.string().optional().valid("Full", "Half").allow(null),
                                 bathroomNumber: Joi.number().optional().allow(null),
                                 ensuite: Joi.number().optional().allow(null),
-                                bathroomFeatures: Joi.string().optional().allow(null),
-                                privacyType: Joi.string().optional().allow(null)
+                                bathroomFeatures: Joi.string().optional().allow(null, ""),
+                                privacyType: Joi.string().optional().allow(null, "")
                             })
                         ),
 
@@ -1834,27 +1851,27 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         //Listing Information
                         checkInTimeStart: Joi.number().optional().allow(null),
                         checkOutTime: Joi.number().optional().allow(null),
-                        canAnyoneBookAnytime: Joi.string().optional().allow(null).valid(
+                        canAnyoneBookAnytime: Joi.string().optional().allow(null, "").valid(
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of SAME DAY bookings/changes before accepting",
                             "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
                             "No, please always confirm with me before accepting",
                             "No, I auto-decline reservations if check-in is within x number of days from today"
                         ),
-                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null),
+                        bookingAcceptanceNoticeNotes: Joi.string().optional().allow(null, ""),
 
                         //house rules
                         allowPartiesAndEvents: Joi.boolean().optional().allow(null),
                         allowSmoking: Joi.boolean().optional().allow(null),
                         allowPets: Joi.boolean().optional().allow(null),
                         petFee: Joi.number().optional().allow(null),
-                        petFeeType: Joi.string().optional().allow(null).valid("Per Stay", "Per Pet", "Per Pet/Night"),
+                        petFeeType: Joi.string().optional().allow(null, "").valid("Per Stay", "Per Pet", "Per Pet/Night"),
                         numberOfPetsAllowed: Joi.number().optional().allow(null),
-                        petRestrictionsNotes: Joi.string().optional().allow(null),
+                        petRestrictionsNotes: Joi.string().optional().allow(null, ""),
                         allowChildreAndInfants: Joi.boolean().optional().allow(null),
-                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null),
+                        childrenInfantsRestrictionReason: Joi.string().optional().allow(null, ""),
                         allowLuggageDropoffBeforeCheckIn: Joi.boolean().optional().allow(null),
-                        otherHouseRules: Joi.string().optional().allow(null),
+                        otherHouseRules: Joi.string().optional().allow(null, ""),
 
                         //parking
                         parking: Joi.array().min(1).optional().allow(null).items(
@@ -1873,7 +1890,7 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                 numberOfParkingSpots: Joi.number().optional().allow(null),
                             })
                         ),
-                        parkingInstructions: Joi.string().optional().allow(null),
+                        parkingInstructions: Joi.string().optional().allow(null, ""),
 
                         //Property Access
                         checkInProcess: Joi.array().min(1).optional().allow(null)
@@ -1899,81 +1916,81 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                         "In-Person Check-in"
                                     ),
                             ),
-                        doorLockCodeType: Joi.string().optional().allow(null)
+                        doorLockCodeType: Joi.string().optional().allow(null, "")
                             .valid(
                                 "Unique",
                                 "Standard"
                             ),
-                        codeResponsibleParty: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Request consideration"),
+                        codeResponsibleParty: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Request consideration"),
                         responsibilityToSetDoorCodes: Joi.boolean().optional().allow(null),
-                        standardDoorCode: Joi.string().optional().allow(null),
-                        doorLockAppName: Joi.string().optional().allow(null),
-                        doorLockAppUsername: Joi.string().optional().allow(null),
-                        doorLockAppPassword: Joi.string().optional().allow(null),
-                        lockboxLocation: Joi.string().optional().allow(null),
-                        lockboxCode: Joi.string().optional().allow(null),
-                        doorLockInstructions: Joi.string().optional().allow(null),
-                        emergencyBackUpCode: Joi.string().optional().allow(null),
+                        standardDoorCode: Joi.string().optional().allow(null, ""),
+                        doorLockAppName: Joi.string().optional().allow(null, ""),
+                        doorLockAppUsername: Joi.string().optional().allow(null, ""),
+                        doorLockAppPassword: Joi.string().optional().allow(null, ""),
+                        lockboxLocation: Joi.string().optional().allow(null, ""),
+                        lockboxCode: Joi.string().optional().allow(null, ""),
+                        doorLockInstructions: Joi.string().optional().allow(null, ""),
+                        emergencyBackUpCode: Joi.string().optional().allow(null, ""),
 
                         //Waste Management
-                        wasteCollectionDays: Joi.string().optional().allow(null),
-                        wasteBinLocation: Joi.string().optional().allow(null),
-                        wasteManagementInstructions: Joi.string().optional().allow(null),
+                        wasteCollectionDays: Joi.string().optional().allow(null, ""),
+                        wasteBinLocation: Joi.string().optional().allow(null, ""),
+                        wasteManagementInstructions: Joi.string().optional().allow(null, ""),
 
                         //additional services/upsells
                         propertyUpsells: Joi.array().min(1).optional().allow(null).items(
                             Joi.object({
                                 id: Joi.number().optional(), // if id is passed then update else if id is not present then create
-                                upsellName: Joi.string().optional().allow(null),
+                                upsellName: Joi.string().optional().allow(null, ""),
                                 allowUpsell: Joi.boolean().optional().allow(null),
                                 feeType: Joi.string().optional().valid("Free", "Standard", "Per Hour", "Daily", "Daily (Required for whole stay)").allow(null),
                                 fee: Joi.number().optional().allow(null),
                                 maxAdditionalHours: Joi.number().optional().allow(null),
-                                notes: Joi.string().optional().allow(null)
+                                notes: Joi.string().optional().allow(null, "")
                             })
                         ),
-                        additionalServiceNotes: Joi.string().optional().allow(null),
+                        additionalServiceNotes: Joi.string().optional().allow(null, ""),
 
 
                         //Special Instructions for Guests
-                        checkInInstructions: Joi.string().optional().allow(null),
-                        checkOutInstructions: Joi.string().optional().allow(null),
+                        checkInInstructions: Joi.string().optional().allow(null, ""),
+                        checkOutInstructions: Joi.string().optional().allow(null, ""),
 
                         //Contractors/Vendor Management
                         vendorManagement: Joi.object({
 
                             //Cleaner
-                            cleanerManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            cleanerManagedByReason: Joi.string().optional().allow(null),
-                            hasCurrentCleaner: Joi.string().optional().allow(null)
+                            cleanerManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            cleanerManagedByReason: Joi.string().optional().allow(null, ""),
+                            hasCurrentCleaner: Joi.string().optional().allow(null, "")
                                 .valid(
                                     "Yes",
                                     "Yes, but I'd like to request for a new cleaner",
                                     "No, please source a cleaner for me"
                                 ),
-                            hasCurrentCleanerReason: Joi.string().optional().allow(null),
+                            hasCurrentCleanerReason: Joi.string().optional().allow(null, ""),
                             cleaningFee: Joi.number().optional().allow(null),
-                            cleanerName: Joi.string().optional().allow(null),
-                            cleanerPhone: Joi.string().optional().allow(null),
-                            cleanerEmail: Joi.string().optional().allow(null),
+                            cleanerName: Joi.string().optional().allow(null, ""),
+                            cleanerPhone: Joi.string().optional().allow(null, ""),
+                            cleanerEmail: Joi.string().optional().allow(null, ""),
 
                             acknowledgeCleanerResponsibility: Joi.boolean().optional().allow(null),
-                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null),
+                            acknowledgeCleanerResponsibilityReason: Joi.string().optional().allow(null, ""),
                             ensureCleanersScheduled: Joi.boolean().optional().allow(null),
-                            ensureCleanersScheduledReason: Joi.string().optional().allow(null),
+                            ensureCleanersScheduledReason: Joi.string().optional().allow(null, ""),
                             propertyCleanedBeforeNextCheckIn: Joi.boolean().optional().allow(null),
-                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null),
+                            propertyCleanedBeforeNextCheckInReason: Joi.string().optional().allow(null, ""),
                             luxuryLodgingReadyAssumption: Joi.boolean().optional().allow(null),
-                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null),
+                            luxuryLodgingReadyAssumptionReason: Joi.string().optional().allow(null, ""),
                             requestCalendarAccessForCleaner: Joi.boolean().optional().allow(null),
-                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null),
-                            cleaningTurnoverNotes: Joi.string().optional().allow(null),
+                            requestCalendarAccessForCleanerReason: Joi.string().optional().allow(null, ""),
+                            cleaningTurnoverNotes: Joi.string().optional().allow(null, ""),
 
                             //Restocking Supplies
-                            restockingSuppliesManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null),
-                            supplyClosetLocation: Joi.string().optional().allow(null),
-                            supplyClosetCode: Joi.string().optional().allow(null),
+                            restockingSuppliesManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            restockingSuppliesManagedByReason: Joi.string().optional().allow(null, ""),
+                            supplyClosetLocation: Joi.string().optional().allow(null, ""),
+                            supplyClosetCode: Joi.string().optional().allow(null, ""),
                             luxuryLodgingRestockWithoutApproval: Joi.boolean().optional().allow(null),
                             luxuryLodgingConfirmBeforePurchase: Joi.boolean().optional().allow(null),
                             suppliesToRestock: Joi.array().optional().allow(null).items(
@@ -1985,8 +2002,8 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             ),
 
                             //Maintenance
-                            maintenanceManagedBy: Joi.string().optional().allow(null).valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                            maintenanceManagedByReason: Joi.string().optional().allow(null),
+                            maintenanceManagedBy: Joi.string().optional().allow(null, "").valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
+                            maintenanceManagedByReason: Joi.string().optional().allow(null, ""),
 
                             //Other Contractors/Vendors
                             vendorInfo: Joi.array().optional().allow(null).items(
@@ -1994,32 +2011,32 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                                     id: Joi.number().optional(), // if id is passed then update else if id is not present then create
                                     role: Joi.string().when('id', {
                                         is: Joi.exist(),
-                                        then: Joi.optional(),
+                                        then: Joi.optional().allow(null, ""),
                                         otherwise: Joi.required()
                                     }),
-                                    workCategory: Joi.string().optional(), // kept for backward compatibility
+                                    workCategory: Joi.string().optional().allow(null, ""), // kept for backward compatibility
                                     managedBy: Joi.string().required().valid("Property Owner", "Luxury Lodging", "Property Owner & Luxury Lodging", "Others"),
-                                    name: Joi.string().required().allow(null),
-                                    contact: Joi.string().required().allow(null),
-                                    email: Joi.string().required().allow(null),
-                                    scheduleType: Joi.string().required().valid(
+                                    name: Joi.string().optional().allow(null, ""),
+                                    contact: Joi.string().optional().allow(null, ""),
+                                    email: Joi.string().optional().allow(null, ""),
+                                    scheduleType: Joi.string().optional().valid(
                                         "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
-                                    ).allow(null),
-                                    intervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
-                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
-                                    weekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
-                                    dayOfMonth: Joi.number().integer().min(1).max(32).required().allow(null),
-                                    notes: Joi.string().optional().allow(null),
+                                    ).allow(null, ""),
+                                    intervalMonth: Joi.number().integer().min(1).max(12).optional().allow(null),
+                                    dayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6)).optional().allow(null),
+                                    weekOfMonth: Joi.number().integer().min(1).max(5).optional().allow(null),
+                                    dayOfMonth: Joi.number().integer().min(1).max(32).optional().allow(null),
+                                    notes: Joi.string().optional().allow(null, ""),
                                 })
                             ),
-                            addtionalVendorManagementNotes: Joi.string().optional().allow(null),
+                            addtionalVendorManagementNotes: Joi.string().optional().allow(null, ""),
                             acknowledgeMaintenanceResponsibility: Joi.boolean().optional().allow(null),
                             authorizeLuxuryLodgingAction: Joi.boolean().optional().allow(null),
                             acknowledgeExpensesBilledToStatement: Joi.boolean().optional().allow(null),
                         }).optional().allow(null),
 
                         //Management
-                        specialInstructions: Joi.string().optional().allow(null).valid(
+                        specialInstructions: Joi.string().optional().allow(null, "").valid(
                             "Yes, no restrictions. (Recommended)",
                             "Yes, but please notify me of SAME DAY bookings/changes before accepting",
                             "Yes, but please notify me if booking/changes is within 1 DAY of check-in/adjustment",
@@ -2027,24 +2044,24 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                             "No, auto-decline reservations if check-in is within x number of days from today"
                         ),
                         leadTimeDays: Joi.number().optional().allow(null),
-                        bookingAcceptanceNotes: Joi.string().optional().allow(null),
+                        bookingAcceptanceNotes: Joi.string().optional().allow(null, ""),
 
                         //Standard Booking Settings
                         instantBooking: Joi.boolean().optional().allow(null),
-                        instantBookingNotes: Joi.string().optional().allow(null),
+                        instantBookingNotes: Joi.string().optional().allow(null, ""),
                         minimumAdvanceNotice: Joi.boolean().optional().allow(null),
-                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null),
+                        minimumAdvanceNoticeNotes: Joi.string().optional().allow(null, ""),
                         preparationDays: Joi.boolean().optional().allow(null),
-                        preparationDaysNotes: Joi.string().optional().allow(null),
+                        preparationDaysNotes: Joi.string().optional().allow(null, ""),
                         bookingWindow: Joi.boolean().optional().allow(null),
-                        bookingWindowNotes: Joi.string().optional().allow(null),
+                        bookingWindowNotes: Joi.string().optional().allow(null, ""),
                         minimumStay: Joi.boolean().optional().allow(null),
-                        minimumStayNotes: Joi.string().optional().allow(null),
+                        minimumStayNotes: Joi.string().optional().allow(null, ""),
                         maximumStay: Joi.boolean().optional().allow(null),
-                        maximumStayNotes: Joi.string().optional().allow(null),
+                        maximumStayNotes: Joi.string().optional().allow(null, ""),
 
                         //Management Notes
-                        managementNotes: Joi.string().optional().allow(null),
+                        managementNotes: Joi.string().optional().allow(null, ""),
                         acknowledgeNoGuestContact: Joi.boolean().optional().allow(null),
                         acknowledgeNoPropertyAccess: Joi.boolean().optional().allow(null),
                         acknowledgeNoDirectTransactions: Joi.boolean().optional().allow(null),
@@ -2055,62 +2072,62 @@ export const validateUpdateListingDetailsClientForm = (request: Request, respons
                         minNightsWeekday: Joi.number().optional().allow(null),
                         minNightsWeekend: Joi.number().optional().allow(null),
                         maxNights: Joi.number().optional().allow(null),
-                        pricingStrategyPreference: Joi.string().optional().allow(null),
-                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null).valid("Yes", "No"),
+                        pricingStrategyPreference: Joi.string().optional().allow(null, ""),
+                        minimumNightsRequiredByLaw: Joi.string().optional().allow(null, "").valid("Yes", "No"),
                         propertyLicenseNumber: Joi.string().optional().allow(null, ""),
-                        tax: Joi.string().optional().allow(null),
-                        financialNotes: Joi.string().optional().allow(null),
+                        tax: Joi.string().optional().allow(null, ""),
+                        financialNotes: Joi.string().optional().allow(null, ""),
 
                         //amenities
                         amenities: Joi.array().items(Joi.string()).min(1).optional().allow(null),
                         acknowledgeAmenitiesAccurate: Joi.boolean().optional().allow(null),
                         acknowledgeSecurityCamerasDisclosed: Joi.boolean().optional().allow(null),
-                        otherAmenities: Joi.string().optional().allow(null),
-                        wifiAvailable: Joi.string().optional().allow(null).valid("Yes", "No"),
-                        wifiUsername: Joi.string().optional().allow(null),
-                        wifiPassword: Joi.string().optional().allow(null),
-                        wifiSpeed: Joi.string().optional().allow(null),
-                        locationOfModem: Joi.string().optional().allow(null),
+                        otherAmenities: Joi.string().optional().allow(null, ""),
+                        wifiAvailable: Joi.string().optional().allow(null, "").valid("Yes", "No"),
+                        wifiUsername: Joi.string().optional().allow(null, ""),
+                        wifiPassword: Joi.string().optional().allow(null, ""),
+                        wifiSpeed: Joi.string().optional().allow(null, ""),
+                        locationOfModem: Joi.string().optional().allow(null, ""),
                         ethernetCable: Joi.boolean().optional().allow(null),
                         pocketWifi: Joi.boolean().optional().allow(null),
                         paidWifi: Joi.boolean().optional().allow(null),
-                        swimmingPoolNotes: Joi.string().optional().allow(null),
-                        hotTubInstructions: Joi.string().optional().allow(null),
-                        hotTubPrivacy: Joi.string().optional().allow(null),
-                        hotTubAvailability: Joi.string().optional().allow(null),
-                        firePlaceNotes: Joi.string().optional().allow(null),
-                        firepitNotes: Joi.string().optional().allow(null),
-                        firepitType: Joi.string().optional().allow(null),
-                        gameConsoleType: Joi.string().optional().allow(null),
-                        gameConsoleNotes: Joi.string().optional().allow(null),
-                        safeBoxLocationInstructions: Joi.string().optional().allow(null),
-                        gymPrivacy: Joi.string().optional().allow(null),
-                        gymNotes: Joi.string().optional().allow(null),
-                        saunaPrivacy: Joi.string().optional().allow(null),
-                        saunaNotes: Joi.string().optional().allow(null),
-                        exerciseEquipmentTypes: Joi.string().optional().allow(null),
-                        exerciseEquipmentNotes: Joi.string().optional().allow(null),
-                        golfType: Joi.string().optional().allow(null),
-                        golfNotes: Joi.string().optional().allow(null),
-                        basketballPrivacy: Joi.string().optional().allow(null),
-                        basketballNotes: Joi.string().optional().allow(null),
-                        tennisPrivacy: Joi.string().optional().allow(null),
-                        tennisNotes: Joi.string().optional().allow(null),
-                        workspaceLocation: Joi.string().optional().allow(null),
-                        workspaceInclusion: Joi.string().optional().allow(null),
-                        workspaceNotes: Joi.string().optional().allow(null),
-                        patioPrivacy: Joi.string().optional().allow(null),
-                        boatDockPrivacy: Joi.string().optional().allow(null),
-                        boatDockNotes: Joi.string().optional().allow(null),
-                        heatControlInstructions: Joi.string().optional().allow(null),
-                        locationOfThemostat: Joi.string().optional().allow(null),
-                        securityCameraLocations: Joi.string().optional().allow(null),
-                        coffeeMakerType: Joi.string().optional().allow(null),
-                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null),
-                        smokeDetectorLocation: Joi.string().optional().allow(null),
-                        fireExtinguisherLocation: Joi.string().optional().allow(null),
-                        firstAidKitLocation: Joi.string().optional().allow(null),
-                        emergencyExitLocation: Joi.string().optional().allow(null),
+                        swimmingPoolNotes: Joi.string().optional().allow(null, ""),
+                        hotTubInstructions: Joi.string().optional().allow(null, ""),
+                        hotTubPrivacy: Joi.string().optional().allow(null, ""),
+                        hotTubAvailability: Joi.string().optional().allow(null, ""),
+                        firePlaceNotes: Joi.string().optional().allow(null, ""),
+                        firepitNotes: Joi.string().optional().allow(null, ""),
+                        firepitType: Joi.string().optional().allow(null, ""),
+                        gameConsoleType: Joi.string().optional().allow(null, ""),
+                        gameConsoleNotes: Joi.string().optional().allow(null, ""),
+                        safeBoxLocationInstructions: Joi.string().optional().allow(null, ""),
+                        gymPrivacy: Joi.string().optional().allow(null, ""),
+                        gymNotes: Joi.string().optional().allow(null, ""),
+                        saunaPrivacy: Joi.string().optional().allow(null, ""),
+                        saunaNotes: Joi.string().optional().allow(null, ""),
+                        exerciseEquipmentTypes: Joi.string().optional().allow(null, ""),
+                        exerciseEquipmentNotes: Joi.string().optional().allow(null, ""),
+                        golfType: Joi.string().optional().allow(null, ""),
+                        golfNotes: Joi.string().optional().allow(null, ""),
+                        basketballPrivacy: Joi.string().optional().allow(null, ""),
+                        basketballNotes: Joi.string().optional().allow(null, ""),
+                        tennisPrivacy: Joi.string().optional().allow(null, ""),
+                        tennisNotes: Joi.string().optional().allow(null, ""),
+                        workspaceLocation: Joi.string().optional().allow(null, ""),
+                        workspaceInclusion: Joi.string().optional().allow(null, ""),
+                        workspaceNotes: Joi.string().optional().allow(null, ""),
+                        patioPrivacy: Joi.string().optional().allow(null, ""),
+                        boatDockPrivacy: Joi.string().optional().allow(null, ""),
+                        boatDockNotes: Joi.string().optional().allow(null, ""),
+                        heatControlInstructions: Joi.string().optional().allow(null, ""),
+                        locationOfThemostat: Joi.string().optional().allow(null, ""),
+                        securityCameraLocations: Joi.string().optional().allow(null, ""),
+                        coffeeMakerType: Joi.string().optional().allow(null, ""),
+                        carbonMonoxideDetectorLocation: Joi.string().optional().allow(null, ""),
+                        smokeDetectorLocation: Joi.string().optional().allow(null, ""),
+                        fireExtinguisherLocation: Joi.string().optional().allow(null, ""),
+                        firstAidKitLocation: Joi.string().optional().allow(null, ""),
+                        emergencyExitLocation: Joi.string().optional().allow(null, ""),
                     }).optional()
                 }).optional()
             })
@@ -2165,6 +2182,7 @@ export const validateUpdateAcknowledgement = (request: Request, response: Respon
 
     const { error } = schema.validate(request.body);
     if (error) {
+        logValidationError('validateUpdateAcknowledgement', error, request.body);
         return next(error);
     }
     next();
