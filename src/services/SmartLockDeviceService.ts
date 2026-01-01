@@ -80,6 +80,7 @@ export class SmartLockDeviceService {
    */
   async getAllDevices(): Promise<SmartLockDevice[]> {
     return await this.deviceRepository.find({
+      relations: ["accessCodes"],
       order: { createdAt: "DESC" },
     });
   }

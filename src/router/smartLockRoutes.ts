@@ -112,10 +112,40 @@ router.post("/devices/sync/:provider", async (req: Request, res: Response) => {
 /**
  * Get all devices
  * GET /smart-locks/devices
+ * Query: ?includeAccessCodes=true to fetch live access codes from provider
  */
 router.get("/devices", async (req: Request, res: Response) => {
   try {
     const devices = await deviceService.getAllDevices();
+    const includeAccessCodes = req.query.includeAccessCodes === "true";
+
+    if (includeAccessCodes) {
+      // Fetch access codes from provider API for each device
+      const devicesWithCodes = await Promise.all(
+        devices.map(async (device) => {
+          try {
+            const provider = LockProviderFactory.getProvider(device.provider);
+            const accessCodes = await provider.listAccessCodes(device.externalDeviceId);
+            return {
+              ...device,
+              liveAccessCodes: accessCodes,
+            };
+          } catch (error) {
+            logger.warn(`Failed to fetch access codes for device ${device.id}:`, error);
+            return {
+              ...device,
+              liveAccessCodes: [],
+            };
+          }
+        })
+      );
+
+      return res.json({
+        success: true,
+        data: devicesWithCodes,
+      });
+    }
+
     return res.json({
       success: true,
       data: devices,
