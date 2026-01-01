@@ -21,6 +21,15 @@ import { updateMgmtFee } from "../scripts/updateMgmtFee";
 import { DatabaseBackupService } from "../services/DatabaseBackupService";
 
 export function scheduleGetReservation() {
+  // Only run schedulers on PM2 instance 0 to prevent duplicate job execution in clustered environments
+  const instanceId = process.env.NODE_APP_INSTANCE;
+  if (instanceId !== undefined && instanceId !== '0') {
+    logger.info(`Skipping scheduler registration on PM2 instance ${instanceId} (only instance 0 runs schedulers)`);
+    return;
+  }
+
+  logger.info(`Registering schedulers on instance ${instanceId ?? 'standalone'}`);
+
   const schedule = require("node-schedule");
   schedule.scheduleJob("*/5 * * * *", function () {
     console.log("Application is working: " + new Date());
