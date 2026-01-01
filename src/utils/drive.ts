@@ -117,18 +117,48 @@ export function getRootFolderId() {
     return ROOT_FOLDER_ID;
 }
 
-// 🔹 Helper: Delete file from Drive
-export async function deleteFromDrive(fileId: string) {
+// 🔹 Helper: Delete file from Drive (with shared drive workaround)
+export async function deleteFromDrive(fileId: string, fileName?: string) {
+    const fileIdentifier = fileName ? `${fileName} (${fileId})` : fileId;
+
+    // First, try moving file to trash (works better on shared drives)
     try {
-        await drive.files.delete({
+        await drive.files.update({
             fileId,
-            supportsAllDrives: true, // 🔑 needed for shared drives
+            supportsAllDrives: true,
+            requestBody: {
+                trashed: true
+            }
         });
-        logger.info(`🗑️ Deleted file from Drive: ${fileId}`);
+        logger.info(`🗑️ Moved file to trash: ${fileIdentifier}`);
         return true;
-    } catch (err) {
-        logger.error(`❌ Failed to delete file ${fileId}:`, err);
-        return false;
+    } catch (trashErr: any) {
+        const trashErrorCode = trashErr?.code || trashErr?.response?.status;
+        logger.warn(`Trash attempt failed for ${fileIdentifier} - Code: ${trashErrorCode}, trying direct delete...`);
+
+        // If trashing fails, try direct deletion
+        try {
+            await drive.files.delete({
+                fileId,
+                supportsAllDrives: true,
+            });
+            logger.info(`🗑️ Deleted file from Drive: ${fileIdentifier}`);
+            return true;
+        } catch (deleteErr: any) {
+            const errorCode = deleteErr?.code || deleteErr?.response?.status;
+            const errorMessage = deleteErr?.message || 'Unknown error';
+            const errorReason = deleteErr?.errors?.[0]?.reason || 'unknown';
+
+            logger.warn(`Delete attempt also failed for ${fileIdentifier} - Code: ${errorCode}, Reason: ${errorReason}, Message: ${errorMessage}`);
+
+            // If both fail with 404, the file is already gone
+            if (errorCode === 404 && trashErrorCode === 404) {
+                logger.info(`File ${fileIdentifier} already deleted or not found, skipping`);
+                return true;
+            }
+
+            logger.error(`❌ Failed to delete file ${fileIdentifier}:`, deleteErr);
+            return false;
+        }
     }
 }
-

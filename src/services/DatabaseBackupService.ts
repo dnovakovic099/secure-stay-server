@@ -123,8 +123,7 @@ export class DatabaseBackupService {
 
                 for (const file of filesToDelete) {
                     try {
-                        await deleteFromDrive(file.id!);
-                        logger.info(`Deleted old backup: ${file.name}`);
+                        await deleteFromDrive(file.id!, file.name!);
                     } catch (deleteError) {
                         logger.error(`Failed to delete backup ${file.name}:`, deleteError);
                     }
