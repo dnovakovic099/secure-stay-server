@@ -1,4 +1,4 @@
-import { Between, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual } from "typeorm";
+import { Between, Brackets, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -605,7 +605,7 @@ export class ReviewService {
         const {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
-            todayDate, status, isActive, tab,
+            todayDate, status, isActive, tab, keyword,
         } = filters;
 
         //fetch reviewCheckoutList
@@ -620,16 +620,17 @@ export class ReviewService {
                 case 'today':
                     // Today tab: Show 'To Call' status + follow up statuses with sevenDaysAfterCheckout < todayDate
                     // + Called Once status where calledOnceDate < todayDate (returns next day)
-                    query.andWhere(`
-                        (reviewCheckout.status = :toCallStatus) OR 
-                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate) OR
-                        (reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate < :todayDate)
-                    `, {
-                        toCallStatus: ReviewCheckoutStatus.TO_CALL,
-                        followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
-                        calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
-                        todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
-                    });
+                    query.andWhere(new Brackets(qb => {
+                        qb.where("reviewCheckout.status = :toCallStatus", { toCallStatus: ReviewCheckoutStatus.TO_CALL })
+                            .orWhere("(reviewCheckout.status IN (:...followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate)", {
+                                followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                                todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
+                            })
+                            .orWhere("(reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate < :todayDate2)", {
+                                calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
+                                todayDate2: todayDate || format(new Date(), 'yyyy-MM-dd')
+                            });
+                    }));
                     break;
 
                 case 'active':
@@ -637,17 +638,23 @@ export class ReviewService {
                     // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses,
                     // only show if isActive is true
                     // + Called Once status where calledOnceDate = todayDate (same day)
-                    query.andWhere(`
-                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout > :todayDate) OR
-                        (reviewCheckout.status IN (:followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate AND reviewCheckout.isActive = true) OR
-                        (reviewCheckout.status IN (:activeStatuses)) OR
-                        (reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate = :todayDate)
-                    `, {
-                        followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
-                        activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED, ReviewCheckoutStatus.LAUNCH],
-                        calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
-                        todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
-                    });
+                    query.andWhere(new Brackets(qb => {
+                        qb.where("(reviewCheckout.status IN (:...followUpStatuses) AND reviewCheckout.sevenDaysAfterCheckout > :todayDate)", {
+                            followUpStatuses: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                            todayDate: todayDate || format(new Date(), 'yyyy-MM-dd')
+                        })
+                            .orWhere("(reviewCheckout.status IN (:...followUpStatuses2) AND reviewCheckout.sevenDaysAfterCheckout <= :todayDate2 AND reviewCheckout.isActive = true)", {
+                                followUpStatuses2: [ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER, ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK],
+                                todayDate2: todayDate || format(new Date(), 'yyyy-MM-dd')
+                            })
+                            .orWhere("reviewCheckout.status IN (:...activeStatuses)", {
+                                activeStatuses: [ReviewCheckoutStatus.ISSUE, ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED, ReviewCheckoutStatus.LAUNCH]
+                            })
+                            .orWhere("(reviewCheckout.status = :calledOnceStatus AND reviewCheckout.calledOnceDate = :todayDate3)", {
+                                calledOnceStatus: ReviewCheckoutStatus.CALLED_ONCE,
+                                todayDate3: todayDate || format(new Date(), 'yyyy-MM-dd')
+                            });
+                    }));
                     break;
 
                 case 'closed':
@@ -691,8 +698,25 @@ export class ReviewService {
             query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
         }
 
+        // Keyword search filter (searches guest name)
+        if (keyword) {
+            query.andWhere("reservationInfo.guestName LIKE :keyword", { keyword: `%${keyword}%` });
+        }
+
+        // Status filter (works alongside tab filtering to further narrow results)
+        if (status && status.length > 0) {
+            query.andWhere("reviewCheckout.status IN (:...statusFilter)", { statusFilter: status });
+        }
+
         query.skip((page - 1) * limit).take(limit);
         query.orderBy("reviewCheckout.createdAt", "DESC");
+
+        // Debug logging - remove after debugging
+        logger.info(`[getReviewsForCheckout] Filters received:`, JSON.stringify({
+            page, limit, listingMapId, guestName, channel, keyword, tab, status
+        }));
+        logger.info(`[getReviewsForCheckout] Generated SQL: ${query.getSql()}`);
+        logger.info(`[getReviewsForCheckout] Query parameters: ${JSON.stringify(query.getParameters())}`);
 
         const [reviewCheckoutList, total] = await query.getManyAndCount();
 
