@@ -1350,13 +1350,11 @@ export class ClientService {
           onboarding: onboardingEntity,
         }).catch(err => logger.error('Asana task creation failed:', err));
 
-        // Send property onboarding welcome email (non-blocking)
-        propertyEmailService.sendPropertyOnboardingEmail(savedClient, savedClientProperty, userId)
-          .catch(err => logger.error('Property onboarding email failed:', err));
-
-        // Send property onboarding welcome SMS (non-blocking)
-        propertyEmailService.sendPropertyOnboardingSMS(savedClient, savedClientProperty, userId)
-          .catch(err => logger.error('Property onboarding SMS failed:', err));
+        // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
+        // propertyEmailService.sendPropertyOnboardingEmail(savedClient, savedClientProperty, userId)
+        //   .catch(err => logger.error('Property onboarding email failed:', err));
+        // propertyEmailService.sendPropertyOnboardingSMS(savedClient, savedClientProperty, userId)
+        //   .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
 
       // 5. Update client status if properties were added (only if not already set)
@@ -1514,13 +1512,11 @@ export class ClientService {
         onboarding: savedOnboarding,
       }).catch(err => logger.error('Asana task creation failed:', err));
 
-      // Send property onboarding welcome email (non-blocking)
-      propertyEmailService.sendPropertyOnboardingEmail(client, savedClientProperty, userId)
-        .catch(err => logger.error('Property onboarding email failed:', err));
-
-      // Send property onboarding welcome SMS (non-blocking)
-      propertyEmailService.sendPropertyOnboardingSMS(client, savedClientProperty, userId)
-        .catch(err => logger.error('Property onboarding SMS failed:', err));
+      // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
+      // propertyEmailService.sendPropertyOnboardingEmail(client, savedClientProperty, userId)
+      //   .catch(err => logger.error('Property onboarding email failed:', err));
+      // propertyEmailService.sendPropertyOnboardingSMS(client, savedClientProperty, userId)
+      //   .catch(err => logger.error('Property onboarding SMS failed:', err));
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -1865,13 +1861,11 @@ export class ClientService {
           onboarding: refreshed.onboarding,
         }).catch(err => logger.error('Asana task creation failed:', err));
 
-        // Send property onboarding welcome email (non-blocking)
-        propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
-          .catch(err => logger.error('Property onboarding email failed:', err));
-
-        // Send property onboarding welcome SMS (non-blocking)
-        propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
-          .catch(err => logger.error('Property onboarding SMS failed:', err));
+        // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
+        // propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
+        //   .catch(err => logger.error('Property onboarding email failed:', err));
+        // propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
+        //   .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
 
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
@@ -2143,13 +2137,11 @@ export class ClientService {
           onboarding: savedOnboarding,
         }).catch(err => logger.error('Asana task creation failed:', err));
 
-        // Send property onboarding welcome email (non-blocking)
-        propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
-          .catch(err => logger.error('Property onboarding email failed:', err));
-
-        // Send property onboarding welcome SMS (non-blocking)
-        propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
-          .catch(err => logger.error('Property onboarding SMS failed:', err));
+        // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
+        // propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
+        //   .catch(err => logger.error('Property onboarding email failed:', err));
+        // propertyEmailService.sendPropertyOnboardingSMS(client, refreshed, userId)
+        //   .catch(err => logger.error('Property onboarding SMS failed:', err));
       }
     }
 
@@ -4459,5 +4451,106 @@ export class ClientService {
     };
   }
 
+
+  /**
+   * Manually send welcome email for a property.
+   * Tracks sending time and returns info about whether it was already sent.
+   */
+  async sendWelcomeEmailManual(
+    propertyId: string,
+    userId: string
+  ): Promise<{ success: boolean; alreadySent: boolean; sentAt?: Date; isLegacy?: boolean; }> {
+    // Find property with client info
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: ["client"],
+    });
+
+    if (!property) {
+      throw CustomErrorHandler.notFound("Property not found");
+    }
+
+    const client = property.client;
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found for this property");
+    }
+
+    // Check if already sent
+    const alreadySent = !!property.welcomeEmailSentAt;
+    const sentAt = property.welcomeEmailSentAt;
+
+    // Determine if this is legacy data (created before tracking was implemented)
+    // Migration date: 2026-01-02
+    const migrationDate = new Date("2026-01-02T00:00:00Z");
+    const isLegacy = !property.welcomeEmailSentAt && property.createdAt < migrationDate;
+
+    // Send the email
+    await propertyEmailService.sendPropertyOnboardingEmail(client, property, userId);
+
+    // Update tracking timestamp
+    property.welcomeEmailSentAt = new Date();
+    property.updatedBy = userId;
+    await this.propertyRepo.save(property);
+
+    return {
+      success: true,
+      alreadySent,
+      sentAt: alreadySent ? sentAt : undefined,
+      isLegacy,
+    };
+  }
+
+  /**
+   * Manually send welcome SMS for a property.
+   * Tracks sending time and returns info about whether it was already sent.
+   */
+  async sendWelcomeSmsManual(
+    propertyId: string,
+    userId: string
+  ): Promise<{ success: boolean; alreadySent: boolean; sentAt?: Date; isLegacy?: boolean; }> {
+    // Find property with client info
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: ["client"],
+    });
+
+    if (!property) {
+      throw CustomErrorHandler.notFound("Property not found");
+    }
+
+    const client = property.client;
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found for this property");
+    }
+
+    // Check if client has phone number
+    if (!client.phone) {
+      throw CustomErrorHandler.validationError("Client has no phone number configured");
+    }
+
+    // Check if already sent
+    const alreadySent = !!property.welcomeSmsSentAt;
+    const sentAt = property.welcomeSmsSentAt;
+
+    // Determine if this is legacy data (created before tracking was implemented)
+    // Migration date: 2026-01-02
+    const migrationDate = new Date("2026-01-02T00:00:00Z");
+    const isLegacy = !property.welcomeSmsSentAt && property.createdAt < migrationDate;
+
+    // Send the SMS
+    await propertyEmailService.sendPropertyOnboardingSMS(client, property, userId);
+
+    // Update tracking timestamp
+    property.welcomeSmsSentAt = new Date();
+    property.updatedBy = userId;
+    await this.propertyRepo.save(property);
+
+    return {
+      success: true,
+      alreadySent,
+      sentAt: alreadySent ? sentAt : undefined,
+      isLegacy,
+    };
+  }
 
 }

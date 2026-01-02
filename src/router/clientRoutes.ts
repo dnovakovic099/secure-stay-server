@@ -50,6 +50,10 @@ router.route('/client-facing/acknowledgement').put(verifySession, validateUpdate
 router.route('/publish-property-to-hostify/:propertyId').post(verifySession, clientController.publishPropertyToHostify.bind(clientController));
 router.route('/publish-property/:propertyId').get(verifySession, clientController.publishPropertyToHostaway.bind(clientController));
 
+// Manual welcome notification routes
+router.route('/property/:propertyId/send-welcome-email').post(verifySession, clientController.sendWelcomeEmail.bind(clientController));
+router.route('/property/:propertyId/send-welcome-sms').post(verifySession, clientController.sendWelcomeSms.bind(clientController));
+
 
 router
     .route('/upload-csv')

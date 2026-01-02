@@ -414,6 +414,33 @@ export class ClientController {
     }
   }
 
+  /**
+   * Send welcome email manually for a property
+   */
+  async sendWelcomeEmail(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { propertyId } = request.params;
+      const result = await clientService.sendWelcomeEmailManual(propertyId, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Send welcome SMS manually for a property
+   */
+  async sendWelcomeSms(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { propertyId } = request.params;
+      const result = await clientService.sendWelcomeSmsManual(propertyId, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 
 }
 

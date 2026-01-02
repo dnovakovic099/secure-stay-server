@@ -67,6 +67,13 @@ export class ClientPropertyEntity {
     @Column({ type: "timestamp", nullable: true })
     hostifyLastPublishAttempt: Date;
 
+    // Welcome notification tracking fields
+    @Column({ name: "welcome_email_sent_at", type: "timestamp", nullable: true })
+    welcomeEmailSentAt: Date;
+
+    @Column({ name: "welcome_sms_sent_at", type: "timestamp", nullable: true })
+    welcomeSmsSentAt: Date;
+
     @ManyToOne(() => ClientEntity, (client) => client.properties, { onDelete: "CASCADE" })
     client: ClientEntity;
 
