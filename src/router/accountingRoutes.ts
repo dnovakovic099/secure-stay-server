@@ -181,4 +181,13 @@ router.route('/get-published-ha-statements')
         publishedStatementController.getPublishedStatements
     )
 
+// Delete duplicate expenses (tech_fee or recurring) for a specific date
+// Query params: type (tech_fee|recurring), targetDate (yyyy-MM-dd), dryRun (true|false)
+router.route('/deleteduplicateexpenses')
+    .delete(
+        verifySession,
+        expenseController.deleteDuplicateExpenses
+    );
+
 export default router;
+

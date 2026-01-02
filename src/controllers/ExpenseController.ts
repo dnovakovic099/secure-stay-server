@@ -173,4 +173,35 @@ export class ExpenseController {
             return next(error);
         }
     }
+
+    async deleteDuplicateExpenses(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const { type, targetDate, dryRun } = request.query;
+
+            if (!targetDate) {
+                return response.status(400).json({ error: 'targetDate query parameter is required (format: yyyy-MM-dd)' });
+            }
+
+            const isDryRun = dryRun === 'true' || dryRun === '1';
+
+            let result;
+            if (type === 'recurring') {
+                result = await expenseService.deleteDuplicateRecurringExpenses(String(targetDate), isDryRun);
+            } else {
+                // Default to tech_fee
+                result = await expenseService.deleteDuplicateTechFeeExpenses(String(targetDate), isDryRun);
+            }
+
+            return response.status(200).json({
+                message: isDryRun
+                    ? `Dry run complete. Found ${result.duplicatesFound} duplicate ${type || 'tech_fee'} expenses.`
+                    : `Successfully deleted ${result.duplicatesDeleted} duplicate ${type || 'tech_fee'} expenses.`,
+                result
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
+

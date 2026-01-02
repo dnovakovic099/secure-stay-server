@@ -928,6 +928,184 @@ export class ExpenseService {
         }
     }
 
+    /**
+     * Delete duplicate tech fee expenses for a given date.
+     * This method finds all tech fee expenses for the specified date,
+     * groups them by listingMapId, and soft-deletes all but the first one
+     * (keeping the one with the lowest ID).
+     * 
+     * @param targetDate - The date to check for duplicates (format: 'yyyy-MM-dd')
+     * @param dryRun - If true, only returns what would be deleted without actually deleting
+     */
+    async deleteDuplicateTechFeeExpenses(targetDate: string, dryRun: boolean = false) {
+        logger.info(`Checking for duplicate tech fee expenses on date: ${targetDate} (dryRun: ${dryRun})`);
+
+        // Find all tech fee expenses for the given date
+        const techFeeExpenses = await this.expenseRepo.find({
+            where: {
+                expenseDate: targetDate,
+                comesFrom: "tech_fee",
+                isDeleted: 0,
+            },
+            order: { id: "ASC" }, // Order by ID ascending to keep the first one
+        });
+
+        if (techFeeExpenses.length === 0) {
+            logger.info(`No tech fee expenses found for date: ${targetDate}`);
+            return {
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                details: [],
+                dryRun
+            };
+        }
+
+        // Group by listingMapId
+        const groupedByListing: Record<number, typeof techFeeExpenses> = {};
+        for (const expense of techFeeExpenses) {
+            if (!groupedByListing[expense.listingMapId]) {
+                groupedByListing[expense.listingMapId] = [];
+            }
+            groupedByListing[expense.listingMapId].push(expense);
+        }
+
+        const duplicatesToDelete: typeof techFeeExpenses = [];
+        const details: Array<{
+            listingMapId: number;
+            keptExpenseId: number;
+            deletedExpenseIds: number[];
+        }> = [];
+
+        // Find duplicates (all except the first one per listing)
+        for (const [listingMapId, expenses] of Object.entries(groupedByListing)) {
+            if (expenses.length > 1) {
+                // Keep the first one (lowest ID), mark the rest for deletion
+                const [kept, ...duplicates] = expenses;
+                duplicatesToDelete.push(...duplicates);
+                details.push({
+                    listingMapId: Number(listingMapId),
+                    keptExpenseId: kept.id,
+                    deletedExpenseIds: duplicates.map(e => e.id),
+                });
+            }
+        }
+
+        if (duplicatesToDelete.length === 0) {
+            logger.info(`No duplicate tech fee expenses found for date: ${targetDate}`);
+            return {
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                details: [],
+                dryRun
+            };
+        }
+
+        logger.info(`Found ${duplicatesToDelete.length} duplicate tech fee expenses to delete`);
+
+        // If not a dry run, soft-delete the duplicates
+        if (!dryRun) {
+            for (const expense of duplicatesToDelete) {
+                expense.isDeleted = 1;
+                expense.updatedBy = "system_cleanup";
+                expense.updatedAt = new Date();
+                await this.expenseRepo.save(expense);
+            }
+            logger.info(`Successfully soft-deleted ${duplicatesToDelete.length} duplicate tech fee expenses`);
+        }
+
+        return {
+            duplicatesFound: duplicatesToDelete.length,
+            duplicatesDeleted: dryRun ? 0 : duplicatesToDelete.length,
+            details,
+            dryRun,
+        };
+    }
+
+    /**
+     * Delete duplicate recurring expenses for a given date.
+     * Similar to deleteDuplicateTechFeeExpenses but for recurring expenses.
+     */
+    async deleteDuplicateRecurringExpenses(targetDate: string, dryRun: boolean = false) {
+        logger.info(`Checking for duplicate recurring expenses on date: ${targetDate} (dryRun: ${dryRun})`);
+
+        // Find all recurring expenses for the given date
+        const recurringExpenses = await this.expenseRepo.find({
+            where: {
+                expenseDate: targetDate,
+                comesFrom: "recurring_expense",
+                isDeleted: 0,
+            },
+            order: { id: "ASC" },
+        });
+
+        if (recurringExpenses.length === 0) {
+            logger.info(`No recurring expenses found for date: ${targetDate}`);
+            return {
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                details: [],
+                dryRun
+            };
+        }
+
+        // Group by listingMapId
+        const groupedByListing: Record<number, typeof recurringExpenses> = {};
+        for (const expense of recurringExpenses) {
+            if (!groupedByListing[expense.listingMapId]) {
+                groupedByListing[expense.listingMapId] = [];
+            }
+            groupedByListing[expense.listingMapId].push(expense);
+        }
+
+        const duplicatesToDelete: typeof recurringExpenses = [];
+        const details: Array<{
+            listingMapId: number;
+            keptExpenseId: number;
+            deletedExpenseIds: number[];
+        }> = [];
+
+        for (const [listingMapId, expenses] of Object.entries(groupedByListing)) {
+            if (expenses.length > 1) {
+                const [kept, ...duplicates] = expenses;
+                duplicatesToDelete.push(...duplicates);
+                details.push({
+                    listingMapId: Number(listingMapId),
+                    keptExpenseId: kept.id,
+                    deletedExpenseIds: duplicates.map(e => e.id),
+                });
+            }
+        }
+
+        if (duplicatesToDelete.length === 0) {
+            logger.info(`No duplicate recurring expenses found for date: ${targetDate}`);
+            return {
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                details: [],
+                dryRun
+            };
+        }
+
+        logger.info(`Found ${duplicatesToDelete.length} duplicate recurring expenses to delete`);
+
+        if (!dryRun) {
+            for (const expense of duplicatesToDelete) {
+                expense.isDeleted = 1;
+                expense.updatedBy = "system_cleanup";
+                expense.updatedAt = new Date();
+                await this.expenseRepo.save(expense);
+            }
+            logger.info(`Successfully soft-deleted ${duplicatesToDelete.length} duplicate recurring expenses`);
+        }
+
+        return {
+            duplicatesFound: duplicatesToDelete.length,
+            duplicatesDeleted: dryRun ? 0 : duplicatesToDelete.length,
+            details,
+            dryRun,
+        };
+    }
+
     async processTechFeeExpenses() {
         const listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
