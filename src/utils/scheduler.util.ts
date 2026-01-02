@@ -206,19 +206,20 @@ export function scheduleGetReservation() {
     }
   );
 
-  schedule.scheduleJob(
-    { hour: 8, minute: 50, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('Scheduled task for processing recurring expenses ran...');
-        const expenseService = new ExpenseService();
-        await expenseService.processRecurringExpenses();
-        logger.info('Scheduled task for processing recurring expenses completed...');
-      } catch (error) {
-        logger.error(error);
-      }
-    }
-  );
+  // Recurring Expense Scheduler - DISABLED
+  // schedule.scheduleJob(
+  //   { hour: 8, minute: 50, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('Scheduled task for processing recurring expenses ran...');
+  //       const expenseService = new ExpenseService();
+  //       await expenseService.processRecurringExpenses();
+  //       logger.info('Scheduled task for processing recurring expenses completed...');
+  //     } catch (error) {
+  //       logger.error(error);
+  //     }
+  //   }
+  // );
 
   schedule.scheduleJob(
     { hour: 4, minute: 0, tz: "America/New_York" },
