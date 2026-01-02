@@ -1042,7 +1042,7 @@ export class ReviewService {
         const {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
-            todayDate, status, tab,
+            todayDate, status, tab, keyword,
         } = filters;
 
         //fetch bad reviews list
@@ -1056,27 +1056,29 @@ export class ReviewService {
             switch (tab.toLowerCase()) {
                 case 'today':
                     // Today tab: Show 'New' status + follow up statuses with active today with status call phase
-                    query.andWhere(`
-                        (badReview.status = :toCallStatus) OR 
-                        (badReview.status IN (:followUpStatuses) AND badReview.isTodayActive = true)
-                    `, {
-                        toCallStatus: BadReviewStatus.NEW,
-                        followUpStatuses: [BadReviewStatus.CALL_PHASE],
-                    });
+                    query.andWhere(new Brackets(qb => {
+                        qb.where("badReview.status = :toCallStatus", { toCallStatus: BadReviewStatus.NEW })
+                            .orWhere("(badReview.status IN (:...followUpStatuses) AND badReview.isTodayActive = true)", {
+                                followUpStatuses: [BadReviewStatus.CALL_PHASE],
+                            });
+                    }));
                     break;
 
                 case 'active':
                     // Active tab: Show follow up statuses + Issue + No Further Action
                     // Special condition: If sevenDaysAfterCheckout <= todayDate for follow up statuses, 
                     // only show if isActive is true
-                    query.andWhere(`
-                        (badReview.status IN (:followUpStatuses)) OR
-                        (badReview.status IN (:followUpStatuses) AND badReview.isTodayActive = false) OR
-                        (badReview.status IN (:activeStatuses))
-                    `, {
-                        followUpStatuses: [BadReviewStatus.PENDING_REMOVAL],
-                        activeStatuses: [BadReviewStatus.CALL_PHASE],
-                    });
+                    query.andWhere(new Brackets(qb => {
+                        qb.where("badReview.status IN (:...followUpStatuses)", {
+                            followUpStatuses: [BadReviewStatus.PENDING_REMOVAL],
+                        })
+                            .orWhere("(badReview.status IN (:...followUpStatuses2) AND badReview.isTodayActive = false)", {
+                                followUpStatuses2: [BadReviewStatus.PENDING_REMOVAL],
+                            })
+                            .orWhere("badReview.status IN (:...activeStatuses)", {
+                              activeStatuses: [BadReviewStatus.CALL_PHASE],
+                          });
+                    }));
                     break;
 
                 case 'closed':
@@ -1111,12 +1113,22 @@ export class ReviewService {
 
         // Guest name filter
         if (guestName) {
-            query.andWhere("reservationInfo.guestName ILIKE :guestName", { guestName: `${guestName}%` });
+            query.andWhere("reservationInfo.guestName LIKE :guestName", { guestName: `${guestName}%` });
         }
 
         // Channel filter
         if (channel && channel.length > 0) {
             query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
+        }
+
+        // Keyword search filter (searches guest name)
+        if (keyword) {
+            query.andWhere("reservationInfo.guestName LIKE :keyword", { keyword: `%${keyword}%` });
+        }
+
+        // Status filter (works alongside tab filtering to further narrow results)
+        if (status && status.length > 0) {
+            query.andWhere("badReview.status IN (:...statusFilter)", { statusFilter: status });
         }
 
         query.skip((page - 1) * limit).take(limit);
