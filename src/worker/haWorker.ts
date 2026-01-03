@@ -14,6 +14,8 @@ import { FileInfo } from "../entity/FileInfo";
 import { initRootFolder, getOrCreateFolder, drive, uploadToDrive } from "../utils/drive";
 import fs from "fs";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
+import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
+import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
 
 (async () => {
 
@@ -320,6 +322,162 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
         connection
     });
 
+    // 🔧 Worker 8: create-live-issue-from-resolution
+    const createLiveIssueFromResolutionWorker = new Worker('create-live-issue-from-resolution', async job => {
+        try {
+            const resolution: Resolution = job.data.resolution;
+
+            // Only create live issue for negative amounts (expenses/losses)
+            const amount = resolution.amountToPayout ?? resolution.amount;
+            if (Number(amount) >= 0) {
+                logger.info(`Skipping live issue creation for resolutionId ${resolution.id} - amount is positive (${amount})`);
+                return;
+            }
+
+            const liveIssueRepo = appDatabase.getRepository(LiveIssue);
+
+            // Check if live issue already exists for this resolution
+            const existingLiveIssue = await liveIssueRepo.findOne({
+                where: { resolutionId: resolution.id }
+            });
+
+            if (existingLiveIssue) {
+                logger.info(`Live issue already exists for resolutionId ${resolution.id}, skipping creation`);
+                return;
+            }
+
+            const newLiveIssue = liveIssueRepo.create({
+                status: LiveIssueStatus.NEW,
+                propertyId: resolution.listingMapId,
+                guestName: resolution.guestName,
+                reservationId: resolution.reservationId,
+                resolutionId: resolution.id,
+                summary: `Resolution: ${resolution.category}${resolution.description ? ` - ${resolution.description}` : ''}`,
+                createdBy: 'system'
+            });
+
+            await liveIssueRepo.save(newLiveIssue);
+            logger.info(`Live issue created successfully for resolutionId ${resolution.id}`);
+        } catch (error) {
+            logger.error(`Error processing live issue job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
+    // 🔧 Worker 9: update-live-issue-from-resolution
+    const updateLiveIssueFromResolutionWorker = new Worker('update-live-issue-from-resolution', async job => {
+        try {
+            const resolution: Resolution = job.data.resolution;
+
+            const liveIssueRepo = appDatabase.getRepository(LiveIssue);
+            const liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
+
+            const amount = resolution.amountToPayout ?? resolution.amount;
+            const isNegativeAmount = Number(amount) < 0;
+
+            // Query including soft-deleted records to handle restore scenarios
+            const liveIssue = await liveIssueRepo
+                .createQueryBuilder('liveIssue')
+                .withDeleted()
+                .where('liveIssue.resolutionId = :resolutionId', { resolutionId: resolution.id })
+                .getOne();
+
+            // Case 1: No live issue exists at all (not even soft-deleted)
+            if (!liveIssue) {
+                // If amount is now negative, create a new live issue
+                if (isNegativeAmount) {
+                    const newLiveIssue = liveIssueRepo.create({
+                        status: LiveIssueStatus.NEW,
+                        propertyId: resolution.listingMapId,
+                        guestName: resolution.guestName,
+                        reservationId: resolution.reservationId,
+                        resolutionId: resolution.id,
+                        summary: `Resolution: ${resolution.category}${resolution.description ? ` - ${resolution.description}` : ''}`,
+                        createdBy: 'system'
+                    });
+                    await liveIssueRepo.save(newLiveIssue);
+                    logger.info(`Live issue created on update for resolutionId ${resolution.id} (amount changed to negative)`);
+                } else {
+                    logger.info(`No live issue exists and amount is positive for resolutionId ${resolution.id}, skipping`);
+                }
+                return;
+            }
+
+            // Case 2: Live issue exists (soft-deleted) and amount is now negative - restore it
+            if (liveIssue.deletedAt && isNegativeAmount) {
+                liveIssue.deletedAt = null;
+                liveIssue.deletedBy = null;
+                liveIssue.propertyId = resolution.listingMapId;
+                liveIssue.guestName = resolution.guestName;
+                liveIssue.reservationId = resolution.reservationId;
+                liveIssue.summary = `Resolution: ${resolution.category}${resolution.description ? ` - ${resolution.description}` : ''}`;
+                liveIssue.updatedBy = 'system';
+                await liveIssueRepo.save(liveIssue);
+
+                // Create an update log entry explaining the restoration
+                const updateLog = liveIssueUpdatesRepo.create({
+                    updates: `Live issue restored: Resolution amount changed back to negative (${amount})`,
+                    liveIssue: liveIssue,
+                    createdBy: 'system'
+                });
+                await liveIssueUpdatesRepo.save(updateLog);
+
+                logger.info(`Live issue restored for resolutionId ${resolution.id} - amount changed back to negative (${amount})`);
+                return;
+            }
+
+            // Case 3: Live issue exists (not deleted) and amount changed to positive - soft delete
+            if (!isNegativeAmount) {
+                liveIssue.deletedAt = new Date();
+                liveIssue.deletedBy = 'system';
+                await liveIssueRepo.save(liveIssue);
+
+                // Create an update log entry explaining the deletion
+                const updateLog = liveIssueUpdatesRepo.create({
+                    updates: `Live issue closed: Resolution amount changed to positive (${amount})`,
+                    liveIssue: liveIssue,
+                    createdBy: 'system'
+                });
+                await liveIssueUpdatesRepo.save(updateLog);
+
+                logger.info(`Live issue soft-deleted for resolutionId ${resolution.id} - amount changed to positive (${amount})`);
+                return;
+            }
+
+            // Case 3: Live issue exists and amount is still negative - update normally
+            liveIssue.propertyId = resolution.listingMapId;
+            liveIssue.guestName = resolution.guestName;
+            liveIssue.reservationId = resolution.reservationId;
+            liveIssue.summary = `Resolution: ${resolution.category}${resolution.description ? ` - ${resolution.description}` : ''}`;
+            liveIssue.updatedBy = 'system';
+
+            // Mark as deleted if resolution is soft-deleted
+            if (resolution.deletedAt) {
+                liveIssue.deletedAt = new Date();
+                liveIssue.deletedBy = 'system';
+            }
+
+            await liveIssueRepo.save(liveIssue);
+
+            // Create an update log entry
+            const updateLog = liveIssueUpdatesRepo.create({
+                updates: `Resolution updated: Amount ${amount}, Category: ${resolution.category}`,
+                liveIssue: liveIssue,
+                createdBy: 'system'
+            });
+            await liveIssueUpdatesRepo.save(updateLog);
+
+            logger.info(`Live issue updated successfully for resolutionId ${resolution.id}`);
+        } catch (error) {
+            logger.error(`Error processing live issue job ${job.id}:`, error);
+            throw error;
+        }
+    }, {
+        connection
+    });
+
 
 
     // Listeners for both workers
@@ -386,6 +544,22 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 
     updateResolutionFromExpense.on('failed', (job, err) => {
         logger.error(`❌ Update Resolution Job ${job.id} failed for expenseId ${job.data.expense.id}: ${err.message}`);
+    });
+
+    createLiveIssueFromResolutionWorker.on('completed', job => {
+        logger.info(`✅ Create Live Issue Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    createLiveIssueFromResolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Create Live Issue Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
+    });
+
+    updateLiveIssueFromResolutionWorker.on('completed', job => {
+        logger.info(`✅ Update Live Issue Job ${job.id} completed for resolutionId ${job.data.resolution.id}`);
+    });
+
+    updateLiveIssueFromResolutionWorker.on('failed', (job, err) => {
+        logger.error(`❌ Update Live Issue Job ${job.id} failed for resolutionId ${job.data.resolution.id}: ${err.message}`);
     });
 
 })();

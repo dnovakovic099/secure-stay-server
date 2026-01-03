@@ -9,6 +9,7 @@ import {
 import { getDiff } from '../helpers/helpers';
 import { Resolution } from '../entity/Resolution';
 import { createExpenseFromResolution, updateExpenseFromResolution } from '../queue/expenseQueue';
+import { createLiveIssueFromResolution, updateLiveIssueFromResolution } from '../queue/liveIssueQueue';
 
 
 @EventSubscriber()
@@ -23,6 +24,7 @@ export class ResolutionSubscriber
     async afterInsert(event: InsertEvent<Resolution>) {
         const { entity, manager } = event;
         createExpenseFromResolution.add('create-expense', { resolution: entity });
+        createLiveIssueFromResolution.add('create-live-issue', { resolution: entity });
     }
 
     async afterUpdate(event: UpdateEvent<Resolution>) {
@@ -37,6 +39,7 @@ export class ResolutionSubscriber
         if (Object.keys(diff).length === 0) return;
 
         updateExpenseFromResolution.add('update-expense', { resolution: entity });
+        updateLiveIssueFromResolution.add('update-live-issue', { resolution: entity });
     }
 
     async afterRemove(event: RemoveEvent<Resolution>) {

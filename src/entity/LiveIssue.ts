@@ -36,6 +36,9 @@ export class LiveIssue {
     @Column({ type: 'int', nullable: true })
     reservationId: number;
 
+    @Column({ type: 'int', nullable: true })
+    resolutionId: number;
+
     @Column({ type: 'text', nullable: true })
     summary: string;
 
