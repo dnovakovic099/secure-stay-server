@@ -27,6 +27,12 @@ export class ClientTicketUpdates {
     @Column({ nullable: true })
     deletedBy: string;
 
+    @Column({ type: 'varchar', length: 10, default: 'app' })
+    source: string; // 'app' | 'slack' — prevents infinite loop
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    slackMessageTs: string; // Slack message timestamp for deduplication
+
     @ManyToOne(() => ClientTicket, clientTicket => clientTicket.clientTicketUpdates, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'clientTicketId' })
     clientTicket: ClientTicket;

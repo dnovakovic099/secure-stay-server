@@ -30,6 +30,12 @@ export class ClientTicketSubscriber
 
     async afterInsert(event: InsertEvent<ClientTicketUpdates>) {
         const { entity, manager } = event;
+
+        // Skip Slack notification if this update came FROM Slack (prevents infinite loop)
+        if (entity.source === 'slack') {
+            return;
+        }
+
         await this.sendSlackMessage(entity, entity.createdBy);
     }
 

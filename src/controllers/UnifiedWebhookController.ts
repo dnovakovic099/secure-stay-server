@@ -11,11 +11,13 @@ import { Issue } from "../entity/Issue";
 import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
 import { ExpenseService } from "../services/ExpenseService";
+import { SlackEventsService } from "../services/SlackEventsService";
 
 export class UnifiedWebhookController {
 
     constructor() {
         this.handleSlackInteractivity = this.handleSlackInteractivity.bind(this);
+        this.handleSlackEventsWebhook = this.handleSlackEventsWebhook.bind(this);
         this.handleCreateIssue = this.handleCreateIssue.bind(this);
         this.handleHostBuddyWebhook = this.handleHostBuddyWebhook.bind(this);
         this.handleHostifyWebhook = this.handleHostifyWebhook.bind(this);
@@ -352,6 +354,45 @@ export class UnifiedWebhookController {
             logger.error("❌ Error handling Hostify webhook:", error.message);
             logger.error(error.stack);
             return response.sendStatus(500);
+        }
+    }
+
+    /**
+     * Handle Slack Events API webhook
+     * This receives message events when users reply to threads
+     */
+    async handleSlackEventsWebhook(request: Request, response: Response, next: NextFunction) {
+        try {
+            const body = request.body;
+            logger.info(`[handleSlackEventsWebhook] Received Slack event: ${JSON.stringify(body)}`);
+
+            // Handle URL verification challenge (Slack sends this when setting up the endpoint)
+            if (body.type === 'url_verification') {
+                logger.info('[handleSlackEventsWebhook] URL verification challenge received');
+                return response.status(200).send(body.challenge);
+            }
+
+            // Acknowledge immediately (Slack expects response within 3 seconds)
+            response.status(200).send();
+
+            // Process the event asynchronously
+            if (body.type === 'event_callback' && body.event) {
+                const event = body.event;
+
+                // Only process message events
+                if (event.type === 'message') {
+                    const slackEventsService = new SlackEventsService();
+                    runAsync(
+                        slackEventsService.handleMessageEvent(event),
+                        'handleSlackMessageEvent'
+                    );
+                }
+            }
+
+        } catch (error: any) {
+            logger.error(`[handleSlackEventsWebhook] Error:`, error.message);
+            logger.error(error.stack);
+            // Don't call next() since we already sent response
         }
     }
 }

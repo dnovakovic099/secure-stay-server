@@ -282,6 +282,29 @@ export const replaceMentionsWithSlackIds = (text: string, slackUsers: any[]) => 
     return newText;
 };
 
+/**
+ * Replaces Slack user ID mentions (e.g., <@U07JFDC86H2>) with @DisplayName format
+ * This is used when syncing Slack messages back to the application
+ */
+export const replaceSlackIdsWithMentions = (text: string, slackUsers: any[]) => {
+    if (!text || !slackUsers || slackUsers.length === 0) return text;
+    let newText = text;
+
+    // Match patterns like <@U07JFDC86H2> or <@U07JFDC86H2|username>
+    const mentionPattern = /<@([A-Z0-9]+)(\|[^>]+)?>/gi;
+
+    newText = newText.replace(mentionPattern, (match, userId) => {
+        const user = slackUsers.find(u => u.id === userId);
+        if (user) {
+            const name = user.profile?.display_name || user.profile?.real_name || user.name || user.real_name;
+            return name ? `@${name}` : match;
+        }
+        return match; // Keep original if user not found
+    });
+
+    return newText;
+};
+
 export const getStarRating = (ratingOutOf10: number): string => {
     const ratingOutOf5 = Math.round((ratingOutOf10 / 2) * 2) / 2; // Round to 0.5
     const fullStars = Math.floor(ratingOutOf5);

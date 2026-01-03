@@ -13,4 +13,7 @@ router.route('/hostbuddy-webhook').post(unifiedWebhookController.handleHostBuddy
 
 router.route('/hostify_v1').post(bodyParser.text({ type: "*/*" }), unifiedWebhookController.handleHostifyWebhook);
 
+// Slack Events API endpoint for receiving thread replies
+router.route('/slack-events-webhook').post(unifiedWebhookController.handleSlackEventsWebhook);
+
 export default router;
