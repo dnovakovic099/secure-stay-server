@@ -711,6 +711,148 @@ export class ExpenseService {
         };
     }
 
+    /**
+     * Fix positive expenses by negating their amounts (local DB only, no Hostaway sync).
+     * This is useful for fixing expenses created via public URL that don't have Hostaway expenseId.
+     * 
+     * IMPORTANT: Since expenses and extras are stored in the same table (expenses = negative, extras = positive),
+     * you MUST provide a categoryName filter to avoid accidentally negating legitimate extras.
+     * 
+     * @param userId - The user performing the fix
+     * @param categoryName - Category name to filter by (required to avoid fixing legitimate extras)
+     * @param limit - Maximum number of expenses to fix (default: 200)
+     * @param dryRun - If true, only returns what would be fixed without actually updating
+     */
+    async fixPositiveExpensesLocal(userId: string, categoryName?: string, limit?: number, dryRun: boolean = false) {
+        // First, get the category by name if provided (case-insensitive search)
+        let categoryIds: (number | string)[] = [];
+        let categoryInfo: { id: number, name: string, hostawayId: number | null; } | null = null;
+
+        if (categoryName) {
+            // Find category with case-insensitive LIKE search
+            const categories = await this.categoryRepo
+                .createQueryBuilder('category')
+                .where('LOWER(category.categoryName) LIKE LOWER(:name)', { name: `%${categoryName}%` })
+                .getMany();
+
+            if (categories.length === 0) {
+                return {
+                    message: `Category containing "${categoryName}" not found.`,
+                    count: 0,
+                    dryRun
+                };
+            }
+
+            // Collect all possible IDs to match (id and hostawayId)
+            for (const cat of categories) {
+                categoryIds.push(cat.id);
+                categoryIds.push(String(cat.id));
+                if (cat.hostawayId) {
+                    categoryIds.push(cat.hostawayId);
+                    categoryIds.push(String(cat.hostawayId));
+                }
+            }
+
+            categoryInfo = {
+                id: categories[0].id,
+                name: categories[0].categoryName,
+                hostawayId: categories[0].hostawayId
+            };
+        }
+
+        // Fetch positive, non-deleted expenses
+        const allPositiveExpenses = await this.expenseRepo.find({
+            where: {
+                amount: MoreThan(0),
+                isDeleted: 0,
+            },
+            order: {
+                id: 'DESC',
+            },
+            take: limit || 200,
+        });
+
+        // Filter by category if specified
+        let expenses = allPositiveExpenses;
+        if (categoryIds.length > 0) {
+            expenses = allPositiveExpenses.filter(expense => {
+                try {
+                    let categoriesRaw = expense.categories;
+                    let categoriesList: any[] = [];
+
+                    // Handle different JSON formats
+                    if (typeof categoriesRaw === 'string') {
+                        try {
+                            let parsed = JSON.parse(categoriesRaw);
+                            if (typeof parsed === 'string') {
+                                parsed = JSON.parse(parsed);
+                            }
+                            categoriesList = Array.isArray(parsed) ? parsed : [];
+                        } catch {
+                            // If not valid JSON, check if it's a comma-separated list
+                            categoriesList = categoriesRaw.replace(/[\[\]"]/g, '').split(',').map((s: string) => s.trim());
+                        }
+                    } else if (Array.isArray(categoriesRaw)) {
+                        categoriesList = categoriesRaw;
+                    }
+
+                    return categoriesList.some(cat => categoryIds.includes(cat) || categoryIds.includes(Number(cat)) || categoryIds.includes(String(cat)));
+                } catch {
+                    return false;
+                }
+            });
+        }
+
+        if (expenses.length === 0) {
+            // Include debug info when no matching expenses found
+            const sampleExpenses = allPositiveExpenses.slice(0, 5).map(e => ({
+                id: e.id,
+                amount: e.amount,
+                categories: e.categories
+            }));
+
+            return {
+                message: categoryName
+                    ? `No positive expenses found with category "${categoryName}".`
+                    : 'No positive expenses found to update.',
+                count: 0,
+                dryRun,
+                debug: {
+                    categoryInfo,
+                    categoryIdsSearched: categoryIds,
+                    totalPositiveExpenses: allPositiveExpenses.length,
+                    sampleExpensesCategories: sampleExpenses
+                }
+            };
+        }
+
+        if (dryRun) {
+            return {
+                message: `Found ${expenses.length} positive expenses ${categoryName ? `with category "${categoryName}" ` : ''}that would be fixed.`,
+                count: expenses.length,
+                expenseIds: expenses.map(e => e.id),
+                dryRun,
+                categoryInfo
+            };
+        }
+
+        // Negate amounts and save
+        for (const expense of expenses) {
+            expense.amount = expense.amount * -1;
+            expense.updatedBy = userId;
+            expense.updatedAt = new Date();
+        }
+
+        await this.expenseRepo.save(expenses);
+
+        return {
+            message: `Successfully fixed ${expenses.length} expenses ${categoryName ? `with category "${categoryName}" ` : ''}by negating their amounts.`,
+            count: expenses.length,
+            expenseIds: expenses.map(e => e.id),
+            dryRun
+        };
+    }
+
     public async bulkUpdateExpense(body: ExpenseBulkUpdateObject, userId: string) {
         const {
             expenseId,

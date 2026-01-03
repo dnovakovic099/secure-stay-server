@@ -153,6 +153,20 @@ export class ExpenseController {
         }
     }
 
+    async fixPositiveExpensesLocal(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const categoryName = request.query.category ? String(request.query.category) : undefined;
+            const limit = request.query.limit ? Number(request.query.limit) : undefined;
+            const dryRun = request.query.dryRun === 'true' || request.query.dryRun === '1';
+            const result = await expenseService.fixPositiveExpensesLocal(userId, categoryName, limit, dryRun);
+            return response.status(200).json(result);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async bulkUpdateExpenses(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();

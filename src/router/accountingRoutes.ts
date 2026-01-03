@@ -155,6 +155,15 @@ router.route('/fixpositiveexpensesandsync')
         expenseController.fixPositiveExpensesAndSync
     );
 
+// Fix positive expenses locally (no Hostaway sync)
+// Query params: category (string, required for safety), limit (number, default: 200), dryRun (true|false)
+// Example: /fixpositiveexpenseslocal?category=Cleaning&limit=200&dryRun=true
+router.route('/fixpositiveexpenseslocal')
+    .get(
+        verifySession,
+        expenseController.fixPositiveExpensesLocal
+    );
+
 router.route('/resolution/upload-csv')
     .post(
         verifySession,
