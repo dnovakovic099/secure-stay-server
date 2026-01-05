@@ -1,5 +1,6 @@
 import { ILockProvider } from "../interfaces/ILockProvider";
 import { SeamLockProvider } from "./SeamLockProvider";
+import { SifelyLockProvider } from "./SifelyLockProvider";
 
 /**
  * Lock Provider Factory
@@ -27,6 +28,9 @@ export class LockProviderFactory {
       case "seam":
         provider = new SeamLockProvider();
         break;
+      case "sifely":
+        provider = new SifelyLockProvider();
+        break;
       // Add future providers here:
       // case "august":
       //   provider = new AugustLockProvider();
@@ -47,8 +51,7 @@ export class LockProviderFactory {
    * Get list of supported provider names
    */
   static getSupportedProviders(): string[] {
-    return ["seam"];
-    // Add more providers as they are implemented
+    return ["seam", "sifely"];
   }
 
   /**
@@ -58,3 +61,4 @@ export class LockProviderFactory {
     return this.getSupportedProviders().includes(providerName.toLowerCase());
   }
 }
+

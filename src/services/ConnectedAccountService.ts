@@ -79,13 +79,17 @@ export class ConnectedAccountService {
     }
 
     async getConnectedAccountInfo(userId: string) {
-        const [accountInfo] =
+        const [pmAccountInfo, seamAccountInfo, sifelyAccountInfo] =
             await Promise.all([
                 this.connectedAccountInfoRepo.findOne({ where: { account: "pm", userId } }),
+                this.connectedAccountInfoRepo.findOne({ where: { account: "seam" } }),
+                this.connectedAccountInfoRepo.findOne({ where: { account: "sifely" } }),
             ]);
 
         return {
-            pm: accountInfo && accountInfo.apiKey ? true : false,
+            pm: pmAccountInfo && pmAccountInfo.apiKey ? true : false,
+            seam: seamAccountInfo && seamAccountInfo.apiKey ? true : false,
+            sifely: sifelyAccountInfo && (sifelyAccountInfo.clientId || sifelyAccountInfo.apiKey) ? true : false,
         };
     }
 

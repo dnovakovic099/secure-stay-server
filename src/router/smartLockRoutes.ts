@@ -105,6 +105,50 @@ router.post("/devices/sync/:provider", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Sync devices from all providers
+ * POST /smart-locks/devices/sync-all
+ */
+router.post("/devices/sync-all", async (req: Request, res: Response) => {
+  try {
+    const providers = LockProviderFactory.getSupportedProviders();
+    const results: { provider: string; count: number; success: boolean; error?: string; }[] = [];
+
+    for (const provider of providers) {
+      try {
+        const devices = await deviceService.syncDevicesFromProvider(provider);
+        results.push({
+          provider,
+          count: devices.length,
+          success: true,
+        });
+      } catch (error: any) {
+        logger.error(`Error syncing from ${provider}:`, error);
+        results.push({
+          provider,
+          count: 0,
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+
+    const totalDevices = results.reduce((sum, r) => sum + r.count, 0);
+
+    return res.json({
+      success: true,
+      data: results,
+      message: `Synced ${totalDevices} devices from ${providers.length} provider(s)`,
+    });
+  } catch (error: any) {
+    logger.error("Error syncing devices from all providers:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to sync devices",
+    });
+  }
+});
+
 // =====================
 // Device Routes
 // =====================
