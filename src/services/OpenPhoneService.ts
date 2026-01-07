@@ -124,7 +124,7 @@ export class OpenPhoneService {
    * Format phone number to E.164 format
    * @param dialCode Dial code (e.g., "+1")
    * @param phone Phone number (e.g., "2345678901")
-   * @returns E.164 formatted number (e.g., "+12345678901")
+   * @returns E.164 formatted number (e.g., "+12345678901") or null if invalid
    */
   public formatPhoneNumber(dialCode?: string, phone?: string): string | null {
     if (!phone) return null;
@@ -132,8 +132,19 @@ export class OpenPhoneService {
     // Clean the phone number (remove spaces, dashes, parentheses)
     let cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
 
+    // Validate: phone should contain only digits (and optional leading +)
+    if (!/^\+?\d+$/.test(cleanPhone)) {
+      logger.warn(`Invalid phone number format: ${phone}`);
+      return null;
+    }
+
     // If phone already has +, return as is (already in E.164 format)
     if (cleanPhone.startsWith("+")) {
+      // Validate minimum length for E.164 (+ plus at least 10 digits for US)
+      if (cleanPhone.length < 11) {
+        logger.warn(`Phone number too short for E.164: ${cleanPhone}`);
+        return null;
+      }
       return cleanPhone;
     }
 
@@ -145,14 +156,29 @@ export class OpenPhoneService {
 
       // Check if phone already starts with the dial code digits (avoid double dial code)
       if (cleanPhone.startsWith(dialCodeDigits)) {
-        return `+${cleanPhone}`;
+        const result = `+${cleanPhone}`;
+        if (result.length < 11) {
+          logger.warn(`Phone number too short for E.164: ${result}`);
+          return null;
+        }
+        return result;
       }
 
-      return `${cleanDialCode}${cleanPhone}`;
+      const result = `${cleanDialCode}${cleanPhone}`;
+      if (result.length < 11) {
+        logger.warn(`Phone number too short for E.164: ${result}`);
+        return null;
+      }
+      return result;
     }
 
     // Default to US if no dial code (assume +1)
-    return `+1${cleanPhone}`;
+    const result = `+1${cleanPhone}`;
+    if (result.length < 12) {  // +1 (2 chars) + 10 digits for US
+      logger.warn(`Phone number too short for US format: ${result}`);
+      return null;
+    }
+    return result;
   }
 
   /**

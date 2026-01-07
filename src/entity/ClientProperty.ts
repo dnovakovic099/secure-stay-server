@@ -74,6 +74,9 @@ export class ClientPropertyEntity {
     @Column({ name: "welcome_sms_sent_at", type: "timestamp", nullable: true })
     welcomeSmsSentAt: Date;
 
+    @Column({ name: "welcome_sms_error", type: "text", nullable: true })
+    welcomeSmsError: string;
+
     // Asana task tracking fields
     @Column({ name: "asana_task_id", nullable: true })
     asanaTaskId: string;

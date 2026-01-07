@@ -82,30 +82,31 @@ export class PropertyEmailService {
 
     /**
      * Send welcome/onboarding SMS when a new property is added to a client.
-     * This SMS is sent asynchronously and failures do not block the main flow.
+     * Returns a result object indicating success or failure with error details.
      * 
      * @param client - The client entity (owner of the property)
      * @param property - The newly created property entity
      * @param userId - The ID of the user who created the property (used to get API key)
+     * @returns Object with success status and optional error message
      */
     async sendPropertyOnboardingSMS(
         client: ClientEntity,
         property: ClientPropertyEntity,
         userId: string
-    ): Promise<void> {
+    ): Promise<{ success: boolean; error?: string; }> {
         try {
             // Format phone number to E.164 format
             const phoneNumber = this.openPhoneService.formatPhoneNumber(client.dialCode, client.phone);
             if (!phoneNumber) {
-                logger.warn(`Cannot send onboarding SMS: Client ${client.id} has no phone number`);
-                return;
+                logger.warn(`Cannot send onboarding SMS: Client ${client.id} has no valid phone number`);
+                return { success: false, error: 'Client has no valid phone number' };
             }
 
             // Fetch the API key for the user who created the property
             const { apiKey } = await this.usersService.getApiKey(userId);
             if (!apiKey) {
                 logger.warn(`Cannot send onboarding SMS: No API key found for user ${userId}`);
-                return;
+                return { success: false, error: 'No API key found for user' };
             }
 
             // Generate the onboarding form link
@@ -119,9 +120,14 @@ export class PropertyEmailService {
             await this.openPhoneService.sendSMS(phoneNumber, content);
 
             logger.info(`Property onboarding SMS sent to ${phoneNumber} for property ${property.id}`);
-        } catch (error) {
+            return { success: true };
+        } catch (error: any) {
             logger.error(`Failed to send property onboarding SMS:`, error);
-            // Don't throw - SMS sending should not block the main flow
+            const errorMessage = error?.response?.data?.message
+                || error?.response?.data?.error
+                || error?.message
+                || 'Failed to send SMS';
+            return { success: false, error: errorMessage };
         }
     }
 }

@@ -4542,7 +4542,7 @@ export class ClientService {
   async sendWelcomeSmsManual(
     propertyId: string,
     userId: string
-  ): Promise<{ success: boolean; alreadySent: boolean; sentAt?: Date; isLegacy?: boolean; }> {
+  ): Promise<{ success: boolean; alreadySent: boolean; sentAt?: Date; isLegacy?: boolean; error?: string; }> {
     // Find property with client info
     const property = await this.propertyRepo.findOne({
       where: { id: propertyId, deletedAt: IsNull() },
@@ -4573,19 +4573,35 @@ export class ClientService {
     const isLegacy = !property.welcomeSmsSentAt && property.createdAt < migrationDate;
 
     // Send the SMS
-    await propertyEmailService.sendPropertyOnboardingSMS(client, property, userId);
+    const smsResult = await propertyEmailService.sendPropertyOnboardingSMS(client, property, userId);
 
-    // Update tracking timestamp
-    property.welcomeSmsSentAt = new Date();
-    property.updatedBy = userId;
-    await this.propertyRepo.save(property);
+    if (smsResult.success) {
+      // Update tracking timestamp and clear any previous error
+      property.welcomeSmsSentAt = new Date();
+      property.welcomeSmsError = null;
+      property.updatedBy = userId;
+      await this.propertyRepo.save(property);
 
-    return {
-      success: true,
-      alreadySent,
-      sentAt: alreadySent ? sentAt : undefined,
-      isLegacy,
-    };
+      return {
+        success: true,
+        alreadySent,
+        sentAt: alreadySent ? sentAt : undefined,
+        isLegacy,
+      };
+    } else {
+      // Save the error for display in UI
+      property.welcomeSmsError = smsResult.error || 'Failed to send SMS';
+      property.updatedBy = userId;
+      await this.propertyRepo.save(property);
+
+      return {
+        success: false,
+        alreadySent,
+        sentAt: alreadySent ? sentAt : undefined,
+        isLegacy,
+        error: smsResult.error,
+      };
+    }
   }
 
   /**
