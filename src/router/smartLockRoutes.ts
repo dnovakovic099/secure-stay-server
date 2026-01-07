@@ -284,12 +284,12 @@ router.get(
 );
 
 /**
- * Map a device to a property
+ * Map a device to a property with optional settings
  * POST /smart-locks/property-devices
  */
 router.post("/property-devices", async (req: Request, res: Response) => {
   try {
-    const { deviceId, propertyId, locationLabel } = req.body;
+    const { deviceId, propertyId, locationLabel, createDefaultSettings, settings } = req.body;
 
     if (!deviceId || !propertyId) {
       return res.status(400).json({
@@ -304,9 +304,25 @@ router.post("/property-devices", async (req: Request, res: Response) => {
       locationLabel
     );
 
+    // If createDefaultSettings is true, create/update property lock settings
+    let settingsData = null;
+    if (createDefaultSettings) {
+      const defaultSettings = {
+        autoGenerateCodes: true,
+        codeGenerationMode: CodeGenerationMode.PHONE,
+        hoursBeforeCheckin: 3,
+        hoursAfterCheckout: 3,
+        ...settings, // Allow overriding defaults
+      };
+      settingsData = await accessCodeService.updateSettings(propertyId, defaultSettings);
+    }
+
     return res.json({
       success: true,
-      data: mapping,
+      data: {
+        mapping,
+        settings: settingsData,
+      },
       message: "Device mapped to property successfully",
     });
   } catch (error: any) {
@@ -372,13 +388,14 @@ router.get("/settings", async (req: Request, res: Response) => {
 });
 
 /**
- * Get property lock settings for a specific property
+ * Get property lock settings for a specific property (includes timezone)
  * GET /smart-locks/settings/:propertyId
  */
 router.get("/settings/:propertyId", async (req: Request, res: Response) => {
   try {
     const { propertyId } = req.params;
-    const settings = await accessCodeService.getOrCreateSettings(
+    // Get settings with timezone from Listing entity
+    const settings = await accessCodeService.getSettingsWithTimezone(
       parseInt(propertyId)
     );
 
@@ -537,6 +554,98 @@ router.get(
 );
 
 /**
+ * Preview access code generation (for confirmation flow)
+ * Shows metadata before actual generation
+ * POST /smart-locks/access-codes/preview
+ */
+router.post(
+  "/access-codes/preview",
+  async (req: Request, res: Response) => {
+    try {
+      const {
+        propertyId,
+        reservationId,
+        guestName,
+        guestPhone,
+        checkInDate,
+        checkOutDate,
+        checkInTime,
+        checkOutTime,
+      } = req.body;
+
+      if (!propertyId) {
+        return res.status(400).json({
+          success: false,
+          message: "propertyId is required",
+        });
+      }
+
+      // Get settings with timezone
+      const settings = await accessCodeService.getSettingsWithTimezone(parseInt(propertyId));
+
+      // Generate preview code
+      const previewCode = accessCodeService.generateAccessCode(guestPhone || null, settings);
+
+      // Calculate code name
+      const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const checkIn = checkInDate ? new Date(checkInDate) : new Date();
+      const checkOut = checkOutDate ? new Date(checkOutDate) : null;
+      const codeName = guestName && checkOut
+        ? `${guestName} - ${formatDate(checkIn)} - ${formatDate(checkOut)}`
+        : guestName
+          ? `Guest: ${guestName}`
+          : reservationId
+            ? `Reservation #${reservationId}`
+            : "Access Code";
+
+      // Calculate scheduled activation time
+      const actualCheckInHour = checkInTime ?? 0; // Fallback: 12 AM (midnight)
+      const scheduledAt = new Date(checkIn);
+      scheduledAt.setHours(actualCheckInHour, 0, 0, 0);
+      scheduledAt.setHours(scheduledAt.getHours() - settings.hoursBeforeCheckin);
+
+      // Calculate expiration time
+      let expiresAt: Date | null = null;
+      if (checkOut) {
+        const actualCheckOutHour = checkOutTime ?? 23; // Fallback: 11 PM
+        expiresAt = new Date(checkOut);
+        expiresAt.setHours(actualCheckOutHour, 0, 0, 0);
+        expiresAt.setHours(expiresAt.getHours() + settings.hoursAfterCheckout);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          settings: {
+            autoGenerateCodes: settings.autoGenerateCodes,
+            codeGenerationMode: settings.codeGenerationMode,
+            hoursBeforeCheckin: settings.hoursBeforeCheckin,
+            hoursAfterCheckout: settings.hoursAfterCheckout,
+            timezone: settings.timezone,
+          },
+          preview: {
+            code: previewCode,
+            codeName,
+            scheduledAt,
+            expiresAt,
+            guestName,
+            guestPhone,
+            checkInDate: checkIn,
+            checkOutDate: checkOut,
+          },
+        },
+      });
+    } catch (error: any) {
+      logger.error("Error previewing access codes:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to preview access codes",
+      });
+    }
+  }
+);
+
+/**
  * Create access codes for a reservation (auto-generate for all property devices)
  * POST /smart-locks/access-codes/generate-for-reservation
  */
@@ -544,8 +653,16 @@ router.post(
   "/access-codes/generate-for-reservation",
   async (req: Request, res: Response) => {
     try {
-      const { reservationId, propertyId, guestName, guestPhone, checkInDate } =
-        req.body;
+      const {
+        reservationId,
+        propertyId,
+        guestName,
+        guestPhone,
+        checkInDate,
+        checkOutDate,
+        checkInTime,
+        checkOutTime,
+      } = req.body;
 
       if (!reservationId || !propertyId || !checkInDate) {
         return res.status(400).json({
@@ -560,6 +677,9 @@ router.post(
         guestName,
         guestPhone,
         checkInDate: new Date(checkInDate),
+        checkOutDate: checkOutDate ? new Date(checkOutDate) : undefined,
+        checkInTime: checkInTime !== undefined ? parseInt(checkInTime) : undefined,
+        checkOutTime: checkOutTime !== undefined ? parseInt(checkOutTime) : undefined,
       });
 
       return res.json({

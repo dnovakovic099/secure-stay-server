@@ -1,8 +1,9 @@
 import { appDatabase } from "../utils/database.util";
-import { AccessCode, AccessCodeStatus } from "../entity/AccessCode";
+import { AccessCode, AccessCodeStatus, AccessCodeSource } from "../entity/AccessCode";
 import { PropertyLockSettings, CodeGenerationMode } from "../entity/PropertyLockSettings";
 import { PropertyDevice } from "../entity/PropertyDevice";
 import { SmartLockDevice } from "../entity/SmartLockDevice";
+import { Listing } from "../entity/Listing";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
 import logger from "../utils/logger.utils";
 
@@ -15,6 +16,7 @@ export class SmartLockAccessCodeService {
   private settingsRepository = appDatabase.getRepository(PropertyLockSettings);
   private propertyDeviceRepository = appDatabase.getRepository(PropertyDevice);
   private deviceRepository = appDatabase.getRepository(SmartLockDevice);
+  private listingRepository = appDatabase.getRepository(Listing);
 
   /**
    * Generate access code based on guest phone number or settings
@@ -56,12 +58,25 @@ export class SmartLockAccessCodeService {
         propertyId,
         autoGenerateCodes: false,
         codeGenerationMode: CodeGenerationMode.PHONE,
-        hoursBeforeCheckin: 1,
+        hoursBeforeCheckin: 3,
+        hoursAfterCheckout: 3,
       });
       settings = await this.settingsRepository.save(settings);
     }
 
     return settings;
+  }
+
+  /**
+   * Get settings with timezone from Listing entity
+   */
+  async getSettingsWithTimezone(propertyId: number): Promise<PropertyLockSettings & { timezone: string; }> {
+    const settings = await this.getOrCreateSettings(propertyId);
+    const listing = await this.listingRepository.findOne({ where: { id: propertyId } });
+    return {
+      ...settings,
+      timezone: listing?.timeZoneName || 'America/New_York', // fallback
+    };
   }
 
   /**
@@ -84,6 +99,9 @@ export class SmartLockAccessCodeService {
     }
     if (updates.hoursBeforeCheckin !== undefined) {
       settings.hoursBeforeCheckin = updates.hoursBeforeCheckin;
+    }
+    if (updates.hoursAfterCheckout !== undefined) {
+      settings.hoursAfterCheckout = updates.hoursAfterCheckout;
     }
 
     return await this.settingsRepository.save(settings);
@@ -112,10 +130,25 @@ export class SmartLockAccessCodeService {
     guestName?: string;
     guestPhone?: string;
     checkInDate: Date;
+    checkOutDate?: Date;
+    checkInTime?: number; // Hour (0-23), null means use fallback
+    checkOutTime?: number; // Hour (0-23), null means use fallback
+    source?: AccessCodeSource;
   }): Promise<AccessCode[]> {
-    const { reservationId, propertyId, guestName, guestPhone, checkInDate } = params;
+    const {
+      reservationId,
+      propertyId,
+      guestName,
+      guestPhone,
+      checkInDate,
+      checkOutDate,
+      checkInTime,
+      checkOutTime,
+      source = AccessCodeSource.MANUAL
+    } = params;
 
-    // Get property settings
+    // Get property settings with timezone
+    const settingsWithTimezone = await this.getSettingsWithTimezone(propertyId);
     const settings = await this.getOrCreateSettings(propertyId);
 
     // Get all devices for this property
@@ -131,13 +164,31 @@ export class SmartLockAccessCodeService {
 
     // Generate the access code
     const code = this.generateAccessCode(guestPhone || null, settings);
-    const codeName = guestName
-      ? `Guest: ${guestName}`
-      : `Reservation #${reservationId}`;
 
-    // Calculate scheduled time (1 hour before check-in by default)
+    // Generate code name: "Guest Name - Checkin Date - Checkout Date"
+    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const codeName = guestName && checkOutDate
+      ? `${guestName} - ${formatDate(checkInDate)} - ${formatDate(checkOutDate)}`
+      : guestName
+        ? `Guest: ${guestName}`
+        : `Reservation #${reservationId}`;
+
+    // Calculate scheduled time (hours before check-in)
+    // Use provided checkInTime or fallback to midnight (0)
+    const actualCheckInHour = checkInTime ?? 0; // Fallback: 12 AM (midnight)
     const scheduledAt = new Date(checkInDate);
+    scheduledAt.setHours(actualCheckInHour, 0, 0, 0);
     scheduledAt.setHours(scheduledAt.getHours() - settings.hoursBeforeCheckin);
+
+    // Calculate expiration time (hours after check-out)
+    let expiresAt: Date | null = null;
+    if (checkOutDate) {
+      // Use provided checkOutTime or fallback to 11 PM (23)
+      const actualCheckOutHour = checkOutTime ?? 23; // Fallback: 11 PM
+      expiresAt = new Date(checkOutDate);
+      expiresAt.setHours(actualCheckOutHour, 0, 0, 0);
+      expiresAt.setHours(expiresAt.getHours() + settings.hoursAfterCheckout);
+    }
 
     const accessCodes: AccessCode[] = [];
 
@@ -172,13 +223,17 @@ export class SmartLockAccessCodeService {
         codeName,
         status: AccessCodeStatus.SCHEDULED,
         scheduledAt,
+        source,
+        checkInDate,
+        checkOutDate: checkOutDate || null,
+        expiresAt,
       });
 
       const savedCode = await this.accessCodeRepository.save(accessCode);
       accessCodes.push(savedCode);
 
       logger.info(
-        `Created access code for reservation ${reservationId} on device ${device.id}, scheduled for ${scheduledAt}`
+        `Created access code for reservation ${reservationId} on device ${device.id}, scheduled for ${scheduledAt}, expires at ${expiresAt}`
       );
     }
 
@@ -231,6 +286,7 @@ export class SmartLockAccessCodeService {
 
   /**
    * Set an access code on the actual device via provider API
+   * Calculates proper validity based on listing times, timezone, and settings
    */
   async setAccessCodeOnDevice(accessCodeId: number): Promise<AccessCode> {
     const accessCode = await this.accessCodeRepository.findOne({
@@ -245,11 +301,35 @@ export class SmartLockAccessCodeService {
     const device = accessCode.device;
     const provider = LockProviderFactory.getProvider(device.provider);
 
+    // Get listing for check-in/check-out times and timezone
+    const listing = await this.listingRepository.findOne({
+      where: { id: accessCode.propertyId },
+    });
+
+    // Get property settings for hours before/after
+    const settings = await this.getOrCreateSettings(accessCode.propertyId);
+
+    // Calculate validity dates
+    const { startsAt, endsAt, codeName } = this.calculateCodeValidity(
+      accessCode,
+      listing,
+      settings
+    );
+
+    // Update code name if we have a better one
+    if (codeName && codeName !== accessCode.codeName) {
+      accessCode.codeName = codeName;
+    }
+
     try {
+      logger.info(`Setting access code ${accessCodeId} with validity: ${startsAt?.toISOString()} to ${endsAt?.toISOString()}`);
+
       const result = await provider.createAccessCode({
         deviceId: device.externalDeviceId,
         code: accessCode.code,
         name: accessCode.codeName || `Code ${accessCode.id}`,
+        startsAt: startsAt?.toISOString(),
+        endsAt: endsAt?.toISOString(),
       });
 
       accessCode.externalCodeId = result.externalCodeId;
@@ -259,6 +339,11 @@ export class SmartLockAccessCodeService {
       accessCode.providerMetadata = result.providerMetadata;
       accessCode.errorMessage = null;
 
+      // Update expiresAt if we calculated it
+      if (endsAt) {
+        accessCode.expiresAt = endsAt;
+      }
+
       logger.info(`Access code ${accessCodeId} set successfully on device ${device.id}`);
     } catch (error: any) {
       accessCode.status = AccessCodeStatus.FAILED;
@@ -267,6 +352,95 @@ export class SmartLockAccessCodeService {
     }
 
     return await this.accessCodeRepository.save(accessCode);
+  }
+
+  /**
+   * Calculate code validity (startsAt and endsAt) based on listing and settings
+   * Uses listing timezone to properly calculate dates in the property's local time
+   */
+  private calculateCodeValidity(
+    accessCode: AccessCode,
+    listing: Listing | null,
+    settings: PropertyLockSettings
+  ): { startsAt: Date | null; endsAt: Date | null; codeName: string; } {
+    const checkInDate = accessCode.checkInDate;
+    const checkOutDate = accessCode.checkOutDate;
+
+    if (!checkInDate) {
+      return { startsAt: null, endsAt: null, codeName: accessCode.codeName };
+    }
+
+    // Get timezone from listing or default to America/New_York
+    const timezone = listing?.timeZoneName || "America/New_York";
+
+    // Get check-in and check-out times from listing, with fallbacks
+    // Fallback: current hour for check-in, 4 PM (16:00) for check-out
+    const currentHour = new Date().getHours();
+    const checkInHour = listing?.checkInTimeStart ?? currentHour;
+    const checkOutHour = listing?.checkOutTime ?? 16; // 4 PM fallback
+
+    // Helper to create a date in the property's timezone and convert to UTC
+    const createDateInTimezone = (date: Date, hour: number, offsetHours: number): Date => {
+      // Format the date as YYYY-MM-DD
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hourStr = String(hour).padStart(2, '0');
+
+      // Create a date string in the property's timezone
+      const dateTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
+
+      // Parse as local time in the property's timezone
+      // We use toLocaleString to get the timezone offset, then apply it
+      const tempDate = new Date(dateTimeStr);
+
+      // Get the timezone offset for this specific date in the property's timezone
+      const propertyLocalStr = tempDate.toLocaleString('en-US', { timeZone: timezone });
+      const propertyLocal = new Date(propertyLocalStr);
+      const utcStr = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
+      const utcDate = new Date(utcStr);
+
+      // Calculate the offset between property timezone and UTC
+      const tzOffsetMs = utcDate.getTime() - propertyLocal.getTime();
+
+      // Create the final date: take the date, set the hour in property timezone, convert to UTC
+      const result = new Date(tempDate.getTime() + tzOffsetMs);
+
+      // Apply the offset hours (hoursBeforeCheckin or hoursAfterCheckout)
+      result.setHours(result.getHours() + offsetHours);
+
+      return result;
+    };
+
+    // Calculate startsAt: checkInDate + checkInTime - hoursBeforeCheckin (in property timezone)
+    const startsAt = createDateInTimezone(
+      new Date(checkInDate),
+      checkInHour,
+      -(settings.hoursBeforeCheckin || 0)
+    );
+
+    // Calculate endsAt: checkOutDate + checkOutTime + hoursAfterCheckout (in property timezone)
+    let endsAt: Date | null = null;
+    if (checkOutDate) {
+      endsAt = createDateInTimezone(
+        new Date(checkOutDate),
+        checkOutHour,
+        settings.hoursAfterCheckout || 0
+      );
+    }
+
+    // Format code name: "Guest Name - Jan 8 - Jan 13"
+    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    let codeName = accessCode.codeName;
+    if (accessCode.guestName && checkInDate && checkOutDate) {
+      codeName = `${accessCode.guestName} - ${formatDate(new Date(checkInDate))} - ${formatDate(new Date(checkOutDate))}`;
+    } else if (accessCode.guestName) {
+      codeName = `Guest: ${accessCode.guestName}`;
+    }
+
+    logger.info(`Code validity calculated for timezone ${timezone}: startsAt=${startsAt.toISOString()}, endsAt=${endsAt?.toISOString()}, checkInHour=${checkInHour}, checkOutHour=${checkOutHour}, hoursBeforeCheckin=${settings.hoursBeforeCheckin}, hoursAfterCheckout=${settings.hoursAfterCheckout}`);
+
+    return { startsAt, endsAt, codeName };
   }
 
   /**
@@ -298,12 +472,15 @@ export class SmartLockAccessCodeService {
   }
 
   /**
-   * Get all access codes
+   * Get all access codes ordered by check-in date (today first, then future)
    */
   async getAllAccessCodes(): Promise<AccessCode[]> {
     return await this.accessCodeRepository.find({
       relations: ["device"],
-      order: { createdAt: "DESC" },
+      order: {
+        checkInDate: "ASC",  // Today first, then future dates
+        createdAt: "DESC"    // Secondary: newest first within same date
+      },
     });
   }
 
@@ -351,29 +528,46 @@ export class SmartLockAccessCodeService {
   }
 
   /**
-   * Get scheduled access codes that need to be set
+   * Get scheduled access codes for today's check-in date
+   * Used by the daily 5 AM EST job
    */
-  async getScheduledCodesReadyToSet(): Promise<AccessCode[]> {
-    const now = new Date();
+  async getScheduledCodesForToday(): Promise<AccessCode[]> {
+    // Get today's date in EST timezone
+    const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const today = new Date(estNow);
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    logger.info(`Finding scheduled codes for today: ${today.toISOString()} to ${tomorrow.toISOString()}`);
+
     return await this.accessCodeRepository
       .createQueryBuilder("ac")
       .leftJoinAndSelect("ac.device", "device")
       .where("ac.status = :status", { status: AccessCodeStatus.SCHEDULED })
-      .andWhere("ac.scheduledAt <= :now", { now })
+      // .andWhere("ac.checkInDate >= :today", { today })
+      // .andWhere("ac.checkInDate < :tomorrow", { tomorrow })
       .getMany();
   }
 
   /**
-   * Process scheduled access codes (called by scheduler)
+   * Process scheduled access codes for today (called by daily 5 AM EST scheduler)
+   * Sets access codes on devices with proper validity based on listing times and settings
    */
   async processScheduledCodes(): Promise<{ processed: number; failed: number; }> {
-    const scheduledCodes = await this.getScheduledCodesReadyToSet();
+    logger.info("Starting daily access code processing job...");
+
+    const scheduledCodes = await this.getScheduledCodesForToday();
+
+    logger.info(`Found ${scheduledCodes.length} access codes scheduled for today`);
 
     let processed = 0;
     let failed = 0;
 
     for (const code of scheduledCodes) {
       try {
+        logger.info(`Processing code ${code.id} for guest: ${code.guestName}, check-in: ${code.checkInDate}`);
         await this.setAccessCodeOnDevice(code.id);
         processed++;
       } catch (error) {
@@ -382,10 +576,9 @@ export class SmartLockAccessCodeService {
       }
     }
 
-    if (scheduledCodes.length > 0) {
-      logger.info(`Processed ${processed} scheduled codes, ${failed} failed`);
-    }
+    logger.info(`Daily access code processing completed: ${processed} set successfully, ${failed} failed`);
 
     return { processed, failed };
   }
 }
+

@@ -34,8 +34,11 @@ export class PropertyLockSettings {
   })
   codeGenerationMode: CodeGenerationMode;
 
-  @Column({ name: "hours_before_checkin", default: 1 })
+  @Column({ name: "hours_before_checkin", default: 3 })
   hoursBeforeCheckin: number;
+
+  @Column({ name: "hours_after_checkout", default: 3 })
+  hoursAfterCheckout: number;
 
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;

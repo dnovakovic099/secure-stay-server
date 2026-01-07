@@ -17,6 +17,11 @@ export enum AccessCodeStatus {
   FAILED = "failed",
 }
 
+export enum AccessCodeSource {
+  MANUAL = "manual",
+  AUTOMATIC = "automatic",
+}
+
 @Entity("access_codes")
 export class AccessCode {
   @PrimaryGeneratedColumn()
@@ -70,6 +75,22 @@ export class AccessCode {
 
   @Column({ name: "provider_metadata", type: "json", nullable: true })
   providerMetadata: object;
+
+  @Column({
+    type: "enum",
+    enum: AccessCodeSource,
+    default: AccessCodeSource.MANUAL,
+  })
+  source: AccessCodeSource;
+
+  @Column({ name: "check_in_date", type: "date", nullable: true })
+  checkInDate: Date;
+
+  @Column({ name: "check_out_date", type: "date", nullable: true })
+  checkOutDate: Date;
+
+  @Column({ name: "expires_at", type: "timestamp", nullable: true })
+  expiresAt: Date;
 
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;

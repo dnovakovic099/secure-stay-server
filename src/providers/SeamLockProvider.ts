@@ -9,6 +9,7 @@ import {
   UpdateAccessCodeParams,
   ProviderAccessCode,
 } from "../interfaces/ILockProvider";
+import logger from "../utils/logger.utils";
 
 /**
  * Seam Lock Provider Implementation
@@ -103,6 +104,7 @@ export class SeamLockProvider implements ILockProvider {
     }
 
     const result = await axios.post(apiUrl, body, this.getAxiosConfig());
+    logger.info("Access code created successfully", result.data);
     return this.mapSeamAccessCodeToProviderAccessCode(result.data.access_code);
   }
 

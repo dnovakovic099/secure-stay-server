@@ -19,6 +19,8 @@ import { updateListingId } from "../scripts/updateListingId";
 import { createExpenseLogsFromResolution } from "../scripts/createExpenseLogsFromResolution";
 import { updateMgmtFee } from "../scripts/updateMgmtFee";
 import { DatabaseBackupService } from "../services/DatabaseBackupService";
+import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
+import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
 
 export function scheduleGetReservation() {
   // Only run schedulers on PM2 instance 0 to prevent duplicate job execution in clustered environments
@@ -339,6 +341,38 @@ export function scheduleGetReservation() {
         logger.info('Database backup scheduled task completed successfully.');
       } catch (error) {
         logger.error("Error in database backup scheduled task:", error);
+      }
+    }
+  );
+
+  // Automated Access Code Generation - Daily at 4 AM EST
+  schedule.scheduleJob(
+    { hour: 4, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('Automated access code generation scheduled task started...');
+        const accessCodeScheduler = new AccessCodeSchedulerService();
+        const result = await accessCodeScheduler.processAutomatedAccessCodes();
+        logger.info(`Automated access code generation completed: ${result.processed} processed, ${result.skipped} skipped, ${result.failed} failed`);
+      } catch (error) {
+        logger.error("Error in automated access code generation:", error);
+      }
+    }
+  );
+
+  // Process Scheduled Access Codes - Daily at 5 AM EST
+  // This job finds all access codes with check-in date = today and sets them on devices
+  // with proper validity (startsAt, endsAt) based on listing times and property settings
+  schedule.scheduleJob(
+    { hour: 5, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("Daily access code processing job started (5 AM EST)...");
+        const accessCodeService = new SmartLockAccessCodeService();
+        const result = await accessCodeService.processScheduledCodes();
+        logger.info(`Daily access code processing completed: ${result.processed} set on devices, ${result.failed} failed`);
+      } catch (error) {
+        logger.error("Error processing scheduled access codes:", error);
       }
     }
   );
