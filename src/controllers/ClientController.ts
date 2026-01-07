@@ -442,5 +442,19 @@ export class ClientController {
     }
   }
 
+  /**
+   * Retry Asana task creation for a property
+   */
+  async retryAsanaTask(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { propertyId } = request.params;
+      const result = await clientService.retryAsanaTaskCreation(propertyId, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
 

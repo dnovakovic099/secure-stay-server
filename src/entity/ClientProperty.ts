@@ -74,6 +74,19 @@ export class ClientPropertyEntity {
     @Column({ name: "welcome_sms_sent_at", type: "timestamp", nullable: true })
     welcomeSmsSentAt: Date;
 
+    // Asana task tracking fields
+    @Column({ name: "asana_task_id", nullable: true })
+    asanaTaskId: string;
+
+    @Column({ name: "asana_task_url", type: "varchar", length: 500, nullable: true })
+    asanaTaskUrl: string;
+
+    @Column({ name: "asana_task_created_at", type: "timestamp", nullable: true })
+    asanaTaskCreatedAt: Date;
+
+    @Column({ name: "asana_task_error", type: "text", nullable: true })
+    asanaTaskError: string;
+
     @ManyToOne(() => ClientEntity, (client) => client.properties, { onDelete: "CASCADE" })
     client: ClientEntity;
 

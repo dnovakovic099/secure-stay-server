@@ -1342,13 +1342,20 @@ export class ClientService {
           }
         }
 
-        // Create Asana task for newly signed property (non-blocking)
-        asanaService.createOnboardingTask({
+        // Create Asana task for newly signed property and save tracking info
+        const asanaResult = await asanaService.createOnboardingTask({
           client: savedClient,
           property: savedClientProperty,
           serviceInfo: serviceInfoEntity,
           onboarding: onboardingEntity,
-        }).catch(err => logger.error('Asana task creation failed:', err));
+        });
+
+        // Save Asana task tracking info
+        savedClientProperty.asanaTaskId = asanaResult.taskId || null;
+        savedClientProperty.asanaTaskUrl = asanaResult.taskUrl || null;
+        savedClientProperty.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+        savedClientProperty.asanaTaskError = asanaResult.error || null;
+        await propertyRepo.save(savedClientProperty);
 
         // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
         // propertyEmailService.sendPropertyOnboardingEmail(savedClient, savedClientProperty, userId)
@@ -1504,13 +1511,20 @@ export class ClientService {
 
       results.push({ clientProperty: savedClientProperty, serviceInfo: savedServiceInfo, onboarding: savedOnboarding });
 
-      // Create Asana task for newly signed property (non-blocking)
-      asanaService.createOnboardingTask({
+      // Create Asana task for newly signed property and save tracking info
+      const asanaResult = await asanaService.createOnboardingTask({
         client,
         property: savedClientProperty,
         serviceInfo: savedServiceInfo,
         onboarding: savedOnboarding,
-      }).catch(err => logger.error('Asana task creation failed:', err));
+      });
+
+      // Save Asana task tracking info
+      savedClientProperty.asanaTaskId = asanaResult.taskId || null;
+      savedClientProperty.asanaTaskUrl = asanaResult.taskUrl || null;
+      savedClientProperty.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+      savedClientProperty.asanaTaskError = asanaResult.error || null;
+      await this.propertyRepo.save(savedClientProperty);
 
       // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
       // propertyEmailService.sendPropertyOnboardingEmail(client, savedClientProperty, userId)
@@ -1852,14 +1866,21 @@ export class ClientService {
         relations: ["onboarding", "serviceInfo", "propertyInfo", "propertyInfo.vendorManagementInfo"] 
       });
 
-      // Create Asana task for newly signed property (non-blocking)
+      // Create Asana task for newly signed property and save tracking info
       if (isNewProperty && refreshed) {
-        asanaService.createOnboardingTask({
+        const asanaResult = await asanaService.createOnboardingTask({
           client,
           property: refreshed,
           serviceInfo: refreshed.serviceInfo,
           onboarding: refreshed.onboarding,
-        }).catch(err => logger.error('Asana task creation failed:', err));
+        });
+
+        // Save Asana task tracking info
+        refreshed.asanaTaskId = asanaResult.taskId || null;
+        refreshed.asanaTaskUrl = asanaResult.taskUrl || null;
+        refreshed.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+        refreshed.asanaTaskError = asanaResult.error || null;
+        await this.propertyRepo.save(refreshed);
 
         // DISABLED: Auto-sending now disabled - notifications are manually triggered from UI
         // propertyEmailService.sendPropertyOnboardingEmail(client, refreshed, userId)
@@ -1984,16 +2005,23 @@ export class ClientService {
 
       results.push({ clientProperty, onboarding: savedOnboarding });
 
-      // Create Asana task for newly signed property (non-blocking)
+      // Create Asana task for newly signed property and save tracking info
       if (isNewProperty) {
         // Fetch serviceInfo for Asana task
         const serviceInfo = await this.propertyServiceInfoRepo.findOne({ where: { clientProperty: { id: clientProperty.id } } });
-        asanaService.createOnboardingTask({
+        const asanaResult = await asanaService.createOnboardingTask({
           client,
           property: clientProperty,
           serviceInfo,
           onboarding: savedOnboarding,
-        }).catch(err => logger.error('Asana task creation failed:', err));
+        });
+
+        // Save Asana task tracking info
+        clientProperty.asanaTaskId = asanaResult.taskId || null;
+        clientProperty.asanaTaskUrl = asanaResult.taskUrl || null;
+        clientProperty.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+        clientProperty.asanaTaskError = asanaResult.error || null;
+        await this.propertyRepo.save(clientProperty);
       }
     }
 
@@ -2928,16 +2956,23 @@ export class ClientService {
 
       results.push({ clientProperty, onboarding: savedOnboarding });
 
-      // Create Asana task for newly signed property (non-blocking)
+      // Create Asana task for newly signed property and save tracking info
       if (isNewProperty) {
         // Fetch serviceInfo for Asana task
         const serviceInfo = await this.propertyServiceInfoRepo.findOne({ where: { clientProperty: { id: clientProperty.id } } });
-        asanaService.createOnboardingTask({
+        const asanaResult = await asanaService.createOnboardingTask({
           client,
           property: clientProperty,
           serviceInfo,
           onboarding: savedOnboarding,
-        }).catch(err => logger.error('Asana task creation failed:', err));
+        });
+
+        // Save Asana task tracking info
+        clientProperty.asanaTaskId = asanaResult.taskId || null;
+        clientProperty.asanaTaskUrl = asanaResult.taskUrl || null;
+        clientProperty.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+        clientProperty.asanaTaskError = asanaResult.error || null;
+        await this.propertyRepo.save(clientProperty);
       }
     }
 
@@ -4550,6 +4585,52 @@ export class ClientService {
       alreadySent,
       sentAt: alreadySent ? sentAt : undefined,
       isLegacy,
+    };
+  }
+
+  /**
+   * Retry Asana task creation for a property that failed previously.
+   */
+  async retryAsanaTaskCreation(
+    propertyId: string,
+    userId: string
+  ): Promise<{ success: boolean; taskId?: string; taskUrl?: string; error?: string; }> {
+    // Find property with client and related info
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: ["client", "serviceInfo", "onboarding"],
+    });
+
+    if (!property) {
+      throw CustomErrorHandler.notFound("Property not found");
+    }
+
+    const client = property.client;
+    if (!client) {
+      throw CustomErrorHandler.notFound("Client not found for property");
+    }
+
+    // Call Asana service to create task
+    const asanaResult = await asanaService.createOnboardingTask({
+      client,
+      property,
+      serviceInfo: property.serviceInfo,
+      onboarding: property.onboarding,
+    });
+
+    // Update property with Asana task info
+    property.asanaTaskId = asanaResult.taskId || null;
+    property.asanaTaskUrl = asanaResult.taskUrl || null;
+    property.asanaTaskCreatedAt = asanaResult.success ? new Date() : null;
+    property.asanaTaskError = asanaResult.error || null;
+    property.updatedBy = userId;
+    await this.propertyRepo.save(property);
+
+    return {
+      success: asanaResult.success,
+      taskId: asanaResult.taskId,
+      taskUrl: asanaResult.taskUrl,
+      error: asanaResult.error,
     };
   }
 

@@ -53,6 +53,8 @@ router.route('/publish-property/:propertyId').get(verifySession, clientControlle
 // Manual welcome notification routes
 router.route('/property/:propertyId/send-welcome-email').post(verifySession, clientController.sendWelcomeEmail.bind(clientController));
 router.route('/property/:propertyId/send-welcome-sms').post(verifySession, clientController.sendWelcomeSms.bind(clientController));
+router.route('/property/:propertyId/retry-asana-task').post(verifySession, clientController.retryAsanaTask.bind(clientController));
+
 
 
 router

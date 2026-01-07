@@ -38,6 +38,13 @@ interface OnboardingTaskData {
     onboarding?: PropertyOnboarding | null;
 }
 
+export interface AsanaTaskResult {
+    success: boolean;
+    taskId?: string;
+    taskUrl?: string;
+    error?: string;
+}
+
 export class AsanaService {
     private client: AsanaClient;
 
@@ -48,13 +55,16 @@ export class AsanaService {
     /**
      * Create an onboarding task in Asana for a newly signed property.
      * Uses custom fields when GIDs are configured, otherwise falls back to description.
+     * Returns task result with ID and URL for tracking.
      */
-    async createOnboardingTask(data: OnboardingTaskData): Promise<void> {
+    async createOnboardingTask(data: OnboardingTaskData): Promise<AsanaTaskResult> {
         // Skip if Asana is not configured
         if (!this.client.isConfigured()) {
             logger.info('Asana integration is not configured. Skipping onboarding task creation.');
-            return;
+            return { success: false, error: 'Asana integration is not configured' };
         }
+
+        try {
 
         const { client, property, serviceInfo, onboarding } = data;
 
@@ -191,13 +201,31 @@ export class AsanaService {
             : undefined;
 
         // Create task in Asana
-        await this.client.createTaskInSection({
+            const task = await this.client.createTaskInSection({
             name: taskName,
             notes,
             customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
         });
 
-        logger.info(`Asana task created for property: ${property.address}`);
+            if (task) {
+                const taskUrl = `https://app.asana.com/0/${process.env.ASANA_PROJECT_ID}/${task.gid}`;
+                logger.info(`Asana task created for property: ${property.address} - Task ID: ${task.gid}`);
+                return {
+                    success: true,
+                    taskId: task.gid,
+                    taskUrl,
+                };
+            }
+
+            return { success: false, error: 'Task creation returned null' };
+        } catch (error: any) {
+            const errorMessage = error.response?.data?.errors?.[0]?.message || error.message || 'Unknown error';
+            logger.error(`Asana task creation failed for property ${data.property.address}: ${errorMessage}`);
+            return {
+                success: false,
+                error: errorMessage,
+            };
+        }
     }
 
     /**
