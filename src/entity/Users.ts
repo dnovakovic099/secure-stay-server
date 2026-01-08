@@ -31,6 +31,31 @@ export class UsersEntity {
     @Column({ nullable: true })
     department: string;
 
+    // User Management Fields
+    @Column({ type: 'boolean', default: true })
+    isActive: boolean;
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    authProvider: string; // 'email' | 'google'
+
+    @Column({ type: 'varchar', length: 50, default: 'regular' })
+    userType: string; // 'admin' | 'regular'
+
+    @Column({ type: 'datetime', nullable: true })
+    lastLoginAt: Date;
+
+    @Column({ type: 'varchar', nullable: true })
+    disabledBy: string; // UID of admin who disabled this user
+
+    @Column({ type: 'datetime', nullable: true })
+    disabledAt: Date;
+
+    @Column({ type: 'varchar', nullable: true })
+    reactivatedBy: string; // UID of admin who re-enabled this user
+
+    @Column({ type: 'datetime', nullable: true })
+    reactivatedAt: Date;
+
     @CreateDateColumn()
     createdAt: Date;
 
