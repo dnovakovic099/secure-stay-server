@@ -221,6 +221,31 @@ export class UserManagementController {
     };
 
     /**
+     * GET /user-management/me
+     * Get current user details from DB
+     */
+    getMe = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const uid = req.user?.id;
+
+            if (!uid) {
+                return res.status(400).json({ success: false, message: "User ID not found" });
+            }
+
+            const user = await this.userManagementService.getUserByUid(uid);
+
+            if (!user) {
+                return res.status(404).json({ success: false, message: "User not found" });
+            }
+
+            return res.status(200).json({ success: true, data: user });
+        } catch (error) {
+            console.error("Error fetching current user:", error);
+            return next(error);
+        }
+    };
+
+    /**
      * POST /user-management/update-last-login
      * Update last login timestamp for the current user
      */

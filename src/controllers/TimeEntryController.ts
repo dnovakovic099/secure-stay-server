@@ -272,5 +272,43 @@ export class TimeEntryController {
             return next(error);
         }
     };
+
+    /**
+     * GET /time-entries/admin/overview
+     * Get admin overview for all users
+     */
+    getAdminOverview = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const result = await this.timeEntryService.getAdminOverview();
+            return res.status(200).json({ success: true, ...result });
+        } catch (error) {
+            console.error("Error getting admin overview:", error);
+            return next(error);
+        }
+    };
+
+    /**
+     * GET /time-entries/admin/entries
+     * Get all time entries for all users (admin only)
+     */
+    getAllEntriesAdmin = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const filters = {
+                page: Number(req.query.page) || 1,
+                limit: Number(req.query.limit) || 10,
+                search: req.query.search as string,
+                status: req.query.status as string,
+                startDate: req.query.startDate as string,
+                endDate: req.query.endDate as string,
+            };
+
+            const result = await this.timeEntryService.getAllTimeEntriesAdmin(filters);
+            return res.status(200).json(result);
+        } catch (error) {
+            console.error("Error getting all time entries:", error);
+            return next(error);
+        }
+    };
 }
+
 

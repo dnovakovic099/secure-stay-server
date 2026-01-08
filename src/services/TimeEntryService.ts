@@ -1,7 +1,10 @@
 import { appDatabase } from "../utils/database.util";
 import { TimeEntryEntity } from "../entity/TimeEntry";
 import { UsersEntity } from "../entity/Users";
-import { Between, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
+import { DepartmentEntity } from "../entity/Department";
+import { UserDepartmentEntity } from "../entity/UserDepartment";
+import { Between, In, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
+
 
 interface TimeEntryFilters {
     page?: number;
@@ -19,6 +22,9 @@ interface TimeEntrySummary {
 export class TimeEntryService {
     private timeEntryRepository = appDatabase.getRepository(TimeEntryEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
+    private departmentRepository = appDatabase.getRepository(DepartmentEntity);
+    private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
+
 
     /**
      * Clock-in for a user
@@ -336,6 +342,191 @@ export class TimeEntryService {
         };
     }
 
+
+    /**
+     * Get admin overview for all users and departments
+     */
+    async getAdminOverview() {
+        const now = new Date();
+        const startOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+        const endOfDayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+
+        // 1. Total active users
+        const totalUsers = await this.usersRepository.count({
+            where: { isActive: true, deletedAt: null as any }
+        });
+
+        // 2. Currently clocked in users (unique user count)
+        const activeEntries = await this.timeEntryRepository.find({
+            where: { status: 'active' },
+            select: ['userId']
+        });
+        const clockedInUserIds = [...new Set(activeEntries.map(e => e.userId))];
+        const clockedInCount = clockedInUserIds.length;
+
+        // 3. Users who completed a session today
+        const completedToday = await this.timeEntryRepository.find({
+            where: {
+                status: 'completed',
+                clockInAt: Between(startOfDayUTC, endOfDayUTC)
+            },
+            select: ['userId']
+        });
+        const clockedOutUserIds = [...new Set(completedToday.map(e => e.userId))];
+        const clockedOutCount = clockedOutUserIds.length;
+
+        // 4. Department wise stats
+        const departments = await this.departmentRepository.find({
+            where: { deletedAt: null as any }
+        });
+
+        const departmentStats = await Promise.all(departments.map(async (dept) => {
+            // Get all user ids in this department
+            const userDepts = await this.userDepartmentRepository.find({
+                where: { departmentId: dept.id },
+                select: ['userId']
+            });
+            const deptUserIds = userDepts.map(ud => ud.userId);
+
+            if (deptUserIds.length === 0) {
+                return {
+                    id: dept.id,
+                    name: dept.name,
+                    clockedIn: 0,
+                    clockedOutToday: 0,
+                    totalUsers: 0
+                };
+            }
+
+            // 1. Get active user IDs for this department
+            const activeSessionEntries = await this.timeEntryRepository.find({
+                where: {
+                    userId: In(deptUserIds),
+                    status: 'active',
+                    deletedAt: null as any
+                },
+                select: ['userId']
+            });
+            const activeUserIds = [...new Set(activeSessionEntries.map(e => e.userId))];
+
+            // 2. Count distinct users who clocked out today in this department
+            const clockedOutTodayResults = await this.timeEntryRepository.createQueryBuilder("entry")
+                .where("entry.userId IN (:...ids)", { ids: deptUserIds })
+                .andWhere("entry.status = :status", { status: 'completed' })
+                .andWhere("entry.clockInAt >= :start", { start: startOfDayUTC })
+                .andWhere("entry.clockInAt <= :end", { end: endOfDayUTC })
+                .andWhere("entry.deletedAt IS NULL")
+                .select("DISTINCT entry.userId", "userId")
+                .getRawMany();
+
+            // 3. Fetch user details separately for reliability
+            let activeUsers: any[] = [];
+            if (activeUserIds.length > 0) {
+                const users = await this.usersRepository.find({
+                    where: { id: In(activeUserIds) },
+                    select: ['id', 'firstName', 'lastName', 'email']
+                });
+
+                activeUsers = users.map(u => ({
+                    id: u.id,
+                    name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Active User',
+                    email: u.email || 'No email provided'
+                }));
+            }
+
+            // Diagnostic log
+            if (activeSessionEntries.length > 0) {
+                console.log(`[AdminOverview] Dept: ${dept.name}, Active IDs: ${activeUserIds.length}, Mapped Users: ${activeUsers.length}`);
+            }
+
+            return {
+                id: dept.id,
+                name: dept.name,
+                clockedIn: activeUserIds.length,
+                clockedOutToday: clockedOutTodayResults.length,
+                totalUsers: deptUserIds.length,
+                activeUsers
+            };
+        }));
+
+        return {
+            totalUsers,
+            clockedIn: clockedInCount,
+            clockedOutToday: clockedOutCount,
+            departmentStats
+        };
+    }
+
+
+    /**
+     * Get all time entries for admin view (all users)
+     */
+    async getAllTimeEntriesAdmin(filters: any) {
+        const page = filters.page || 1;
+        const limit = filters.limit || 10;
+        const offset = (page - 1) * limit;
+
+        const queryBuilder = this.timeEntryRepository
+            .createQueryBuilder("entry")
+            .leftJoinAndSelect("entry.user", "user")
+            .where("user.deletedAt IS NULL");
+
+        // Apply search filter
+        if (filters.search) {
+            queryBuilder.andWhere(
+                "(user.firstName LIKE :search OR user.lastName LIKE :search OR user.email LIKE :search)",
+                { search: `%${filters.search}%` }
+            );
+        }
+
+        // Apply status filter
+        if (filters.status) {
+            queryBuilder.andWhere("entry.status = :status", { status: filters.status });
+        }
+
+        // Apply date filters
+        if (filters.startDate) {
+            queryBuilder.andWhere("entry.clockInAt >= :startDate", {
+                startDate: new Date(filters.startDate)
+            });
+        }
+
+        if (filters.endDate) {
+            const endDate = new Date(filters.endDate);
+            endDate.setHours(23, 59, 59, 999);
+            queryBuilder.andWhere("entry.clockInAt <= :endDate", { endDate });
+        }
+
+        const [entries, total] = await queryBuilder
+            .orderBy("entry.clockInAt", "DESC")
+            .skip(offset)
+            .take(limit)
+            .getManyAndCount();
+
+        // Format entries and add user info
+        const formattedEntries = await Promise.all(entries.map(async (entry) => {
+            const userDepts = await this.userDepartmentRepository.find({
+                where: { userId: entry.userId },
+                relations: ["department"]
+            });
+
+            return {
+                ...entry,
+                userName: `${entry.user?.firstName || ''} ${entry.user?.lastName || ''}`.trim(),
+                userEmail: entry.user?.email,
+                departments: userDepts.map(ud => ud.department?.name).filter(Boolean),
+                durationFormatted: entry.duration ? this.formatDuration(entry.duration) : null,
+            };
+        }));
+
+        return {
+            data: formattedEntries,
+            total,
+            page,
+            limit,
+        };
+    }
+
     /**
      * Format duration in seconds to human-readable format
      */
@@ -349,4 +540,5 @@ export class TimeEntryService {
         return `${minutes}m`;
     }
 }
+
 

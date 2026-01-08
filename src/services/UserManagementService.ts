@@ -109,6 +109,16 @@ export class UserManagementService {
     }
 
     /**
+     * Get user by UID (Supabase ID)
+     */
+    async getUserByUid(uid: string) {
+        return await this.usersRepository.findOne({
+            where: { uid, deletedAt: null as any },
+        });
+    }
+
+
+    /**
      * Update user details
      */
     async updateUser(id: number, data: UpdateUserData, updatedBy: string) {

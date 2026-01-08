@@ -7,8 +7,16 @@ const router = Router();
 const controller = new UserManagementController();
 
 // Public routes (only require session, not admin)
-// Must be before admin routes to avoid conflicts
+// Public routes (only require session, not admin)
+router.get('/test-me', (req, res) => res.send("Test Me works"));
+router.get('/me', verifySession, (req, res, next) => {
+    console.log("Matched /me route, calling controller.getMe");
+    controller.getMe(req, res, next);
+});
+
 router.post('/update-last-login', verifySession, controller.updateLastLogin);
+
+
 
 // All other user management routes require admin privileges
 // Department routes (must be before /:id routes to avoid conflicts)
