@@ -37,6 +37,7 @@ import slackRoutes from "./slackRoutes";
 import openaiRoutes from "./openaiRoutes";
 import smartLockRoutes from "./smartLockRoutes";
 import userManagementRoutes from "./userManagementRoutes";
+import timeEntryRoutes from "./timeEntryRoutes";
 
 const router = Router();
 
@@ -80,5 +81,6 @@ router.use('/clients', clientRoutes);
 router.use('/openai', openaiRoutes);
 router.use('/smart-locks', smartLockRoutes);
 router.use('/user-management', userManagementRoutes);
+router.use('/time-entries', timeEntryRoutes);
 
 export default router;
