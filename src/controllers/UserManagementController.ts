@@ -266,4 +266,61 @@ export class UserManagementController {
             return next(error);
         }
     };
+
+    /**
+     * GET /user-management/:id/employee-settings
+     * Get employee settings for a user
+     */
+    getEmployeeSettings = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const userId = Number(req.params.id);
+
+            if (!userId || isNaN(userId)) {
+                return res.status(400).json({ success: false, message: "Invalid user ID" });
+            }
+
+            const result = await this.userManagementService.getEmployeeSettings(userId);
+
+            if (!result.success) {
+                return res.status(404).json(result);
+            }
+
+            return res.status(200).json(result);
+        } catch (error) {
+            console.error("Error fetching employee settings:", error);
+            return next(error);
+        }
+    };
+
+    /**
+     * PUT /user-management/:id/employee-settings
+     * Update employee settings for a user
+     */
+    updateEmployeeSettings = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const userId = Number(req.params.id);
+            const updatedBy = req.user?.id;
+
+            if (!userId || isNaN(userId)) {
+                return res.status(400).json({ success: false, message: "Invalid user ID" });
+            }
+
+            const { startDate, hourlyRate, dailyHourLimit, offDays } = req.body;
+
+            const result = await this.userManagementService.updateEmployeeSettings(
+                userId,
+                { startDate, hourlyRate, dailyHourLimit, offDays },
+                updatedBy
+            );
+
+            if (!result.success) {
+                return res.status(404).json(result);
+            }
+
+            return res.status(200).json(result);
+        } catch (error) {
+            console.error("Error updating employee settings:", error);
+            return next(error);
+        }
+    };
 }

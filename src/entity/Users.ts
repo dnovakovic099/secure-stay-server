@@ -41,6 +41,9 @@ export class UsersEntity {
     @Column({ type: 'varchar', length: 50, default: 'regular' })
     userType: string; // 'admin' | 'regular'
 
+    @Column({ type: 'boolean', default: false })
+    isSuperAdmin: boolean;
+
     @Column({ type: 'datetime', nullable: true })
     lastLoginAt: Date;
 
@@ -73,5 +76,18 @@ export class UsersEntity {
 
     @Column({ nullable: true })
     deletedBy: string;
+
+    // Employee Settings
+    @Column({ type: 'date', nullable: true })
+    startDate: Date;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    hourlyRate: number;
+
+    @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true })
+    dailyHourLimit: number; // NULL means no limit
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    offDays: string; // Comma-separated day indices (0=Sun, 1=Mon, etc.)
 
 }

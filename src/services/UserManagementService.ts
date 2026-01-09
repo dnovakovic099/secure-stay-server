@@ -314,4 +314,82 @@ export class UserManagementService {
 
         return { success: true, message: "Last login updated" };
     }
+
+    /**
+     * Get employee settings for a user
+     */
+    async getEmployeeSettings(userId: number) {
+        const user = await this.usersRepository.findOne({
+            where: { id: userId, deletedAt: null as any },
+            select: ['id', 'firstName', 'lastName', 'email', 'userType', 'isActive', 'createdAt', 'startDate', 'hourlyRate', 'dailyHourLimit', 'offDays'],
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        return {
+            success: true,
+            data: {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                userType: user.userType,
+                isActive: user.isActive,
+                createdAt: user.createdAt,
+                startDate: user.startDate,
+                hourlyRate: user.hourlyRate ? parseFloat(user.hourlyRate.toString()) : null,
+                dailyHourLimit: user.dailyHourLimit ? parseFloat(user.dailyHourLimit.toString()) : null,
+                offDays: user.offDays ? user.offDays.split(',').map(d => parseInt(d.trim())) : [],
+            },
+        };
+    }
+
+    /**
+     * Update employee settings for a user
+     */
+    async updateEmployeeSettings(
+        userId: number,
+        data: {
+            startDate?: string;
+            hourlyRate?: number;
+            dailyHourLimit?: number | null;
+            offDays?: number[];
+        },
+        updatedBy: string
+    ) {
+        const user = await this.usersRepository.findOne({
+            where: { id: userId, deletedAt: null as any },
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        const updateData: any = {
+            updatedBy,
+            updatedAt: new Date(),
+        };
+
+        if (data.startDate !== undefined) {
+            updateData.startDate = data.startDate || null;
+        }
+
+        if (data.hourlyRate !== undefined) {
+            updateData.hourlyRate = data.hourlyRate;
+        }
+
+        if (data.dailyHourLimit !== undefined) {
+            updateData.dailyHourLimit = data.dailyHourLimit;
+        }
+
+        if (data.offDays !== undefined) {
+            updateData.offDays = data.offDays.length > 0 ? data.offDays.join(',') : null;
+        }
+
+        await this.usersRepository.update(userId, updateData);
+
+        return { success: true, message: "Employee settings updated successfully" };
+    }
 }

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { UserManagementController } from '../controllers/UserManagementController';
 import verifySession from '../middleware/verifySession';
 import verifyAdmin from '../middleware/verifyAdmin';
+import verifySuperAdmin from '../middleware/verifySuperAdmin';
 
 const router = Router();
 const controller = new UserManagementController();
@@ -30,5 +31,9 @@ router.put('/:id', verifySession, verifyAdmin, controller.updateUser);
 router.patch('/:id/toggle-status', verifySession, verifyAdmin, controller.toggleUserStatus);
 router.patch('/:id/user-type', verifySession, verifyAdmin, controller.setUserType);
 router.put('/:id/departments', verifySession, verifyAdmin, controller.assignDepartments);
+
+// Employee settings routes (Super Admin only)
+router.get('/:id/employee-settings', verifySession, verifySuperAdmin, controller.getEmployeeSettings);
+router.put('/:id/employee-settings', verifySession, verifySuperAdmin, controller.updateEmployeeSettings);
 
 export default router;
