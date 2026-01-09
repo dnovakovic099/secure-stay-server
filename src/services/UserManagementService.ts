@@ -12,6 +12,7 @@ interface UserFilters {
     search?: string;
     status?: string;
     userType?: string;
+    departments?: string;
 }
 
 interface UpdateUserData {
@@ -55,6 +56,17 @@ export class UserManagementService {
         // Apply userType filter
         if (filters.userType && filters.userType !== '') {
             queryBuilder.andWhere("user.userType = :userType", { userType: filters.userType });
+        }
+
+        // Apply department filter (supports multiple department IDs)
+        if (filters.departments && filters.departments !== '') {
+            const departmentIds = filters.departments.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            if (departmentIds.length > 0) {
+                queryBuilder.andWhere(
+                    "user.id IN (SELECT ud.userId FROM user_departments ud WHERE ud.departmentId IN (:...departmentIds))",
+                    { departmentIds }
+                );
+            }
         }
 
         const [users, total] = await queryBuilder

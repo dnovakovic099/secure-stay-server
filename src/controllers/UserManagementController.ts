@@ -20,6 +20,7 @@ export class UserManagementController {
                 search: req.query.search as string,
                 status: req.query.status as string,
                 userType: req.query.userType as string,
+                departments: req.query.departments as string,
             };
 
             const result = await this.userManagementService.getAllUsers(filters);
