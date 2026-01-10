@@ -18,12 +18,15 @@ export class OvertimeRequestController {
      */
     getOvertimeRequests = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const { page, limit, status, userId } = req.query;
+            const { page, limit, status, userId, search, startDate, endDate } = req.query;
             const result = await this.overtimeRequestService.getOvertimeRequests({
                 page: page ? parseInt(page as string) : 1,
                 limit: limit ? parseInt(limit as string) : 10,
                 status: status as 'pending' | 'approved' | 'rejected' | undefined,
-                userId: userId ? parseInt(userId as string) : undefined
+                userId: userId ? parseInt(userId as string) : undefined,
+                search: search as string,
+                startDate: startDate as string,
+                endDate: endDate as string
             });
             return res.status(200).json(result);
         } catch (error) {

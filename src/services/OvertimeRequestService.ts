@@ -9,6 +9,9 @@ interface OvertimeRequestFilters {
     limit?: number;
     status?: 'pending' | 'approved' | 'rejected';
     userId?: number;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
 export class OvertimeRequestService {
@@ -38,6 +41,25 @@ export class OvertimeRequestService {
         // Apply user filter
         if (filters.userId) {
             queryBuilder.andWhere("request.userId = :userId", { userId: filters.userId });
+        }
+
+        // Apply search filter (Employee name)
+        if (filters.search) {
+            queryBuilder.andWhere(
+                "(user.firstName LIKE :search OR user.lastName LIKE :search OR user.email LIKE :search)",
+                { search: `%${filters.search}%` }
+            );
+        }
+
+        // Apply date range filter (based on timeEntry.clockInAt)
+        if (filters.startDate) {
+            queryBuilder.andWhere("timeEntry.clockInAt >= :startDate", { startDate: filters.startDate });
+        }
+        if (filters.endDate) {
+            // Include the entire end day
+            const end = new Date(filters.endDate);
+            end.setHours(23, 59, 59, 999);
+            queryBuilder.andWhere("timeEntry.clockInAt <= :endDate", { endDate: end });
         }
 
         const [requests, total] = await queryBuilder
