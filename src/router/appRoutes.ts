@@ -38,6 +38,7 @@ import openaiRoutes from "./openaiRoutes";
 import smartLockRoutes from "./smartLockRoutes";
 import userManagementRoutes from "./userManagementRoutes";
 import timeEntryRoutes from "./timeEntryRoutes";
+import overtimeRoutes from "./overtimeRoutes";
 
 const router = Router();
 
@@ -82,5 +83,6 @@ router.use('/openai', openaiRoutes);
 router.use('/smart-locks', smartLockRoutes);
 router.use('/user-management', userManagementRoutes);
 router.use('/time-entries', timeEntryRoutes);
+router.use('/overtime', overtimeRoutes);
 
 export default router;

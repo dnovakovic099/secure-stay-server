@@ -309,6 +309,53 @@ export class TimeEntryController {
             return next(error);
         }
     };
+
+    /**
+     * POST /time-entries/admin/test-entry
+     * Create a test time entry with specified duration (admin only)
+     * Useful for testing overtime/rounding logic without waiting real-time
+     */
+    createTestEntry = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { userId, durationMinutes } = req.body;
+
+            if (!userId || !durationMinutes) {
+                return res.status(400).json({
+                    success: false,
+                    message: "userId and durationMinutes are required"
+                });
+            }
+
+            const result = await this.timeEntryService.createTestEntry(
+                parseInt(userId),
+                parseInt(durationMinutes)
+            );
+
+            return res.status(200).json(result);
+        } catch (error) {
+            console.error("Error creating test entry:", error);
+            return next(error);
+        }
+    };
+
+    /**
+     * POST /time-entries/admin/process-missed-clockouts
+     * Manually trigger processing of missed clock-outs (admin only)
+     * Processes entries that have been 'active' for more than 12 hours
+     */
+    processMissedClockouts = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const result = await this.timeEntryService.processMissedClockouts();
+            return res.status(200).json({
+                success: true,
+                message: `Processed ${result.processed} missed clock-out entries`,
+                ...result
+            });
+        } catch (error) {
+            console.error("Error processing missed clockouts:", error);
+            return next(error);
+        }
+    };
 }
 
 

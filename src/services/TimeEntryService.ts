@@ -3,7 +3,9 @@ import { TimeEntryEntity } from "../entity/TimeEntry";
 import { UsersEntity } from "../entity/Users";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
+import { OvertimeRequestEntity } from "../entity/OvertimeRequest";
 import { Between, In, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
+import logger from "../utils/logger.utils";
 
 
 interface TimeEntryFilters {
@@ -24,6 +26,10 @@ export class TimeEntryService {
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private departmentRepository = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
+    private overtimeRequestRepository = appDatabase.getRepository(OvertimeRequestEntity);
+
+    // Constants for computation
+    private readonly TWELVE_HOURS_SECONDS = 12 * 60 * 60;
 
 
     /**
@@ -93,6 +99,13 @@ export class TimeEntryService {
             };
         }
 
+        // Fetch user's dailyHourLimit
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            select: ['id', 'dailyHourLimit']
+        });
+        const dailyHourLimit = user?.dailyHourLimit ?? null;
+
         // Get current UTC time
         const now = new Date();
         const clockOutAt = new Date(Date.UTC(
@@ -108,13 +121,45 @@ export class TimeEntryService {
         const clockInAt = new Date(activeEntry.clockInAt);
         const durationSeconds = Math.floor((clockOutAt.getTime() - clockInAt.getTime()) / 1000);
 
+        // Get all completed entries for this user on the same day (based on clock-in date)
+        const previousRawSeconds = await this.getPreviousRawSeconds(userId, clockInAt);
+
+        logger.info(`Clock-out for user ${userId}: Previous raw total today = ${this.formatDuration(previousRawSeconds)}, Current session = ${this.formatDuration(durationSeconds)}, Daily limit = ${dailyHourLimit}h`);
+
+        // Compute duration with daily total consideration
+        const { computedSeconds, isOvertime, overtimeSeconds, isMissedClockout, totalDailyActualSeconds } =
+            this.calculateComputedDurationWithDailyTotal(
+                durationSeconds,
+                dailyHourLimit,
+                previousRawSeconds
+            );
+
         // Update the entry
         await this.timeEntryRepository.update(activeEntry.id, {
             clockOutAt,
             duration: durationSeconds,
+            computedDuration: computedSeconds,
+            isMissedClockout,
+            hasOvertimeRequest: isOvertime,
             notes: notes || null,
             status: 'completed' as const,
         });
+
+        // Create or update overtime request if needed
+        if (isOvertime) {
+            const capSeconds = (dailyHourLimit || 8) * 3600;
+            logger.info(`Creating/updating overtime request: entryId=${activeEntry.id}, dailyTotalActual=${this.formatDuration(totalDailyActualSeconds)}, cap=${this.formatDuration(capSeconds)}, totalOvertime=${this.formatDuration(overtimeSeconds)}`);
+            await this.createOrUpdateDailyOvertimeRequest(
+                activeEntry.id,
+                userId,
+                totalDailyActualSeconds,
+                capSeconds,
+                overtimeSeconds,
+                clockInAt // date for grouping
+            );
+        } else {
+            logger.info(`No overtime for user ${userId}: computed=${this.formatDuration(computedSeconds)}, totalActualDay=${this.formatDuration(totalDailyActualSeconds)}`);
+        }
 
         const updatedEntry = await this.timeEntryRepository.findOne({
             where: { id: activeEntry.id },
@@ -124,7 +169,11 @@ export class TimeEntryService {
             success: true,
             message: "Successfully clocked out",
             entry: updatedEntry,
-            duration: this.formatDuration(durationSeconds)
+            duration: this.formatDuration(durationSeconds),
+            computedDuration: this.formatDuration(computedSeconds),
+            isOvertime,
+            isMissedClockout,
+            dailyTotal: this.formatDuration(totalDailyActualSeconds)
         };
     }
 
@@ -530,7 +579,7 @@ export class TimeEntryService {
     /**
      * Format duration in seconds to human-readable format
      */
-    private formatDuration(totalSeconds: number): string {
+    formatDuration(totalSeconds: number): string {
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
 
@@ -538,6 +587,368 @@ export class TimeEntryService {
             return `${hours}h ${minutes}m`;
         }
         return `${minutes}m`;
+    }
+
+    /**
+     * Calculate computed duration based on business rules:
+     * - Round down to nearest hour
+     * - Cap at user's dailyHourLimit if exceeded
+     */
+    private calculateComputedDuration(
+        actualDurationSeconds: number,
+        dailyHourLimit: number | null
+    ): {
+        computedSeconds: number;
+        isOvertime: boolean;
+        overtimeSeconds: number;
+        isMissedClockout: boolean;
+    } {
+        const isMissedClockout = actualDurationSeconds > this.TWELVE_HOURS_SECONDS;
+
+        // Step 1: Round down to nearest full hour
+        const fullHours = Math.floor(actualDurationSeconds / 3600);
+        let computedSeconds = fullHours * 3600;
+
+        // Step 2: Apply daily cap if set
+        let isOvertime = false;
+        let overtimeSeconds = 0;
+        if (dailyHourLimit !== null && dailyHourLimit > 0) {
+            const capSeconds = dailyHourLimit * 3600;
+            if (computedSeconds > capSeconds) {
+                overtimeSeconds = computedSeconds - capSeconds;
+                computedSeconds = capSeconds;
+                isOvertime = true;
+            }
+            // For missed clockout, cap at daily limit
+            if (isMissedClockout && computedSeconds > capSeconds) {
+                computedSeconds = capSeconds;
+            }
+        }
+
+        return { computedSeconds, isOvertime, overtimeSeconds, isMissedClockout };
+    }
+
+    /**
+     * Calculate computed duration considering previous sessions in the same day.
+     * The daily cap is applied against the cumulative total, not individual sessions.
+     * 
+     * Key behaviors:
+     * 1. If previous sessions already exceed cap, current session = 0, flag remaining overtime
+     * 2. If current session pushes total over cap, flag the excess as overtime
+     * 3. Overtime is the TOTAL excess over the daily cap (cumulative)
+     */
+    private calculateComputedDurationWithDailyTotal(
+        actualDurationSeconds: number,
+        dailyHourLimit: number | null,
+        previousRawSeconds: number
+    ): {
+        computedSeconds: number;
+        isOvertime: boolean;
+        overtimeSeconds: number;
+        isMissedClockout: boolean;
+        totalDailyActualSeconds: number;
+    } {
+        const isMissedClockout = actualDurationSeconds > this.TWELVE_HOURS_SECONDS;
+
+        // Step 1: Calculate total raw duration for the work day
+        const totalRawSeconds = previousRawSeconds + actualDurationSeconds;
+
+        // Step 2: Round down the total daily work to the nearest full hour
+        const totalDailyActualSeconds = Math.floor(totalRawSeconds / 3600) * 3600;
+
+        let computedSeconds = 0;
+        let isOvertime = false;
+        let overtimeSeconds = 0;
+
+        if (dailyHourLimit !== null && dailyHourLimit > 0) {
+            const capSeconds = dailyHourLimit * 3600;
+
+            // Total daily state based on rounded totals
+            const totalDailyCappedSeconds = Math.min(totalDailyActualSeconds, capSeconds);
+            overtimeSeconds = Math.max(0, totalDailyActualSeconds - capSeconds);
+            isOvertime = overtimeSeconds > 0;
+
+            // Calculate the contribution of previous sessions to the daily cap
+            const previousRoundedSeconds = Math.floor(previousRawSeconds / 3600) * 3600;
+            const previousCappedSeconds = Math.min(previousRoundedSeconds, capSeconds);
+
+            // This session's contribution to the capped duration
+            computedSeconds = Math.max(0, totalDailyCappedSeconds - previousCappedSeconds);
+
+            if (isOvertime) {
+                logger.info(`Overtime detected: daily total=${this.formatDuration(totalDailyActualSeconds)}, cap=${dailyHourLimit}h, total overtime excess=${this.formatDuration(overtimeSeconds)}`);
+            }
+        }
+
+        return { computedSeconds, isOvertime, overtimeSeconds, isMissedClockout, totalDailyActualSeconds };
+    }
+
+    /**
+     * Get the sum of RAW actual durations from earlier sessions on the "same day".
+     * Uses a 16-hour lookback window to group sessions into a work day.
+     */
+    private async getPreviousRawSeconds(userId: number, date: Date): Promise<number> {
+        // Look back 16 hours to find earlier shifts that belong to the same work day
+        const lookbackStart = new Date(date.getTime() - 16 * 3600 * 1000);
+
+        const existingEntriesToday = await this.timeEntryRepository.find({
+            where: {
+                userId,
+                status: 'completed',
+                clockInAt: Between(lookbackStart, date)
+            }
+        });
+
+        return existingEntriesToday.reduce(
+            (sum, entry) => sum + (entry.duration || 0),
+            0
+        );
+    }
+
+    /**
+     * Create or update daily overtime request.
+     * - If a pending overtime request exists for this user on the same day, update it
+     * - Otherwise, create a new one
+     * - Shows daily totals (not per-session values) for meaningful admin review
+     */
+    private async createOrUpdateDailyOvertimeRequest(
+        timeEntryId: number,
+        userId: number,
+        actualDailyTotalSeconds: number,
+        dailyCapSeconds: number,
+        overtimeSeconds: number,
+        date: Date
+    ) {
+        try {
+            // To find an existing request, we look for any request linked to any entry in the last 16 hours
+            const lookbackStart = new Date(date.getTime() - 16 * 3600 * 1000);
+            const entries = await this.timeEntryRepository.find({
+                where: {
+                    userId,
+                    clockInAt: Between(lookbackStart, date)
+                },
+                select: ['id']
+            });
+            const entryIds = entries.map(e => e.id);
+            if (timeEntryId && !entryIds.includes(timeEntryId)) {
+                entryIds.push(timeEntryId);
+            }
+
+            // Check if there's an existing overtime request for this user linked to any of these entries
+            const existingRequest = entryIds.length > 0
+                ? await this.overtimeRequestRepository
+                    .createQueryBuilder("request")
+                    .where("request.userId = :userId", { userId })
+                    .andWhere("request.timeEntryId IN (:...entryIds)", { entryIds })
+                    .orderBy("request.createdAt", "DESC")
+                    .getOne()
+                : null;
+
+            if (existingRequest) {
+                // Update existing request with new totals and reset status to pending
+                // This handles the case where a user clocks in/out again after an approval/rejection
+                await this.overtimeRequestRepository.update(existingRequest.id, {
+                    timeEntryId, // Link to latest entry that triggered the update
+                    actualDurationSeconds: actualDailyTotalSeconds,
+                    cappedDurationSeconds: dailyCapSeconds,
+                    overtimeSeconds: overtimeSeconds,
+                    status: 'pending' as const,
+                    approvedBy: null as any, // Cast to any because TS might complain about null ID
+                    approvedAt: null,
+                    notes: existingRequest.status !== 'pending'
+                        ? `[System] Reset to pending due to new clock-out. Previous status: ${existingRequest.status}`
+                        : existingRequest.notes
+                });
+                logger.info(`Updated existing overtime request ${existingRequest.id} for user ${userId} and reset to pending. New total overtime: ${this.formatDuration(overtimeSeconds)}`);
+            } else {
+                // Create new overtime request
+                await this.overtimeRequestRepository.save({
+                    timeEntryId,
+                    userId,
+                    actualDurationSeconds: actualDailyTotalSeconds,
+                    cappedDurationSeconds: dailyCapSeconds,
+                    overtimeSeconds,
+                    status: 'pending' as const
+                });
+                logger.info(`Created new overtime request for user ${userId}, overtime: ${this.formatDuration(overtimeSeconds)}`);
+            }
+        } catch (error) {
+            logger.error(`Failed to create/update overtime request for user ${userId}:`, error);
+        }
+    }
+
+    /**
+     * Create an overtime request for admin approval (legacy - kept for backward compatibility)
+     */
+    private async createOvertimeRequest(
+        timeEntryId: number,
+        userId: number,
+        actualDurationSeconds: number,
+        cappedDurationSeconds: number,
+        overtimeSeconds: number
+    ) {
+        try {
+            await this.overtimeRequestRepository.save({
+                timeEntryId,
+                userId,
+                actualDurationSeconds,
+                cappedDurationSeconds,
+                overtimeSeconds,
+                status: 'pending' as const
+            });
+            logger.info(`Created overtime request for user ${userId}, overtime: ${this.formatDuration(overtimeSeconds)}`);
+        } catch (error) {
+            logger.error(`Failed to create overtime request for user ${userId}:`, error);
+        }
+    }
+
+    /**
+     * Process missed clock-outs: entries still 'active' after 12+ hours
+     * Called by scheduled job every 3 hours
+     */
+    async processMissedClockouts() {
+        const twelveHoursAgo = new Date(Date.now() - this.TWELVE_HOURS_SECONDS * 1000);
+
+        const staleEntries = await this.timeEntryRepository.find({
+            where: {
+                status: 'active',
+                clockInAt: LessThanOrEqual(twelveHoursAgo)
+            },
+            relations: ['user']
+        });
+
+        logger.info(`Found ${staleEntries.length} stale time entries to process`);
+
+        for (const entry of staleEntries) {
+            const dailyHourLimit = entry.user?.dailyHourLimit ?? 8;
+            const now = new Date();
+            const clockInAt = new Date(entry.clockInAt);
+
+            // Calculate actual duration from clock-in to now
+            const actualDurationSeconds = Math.floor((now.getTime() - clockInAt.getTime()) / 1000);
+
+            // Fetch previous sessions for that day
+            const previousRawSeconds = await this.getPreviousRawSeconds(entry.userId, clockInAt);
+
+            // Calculate durations using the cumulative logic
+            const { computedSeconds, isOvertime, overtimeSeconds, totalDailyActualSeconds } =
+                this.calculateComputedDurationWithDailyTotal(
+                    actualDurationSeconds,
+                    dailyHourLimit,
+                    previousRawSeconds
+                );
+
+            // Auto clock-out
+            await this.timeEntryRepository.update(entry.id, {
+                clockOutAt: now,
+                duration: actualDurationSeconds,
+                computedDuration: computedSeconds,
+                isMissedClockout: true,
+                hasOvertimeRequest: isOvertime,
+                status: 'completed'
+            });
+
+            // Create overtime request if needed
+            if (isOvertime) {
+                const capSeconds = (dailyHourLimit || 8) * 3600;
+                await this.createOrUpdateDailyOvertimeRequest(
+                    entry.id,
+                    entry.userId,
+                    totalDailyActualSeconds,
+                    capSeconds,
+                    overtimeSeconds,
+                    clockInAt
+                );
+            }
+
+            logger.info(`Auto-clocked out user ${entry.userId} (missed clockout). Actual: ${this.formatDuration(actualDurationSeconds)}, Computed: ${this.formatDuration(computedSeconds)}, Excess: ${this.formatDuration(overtimeSeconds)}`);
+        }
+
+        return { processed: staleEntries.length };
+    }
+
+    /**
+     * Create a completed test time entry with specified duration
+     * For testing purposes only - Admin use
+     */
+    async createTestEntry(userId: number, durationMinutes: number) {
+        const durationSeconds = durationMinutes * 60;
+        const clockOutAt = new Date();
+        const clockInAt = new Date(clockOutAt.getTime() - durationSeconds * 1000);
+
+        // Fetch user's dailyHourLimit
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            select: ['id', 'dailyHourLimit', 'firstName', 'lastName']
+        });
+
+        if (!user) {
+            return { success: false, message: 'User not found' };
+        }
+
+        const dailyHourLimit = user.dailyHourLimit ?? null;
+
+        // Fetch previous sessions for that day
+        const previousRawSeconds = await this.getPreviousRawSeconds(userId, clockInAt);
+
+        // Calculate computed duration with cumulative logic
+        const { computedSeconds, isOvertime, overtimeSeconds, totalDailyActualSeconds, isMissedClockout } =
+            this.calculateComputedDurationWithDailyTotal(
+                durationSeconds,
+                dailyHourLimit,
+                previousRawSeconds
+            );
+
+        // Create entry directly as completed
+        const entry = await this.timeEntryRepository.save({
+            userId,
+            clockInAt,
+            clockOutAt,
+            duration: durationSeconds,
+            computedDuration: computedSeconds,
+            isMissedClockout,
+            hasOvertimeRequest: isOvertime,
+            status: 'completed' as const,
+            notes: `[TEST] Created with ${durationMinutes} minutes duration`
+        });
+
+        // Create or update overtime request if needed
+        if (isOvertime) {
+            const capSeconds = (dailyHourLimit || 8) * 3600;
+            await this.createOrUpdateDailyOvertimeRequest(
+                entry.id,
+                userId,
+                totalDailyActualSeconds,
+                capSeconds,
+                overtimeSeconds,
+                clockInAt
+            );
+        }
+
+        logger.info(`Created test entry for user ${userId}: ${durationMinutes}min -> computed: ${this.formatDuration(computedSeconds)}, totalDailyActual: ${this.formatDuration(totalDailyActualSeconds)}, overtime: ${isOvertime}`);
+
+        return {
+            success: true,
+            entry,
+            actualDuration: this.formatDuration(durationSeconds),
+            computedDuration: this.formatDuration(computedSeconds),
+            isOvertime,
+            isMissedClockout,
+            dailyHourLimit
+        };
+    }
+
+    /**
+     * Get notification counts for admin badge
+     */
+    async getAdminNotificationCounts() {
+        const pendingOvertimeCount = await this.overtimeRequestRepository.count({
+            where: { status: 'pending' }
+        });
+        const missedClockoutCount = await this.timeEntryRepository.count({
+            where: { isMissedClockout: true, status: 'completed' }
+        });
+        return { pendingOvertimeCount, missedClockoutCount };
     }
 }
 

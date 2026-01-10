@@ -21,6 +21,8 @@ import { updateMgmtFee } from "../scripts/updateMgmtFee";
 import { DatabaseBackupService } from "../services/DatabaseBackupService";
 import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
+import { TimeEntryService } from "../services/TimeEntryService";
+
 
 export function scheduleGetReservation() {
   // Only run schedulers on PM2 instance 0 to prevent duplicate job execution in clustered environments
@@ -376,4 +378,22 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  // Missed Clock-Out Detection - Every 3 hours
+  // Detects time entries that have been 'active' for more than 12 hours
+  // Auto-completes them and caps computed duration at user's daily limit
+  schedule.scheduleJob(
+    "0 */3 * * *",  // Every 3 hours at minute 0
+    async () => {
+      try {
+        logger.info("Missed clock-out detection job started...");
+        const timeEntryService = new TimeEntryService();
+        const result = await timeEntryService.processMissedClockouts();
+        logger.info(`Missed clock-out detection completed: ${result.processed} entries processed`);
+      } catch (error) {
+        logger.error("Error processing missed clock-outs:", error);
+      }
+    }
+  );
 }
+
