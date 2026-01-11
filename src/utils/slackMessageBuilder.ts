@@ -1019,7 +1019,8 @@ export const buildExpenseSlackMessage = (
                     { type: "mrkdwn", text: `*Expense Date:* ${expense.expenseDate || '-'}` },
                     { type: "mrkdwn", text: `*Date of Work:* ${expense.dateOfWork || '-'}` },
                     { type: "mrkdwn", text: `*Created By:* ${createdBy}` },
-                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : [])
+                    ...(updatedBy ? [{ type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }] : []),
+                    ...(expense.llCover ? [{ type: "mrkdwn", text: `*Covered by Luxury Lodging*` }] : [])
                 ]
             },
             {
@@ -1109,7 +1110,8 @@ export const buildExpenseSlackMessageUpdate = (
                     { type: "mrkdwn", text: `*Contractor:* ${expense.contractorName || '-'}` },
                     { type: "mrkdwn", text: `*Payment Method:* ${expense.paymentMethod || '-'}` },
                     { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
-                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
+                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` },
+                    ...(expense.llCover ? [{ type: "mrkdwn", text: `*Covered by Luxury Lodging*` }] : [])
                 ]
             }
         ]
