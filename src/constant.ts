@@ -799,3 +799,20 @@ export const HostifyAmenities: Record<string, string> = {
     "Family": "Family",
     "Romantic": "Romantic",
 };
+
+// Leave Request Status Constants
+export const LeaveRequestStatus = {
+    PENDING: 'pending',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+    CANCELLATION_PENDING: 'cancellation_pending',
+    CANCELLED: 'cancelled'
+} as const;
+export type LeaveRequestStatusType = typeof LeaveRequestStatus[keyof typeof LeaveRequestStatus];
+
+// Leave Payment Type Constants
+export const PaymentType = {
+    PAID: 'paid',
+    UNPAID: 'unpaid'
+} as const;
+export type PaymentTypeValue = typeof PaymentType[keyof typeof PaymentType];

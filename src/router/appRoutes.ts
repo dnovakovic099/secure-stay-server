@@ -39,6 +39,7 @@ import smartLockRoutes from "./smartLockRoutes";
 import userManagementRoutes from "./userManagementRoutes";
 import timeEntryRoutes from "./timeEntryRoutes";
 import overtimeRoutes from "./overtimeRoutes";
+import leaveRoutes from "./leaveRoutes";
 
 const router = Router();
 
@@ -84,5 +85,6 @@ router.use('/smart-locks', smartLockRoutes);
 router.use('/user-management', userManagementRoutes);
 router.use('/time-entries', timeEntryRoutes);
 router.use('/overtime', overtimeRoutes);
+router.use('/leave', leaveRoutes);
 
 export default router;
