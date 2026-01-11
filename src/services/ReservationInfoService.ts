@@ -26,6 +26,7 @@ import { ActionItemsService } from "./ActionItemsService";
 import { GenericReport } from "../entity/GenericReport";
 import { Hostify } from "../client/Hostify";
 import { ReservationService } from "./ReservationService";
+import { VelocityAlertService } from "./VelocityAlertService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -40,6 +41,7 @@ export class ReservationInfoService {
   private upsellOrderService = new UpsellOrderService();
   private hostAwayClient = new HostAwayClient();
   private hostifyClient = new Hostify();
+  private velocityAlertService = new VelocityAlertService();
 
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -99,7 +101,9 @@ export class ReservationInfoService {
     const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
-    return await this.reservationInfoRepository.save(newReservation);
+    const savedReservation = await this.reservationInfoRepository.save(newReservation);
+    runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
+    return savedReservation;
   }
 
   async updateReservationInfo(id: number, updateData: Partial<ReservationInfoEntity>, source: string) {
@@ -181,7 +185,9 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
 
-    return await this.reservationInfoRepository.save(reservation);
+    const savedReservation = await this.reservationInfoRepository.save(reservation);
+    runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
+    return savedReservation;
   }
 
   /**
