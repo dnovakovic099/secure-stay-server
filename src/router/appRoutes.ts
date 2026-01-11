@@ -40,6 +40,7 @@ import userManagementRoutes from "./userManagementRoutes";
 import timeEntryRoutes from "./timeEntryRoutes";
 import overtimeRoutes from "./overtimeRoutes";
 import leaveRoutes from "./leaveRoutes";
+import timesheetRoutes from "./timesheetRoutes";
 
 const router = Router();
 
@@ -86,5 +87,7 @@ router.use('/user-management', userManagementRoutes);
 router.use('/time-entries', timeEntryRoutes);
 router.use('/overtime', overtimeRoutes);
 router.use('/leave', leaveRoutes);
+router.use(timesheetRoutes);
 
 export default router;
+
