@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { ActionItemsUpdates } from './ActionItemsUpdates';
+import { ReservationInfoEntity } from './ReservationInfo';
 
 @Entity('action_items')
 export class ActionItems {
@@ -17,6 +18,10 @@ export class ActionItems {
 
     @Column({ nullable: true })
     reservationId: number;
+
+    @ManyToOne(() => ReservationInfoEntity)
+    @JoinColumn({ name: 'reservationId' })
+    reservation: ReservationInfoEntity;
 
     @Column({ type: "text", nullable: true })
     item: string;

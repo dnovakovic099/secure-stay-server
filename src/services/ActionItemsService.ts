@@ -26,6 +26,7 @@ interface ActionItemFilter {
   status?: string;
   fromDate?: string;
   toDate?: string;
+  dateType?: string;
 }
 
 interface HostBuddyActionItem {
@@ -102,6 +103,7 @@ export class ActionItemsService {
       reservationId,
       propertyType,
       keyword,
+      dateType = 'CREATED',
     } = filter;
 
     let listingIds = [];
@@ -123,7 +125,13 @@ export class ActionItemsService {
       ...(status && { status: In(status) }),
       ...(fromDate &&
         toDate && {
-          createdAt: Between(
+        [dateType === 'UPDATED'
+          ? 'updatedAt'
+          : dateType === 'CHECK_IN'
+            ? 'reservation.arrivalDate'
+            : dateType === 'CHECK_OUT'
+              ? 'reservation.departureDate'
+              : 'createdAt']: Between(
             new Date(new Date(fromDate).setHours(0, 0, 0, 0)),
             new Date(new Date(toDate).setHours(23, 59, 59, 999))
           ),
@@ -145,7 +153,7 @@ export class ActionItemsService {
     const [actionItems, total] = await this.actionItemsRepo.findAndCount({
       where,
       skip: (page - 1) * limit,
-      relations: ["actionItemsUpdates"],
+      relations: ["actionItemsUpdates", "reservation"],
       take: limit,
       order: { createdAt: "DESC" },
     });
@@ -588,6 +596,7 @@ export class ActionItemsService {
     const actionItems = await this.actionItemsRepo.find({
       where: whereClause,
       order: { createdAt: "DESC" },
+      relations: ["reservation"],
     });
 
     // Отримати імена користувачів
@@ -615,6 +624,8 @@ export class ActionItemsService {
       "Created At": item.createdAt,
       "Updated At": item.updatedAt,
       "Completed At": item.completedOn,
+      "Check-In Date": item.reservation?.arrivalDate,
+      "Check-Out Date": item.reservation?.departureDate,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
