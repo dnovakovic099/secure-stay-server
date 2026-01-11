@@ -984,15 +984,16 @@ export const buildExpenseSlackMessage = (
     updatedBy?: string,
     categoryNames?: string
 ) => {
+    const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     return {
         channel: EXPENSE_CHANNEL,
-        text: `New Expense: 🏠 ${listingName || 'Unknown Property'}`,
+        text: `New ${typeLabel}: 🏠 ${listingName || 'Unknown Property'}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New Expense: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*New ${typeLabel}: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
@@ -1076,15 +1077,16 @@ export const buildExpenseSlackMessageUpdate = (
     listingName?: string,
     categoryNames?: string
 ) => {
+    const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     return {
         channel: EXPENSE_CHANNEL,
-        text: `Expense Updated: 🏠 ${listingName || 'Unknown Property'}`,
+        text: `${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Expense Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
@@ -1120,15 +1122,16 @@ export const buildExpenseSlackMessageDelete = (
     listingName?: string,
     categoryNames?: string
 ) => {
+    const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     return {
         channel: EXPENSE_CHANNEL,
-        text: `Expense Deleted: 🏠 ${listingName || 'Unknown Property'}`,
+        text: `${typeLabel} Deleted: 🏠 ${listingName || 'Unknown Property'}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Expense Deleted: 🏠 ${listingName || 'Unknown Property'}*`
+                    text: `*${typeLabel} Deleted: 🏠 ${listingName || 'Unknown Property'}*`
                 }
             },
             {
@@ -1148,15 +1151,16 @@ export const buildExpenseStatusUpdateMessage = (
     expense: ExpenseEntity,
     updatedBy: string
 ) => {
+    const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     const slackMessage = {
         channel: EXPENSE_CHANNEL,
-        text: `Expense Status Updated`,
+        text: `${typeLabel} Status Updated`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Expense Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${typeLabel} Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
