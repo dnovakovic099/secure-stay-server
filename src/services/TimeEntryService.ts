@@ -155,7 +155,8 @@ export class TimeEntryService {
                 totalDailyActualSeconds,
                 capSeconds,
                 overtimeSeconds,
-                clockInAt // date for grouping
+                clockInAt, // date for grouping
+                isMissedClockout
             );
         } else {
             logger.info(`No overtime for user ${userId}: computed=${this.formatDuration(computedSeconds)}, totalActualDay=${this.formatDuration(totalDailyActualSeconds)}`);
@@ -717,7 +718,8 @@ export class TimeEntryService {
         actualDailyTotalSeconds: number,
         dailyCapSeconds: number,
         overtimeSeconds: number,
-        date: Date
+        date: Date,
+        isMissedClockout: boolean = false
     ) {
         try {
             // To find an existing request, we look for any request linked to any entry in the last 16 hours
@@ -746,20 +748,21 @@ export class TimeEntryService {
 
             if (existingRequest) {
                 // Update existing request with new totals and reset status to pending
-                // This handles the case where a user clocks in/out again after an approval/rejection
+                // We also OR the isMissedClockout flag - if any part of the day was missed, it stays true
                 await this.overtimeRequestRepository.update(existingRequest.id, {
                     timeEntryId, // Link to latest entry that triggered the update
                     actualDurationSeconds: actualDailyTotalSeconds,
                     cappedDurationSeconds: dailyCapSeconds,
                     overtimeSeconds: overtimeSeconds,
                     status: 'pending' as const,
-                    approvedBy: null as any, // Cast to any because TS might complain about null ID
+                    isMissedClockout: (existingRequest as any).isMissedClockout || isMissedClockout,
+                    approvedBy: null as any,
                     approvedAt: null,
                     notes: existingRequest.status !== 'pending'
                         ? `[System] Reset to pending due to new clock-out. Previous status: ${existingRequest.status}`
                         : existingRequest.notes
                 });
-                logger.info(`Updated existing overtime request ${existingRequest.id} for user ${userId} and reset to pending. New total overtime: ${this.formatDuration(overtimeSeconds)}`);
+                logger.info(`Updated existing overtime request ${existingRequest.id} for user ${userId} and reset to pending. MissedClockout=${(existingRequest as any).isMissedClockout || isMissedClockout}`);
             } else {
                 // Create new overtime request
                 await this.overtimeRequestRepository.save({
@@ -768,9 +771,10 @@ export class TimeEntryService {
                     actualDurationSeconds: actualDailyTotalSeconds,
                     cappedDurationSeconds: dailyCapSeconds,
                     overtimeSeconds,
+                    isMissedClockout,
                     status: 'pending' as const
                 });
-                logger.info(`Created new overtime request for user ${userId}, overtime: ${this.formatDuration(overtimeSeconds)}`);
+                logger.info(`Created new overtime request for user ${userId}, isMissedClockout=${isMissedClockout}`);
             }
         } catch (error) {
             logger.error(`Failed to create/update overtime request for user ${userId}:`, error);
@@ -857,7 +861,8 @@ export class TimeEntryService {
                     totalDailyActualSeconds,
                     capSeconds,
                     overtimeSeconds,
-                    clockInAt
+                    clockInAt,
+                    true // isMissedClockout
                 );
             }
 
@@ -921,7 +926,8 @@ export class TimeEntryService {
                 totalDailyActualSeconds,
                 capSeconds,
                 overtimeSeconds,
-                clockInAt
+                clockInAt,
+                isMissedClockout
             );
         }
 

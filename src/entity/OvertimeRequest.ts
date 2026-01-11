@@ -35,6 +35,9 @@ export class OvertimeRequestEntity {
     @Column({ type: 'varchar', length: 500, nullable: true })
     notes: string;
 
+    @Column({ type: 'boolean', default: false })
+    isMissedClockout: boolean;
+
     @ManyToOne(() => TimeEntryEntity, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'timeEntryId' })
     timeEntry: TimeEntryEntity;
