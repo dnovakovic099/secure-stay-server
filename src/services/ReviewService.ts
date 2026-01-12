@@ -1320,7 +1320,8 @@ export class ReviewService {
         if (propertyIds.length > 0) {
             try {
                 const listings = await this.listingRepo.find({
-                    where: { id: In(propertyIds) }
+                    where: { id: In(propertyIds) },
+                    withDeleted: true
                 });
 
                 listings.forEach(listing => {

@@ -288,23 +288,28 @@ export class ListingService {
   //   await entityManager.save(ListingAmenities, listingAmenitiesObj);
   // }
 
-  async getListings(userId: string) {
-    const listings = await this.listingRepository
+  async getListings(userId: string, includeDeleted: boolean = false) {
+    const query = this.listingRepository
         .createQueryBuilder("listing")
-      .leftJoinAndSelect("listing.images", "listingImages")
-        .getMany();
+      .leftJoinAndSelect("listing.images", "listingImages");
 
-    return listings;
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    return await query.getMany();
   }
 
-  async getListingNames(userId: string) {
-    const listings = await this.listingRepository
+  async getListingNames(userId: string, includeDeleted: boolean = false) {
+    const query = this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.name", "listing.internalListingName"])
-      // .where("listing.userId = :userId", { userId })
-      .getMany();
+      .select(["listing.id", "listing.name", "listing.internalListingName"]);
 
-    return listings;
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    return await query.getMany();
   }
 
   async getListingById(listing_id: string, userId: string) {
@@ -331,7 +336,7 @@ export class ListingService {
     return result;
   }
 
-  async getListingsByTagIds(tagIds: number[], userId?: string) {
+  async getListingsByTagIds(tagIds: number[], userId?: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name","listing.internalListingName",
@@ -339,6 +344,10 @@ export class ListingService {
       ])
       .leftJoin("listing.listingTags", "listingTags")
       .where("listingTags.tagId IN (:...tagIds)", { tagIds });
+
+    if (includeDeleted) {
+      query.withDeleted();
+    }
 
     if (userId) {
       query.andWhere("listing.userId = :userId", { userId });
@@ -348,8 +357,8 @@ export class ListingService {
     return listings;
   }
 
-  async getPmListings() {
-    const listings = await this.listingRepository.find();
+  async getPmListings(includeDeleted: boolean = false) {
+    const listings = await this.listingRepository.find({ withDeleted: includeDeleted });
     const pmListings = listings.filter(listing => {
       let tags = [];
       tags = listing.tags ? listing.tags.split(',') : [];
@@ -363,14 +372,15 @@ export class ListingService {
    * Get all listings for name lookup purposes (includes inactive properties).
    * Only fetches id and internalListingName for efficiency.
    */
-  async getAllListingsForLookup() {
+  async getAllListingsForLookup(includeDeleted: boolean = false) {
     return await this.listingRepository.find({
-      select: ['id', 'internalListingName']
+      select: ['id', 'internalListingName'],
+      withDeleted: includeDeleted
     });
   }
 
-  async getLaunchListings(){
-    const listings = await this.listingRepository.find();
+  async getLaunchListings(includeDeleted: boolean = false) {
+    const listings = await this.listingRepository.find({ withDeleted: includeDeleted });
     const launchListings = listings.filter(listing => {
       let tags = [];
       tags = listing.tags ? listing.tags.split(',') : [];
@@ -381,9 +391,10 @@ export class ListingService {
   }
 
 
-  async getListingAddresses(userId: string) {
+  async getListingAddresses(userId: string, includeDeleted: boolean = false) {
     const listings = await this.listingRepository.find({
-      select: ['id', 'address']
+      select: ['id', 'address'],
+      withDeleted: includeDeleted
     });
 
     return listings;
@@ -541,7 +552,7 @@ export class ListingService {
   }
 
 
-  async getListingsByCity(city: string[], userId?: string) {
+  async getListingsByCity(city: string[], userId?: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName",
@@ -549,6 +560,10 @@ export class ListingService {
       ])
       .where("listing.city IN (:...city)", { city });
 
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
     if (userId) {
       query.andWhere("listing.userId = :userId", { userId });
     }
@@ -557,7 +572,7 @@ export class ListingService {
     return listings;
   }
 
-  async getListingsByState(state: string[], userId?: string) {
+  async getListingsByState(state: string[], userId?: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select(["listing.id", "listing.name", "listing.internalListingName",
@@ -565,6 +580,10 @@ export class ListingService {
       ])
       .where("listing.state IN (:...state)", { state });
 
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
     if (userId) {
       query.andWhere("listing.userId = :userId", { userId });
     }
@@ -573,25 +592,31 @@ export class ListingService {
     return listings;
   }
 
-  public async getStates() {
-    const states = await this.listingRepository
+  public async getStates(includeDeleted: boolean = false) {
+    const query = this.listingRepository
       .createQueryBuilder("listing_info")
       .select("DISTINCT listing_info.state", "state")
-      .where("listing_info.state IS NOT NULL AND listing_info.state != ''")
-      .getRawMany();
+      .where("listing_info.state IS NOT NULL AND listing_info.state != ''");
 
-    return states;
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    return await query.getRawMany();
   }
 
 
-  public async getCities() {
-    const cities = await this.listingRepository
+  public async getCities(includeDeleted: boolean = false) {
+    const query = this.listingRepository
       .createQueryBuilder("listing_info")
       .select("DISTINCT listing_info.city", "city")
-      .where("listing_info.city IS NOT NULL AND listing_info.city != ''")
-      .getRawMany();
+      .where("listing_info.city IS NOT NULL AND listing_info.city != ''");
 
-    return cities;
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    return await query.getRawMany();
   }
 
   public async getPropertyTypes() {

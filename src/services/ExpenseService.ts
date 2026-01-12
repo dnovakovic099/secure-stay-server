@@ -235,7 +235,8 @@ export class ExpenseService {
             .filter((id, index, self) => id != null && self.indexOf(id) === index);
 
         const listings = await this.listingRepository.find({
-            where: { id: In(listingMapIds) }
+            where: { id: In(listingMapIds) },
+            withDeleted: true
         });
 
         const listingNameMap = listings.reduce((acc, listing) => {

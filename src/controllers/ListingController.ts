@@ -53,8 +53,9 @@ export class ListingController {
     try {
       const listingService = new ListingService();
       const userId = request.user.id;
+      const includeDeleted = request.query.includeDeleted === 'true';
 
-      const addresses = await listingService.getListingAddresses(userId);
+      const addresses = await listingService.getListingAddresses(userId, includeDeleted);
 
       return response.status(200).json(successDataFetch(addresses));
     } catch (error) {
@@ -93,7 +94,9 @@ export class ListingController {
     try {
       const listingService = new ListingService();
       const userId = request.user.id;
-      const listingNames = await listingService.getListingNames(userId);
+      const includeDeleted = request.query.includeDeleted === 'true';
+
+      const listingNames = await listingService.getListingNames(userId, includeDeleted);
 
       return response.status(200).json(successDataFetch(listingNames));
     } catch (error) {
