@@ -383,7 +383,7 @@ export function scheduleGetReservation() {
   // Detects time entries that have been 'active' for more than 12 hours
   // Auto-completes them and caps computed duration at user's daily limit
   schedule.scheduleJob(
-    "0 */3 * * *",  // Every 3 hours at minute 0
+    "0 * * * *",  // Every hour at minute 0
     async () => {
       try {
         logger.info("Missed clock-out detection job started...");
