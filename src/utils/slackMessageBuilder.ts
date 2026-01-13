@@ -12,6 +12,8 @@ import { IssueUpdates } from "../entity/IsssueUpdates";
 import { Claim } from "../entity/Claim";
 import { ReviewEntity } from "../entity/Review";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
+import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -19,6 +21,7 @@ const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
 const EXPENSE_CHANNEL = "#payment-requests";
+const ONBOARDING_CHANNEL = "#social";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -1176,4 +1179,98 @@ export const buildExpenseStatusUpdateMessage = (
     };
 
     return slackMessage;
+};
+
+export const buildOnboardingSlackMessage = (
+    type: "new_client" | "listing_info" | "management_info" | "financials_info" | "new_property",
+    client: ClientEntity,
+    property?: ClientPropertyEntity,
+    updatedBy?: string,
+    threadTs?: string
+) => {
+    let title = "";
+    let emoji = "";
+
+    // Get property display name: prefer internal listing name, fall back to address
+    const getPropertyDisplayName = () => {
+        if (property?.propertyInfo?.internalListingName) {
+            return property.propertyInfo.internalListingName;
+        }
+        return property?.address || "Unknown Property";
+    };
+
+    const propertyName = getPropertyDisplayName();
+
+    switch (type) {
+        case "new_client":
+            title = "New Client Onboarding Initiated";
+            emoji = "🏢";
+            break;
+        case "listing_info":
+            title = `Listing Profile Updated: ${propertyName}`;
+            emoji = "📝";
+            break;
+        case "management_info":
+            title = `Management Requirements Updated: ${propertyName}`;
+            emoji = "📋";
+            break;
+        case "financials_info":
+            title = `Financial Configuration Updated: ${propertyName}`;
+            emoji = "💰";
+            break;
+        case "new_property":
+            title = `New Property Added: ${propertyName}`;
+            emoji = "🏠";
+            break;
+    }
+
+    const blocks: any[] = [
+        {
+            type: "header",
+            text: {
+                type: "plain_text",
+                text: `${emoji} ${title}`,
+                emoji: true
+            }
+        }
+    ];
+
+    // Only include client info for the root message (new_client)
+    if (type === "new_client") {
+        blocks.push({
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*Client Name:*\n${client.firstName} ${client.lastName}` },
+                { type: "mrkdwn", text: `*Client Email:*\n${client.email || "N/A"}` }
+            ]
+        });
+    }
+
+    // For reply messages, show property details
+    if (property && type !== "new_client") {
+        blocks.push({
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*Property Address:*\n${property.address}` },
+                { type: "mrkdwn", text: `*Current Status:*\n${capitalizeFirstLetter(property.status || 'Draft')}` }
+            ]
+        });
+    }
+
+    if (updatedBy) {
+        blocks.push({
+            type: "context",
+            elements: [
+                { type: "mrkdwn", text: `*Action initiated by:* ${updatedBy}` },
+                { type: "mrkdwn", text: `*Timestamp:* ${format(new Date(), "PPpp")}` }
+            ]
+        });
+    }
+
+    return {
+        channel: ONBOARDING_CHANNEL,
+        text: `${emoji} Onboarding Update: ${title} for ${client.firstName} ${client.lastName}`,
+        blocks,
+        thread_ts: threadTs
+    };
 };

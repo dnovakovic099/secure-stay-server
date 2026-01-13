@@ -3,7 +3,7 @@ import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { In, IsNull, Not, Or } from "typeorm";
+import { In, IsNull, Not, Or, Like } from "typeorm";
 import { ListingService } from "./ListingService";
 import { ClientTicket } from "../entity/ClientTicket";
 import { PropertyOnboarding } from "../entity/PropertyOnboarding";
@@ -22,9 +22,14 @@ import { Hostify } from "../client/Hostify";
 import { HostifyListingMapper } from "../helpers/HostifyListingMapper";
 import fs from "fs";
 import csv from "csv-parser";
+import sendSlackMessage from "../utils/sendSlackMsg";
+import { buildOnboardingSlackMessage } from "../utils/slackMessageBuilder";
+import { UsersEntity } from "../entity/Users";
 import { timezoneAmerica } from "../constant";
 import { isEmail } from "../helpers/helpers";
 import { OpenPhoneService } from "./OpenPhoneService";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { SlackMessageService } from "./SlackMessageService";
 import { asanaService } from "./AsanaService";
 import { propertyEmailService } from "./PropertyEmailService";
 
@@ -353,6 +358,9 @@ export class ClientService {
   private propertyVendorManagementRepo = appDatabase.getRepository(PropertyVendorManagement);
   private suppliesToRestockRepo = appDatabase.getRepository(SuppliesToRestock);
   private vendorInfoRepo = appDatabase.getRepository(VendorInfo);
+  private userRepo = appDatabase.getRepository(UsersEntity);
+  private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private slackMessageService = new SlackMessageService();
 
   private hostawayClient = new HostAwayClient();
 
@@ -1384,6 +1392,24 @@ export class ClientService {
         this.createOpenPhoneContact(fullClient, clientProperties).catch((error) => {
           logger.error(`Failed to create OpenPhone contact for client ${savedClient.id}:`, error);
         });
+
+        // 8. Send Slack notification (non-blocking)
+        this.userRepo.findOne({ where: { uid: userId } }).then(user => {
+          const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+          const slackMsg = buildOnboardingSlackMessage("new_client", fullClient, undefined, userName);
+          sendSlackMessage(slackMsg).then(response => {
+            if (response && response.ok) {
+              this.slackMessageService.saveSlackMessageInfo({
+                channel: response.channel,
+                messageTs: response.ts,
+                threadTs: response.ts,
+                entityType: 'client_onboarding',
+                entityId: null as any,
+                originalMessage: JSON.stringify({ clientId: fullClient.id, payload: slackMsg })
+              }).catch(err => logger.error('Failed to save Slack message info for new client:', err));
+            }
+          }).catch(err => logger.error('Slack notification for new client failed:', err));
+        }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
       }
 
       return fullClient;
@@ -1533,6 +1559,18 @@ export class ClientService {
       //   .catch(err => logger.error('Property onboarding email failed:', err));
       // propertyEmailService.sendPropertyOnboardingSMS(client, savedClientProperty, userId)
       //   .catch(err => logger.error('Property onboarding SMS failed:', err));
+    }
+
+    // Trigger Slack notification for newly added properties
+    if (results.length > 0) {
+      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+        const threadTs = await this.getClientOnboardingThreadTs(clientId);
+        for (const item of results) {
+          const slackMsg = buildOnboardingSlackMessage("new_property", client, item.clientProperty, userName, threadTs);
+          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for new property addition failed:', err));
+        }
+      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
     return { message: "Property pre-onboarding info saved", results };
@@ -2303,6 +2341,17 @@ export class ClientService {
     return await query.getOne();
   }
 
+  private async getClientOnboardingThreadTs(clientId: string): Promise<string | undefined> {
+    const slackMsg = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: 'client_onboarding',
+        originalMessage: Like(`%"clientId":"${clientId}"%`)
+      },
+      order: { createdAt: 'DESC' }
+    });
+    return slackMsg?.threadTs;
+  }
+
   async saveListingInfo(body: any, userId: string) {
     const { clientId, clientProperties } = body as PropertyOnboardingRequest & { clientProperties: Array<Property & { id: string; }>; };
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
@@ -2354,6 +2403,18 @@ export class ClientService {
       }
 
       results.push({ clientProperty, propertyInfo: savedPropertyInfo });
+    }
+
+    // Trigger Slack notification for each saved property
+    if (results.length > 0) {
+      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+        const threadTs = await this.getClientOnboardingThreadTs(clientId);
+        for (const item of results) {
+          const slackMsg = buildOnboardingSlackMessage("listing_info", client, item.clientProperty, userName, threadTs);
+          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for listing info save failed:', err));
+        }
+      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
     return { message: "Listing info saved", results };
@@ -2424,6 +2485,18 @@ export class ClientService {
 
       const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
       updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+    }
+
+    // Trigger Slack notification for each updated property
+    if (updated.length > 0) {
+      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+        const threadTs = await this.getClientOnboardingThreadTs(clientId);
+        for (const item of updated) {
+          const slackMsg = buildOnboardingSlackMessage("listing_info", client, item.clientProperty, userName, threadTs);
+          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for listing info update failed:', err));
+        }
+      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
     return { message: "Listing info updated", updated };
@@ -3488,10 +3561,22 @@ export class ClientService {
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);
-      }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
-      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+        const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+        updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+      }
+    }
+
+    // Trigger Slack notification for each updated property
+    if (updated.length > 0) {
+      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+        const threadTs = await this.getClientOnboardingThreadTs(clientId);
+        for (const item of updated) {
+          const slackMsg = buildOnboardingSlackMessage("financials_info", client, item.clientProperty, userName, threadTs);
+          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for financials info update failed:', err));
+        }
+      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
     return { message: "Internal financials updated", updated };
@@ -3626,10 +3711,22 @@ export class ClientService {
 
         propertyInfo.updatedBy = userId;
         await this.propertyInfoRepo.save(propertyInfo);
-      }
 
-      const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
-      updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+        const refreshed = await this.propertyRepo.findOne({ where: { id: property.id }, relations: ["propertyInfo"] });
+        updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
+      }
+    }
+
+    // Trigger Slack notification for each updated property
+    if (updated.length > 0) {
+      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
+        const threadTs = await this.getClientOnboardingThreadTs(clientId);
+        for (const item of updated) {
+          const slackMsg = buildOnboardingSlackMessage("management_info", client, item.clientProperty, userName, threadTs);
+          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for management info update failed:', err));
+        }
+      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
     return { message: "Internal management updated", updated };
