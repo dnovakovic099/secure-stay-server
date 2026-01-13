@@ -303,7 +303,7 @@ export class ListingService {
   async getListingNames(userId: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.name", "listing.internalListingName"]);
+      .select(["listing.id", "listing.name", "listing.internalListingName", "listing.deletedAt"]);
 
     if (includeDeleted) {
       query.withDeleted();
@@ -393,7 +393,7 @@ export class ListingService {
 
   async getListingAddresses(userId: string, includeDeleted: boolean = false) {
     const listings = await this.listingRepository.find({
-      select: ['id', 'address'],
+      select: ['id', 'address', 'deletedAt'],
       withDeleted: includeDeleted
     });
 
