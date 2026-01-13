@@ -93,6 +93,7 @@ export class VelocityAlertService {
             <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.guestName}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.listingName}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${r.reservationDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.arrivalDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.departureDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.status}</td>
@@ -110,6 +111,7 @@ export class VelocityAlertService {
                     <tr style="background-color: #f2f2f2;">
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Guest Name</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Listing Name</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Booking Date</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Arrival</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Departure</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Status</th>
