@@ -961,7 +961,9 @@ export class ClientService {
       query.andWhere(
         `(LOWER(client.firstName) LIKE :keyword 
         OR LOWER(client.lastName) LIKE :keyword 
-        OR LOWER(client.email) LIKE :keyword)`,
+        OR LOWER(client.preferredName) LIKE :keyword
+        OR LOWER(client.email) LIKE :keyword
+        OR client.phone LIKE :keyword)`,
         { keyword: k }
       );
     }
