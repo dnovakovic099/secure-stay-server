@@ -200,6 +200,10 @@ export class ReviewService {
                 order
             });
 
+            // Fetch users for name mapping
+            const users = await this.usersRepo.find();
+            const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+
             const reviewList = [];
 
             for (const review of reviews) {
@@ -215,6 +219,8 @@ export class ReviewService {
                     guestPhone: reservationInfo?.phone || null,
                     bookingAmount: reservationInfo?.totalPrice || null,
                     guestEmail: reservationInfo?.guestEmail || null,
+                    createdByName: userMap.get(review.createdBy) || review.createdBy || null,
+                    updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
                 };
                 reviewList.push(reviewPlain);
             }
