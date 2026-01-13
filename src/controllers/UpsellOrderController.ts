@@ -52,6 +52,36 @@ export class UpsellOrderController {
                 });
             }
 
+            const { status, listing_id, cost, order_date, client_name, type } = request.body;
+
+            // Validate required fields
+            const missingFields: string[] = [];
+            if (!status) missingFields.push('status');
+            if (!listing_id) missingFields.push('listing_id (Property)');
+            if (cost === undefined || cost === null) missingFields.push('cost');
+            if (!order_date) missingFields.push('order_date');
+            if (!client_name) missingFields.push('client_name (Guest Name)');
+            if (!type) missingFields.push('type');
+
+            if (missingFields.length > 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: `Missing required fields: ${missingFields.join(', ')}`
+                });
+            }
+
+            // Validate cost is a positive number (handle string input)
+            const costValue = typeof cost === 'string' ? parseFloat(cost) : cost;
+            if (isNaN(costValue) || costValue < 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: 'Cost must be a valid positive number'
+                });
+            }
+
+            // Update cost in request body to be a number
+            request.body.cost = costValue;
+
             const result = await upsellOrderService.createOrder(request.body, userId);
             return response.status(201).json({
                 status: true,

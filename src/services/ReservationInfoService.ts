@@ -739,6 +739,29 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
   }
 
+  /**
+   * Get current and upcoming reservations for a specific listing
+   * Used for upsell form guest name dropdown
+   */
+  async getReservationsByListingId(listingId: number): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
+    const today = format(new Date(), 'yyyy-MM-dd');
+
+    const reservations = await this.reservationInfoRepository
+      .createQueryBuilder('reservation')
+      .where('reservation.listingMapId = :listingId', { listingId })
+      .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus })
+      .andWhere('(DATE(reservation.arrivalDate) >= :today OR (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today))', { today })
+      .orderBy('reservation.arrivalDate', 'ASC')
+      .getMany();
+
+    return reservations.map(r => ({
+      id: r.id,
+      guestName: r.guestName || `${r.guestFirstName || ''} ${r.guestLastName || ''}`.trim(),
+      arrivalDate: r.arrivalDate,
+      departureDate: r.departureDate
+    }));
+  }
+
   async updateReservationStatusForStatement(id: number, isProcessedInStatement: boolean) {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
     if (!reservation) {

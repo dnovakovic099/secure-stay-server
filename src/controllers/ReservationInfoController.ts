@@ -95,4 +95,26 @@ export class ReservationInfoController {
             return next(error);
         }
     }
+
+    async getReservationsByListingId(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const listingId = Number(request.params.listingId);
+
+            if (!listingId || isNaN(listingId)) {
+                return response.status(400).json({
+                    status: false,
+                    message: 'Valid listing ID is required'
+                });
+            }
+
+            const result = await reservationInfoService.getReservationsByListingId(listingId);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

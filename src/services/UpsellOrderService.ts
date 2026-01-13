@@ -14,6 +14,24 @@ export class UpsellOrderService {
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
+        // Fetch listing name and owner if listing_id is provided
+        if (data.listing_id) {
+            const listingService = new ListingService();
+            const listings = await listingService.getAllListingsForLookup(true);
+            const listing = listings.find(l => String(l.id) === String(data.listing_id));
+            if (listing) {
+                if (!data.listing_name) {
+                    data.listing_name = listing.internalListingName || '';
+                }
+
+                // Also fetch full listing details for owner name
+                const fullListing = await listingService.getListingInfo(Number(data.listing_id), userId);
+                if (fullListing && !data.property_owner) {
+                    data.property_owner = fullListing.ownerName || '';
+                }
+            }
+        }
+
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
         const savedOrder = await this.upsellOrderRepo.save(order);
         await sendUpsellOrderEmail(savedOrder);
@@ -68,6 +86,25 @@ export class UpsellOrderService {
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
 
+        // Backfill listing_name and property_owner for existing records if missing
+        if (orders.length > 0) {
+            const listingService = new ListingService();
+            const allListings = await listingService.getListings('', true);
+            const listingMap = new Map(allListings.map(l => [String(l.id), l]));
+
+            orders.forEach(order => {
+                const listing = listingMap.get(String(order.listing_id));
+                if (listing) {
+                    if (!order.listing_name || order.listing_name === '-') {
+                        order.listing_name = listing.internalListingName || '';
+                    }
+                    if (!order.property_owner) {
+                        order.property_owner = listing.ownerName || '';
+                    }
+                }
+            });
+        }
+
         return {
             data: orders,
             meta: {
@@ -81,6 +118,10 @@ export class UpsellOrderService {
 
     async updateOrder(id: number, data: Partial<UpsellOrder>, userId: string) {
         const existingOrder = await this.upsellOrderRepo.findOne({ where: { id } });
+        if (!existingOrder) {
+            throw new Error("Order not found");
+        }
+
         if (existingOrder.ha_id) {
             if (existingOrder.status == "Approved" && data.status && data.status !== "Approved") {
                 //delete the expense in HostAway
@@ -90,6 +131,21 @@ export class UpsellOrderService {
                 logger.info(`Deleted extras with ID ${existingOrder.ha_id} in HostAway for order ID ${id}`);
                 existingOrder.ha_id = null; // Reset ha_id after deletion
                 await this.upsellOrderRepo.save(existingOrder);
+            }
+        }
+
+        // Fetch listing name and owner if listing_id is changed
+        if (data.listing_id && String(data.listing_id) !== String(existingOrder.listing_id)) {
+            const listingService = new ListingService();
+            const listings = await listingService.getAllListingsForLookup(true);
+            const listing = listings.find(l => String(l.id) === String(data.listing_id));
+            if (listing) {
+                data.listing_name = listing.internalListingName || '';
+
+                const fullListing = await listingService.getListingInfo(Number(data.listing_id), userId);
+                if (fullListing) {
+                    data.property_owner = fullListing.ownerName || '';
+                }
             }
         }
 

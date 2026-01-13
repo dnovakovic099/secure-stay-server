@@ -23,7 +23,7 @@ export class UpsellOrder {
     @Column()
     client_name: string;
 
-    @Column()
+    @Column({ nullable: true, default: '' })
     property_owner: string;
 
     @Column()

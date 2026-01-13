@@ -23,4 +23,6 @@ router.post('/reservation-generic-report', verifySession, validateGetReservation
 
 router.put('/riskStatus', verifySession, reservationInfoController.updateReservationRiskStatus);
 
+router.get('/by-listing/:listingId', verifySession, reservationInfoController.getReservationsByListingId);
+
 export default router;
