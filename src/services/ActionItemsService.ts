@@ -116,6 +116,20 @@ export class ActionItemsService {
       listingIds = listingId;
     }
 
+    let dateCondition = {};
+    if (fromDate && toDate) {
+
+      if (dateType === 'CHECK_IN') {
+        dateCondition = { reservation: { arrivalDate: Between(fromDate, toDate) } };
+      } else if (dateType === 'CHECK_OUT') {
+        dateCondition = { reservation: { departureDate: Between(fromDate, toDate) } };
+      } else if (dateType === 'UPDATED') {
+        dateCondition = { updatedAt: Between(`${fromDate} 00:00:00`, `${toDate} 23:59:59`) };
+      } else {
+        dateCondition = { createdAt: Between(`${fromDate} 00:00:00`, `${toDate} 23:59:59`) };
+      }
+    }
+
     const whereConditions = {
       ...(ids?.length > 0 && { id: In(ids) }),
       ...(category && { category: In(category) }),
@@ -123,19 +137,7 @@ export class ActionItemsService {
       ...(reservationId?.length > 0 && { reservationId: In(reservationId) }),
       ...(guestName && { guestName }),
       ...(status && { status: In(status) }),
-      ...(fromDate &&
-        toDate && {
-        [dateType === 'UPDATED'
-          ? 'updatedAt'
-          : dateType === 'CHECK_IN'
-            ? 'reservation.arrivalDate'
-            : dateType === 'CHECK_OUT'
-              ? 'reservation.departureDate'
-              : 'createdAt']: Between(
-            new Date(new Date(fromDate).setHours(0, 0, 0, 0)),
-            new Date(new Date(toDate).setHours(23, 59, 59, 999))
-          ),
-        }),
+      ...dateCondition,
     };
 
     const where = keyword
@@ -559,8 +561,10 @@ export class ActionItemsService {
     guestName?: string;
     propertyType?: string[];
     keyword?: string;
+    dateType?: string;
   }): Promise<Buffer> {
     const userId = filters["userId"];
+    const { fromDate, toDate, dateType = 'CREATED' } = filters;
 
     // Побудова where clause аналогічно до getActionItems
     let listingIds = [];
@@ -576,25 +580,38 @@ export class ActionItemsService {
       listingIds = filters.listingId;
     }
 
-    const whereClause: any = {
+    let dateCondition = {};
+    if (fromDate && toDate) {
+      if (dateType === 'CHECK_IN') {
+        dateCondition = { reservation: { arrivalDate: Between(fromDate, toDate) } };
+      } else if (dateType === 'CHECK_OUT') {
+        dateCondition = { reservation: { departureDate: Between(fromDate, toDate) } };
+      } else if (dateType === 'UPDATED') {
+        dateCondition = { updatedAt: Between(`${fromDate} 00:00:00`, `${toDate} 23:59:59`) };
+      } else {
+        dateCondition = { createdAt: Between(`${fromDate} 00:00:00`, `${toDate} 23:59:59`) };
+      }
+    }
+
+    const whereConditions = {
       ...(filters.category &&
         filters.category.length > 0 && { category: In(filters.category) }),
       ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
       ...(filters.status &&
         filters.status.length > 0 && { status: In(filters.status) }),
-      ...(filters.fromDate &&
-        filters.toDate && {
-          createdAt: Between(
-            new Date(filters.fromDate),
-            new Date(filters.toDate)
-          ),
-        }),
+      ...dateCondition,
       ...(filters.guestName && { guestName: filters.guestName }),
-      ...(filters.keyword && { item: Like(`%${filters.keyword}%`) }),
     };
 
+    const where = filters.keyword
+      ? [
+        { ...whereConditions, item: ILike(`%${filters.keyword}%`) },
+        { ...whereConditions, guestName: ILike(`%${filters.keyword}%`) },
+      ]
+      : whereConditions;
+
     const actionItems = await this.actionItemsRepo.find({
-      where: whereClause,
+      where,
       order: { createdAt: "DESC" },
       relations: ["reservation"],
     });
