@@ -21,7 +21,7 @@ const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
 const EXPENSE_CHANNEL = "#payment-requests";
-const ONBOARDING_CHANNEL = "#social";
+const ONBOARDING_CHANNEL = "#onboarding";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
