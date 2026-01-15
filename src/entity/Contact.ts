@@ -95,4 +95,7 @@ export class Contact {
 
     @Column({ nullable: true })
     paidBy: string;
+
+    @Column({ default: false })
+    isPrimary: boolean;
 }

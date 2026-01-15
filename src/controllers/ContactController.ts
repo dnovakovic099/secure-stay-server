@@ -170,4 +170,24 @@ export class ContactController {
         }
     }
 
+    async getCleanersByListing(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const cleaners = await contactService.getCleanersByListing(request.params.listingId);
+            return response.status(200).json(cleaners);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getPrimaryCleanerForListing(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const contactService = new ContactService();
+            const cleaner = await contactService.getPrimaryCleanerForListing(request.params.listingId);
+            return response.status(200).json(cleaner);
+        } catch (error) {
+            next(error);
+        }
+    }
+
 }

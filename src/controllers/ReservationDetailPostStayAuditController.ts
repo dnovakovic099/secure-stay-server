@@ -31,7 +31,8 @@ export class ReservationDetailPostStayAuditController {
                 keysAndLocks,
                 guestBookCheck,
                 securityDepositStatus,
-                approvedUpsells
+                approvedUpsells,
+                cleanerNotificationContactId
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -67,7 +68,8 @@ export class ReservationDetailPostStayAuditController {
                 keysAndLocks: keysAndLocks as KeysAndLocks,
                 guestBookCheck: guestBookCheck as GuestBookCheck,
                 securityDepositStatus: securityDepositStatus as SecurityDepositStatus,
-                approvedUpsells: approvedUpsells
+                approvedUpsells: approvedUpsells,
+                cleanerNotificationContactId: cleanerNotificationContactId ? Number(cleanerNotificationContactId) : null
             }, userId, fileInfo);
 
             return res.status(201).json(audit);
@@ -97,7 +99,8 @@ export class ReservationDetailPostStayAuditController {
                 deletedAttachments,
                 approvedUpsells,
                 reasonForMissingIssue,
-                improvementSuggestion
+                improvementSuggestion,
+                cleanerNotificationContactId
             } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
@@ -136,7 +139,8 @@ export class ReservationDetailPostStayAuditController {
                 newAttachments: fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "",
                 approvedUpsells: approvedUpsells,
                 reasonForMissingIssue,
-                improvementSuggestion
+                improvementSuggestion,
+                cleanerNotificationContactId: cleanerNotificationContactId ? Number(cleanerNotificationContactId) : null
             }, userId, fileInfo);
 
             return res.status(200).json(audit);
@@ -165,6 +169,24 @@ export class ReservationDetailPostStayAuditController {
             }
             const result = await this.postStayAuditService.migrateFilesToDrive(fromDate, toDate);
             return res.status(200).json({message: "Migration completed", details: result});
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async retryCleanerSMS(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const reservationId = Number(req.params.reservationId);
+
+            // Import the service here to avoid circular dependencies
+            const { CleanerNotificationService } = await import('../services/CleanerNotificationService');
+            const cleanerNotificationService = new CleanerNotificationService();
+
+            await cleanerNotificationService.sendCheckoutNotification(reservationId);
+
+            return res.status(200).json({
+                message: "Cleaner notification SMS retry initiated successfully"
+            });
         } catch (error) {
             next(error);
         }

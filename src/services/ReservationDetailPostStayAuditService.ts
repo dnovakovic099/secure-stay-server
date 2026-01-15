@@ -25,6 +25,7 @@ interface ReservationDetailPostStayAuditDTO {
     approvedUpsells?: string;
     reasonForMissingIssue?: string;
     improvementSuggestion?: string;
+    cleanerNotificationContactId?: number | null;
 }
 
 interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostStayAuditDTO {

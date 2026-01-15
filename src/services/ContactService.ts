@@ -41,6 +41,24 @@ export class ContactService {
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
 
     async createContact(body: Partial<Contact>, userId: string) {
+        // Validate active cleaner constraint
+        if (body.role === 'Cleaner' && body.status === 'active') {
+            const existingActiveCleaner = await this.contactRepo.findOne({
+                where: {
+                    listingId: body.listingId,
+                    role: 'Cleaner',
+                    status: 'active',
+                    deletedAt: null as any
+                }
+            });
+
+            if (existingActiveCleaner) {
+                throw CustomErrorHandler.validationError(
+                    "An active cleaner already exists for this listing. Please change the current active cleaner to 'active-backup' or 'inactive' first."
+                );
+            }
+        }
+
         const contact = this.contactRepo.create({
             ...body,
             createdBy: userId,
@@ -54,6 +72,24 @@ export class ContactService {
         const existing = await this.contactRepo.findOneBy({ id: body.id });
         if (!existing) {
             throw CustomErrorHandler.notFound(`Contact with ID ${body.id} not found.`);
+        }
+
+        // Validate active cleaner constraint when changing to active
+        if (body.role === 'Cleaner' && body.status === 'active' && existing.status !== 'active') {
+            const existingActiveCleaner = await this.contactRepo.findOne({
+                where: {
+                    listingId: body.listingId || existing.listingId,
+                    role: 'Cleaner',
+                    status: 'active',
+                    deletedAt: null as any
+                }
+            });
+
+            if (existingActiveCleaner && existingActiveCleaner.id !== existing.id) {
+                throw CustomErrorHandler.validationError(
+                    "An active cleaner already exists for this listing. Please change the current active cleaner to 'active-backup' or 'inactive' first."
+                );
+            }
         }
 
         const updated = this.contactRepo.merge(existing, {
@@ -406,5 +442,35 @@ export class ContactService {
         return contacts;
     }
 
+    /**
+     * Get all cleaners for a specific listing
+     */
+    async getCleanersByListing(listingId: string) {
+        return await this.contactRepo.find({
+            where: {
+                listingId,
+                role: 'Cleaner',
+                deletedAt: null as any
+            },
+            order: {
+                status: 'ASC', // Active first
+                name: 'ASC'
+            }
+        });
+    }
+
+    /**
+     * Get the primary (active) cleaner for a listing
+     */
+    async getPrimaryCleanerForListing(listingId: string) {
+        return await this.contactRepo.findOne({
+            where: {
+                listingId,
+                role: 'Cleaner',
+                status: 'active',
+                deletedAt: null as any
+            }
+        });
+    }
 
 }

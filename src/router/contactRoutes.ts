@@ -28,4 +28,8 @@ router.route('/updates').post(verifySession, validateCreateLatestUpdate, contact
 router.route('/updates').put(verifySession, validateUpdateLatestUpdate, contactController.updateContactUpdate);
 router.route('/updates/delete/:id').delete(verifySession, contactController.deleteContactUpdate);
 
+// Cleaner-specific routes
+router.route('/cleaners/:listingId').get(verifySession, contactController.getCleanersByListing);
+router.route('/primary-cleaner/:listingId').get(verifySession, contactController.getPrimaryCleanerForListing);
+
 export default router;

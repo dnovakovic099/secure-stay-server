@@ -195,4 +195,20 @@ export class ReservationDetailPostStayAudit {
 
     @Column({ type: "text", nullable: true })
     improvementSuggestion: string;
+
+    @Column({ nullable: true })
+    cleanerNotificationContactId: number;
+
+    @Column({
+        type: "enum",
+        enum: ["pending", "sent", "failed", "skipped"],
+        nullable: true
+    })
+    cleanerNotificationStatus: string;
+
+    @Column({ type: 'timestamp', nullable: true })
+    cleanerNotificationSentAt: Date;
+
+    @Column({ type: "text", nullable: true })
+    cleanerNotificationError: string;
 } 

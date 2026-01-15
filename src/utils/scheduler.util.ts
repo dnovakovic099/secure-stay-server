@@ -395,5 +395,49 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  // Cleaner Checkout SMS Notifications - Daily at 5 AM EST
+  schedule.scheduleJob(
+    { hour: 5, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        // Check if feature is enabled
+        if (process.env.ENABLE_CLEANER_CHECKOUT_SMS !== 'true') {
+          logger.info('[CleanerCheckoutSMS] Feature disabled via environment variable');
+          return;
+        }
+
+        logger.info('[CleanerCheckoutSMS] Scheduled task started - processing checkout notifications...');
+
+        const { CleanerNotificationService } = await import('../services/CleanerNotificationService');
+        const { ReservationInfoService } = await import('../services/ReservationInfoService');
+
+        const cleanerNotificationService = new CleanerNotificationService();
+        const reservationInfoService = new ReservationInfoService();
+
+        // Get today's checkouts
+        const { reservations } = await reservationInfoService.getCheckoutReservations();
+        logger.info(`[CleanerCheckoutSMS] Found ${reservations.length} checkout reservations to process`);
+
+        let successCount = 0;
+        let failureCount = 0;
+        let skippedCount = 0;
+
+        for (const reservation of reservations) {
+          try {
+            await cleanerNotificationService.sendCheckoutNotification(reservation.id);
+            successCount++;
+          } catch (error: any) {
+            logger.error(`[CleanerCheckoutSMS] Failed for reservation ${reservation.id}:`, error.message);
+            failureCount++;
+          }
+        }
+
+        logger.info(`[CleanerCheckoutSMS] Scheduled task completed - Success: ${successCount}, Failed: ${failureCount}`);
+      } catch (error) {
+        logger.error("[CleanerCheckoutSMS] Error in scheduled task:", error);
+      }
+    }
+  );
 }
 

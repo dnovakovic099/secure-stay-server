@@ -15,5 +15,6 @@ router.put("/:reservationId", verifySession, fileUpload('post-stay-audit').field
     { name: 'attachments', maxCount: 100 }
 ]), postStayAuditController.updateAudit.bind(postStayAuditController));
 router.get("/:reservationId", verifySession, postStayAuditController.getAuditByReservationId.bind(postStayAuditController));
+router.post("/:reservationId/retry-cleaner-sms", verifySession, postStayAuditController.retryCleanerSMS.bind(postStayAuditController));
 
 export default router; 
