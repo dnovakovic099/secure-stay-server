@@ -1235,6 +1235,17 @@ export const buildOnboardingSlackMessage = (
         }
     ];
 
+    // Add default mentions for team members
+    blocks.push({
+        type: "context",
+        elements: [
+            {
+                type: "mrkdwn",
+                text: `cc: ${process.env.ONBOARDING_MENTIONS || '<@U07MVJYQ1EW> <@U08QJBLNG6A> <@U07B3DPM56E>'}`
+            }
+        ]
+    });
+
     // Only include client info for the root message (new_client)
     if (type === "new_client") {
         blocks.push({
