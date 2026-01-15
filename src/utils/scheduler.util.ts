@@ -22,6 +22,7 @@ import { DatabaseBackupService } from "../services/DatabaseBackupService";
 import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
 import { TimeEntryService } from "../services/TimeEntryService";
+import { NoBookingAlertService } from "../services/NoBookingAlertService";
 
 
 export function scheduleGetReservation() {
@@ -436,6 +437,22 @@ export function scheduleGetReservation() {
         logger.info(`[CleanerCheckoutSMS] Scheduled task completed - Success: ${successCount}, Failed: ${failureCount}`);
       } catch (error) {
         logger.error("[CleanerCheckoutSMS] Error in scheduled task:", error);
+      }
+    }
+  );
+
+  // No-Booking Alert - Daily at 9:30 AM EST
+  // Sends email notification for listings that haven't received any bookings for 7 days
+  schedule.scheduleJob(
+    { hour: 9, minute: 30, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('[NoBookingAlert] Checking for listings without bookings for 7 days...');
+        const noBookingAlertService = new NoBookingAlertService();
+        await noBookingAlertService.checkAndTriggerAlerts();
+        logger.info('[NoBookingAlert] Check completed.');
+      } catch (error) {
+        logger.error("[NoBookingAlert] Error checking for listings without bookings:", error);
       }
     }
   );
