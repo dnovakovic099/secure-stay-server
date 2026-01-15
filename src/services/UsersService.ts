@@ -582,6 +582,7 @@ export class UsersService {
             .createQueryBuilder("user")
             .select("user.uid", "uid")
             .addSelect("CONCAT(user.firstName, ' ', user.lastName)", "name")
+            .where("user.isActive = :isActive", { isActive: true })
             .getRawMany();
     }
 
