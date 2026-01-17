@@ -350,7 +350,7 @@ export function scheduleGetReservation() {
 
   // Automated Access Code Generation - Daily at 4 AM EST
   schedule.scheduleJob(
-    { hour: 4, minute: 0, tz: "America/New_York" },
+    { hour: 6, minute: 0, tz: "America/New_York" },
     async () => {
       try {
         logger.info('Automated access code generation scheduled task started...');
@@ -367,7 +367,7 @@ export function scheduleGetReservation() {
   // This job finds all access codes with check-in date = today and sets them on devices
   // with proper validity (startsAt, endsAt) based on listing times and property settings
   schedule.scheduleJob(
-    { hour: 5, minute: 0, tz: "America/New_York" },
+    { hour: 7, minute: 0, tz: "America/New_York" },
     async () => {
       try {
         logger.info("Daily access code processing job started (5 AM EST)...");
