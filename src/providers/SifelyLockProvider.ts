@@ -149,41 +149,57 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Creates an access code (passcode) on a device
+   * Uses the Sifely API with Bearer token auth and query parameters
+   * Docs: https://apidocs.sifely.com/api-197300856
    */
   async createAccessCode(params: CreateAccessCodeParams): Promise<ProviderAccessCode> {
     try {
-      const config = await this.authService.getAxiosConfig();
+      const accessToken = await this.authService.getValidAccessToken();
 
-      const body: any = {
+      // Build query parameters per Sifely API docs
+      const queryParams: any = {
         lockId: params.deviceId,
         keyboardPwd: params.code,
-        keyboardPwdName: params.name,
-        keyboardPwdType: 2, // 2 = permanent, 3 = period
+        keyboardPwdName: params.name || "Access Code",
       };
 
-      // If time range is specified, use period type
+      // Add time-based parameters if specified
+      // addType: 1=once, 2=permanent, 3=period, 4=cyclic
       if (params.startsAt && params.endsAt) {
-        body.keyboardPwdType = 3;
-        body.startDate = new Date(params.startsAt).getTime();
-        body.endDate = new Date(params.endsAt).getTime();
+        queryParams.addType = 3; // Period type (time-limited)
+        queryParams.startDate = new Date(params.startsAt).getTime();
+        queryParams.endDate = new Date(params.endsAt).getTime();
+      } else {
+        queryParams.addType = 2; // Permanent type
       }
+
+      logger.info(`Creating Sifely passcode for device ${params.deviceId} via ${this.baseUrl}/v3/keyboardPwd/add`);
 
       const response = await axios.post(
         `${this.baseUrl}/v3/keyboardPwd/add`,
-        body,
-        config
+        null, // No body - parameters go in query string
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+          },
+          params: queryParams,
+        }
       );
 
       const data = response.data;
-      if (data.code !== undefined && data.code !== 0) {
-        throw new Error(data.message || "Failed to create passcode");
+      logger.info(`Sifely createAccessCode response: ${JSON.stringify(data)}`);
+
+      // Check for error response
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
+        throw new Error(data.message || `Failed to create passcode with code: ${data.code}`);
       }
 
-      logger.info(`Created Sifely passcode for device ${params.deviceId}`);
+      logger.info(`Created Sifely passcode for device ${params.deviceId}, keyboardPwdId: ${data.keyboardPwdId}`);
 
       return {
         externalCodeId: data.keyboardPwdId?.toString() || `${params.deviceId}_${Date.now()}`,
-        code: params.code,
+        code: data.keyboardPwd || params.code,
         name: params.name,
         status: "set",
         startsAt: params.startsAt,
@@ -191,38 +207,48 @@ export class SifelyLockProvider implements ILockProvider {
         providerMetadata: data,
       };
     } catch (error: any) {
-      logger.error("Error creating Sifely passcode:", error.message);
-      throw error;
+      // Extract actual error message from Sifely API response
+      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
+      logger.error("Error creating Sifely passcode:", apiErrorMessage);
+      throw new Error(apiErrorMessage || "Failed to create passcode");
     }
   }
 
   /**
    * Updates an existing access code
+   * Uses the Sifely API with Bearer token auth and query parameters
+   * Docs: https://apidocs.sifely.com/api-197300857
    */
   async updateAccessCode(
     externalCodeId: string,
     params: UpdateAccessCodeParams
   ): Promise<ProviderAccessCode> {
     try {
-      const config = await this.authService.getAxiosConfig();
+      const accessToken = await this.authService.getValidAccessToken();
 
-      const body: any = {
+      const queryParams: any = {
         keyboardPwdId: externalCodeId,
       };
 
-      if (params.code) body.keyboardPwd = params.code;
-      if (params.name) body.keyboardPwdName = params.name;
-      if (params.startsAt) body.startDate = new Date(params.startsAt).getTime();
-      if (params.endsAt) body.endDate = new Date(params.endsAt).getTime();
+      if (params.code) queryParams.keyboardPwd = params.code;
+      if (params.name) queryParams.keyboardPwdName = params.name;
+      if (params.startsAt) queryParams.startDate = new Date(params.startsAt).getTime();
+      if (params.endsAt) queryParams.endDate = new Date(params.endsAt).getTime();
 
       const response = await axios.post(
         `${this.baseUrl}/v3/keyboardPwd/change`,
-        body,
-        config
+        null,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+          },
+          params: queryParams,
+        }
       );
 
       const data = response.data;
-      if (data.code !== undefined && data.code !== 0) {
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
         throw new Error(data.message || "Failed to update passcode");
       }
 
@@ -238,47 +264,65 @@ export class SifelyLockProvider implements ILockProvider {
         providerMetadata: data,
       };
     } catch (error: any) {
-      logger.error("Error updating Sifely passcode:", error.message);
-      throw error;
+      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
+      logger.error("Error updating Sifely passcode:", apiErrorMessage);
+      throw new Error(apiErrorMessage || "Failed to update passcode");
     }
   }
 
   /**
    * Deletes an access code
+   * Uses the Sifely API with Bearer token auth and query parameters
+   * Docs: https://apidocs.sifely.com/api-197300858
    */
   async deleteAccessCode(externalCodeId: string): Promise<void> {
     try {
-      const config = await this.authService.getAxiosConfig();
+      const accessToken = await this.authService.getValidAccessToken();
+
+      const queryParams = {
+        keyboardPwdId: externalCodeId,
+      };
 
       const response = await axios.post(
         `${this.baseUrl}/v3/keyboardPwd/delete`,
-        { keyboardPwdId: externalCodeId },
-        config
+        null,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+          },
+          params: queryParams,
+        }
       );
 
       const data = response.data;
-      if (data.code !== undefined && data.code !== 0) {
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
         throw new Error(data.message || "Failed to delete passcode");
       }
 
       logger.info(`Deleted Sifely passcode ${externalCodeId}`);
     } catch (error: any) {
-      logger.error("Error deleting Sifely passcode:", error.message);
-      throw error;
+      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
+      logger.error("Error deleting Sifely passcode:", apiErrorMessage);
+      throw new Error(apiErrorMessage || "Failed to delete passcode");
     }
   }
 
   /**
    * Lists all access codes for a device
+   * Uses the Sifely API with Bearer token auth
+   * Docs: https://apidocs.sifely.com/api-194455500
    */
   async listAccessCodes(externalDeviceId: string): Promise<ProviderAccessCode[]> {
     try {
-      const config = await this.authService.getAxiosConfig();
+      const accessToken = await this.authService.getValidAccessToken();
 
       const response = await axios.get(
         `${this.baseUrl}/v3/lock/listKeyboardPwd`,
         {
-          ...config,
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+          },
           params: {
             lockId: externalDeviceId,
             pageNo: 1,
@@ -288,15 +332,16 @@ export class SifelyLockProvider implements ILockProvider {
       );
 
       const data = response.data;
-      if (data.code !== undefined && data.code !== 0) {
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
         throw new Error(data.message || "Failed to fetch passcodes");
       }
 
       const passcodes = data.list || [];
       return passcodes.map((code: any) => this.mapSifelyPasscodeToProviderAccessCode(code));
     } catch (error: any) {
-      logger.error("Error fetching Sifely passcodes:", error.message);
-      throw error;
+      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
+      logger.error("Error fetching Sifely passcodes:", apiErrorMessage);
+      throw new Error(apiErrorMessage || "Failed to fetch passcodes");
     }
   }
 
