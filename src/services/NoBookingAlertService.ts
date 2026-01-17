@@ -4,7 +4,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
-import { subDays, isAfter } from "date-fns";
+import { subDays, isAfter, format } from "date-fns";
 import redis from "../utils/redisConnection";
 
 interface ListingWithLastBooking {
@@ -149,15 +149,25 @@ export class NoBookingAlertService {
     private async sendNoBookingAlertEmail(listings: ListingWithLastBooking[]): Promise<void> {
         const subject = `ALERT - ${listings.length} Listing(s) Without Bookings for 7 Days`;
 
-        const tableRows = listings.map(item => `
+        const tableRows = listings.map(item => {
+            // Format the last booking date as "Jan 12, 2026"
+            let formattedDate = 'Never';
+            if (item.lastBookingDate) {
+                try {
+                    formattedDate = format(new Date(item.lastBookingDate), 'MMM d, yyyy');
+                } catch {
+                    formattedDate = item.lastBookingDate;
+                }
+            }
+
+            return `
             <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.id}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.internalListingName || '-'}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.externalListingName || '-'}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.address || '-'}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${item.lastBookingDate || 'Never'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${formattedDate}</td>
             </tr>
-        `).join("");
+        `;
+        }).join("");
 
         const html = `
             <h2>No Booking Alert</h2>
@@ -167,8 +177,6 @@ export class NoBookingAlertService {
                     <tr style="background-color: #f2f2f2;">
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Listing ID</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Internal Name</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">External Name</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Address</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Last Booking Date</th>
                     </tr>
                 </thead>
