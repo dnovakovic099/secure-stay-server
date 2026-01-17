@@ -121,6 +121,33 @@ export class OpenPhoneService {
   }
 
   /**
+   * Send an SMS message with a custom sender number
+   * @param to Recipient phone number in E.164 format
+   * @param content Message content
+   * @param fromNumber Sender phone number
+   * @returns Sent message response
+   */
+  async sendSMSWithSender(to: string, content: string, fromNumber: string): Promise<any> {
+    if (!this.isConfigured()) {
+      logger.info("OpenPhone not configured, skipping SMS");
+      return null;
+    }
+
+    try {
+      const response = await this.client.sendSMS({
+        content,
+        from: fromNumber,
+        to: [to],
+      });
+      logger.info(`SMS sent successfully to: ${to} from: ${fromNumber}`);
+      return response;
+    } catch (error: any) {
+      logger.error(`Failed to send SMS to ${to}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Format phone number to E.164 format
    * @param dialCode Dial code (e.g., "+1")
    * @param phone Phone number (e.g., "2345678901")

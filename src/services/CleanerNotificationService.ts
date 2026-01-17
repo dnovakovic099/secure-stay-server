@@ -115,17 +115,19 @@ export class CleanerNotificationService {
                 return;
             }
 
-            if (!process.env.OPEN_PHONE_SENDER_NUMBER) {
+            // Use dedicated cleaner sender number (required)
+            const senderNumber = process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+            if (!senderNumber) {
                 await this.updateNotificationStatus(
                     reservationId,
                     'failed',
-                    'OPEN_PHONE_SENDER_NUMBER not configured, cannot send SMS'
+                    'CLEANER_CHECKOUT_SMS_SENDER_NUMBER not configured, cannot send SMS'
                 );
                 return;
             }
 
-            // Send SMS via OpenPhone
-            await this.openPhoneService.sendSMS(phoneNumber, message);
+            // Send SMS via OpenPhone with dedicated sender number
+            await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
             await this.updateNotificationStatus(reservationId, 'sent');
