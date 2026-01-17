@@ -68,16 +68,18 @@ export class SmartLockAccessCodeService {
   }
 
   /**
-   * Get settings with timezone from Listing entity
-   */
-  async getSettingsWithTimezone(propertyId: number): Promise<PropertyLockSettings & { timezone: string; }> {
+ * Get settings with timezone and check-in/check-out times from Listing entity
+ */
+  async getSettingsWithTimezone(propertyId: number): Promise<PropertyLockSettings & { timezone: string; checkInTimeStart: number | null; checkOutTime: number | null; }> {
     const settings = await this.getOrCreateSettings(propertyId);
     const listing = await this.listingRepository.findOne({ where: { id: propertyId } });
     return {
       ...settings,
       timezone: listing?.timeZoneName || 'America/New_York', // fallback
-    };
-  }
+    checkInTimeStart: listing?.checkInTimeStart ?? null,
+    checkOutTime: listing?.checkOutTime ?? null,
+  };
+}
 
   /**
    * Update property lock settings

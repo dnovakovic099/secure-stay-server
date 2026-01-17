@@ -598,19 +598,34 @@ router.post(
             ? `Reservation #${reservationId}`
             : "Access Code";
 
-      // Calculate scheduled activation time
-      const actualCheckInHour = checkInTime ?? 0; // Fallback: 12 AM (midnight)
-      const scheduledAt = new Date(checkIn);
-      scheduledAt.setHours(actualCheckInHour, 0, 0, 0);
-      scheduledAt.setHours(scheduledAt.getHours() - settings.hoursBeforeCheckin);
+      // Helper to format date as "Jan 18, 2 AM"
+      const formatDateTime = (date: Date): string => {
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const day = date.getDate();
+        let hour = date.getHours();
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        hour = hour % 12;
+        hour = hour === 0 ? 12 : hour;
+        return `${month} ${day}, ${hour} ${ampm}`;
+      };
 
-      // Calculate expiration time
+      // Calculate scheduled activation hour (checkInHour - hoursBeforeCheckin)
+      // Use listing check-in time from settings, fallback to provided checkInTime, or 15 (3 PM)
+      const actualCheckInHour = checkInTime ?? settings.checkInTimeStart ?? 15;
+      const scheduledHour = actualCheckInHour - settings.hoursBeforeCheckin;
+      const scheduledAt = new Date(checkIn);
+      scheduledAt.setHours(scheduledHour, 0, 0, 0);
+
+      // Calculate expiration hour (checkOutHour + hoursAfterCheckout)
+      // Use listing check-out time from settings, fallback to provided checkOutTime, or 11 (11 AM)
       let expiresAt: Date | null = null;
+      let expiresAtFormatted: string | null = null;
       if (checkOut) {
-        const actualCheckOutHour = checkOutTime ?? 23; // Fallback: 11 PM
+        const actualCheckOutHour = checkOutTime ?? settings.checkOutTime ?? 11;
+        const expirationHour = actualCheckOutHour + settings.hoursAfterCheckout;
         expiresAt = new Date(checkOut);
-        expiresAt.setHours(actualCheckOutHour, 0, 0, 0);
-        expiresAt.setHours(expiresAt.getHours() + settings.hoursAfterCheckout);
+        expiresAt.setHours(expirationHour, 0, 0, 0);
+        expiresAtFormatted = formatDateTime(expiresAt);
       }
 
       return res.json({
@@ -626,8 +641,8 @@ router.post(
           preview: {
             code: previewCode,
             codeName,
-            scheduledAt,
-            expiresAt,
+            scheduledAt: formatDateTime(scheduledAt),
+            expiresAt: expiresAtFormatted,
             guestName,
             guestPhone,
             checkInDate: checkIn,
