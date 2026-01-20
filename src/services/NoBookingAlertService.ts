@@ -5,7 +5,6 @@ import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
 import { subDays, isAfter, format } from "date-fns";
-import redis from "../utils/redisConnection";
 
 interface ListingWithLastBooking {
     listing: Listing;
@@ -30,18 +29,8 @@ export class NoBookingAlertService {
     // Valid booking statuses to count (confirmed bookings)
     private validStatuses = ["new", "accepted", "modified", "ownerStay", "moved"];
 
-    // Cooldown period in days
-    private cooldownDays = 7;
-
     // No-booking threshold in days
     private noBookingThresholdDays = 7;
-
-    /**
-     * Get Redis cooldown key for a listing
-     */
-    private getCooldownKey(listingId: number): string {
-        return `no_booking_alert:${listingId}`;
-    }
 
     /**
      * Main method to check all listings and trigger alerts for those without recent bookings
@@ -50,7 +39,7 @@ export class NoBookingAlertService {
         try {
             logger.info('[NoBookingAlertService] Starting no-booking check...');
 
-            // Get all listings without recent bookings
+            // Get all listings without recent bookings (7+ days)
             const flaggedListings = await this.getListingsWithoutRecentBookings();
 
             if (flaggedListings.length === 0) {
@@ -58,37 +47,10 @@ export class NoBookingAlertService {
                 return;
             }
 
-            // Filter out listings that are on cooldown
-            const listingsToAlert: ListingWithLastBooking[] = [];
+            // Send consolidated email with all flagged listings
+            await this.sendNoBookingAlertEmail(flaggedListings);
 
-            for (const item of flaggedListings) {
-                const cooldownKey = this.getCooldownKey(item.listing.id);
-                const isOnCooldown = await redis.get(cooldownKey);
-
-                if (isOnCooldown) {
-                    logger.info(`[NoBookingAlertService] Listing ${item.listing.id} (${item.listing.internalListingName}) is on cooldown. Skipping.`);
-                    continue;
-                }
-
-                listingsToAlert.push(item);
-            }
-
-            if (listingsToAlert.length === 0) {
-                logger.info('[NoBookingAlertService] All flagged listings are on cooldown. No alerts to send.');
-                return;
-            }
-
-            // Send consolidated email
-            await this.sendNoBookingAlertEmail(listingsToAlert);
-
-            // Set cooldown for all alerted listings
-            for (const item of listingsToAlert) {
-                const cooldownKey = this.getCooldownKey(item.listing.id);
-                await redis.setex(cooldownKey, this.cooldownDays * 24 * 60 * 60, 'true');
-                logger.info(`[NoBookingAlertService] Set ${this.cooldownDays}-day cooldown for listing ${item.listing.id}`);
-            }
-
-            logger.info(`[NoBookingAlertService] Alert sent for ${listingsToAlert.length} listing(s).`);
+            logger.info(`[NoBookingAlertService] Alert sent for ${flaggedListings.length} listing(s).`);
 
         } catch (error) {
             logger.error(`[NoBookingAlertService] Error checking for listings without bookings: ${error.message}`);
