@@ -3,7 +3,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
-import { subHours, subDays, isAfter } from "date-fns";
+import { subHours, subDays, isAfter, format } from "date-fns";
 import redis from "../utils/redisConnection";
 
 export class VelocityAlertService {
@@ -89,17 +89,22 @@ export class VelocityAlertService {
     private async sendVelocityEmail(propertyName: string, reservations: ReservationInfoEntity[], reason: string) {
         const subject = `URGENT - HIGH BOOKING VELOCITY FOR ${propertyName.toUpperCase()}`;
 
-        const tableRows = reservations.map(r => `
+        const tableRows = reservations.map(r => {
+            const formattedBookingDate = r.reservationDate
+                ? format(new Date(r.reservationDate), 'MMM d, yyyy')
+                : '-';
+            return `
             <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.guestName}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.listingName}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${r.reservationDate}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${formattedBookingDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.arrivalDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.departureDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.status}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.totalPrice} ${r.currency || ''}</td>
             </tr>
-        `).join("");
+        `;
+        }).join("");
 
         const html = `
             <h2>High Booking Velocity Alert</h2>
