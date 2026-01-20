@@ -993,19 +993,20 @@ Respond in JSON format: { "interactionWithGuests": "Full formatted text here" }`
 - NO em dashes (use regular hyphens)
 
 ## STANDARD ITEMS (always include):
-▪️ We use ChargeAutomation to provide a secure guest portal, which can be shared with your group and adds an extra layer of verification to prevent fraudulent bookings. You'll receive this link after your booking is confirmed.
-
 ▪️ We hold a security deposit during your stay, which will be fully refunded after check-out, provided there are no damages to the property.
 
 ▪️ Please take a moment to read our House Rules in the House Rules section.
 
-▪️ This property comfortably accommodates up to [actual capacity] guests.
-
 ## CONDITIONAL ITEMS (add if applicable):
-- If pool/hot tub: ▪️ Pool and hot tub heating is available for an additional fee. To have the pool ready and warm for your arrival, please give us at least 48 hours' notice.
-- If pool/hot tub: ▪️ We'd like to set your expectations that the (heated pool/hot tub) temperature will be determined by the weather temperature.
+- If capacity differs from bed count: ▪️ This property comfortably accommodates up to [actual capacity] guests, but we are happy to consider hosting up to [maximum capacity] guests if needed.
+- If extra guest charge: There is an additional fee above [X] guests. Kindly register the correct total number of guests.
+- If pool/hot tub: ▪️ Pool and hot tub heating is available for an additional fee. To have the pool ready and warm for your arrival, please notify us in advance so we can confirm availability and pricing. Depending on the request, additional fees may apply, and heating at the standard rate cannot always be guaranteed.
+- If pool/hot tub: ▪️ We'd like to set your expectations that the (e.g., heated pool/hot tub) temperature will be determined by the weather temperature, as this is a contributing factor if the heater reaches its limit and is unable to overcome the weather.
+- If security cameras: ▪️ Surveillance or recording devices on property. Video recording devices only monitor the exterior of the home.
 - ▪️ We offer options for early check-in and late check-out, subject to availability and fees.
 - ▪️ Mid-stay cleaning and other concierge services are available upon request for an additional fee.
+- If Florida property near water: ▪️ We're delighted to welcome you to our beautiful property, located near a body of water. To ensure a comfortable stay, we conduct weekly pest control to minimize the presence of no-see-ums, mosquitoes, and other insects. However, please note that being near water means there is a higher chance of encountering wildlife, including alligators. Your comfort and safety are always our priority!
+- If Florida property (general): ▪️ To make your stay as comfortable as possible, we perform weekly pest control to keep no-see-ums, mosquitoes, and other insects to a minimum.
 
 Respond in JSON format: { "otherThingsToNote": "Full formatted text here" }`;
 
