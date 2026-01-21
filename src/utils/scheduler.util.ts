@@ -23,6 +23,7 @@ import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerServi
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
 import { TimeEntryService } from "../services/TimeEntryService";
 import { NoBookingAlertService } from "../services/NoBookingAlertService";
+import { GuestAnalysisService } from "../services/GuestAnalysisService";
 
 
 export function scheduleGetReservation() {
@@ -453,6 +454,22 @@ export function scheduleGetReservation() {
         logger.info('[NoBookingAlert] Check completed.');
       } catch (error) {
         logger.error("[NoBookingAlert] Error checking for listings without bookings:", error);
+      }
+    }
+  );
+
+  // Scheduled AI Guest Analysis - Daily at 6:15 AM EST
+  // Generates AI analysis for reservations with checkout today
+  schedule.scheduleJob(
+    { hour: 6, minute: 15, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('[GuestAnalysis] Scheduled AI analysis job started...');
+        const guestAnalysisService = new GuestAnalysisService();
+        const result = await guestAnalysisService.processScheduledAnalysis();
+        logger.info(`[GuestAnalysis] Scheduled job completed - Processed: ${result.processed}, Failed: ${result.failed}, Skipped: ${result.skipped}`);
+      } catch (error) {
+        logger.error("[GuestAnalysis] Error in scheduled AI analysis job:", error);
       }
     }
   );

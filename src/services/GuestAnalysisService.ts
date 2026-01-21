@@ -147,6 +147,49 @@ export class GuestAnalysisService {
     }
 
     /**
+     * Process scheduled AI analysis for today's checkout reservations
+     * This is called by the daily scheduler at 6:15 AM EST
+     */
+    async processScheduledAnalysis(): Promise<{ processed: number; failed: number; skipped: number; }> {
+        const { ReservationInfoService } = await import('./ReservationInfoService');
+        const reservationInfoService = new ReservationInfoService();
+
+        logger.info('[GuestAnalysisService] Scheduled analysis started - fetching today\'s checkouts...');
+
+        const { reservations } = await reservationInfoService.getCheckoutReservations();
+        logger.info(`[GuestAnalysisService] Found ${reservations.length} checkout reservations to analyze`);
+
+        let processed = 0;
+        let failed = 0;
+        let skipped = 0;
+
+        for (const reservation of reservations) {
+            try {
+                // Check if analysis already exists and was done recently (within last 24 hours)
+                const existing = await this.getAnalysisByReservation(reservation.id);
+                if (existing && existing.analyzedAt) {
+                    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                    if (existing.analyzedAt > twentyFourHoursAgo) {
+                        logger.info(`[GuestAnalysisService] Skipping reservation ${reservation.id} - recent analysis exists`);
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                logger.info(`[GuestAnalysisService] Processing reservation ${reservation.id} (${reservation.guestName})`);
+                await this.analyzeGuestCommunication(reservation.id);
+                processed++;
+            } catch (error: any) {
+                logger.error(`[GuestAnalysisService] Failed to analyze reservation ${reservation.id}: ${error.message}`);
+                failed++;
+            }
+        }
+
+        logger.info(`[GuestAnalysisService] Scheduled analysis complete - Processed: ${processed}, Failed: ${failed}, Skipped: ${skipped}`);
+        return { processed, failed, skipped };
+    }
+
+    /**
      * Generate AI analysis from communication timeline
      */
     private async generateAnalysis(
