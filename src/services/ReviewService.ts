@@ -26,6 +26,7 @@ import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
 import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
 import { Listing } from "../entity/Listing";
 import { Hostify } from "../client/Hostify";
+import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -115,6 +116,7 @@ export class ReviewService {
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
     private hostifyClient = new Hostify();
     private listingRepo = appDatabase.getRepository(Listing);
+    private guestAnalysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
 
     public async getReviews({
         fromDate,
@@ -748,6 +750,11 @@ export class ReviewService {
 
         const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
         const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
+        const guestAnalyses = await this.guestAnalysisRepo.find({
+            where: {
+                reservationId: In(reservationIds),
+            },
+        });
 
         const transformedData = reviewCheckoutList.map(rc => {
             return {
@@ -761,6 +768,7 @@ export class ReviewService {
                     review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
+                    aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
                 },
                 reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
                     return {

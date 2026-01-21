@@ -385,4 +385,52 @@ export class Hostify {
         };
     }
 
+    /**
+     * Get inbox message thread from Hostify
+     * @param apiKey The Hostify API key
+     * @param inboxId The inbox/conversation ID
+     * @returns Inbox thread with messages
+     */
+    async getInboxThread(apiKey: string, inboxId: string): Promise<HostifyInboxThread | null> {
+        try {
+            const url = `https://api-rms.hostify.com/inbox/${inboxId}`;
+
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+
+            return response.data || null;
+        } catch (error) {
+            logger.error(`Error fetching inbox thread ${inboxId}:`, error.message);
+            return null;
+        }
+    }
+
+}
+
+// --- Type Definitions ---
+
+export interface HostifyInboxMessage {
+    id: number;
+    message: string;
+    sender: string;
+    senderType: string;  // 'guest' | 'host' | 'system'
+    createdAt: string;
+    channel?: string;
+}
+
+export interface HostifyInboxThread {
+    id: number;
+    reservationId?: number;
+    guestName?: string;
+    guestEmail?: string;
+    guestPhone?: string;
+    listingId?: number;
+    listingName?: string;
+    messages: HostifyInboxMessage[];
+    createdAt: string;
+    updatedAt: string;
 }
