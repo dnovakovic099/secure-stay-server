@@ -1172,6 +1172,11 @@ export class ReviewService {
 
         const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
         const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
+        const guestAnalyses = await this.guestAnalysisRepo.find({
+            where: {
+                reservationId: In(reservationIds),
+            },
+        });
 
         const transformedData = badReviewList.map(rc => {
             return {
@@ -1184,6 +1189,7 @@ export class ReviewService {
                     review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
+                    aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
                 },
                 badReviewUpdates: rc.badReviewUpdates.map(update => {
                     return {
@@ -1346,6 +1352,13 @@ export class ReviewService {
             }
         }
 
+        const reservationIds = liveIssueList.map(li => li.reservationId).filter(Boolean);
+        const guestAnalyses = await this.guestAnalysisRepo.find({
+            where: {
+                reservationId: In(reservationIds as number[]),
+            },
+        });
+
         const transformedData = liveIssueList.map(li => {
             const propertyId = String(li.propertyId);
             const propertyName = propertyMap.get(propertyId);
@@ -1359,6 +1372,7 @@ export class ReviewService {
                 propertyName: propertyName,
                 createdBy: userMap.get(li.createdBy) || li.createdBy,
                 updatedBy: userMap.get(li.updatedBy) || li.updatedBy,
+                aiAnalysis: guestAnalyses.find(a => a.reservationId == li.reservationId) || null,
                 liveIssueUpdates: li.liveIssueUpdates ? li.liveIssueUpdates.map(update => {
                     return {
                         ...update,

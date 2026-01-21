@@ -2,6 +2,7 @@ import { Between, Repository } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue, DamageReport, MissingItems, UtilityIssues, KeysAndLocks, GuestBookCheck, SecurityDepositStatus } from "../entity/ReservationDetailPostStayAudit";
 import { FileInfo } from "../entity/FileInfo";
+import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 import logger from "../utils/logger.utils";
 
 interface ReservationDetailPostStayAuditDTO {
@@ -42,11 +43,14 @@ export class ReservationDetailPostStayAuditService {
         this.postStayAuditRepository = appDatabase.getRepository(ReservationDetailPostStayAudit);
     }
 
-    async fetchAuditByReservationId(reservationId: number): Promise<(ReservationDetailPostStayAudit & { fileInfo: FileInfo[]; }) | null> {
+    async fetchAuditByReservationId(reservationId: number): Promise<(Partial<ReservationDetailPostStayAudit> & { fileInfo: FileInfo[]; aiAnalysis: GuestAnalysisEntity | null; }) | null> {
 
         const data = await this.postStayAuditRepository.findOne({ where: { reservationId } });
         const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'post-stay-audit', entityId: reservationId } });
-        return data ? { ...data, fileInfo } : null;
+        const aiAnalysis = await appDatabase.getRepository(GuestAnalysisEntity).findOne({ where: { reservationId } });
+
+        // Return whatever data we have, even if primary data record is null
+        return { ...(data || {}), fileInfo, aiAnalysis };
     }
 
     async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
