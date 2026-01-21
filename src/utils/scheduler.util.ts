@@ -442,10 +442,10 @@ export function scheduleGetReservation() {
     }
   );
 
-  // No-Booking Alert - Daily at 9:30 AM EST
+  // No-Booking Alert - Every Monday at 6 AM EST
   // Sends email notification for listings that haven't received any bookings for 7 days
   schedule.scheduleJob(
-    { hour: 9, minute: 30, tz: "America/New_York" },
+    { hour: 6, minute: 0, dayOfWeek: 1, tz: "America/New_York" },
     async () => {
       try {
         logger.info('[NoBookingAlert] Checking for listings without bookings for 7 days...');
