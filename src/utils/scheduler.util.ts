@@ -62,16 +62,16 @@ export function scheduleGetReservation() {
   // schedule.scheduleJob({ hour: 1, minute: 0, tz: "America/New_York" }, syncHostawayUser);
 
   // Schedule daily occupancy report at 8 AM EST
-  schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, async () => {
-    try {
-      logger.info('SendDailyOccupancyReport scheduler ran...')
-      const occupancyReportService = new OccupancyReportService();
-      await occupancyReportService.sendDailyReport();
-      logger.info('SendDailyOccupancyReport scheduler completed...')
-    } catch (error) {
-      logger.error("Error sending daily occupancy report:", error);
-    }
-  });
+  // schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, async () => {
+  //   try {
+  //     logger.info('SendDailyOccupancyReport scheduler ran...')
+  //     const occupancyReportService = new OccupancyReportService();
+  //     await occupancyReportService.sendDailyReport();
+  //     logger.info('SendDailyOccupancyReport scheduler completed...')
+  //   } catch (error) {
+  //     logger.error("Error sending daily occupancy report:", error);
+  //   }
+  // });
 
   schedule.scheduleJob(
     { hour: 1, minute: 0, dayOfWeek: 0, tz: "America/New_York" }, // Sunday @ 1 AM EST
