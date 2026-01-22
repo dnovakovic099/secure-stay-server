@@ -1,5 +1,5 @@
 import { sendCodes } from "../scripts/sendCodes";
-import { checkForPendingRefundRequest, checkForUnresolvedReviews, checkUnasweredMessages, checkUpdatedReviews } from "../scripts/notifyAdmin";
+import { checkForPendingRefundRequest, checkForUnresolvedReviews, checkUnasweredMessages, checkUnasweredMessagesHostify, checkUpdatedReviews } from "../scripts/notifyAdmin";
 import { syncReviews } from "../scripts/syncReview";
 import { syncIssue } from "../scripts/syncIssue";
 import { syncCurrentlyStayingReservations, syncReservation } from "../scripts/syncReservation";
@@ -43,7 +43,11 @@ export function scheduleGetReservation() {
 
   // schedule.scheduleJob("0 0 * * *", sendCodes);
 
+  // Hostaway unanswered messages (disabled)
   // schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
+
+  // Hostify unanswered messages - runs every 5 minutes
+  schedule.scheduleJob("*/5 * * * *", checkUnasweredMessagesHostify);
 
   schedule.scheduleJob("0 9 * * *", checkForUnresolvedReviews);
 

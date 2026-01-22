@@ -12,6 +12,7 @@ import { ReservationService } from "../services/ReservationService";
 import { ActionItemsService } from "../services/ActionItemsService";
 import { ExpenseService } from "../services/ExpenseService";
 import { SlackEventsService } from "../services/SlackEventsService";
+import { MessagingService } from "../services/MessagingServices";
 
 export class UnifiedWebhookController {
 
@@ -341,6 +342,19 @@ export class UnifiedWebhookController {
                         await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
                         break;
                     }
+                    case "message_new":
+                        {
+                            logger.info("[handleHostifyWebhook] Processing message_new action");
+                            // Only save incoming guest messages (is_incoming === 1)
+                            if (message.is_incoming === 1) {
+                                const messagingService = new MessagingService();
+                                await messagingService.saveHostifyGuestMessage(message);
+                                logger.info(`[handleHostifyWebhook] Saved guest message ${message.message_id}`);
+                            } else {
+                                logger.info("[handleHostifyWebhook] Skipping outgoing/representative message");
+                            }
+                            break;
+                        }
                     default:
                         {
                             logger.info(`[handleHostifyWebhook] Unhandled Hostify action: ${action}`);

@@ -13,6 +13,13 @@ export async function checkUnasweredMessages() {
     // logger.info("Checking unanswered guest messages completed");
 }
 
+export async function checkUnasweredMessagesHostify() {
+    logger.info("Checking unanswered guest messages (Hostify)...");
+    const messagingServices = new MessagingService();
+    await messagingServices.processUnansweredMessagesHostify();
+    logger.info("Checking unanswered guest messages (Hostify) completed");
+}
+
 export async function checkForUnresolvedReviews() {
     logger.info("Checking unresolved reviews...");
     const reviewService = new ReviewService();

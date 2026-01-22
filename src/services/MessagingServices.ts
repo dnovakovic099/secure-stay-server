@@ -5,9 +5,28 @@ import CustomErrorHandler from "../middleware/customError.middleware";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { HostAwayClient } from "../client/HostAwayClient";
+import { Hostify } from "../client/Hostify";
 import logger from "../utils/logger.utils";
 import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+
+// Hostify message webhook payload interface
+export interface HostifyMessagePayload {
+    thread_id: string;
+    message_id: number;
+    message: string;
+    guest_id: string;
+    created: string;
+    sent_by: string | null;
+    is_automatic: number;
+    is_sms: boolean;
+    is_incoming: number;
+    reservation_id: string;
+    attachment_url: string | null;
+    type: string;
+    listing_id: string;
+    action: string;
+}
 
 interface MessageType {
     id: number;
@@ -31,6 +50,7 @@ export class MessagingService {
     private messagingPhoneNoInfoRepository = appDatabase.getRepository(MessagingPhoneNoInfo);
     private messageRepository = appDatabase.getRepository(Message);
     private hostawayClient = new HostAwayClient();
+    private hostifyClient = new Hostify();
 
     async saveEmailInfo(email: string) {
         const isExist = await this.messagingEmailInfoRepository.findOne({ where: { email } });
@@ -246,7 +266,10 @@ export class MessagingService {
             "inquiryPreapproved",
             "inquiryDenied",
             "inquiryTimedout",
-            "inquiryNotPossible"
+            "inquiryNotPossible",
+            "preapproved",
+            "timedout",
+            "not_possible"
         ];
         if (!reservation) {
             return false;
@@ -328,5 +351,136 @@ export class MessagingService {
         `;
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
+    }
+
+    // ==================== HOSTIFY-SPECIFIC METHODS ====================
+
+    /**
+     * Save an incoming guest message from Hostify webhook
+     * Only saves messages where is_incoming === 1
+     */
+    async saveHostifyGuestMessage(payload: HostifyMessagePayload) {
+        try {
+            // Check if message already exists
+            const existingMessage = await this.messageRepository.findOne({
+                where: { messageId: payload.message_id }
+            });
+
+            if (existingMessage) {
+                logger.info(`[Hostify] Message ${payload.message_id} already exists, skipping save`);
+                return existingMessage;
+            }
+
+            const newMessage = new Message();
+            newMessage.messageId = payload.message_id;
+            newMessage.reservationId = Number(payload.reservation_id);
+            newMessage.body = payload.message;
+            newMessage.isIncoming = payload.is_incoming;
+            newMessage.receivedAt = new Date(payload.created);
+            newMessage.answered = false;
+
+            // Hostify-specific fields
+            newMessage.threadId = payload.thread_id;
+            newMessage.listingId = payload.listing_id;
+            newMessage.guestId = payload.guest_id;
+            newMessage.source = 'hostify';
+
+            const savedMessage = await this.messageRepository.save(newMessage);
+            logger.info(`[Hostify] Guest message saved successfully - messageId: ${payload.message_id}, threadId: ${payload.thread_id}`);
+            return savedMessage;
+        } catch (error) {
+            logger.error(`[Hostify] Error saving guest message: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Process unanswered messages using Hostify APIs
+     * Fetches unanswered Hostify messages and checks if they've been responded to
+     */
+    public async processUnansweredMessagesHostify() {
+        const unansweredMessages = await this.messageRepository.find({
+            where: {
+                answered: false,
+                source: 'hostify'
+            },
+        });
+
+        if (unansweredMessages.length === 0) {
+            logger.info('[Hostify] No unanswered messages found');
+            return;
+        }
+
+        logger.info(`[Hostify] Processing ${unansweredMessages.length} unanswered messages`);
+
+        for (const msg of unansweredMessages) {
+            try {
+                logger.info(`[Hostify] Checking message ${msg.messageId} in thread ${msg.threadId}`);
+
+                // Check if message has been answered via Hostify inbox
+                const isAnswered = await this.checkHostifyMessageAnswered(msg);
+                logger.info(`[Hostify] Message ${msg.messageId} isAnswered: ${isAnswered}`);
+
+                if (!isAnswered) {
+                    // Check for emoji/thank you messages (auto-mark as answered)
+                    const isReactionMsg = isReactionMessage(msg.body);
+                    const isEmojiOrThankYouMsg = isEmojiOrThankYouMessage(msg.body);
+
+                    if (isReactionMsg || isEmojiOrThankYouMsg) {
+                        logger.info(`[Hostify] Message ${msg.messageId} is reaction/thank you, marking as answered`);
+                        await this.updateMessageAsAnswered(msg);
+                    } else {
+                        // Check if message has exceeded 5 minute threshold
+                        await this.checkGuestMessageTime(msg);
+                    }
+                }
+            } catch (error) {
+                logger.error(`[Hostify] Error processing message ${msg.messageId}: ${error.message}`);
+            }
+        }
+    }
+
+    /**
+     * Check if a Hostify message has been answered by fetching the inbox thread
+     * Returns true if there's an outgoing message after the guest message
+     */
+    private async checkHostifyMessageAnswered(guestMessage: Message): Promise<boolean> {
+        if (!guestMessage.threadId) {
+            logger.warn(`[Hostify] No threadId for message ${guestMessage.messageId}`);
+            return false;
+        }
+
+        const apiKey = process.env.HOSTIFY_API_KEY;
+        if (!apiKey) {
+            logger.error('[Hostify] HOSTIFY_API_KEY not configured');
+            return false;
+        }
+
+        try {
+            const inboxThread = await this.hostifyClient.getInboxThread(apiKey, guestMessage.threadId);
+
+            if (!inboxThread || !inboxThread.messages || inboxThread.messages.length === 0) {
+                logger.info(`[Hostify] No messages found in thread ${guestMessage.threadId}`);
+                return false;
+            }
+
+            // Check if there's any host/representative message after the guest message
+            const guestMessageTime = guestMessage.receivedAt.getTime();
+
+            for (const msg of inboxThread.messages) {
+                const messageTime = new Date(msg.createdAt).getTime();
+                // Check if this is an outgoing message (host/representative) sent after the guest message
+                if (msg.senderType !== 'guest' && messageTime > guestMessageTime) {
+                    logger.info(`[Hostify] Found reply message ${msg.id} after guest message ${guestMessage.messageId}`);
+                    await this.updateMessageAsAnswered(guestMessage);
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (error) {
+            logger.error(`[Hostify] Error checking thread ${guestMessage.threadId}: ${error.message}`);
+            return false;
+        }
     }
 }

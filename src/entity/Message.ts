@@ -8,7 +8,7 @@ export class Message {
     @Column()
     messageId: number;
 
-    @Column()
+    @Column({ nullable: true })
     conversationId: number;
 
     @Column()
@@ -25,6 +25,19 @@ export class Message {
 
     @Column({ type: 'boolean', default: false })
     answered: boolean;
+
+    // Hostify-specific fields
+    @Column({ nullable: true })
+    threadId: string;
+
+    @Column({ nullable: true })
+    listingId: string;
+
+    @Column({ nullable: true })
+    guestId: string;
+
+    @Column({ default: 'hostaway' })
+    source: string;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
