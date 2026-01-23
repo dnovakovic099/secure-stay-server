@@ -36,6 +36,9 @@ export class Message {
     @Column({ nullable: true })
     guestId: string;
 
+    @Column({ nullable: true })
+    guestName: string;
+
     @Column({ default: 'hostaway' })
     source: string;
 

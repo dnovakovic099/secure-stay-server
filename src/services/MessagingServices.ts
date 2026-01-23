@@ -16,6 +16,7 @@ export interface HostifyMessagePayload {
     message_id: number;
     message: string;
     guest_id: string;
+    guest_name: string;
     created: string;
     sent_by: string | null;
     is_automatic: number;
@@ -166,7 +167,8 @@ export class MessagingService {
         return {
             data: messages.map(msg => ({
                 ...msg,
-                guestName: msg['reservation']?.guestName || null,
+                guestName: msg.guestName || msg['reservation']?.guestName || null,
+                conversationId: msg.threadId || msg.conversationId || null,
             })),
             meta: {
                 total,
@@ -383,6 +385,7 @@ export class MessagingService {
             newMessage.threadId = payload.thread_id;
             newMessage.listingId = payload.listing_id;
             newMessage.guestId = payload.guest_id;
+            newMessage.guestName = payload.guest_name || null;
             newMessage.source = 'hostify';
 
             const savedMessage = await this.messageRepository.save(newMessage);
