@@ -21,4 +21,10 @@ router.route('/slack-events-webhook').post(unifiedWebhookController.handleSlackE
 // Zapier webhook endpoint
 router.route('/zapier').post(zapierWebhookController.handleWebhook);
 
+// Zapier events management endpoints (for GR Tasks page)
+router.route('/zapier/events').get(zapierWebhookController.getEvents);
+router.route('/zapier/events/:id').get(zapierWebhookController.getEventById);
+router.route('/zapier/events/:id/status').put(zapierWebhookController.updateEventStatus);
+router.route('/zapier/event-types').get(zapierWebhookController.getEventTypes);
+
 export default router;
