@@ -77,8 +77,14 @@ export class VelocityAlertService {
             }
 
             if (trigger) {
-                await this.sendVelocityEmail(propertyName, confirmedReservations, reason);
-                await redis.setex(cooldownKey, 24 * 60 * 60, 'true'); // 24 hours cooldown
+                // Atomic check-and-set for cooldown to handle multiple instances
+                const wasSet = await redis.set(cooldownKey, 'true', 'EX', 24 * 60 * 60, 'NX');
+                if (wasSet === 'OK') {
+                    await this.sendVelocityEmail(propertyName, confirmedReservations, reason);
+                    logger.info(`[VelocityAlertService] Successfully triggered alert and set cooldown for ${propertyName}`);
+                } else {
+                    logger.info(`[VelocityAlertService] Cooldown was just set by another instance for ${propertyName}. Skipping email.`);
+                }
             }
 
         } catch (error) {
