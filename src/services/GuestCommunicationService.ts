@@ -200,7 +200,7 @@ export class GuestCommunicationService {
                 // Handle potential key variations from Hostify (camelCase vs snake_case)
                 const msgId = msg.id || (msg as any).message_id;
                 const msgContent = msg.message || (msg as any).text || "";
-                const msgCreatedAt = msg.createdAt || (msg as any).created_at || (msg as any).timestamp;
+                const msgCreatedAt = msg.created || (msg as any).created_at || (msg as any).timestamp;
                 const msgSenderType = msg.senderType || (msg as any).sender_type;
                 const msgSender = msg.sender || (msg as any).sender_name;
 
