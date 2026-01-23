@@ -418,7 +418,7 @@ export interface HostifyInboxMessage {
     message: string;
     sender: string;
     senderType: string;  // 'guest' | 'host' | 'system'
-    createdAt: string;
+    created: string;
     channel?: string;
 }
 
