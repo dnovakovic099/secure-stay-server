@@ -14,7 +14,7 @@ export class Message {
     @Column()
     reservationId: number;
 
-    @Column()
+    @Column({ type: 'text' })
     body: string;
 
     @Column()
