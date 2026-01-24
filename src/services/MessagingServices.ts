@@ -165,11 +165,14 @@ export class MessagingService {
             .getManyAndCount();
 
         return {
-            data: messages.map(msg => ({
-                ...msg,
-                guestName: msg.guestName || msg['reservation']?.guestName || null,
-                conversationId: msg.threadId || msg.conversationId || null,
-            })),
+            data: messages.map(msg => {
+                const mappedMsg = {
+                    ...msg,
+                    guestName: msg.guestName || msg['reservation']?.guestName || null,
+                    conversationId: msg.source === 'hostify' ? msg.threadId : msg.conversationId,
+                };
+                return mappedMsg;
+            }),
             meta: {
                 total,
                 page,
