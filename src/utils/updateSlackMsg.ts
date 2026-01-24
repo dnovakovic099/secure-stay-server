@@ -3,11 +3,25 @@ import logger from "./logger.utils";
 
 const updateSlackMessage = async (message: any, messageTs: string, channel: string) => {
     try {
-        const payload = {
+        let payload: any = {
             ...message,
             channel: channel,
             ts: messageTs
         };
+
+        // Honor username and icon if provided in the message object
+        if (message.bot_name) {
+            payload.username = message.bot_name;
+            delete payload.bot_name;
+        }
+        if (message.bot_icon) {
+            payload.icon_url = message.bot_icon;
+            delete payload.bot_icon;
+        }
+
+        // Disable auto-expansion of links
+        payload.unfurl_links = false;
+        payload.unfurl_media = false;
 
         const response = await axios.post('https://slack.com/api/chat.update', payload, {
             headers: {

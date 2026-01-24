@@ -2,6 +2,11 @@ import logger from '../utils/logger.utils';
 import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { EmailProcessor } from '../utils/emailProcessor.util';
+import sendSlackMessage from '../utils/sendSlackMsg';
+import updateSlackMessage from '../utils/updateSlackMsg';
+import { SlackMessageService } from './SlackMessageService';
+import { buildZapierEventSlackMessage, buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from '../utils/slackMessageBuilder';
+import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 
 /**
  * Enum for Zapier trigger event status
@@ -13,6 +18,8 @@ export enum ZapierEventStatus {
 }
 
 export class ZapierWebhookService {
+    private slackMessageService = new SlackMessageService();
+
     async processWebhook(payload: any): Promise<{ status: string; message: string; eventId?: number; }> {
         logger.info(`[ZapierWebhookService][processWebhook] Received payload: ${JSON.stringify(payload)}`);
         
@@ -42,22 +49,8 @@ export class ZapierWebhookService {
             await eventRepo.save(event);
             logger.info(`[ZapierWebhookService][processWebhook] Created event record with ID: ${event.id}`);
 
-            // TODO: Add event-specific processing here based on event.event type
-            // Example:
-            // switch (event.event) {
-            //     case 'low_battery':
-            //         await this.handleLowBattery(event, payload);
-            //         break;
-            //     case 'pending_reservation':
-            //         await this.handlePendingReservation(event, payload);
-            //         break;
-            //     case 'reservation_change':
-            //         await this.handleReservationChange(event, payload);
-            //         break;
-            //     case 'bdc_listing_question':
-            //         await this.handleBdcListingQuestion(event, payload);
-            //         break;
-            // }
+            // Send Slack notifications (main message + threaded reply)
+            await this.sendSlackNotifications(event);
 
             // Note: Status remains as 'New', user will manually update to 'In Progress' or 'Completed'
             // event.status = ZapierEventStatus.Completed;
@@ -87,6 +80,52 @@ export class ZapierWebhookService {
             }
 
             throw error;
+        }
+    }
+
+    /**
+     * Send Slack notifications for a Zapier event
+     */
+    private async sendSlackNotifications(event: ZapierTriggerEvent) {
+        try {
+            // 1. Build and send the main interactive message
+            const slackMessage = buildZapierEventSlackMessage(event);
+
+            // Ensure channel starts with # if it's a name and not an ID (IDs start with C, D, or G)
+            if (slackMessage.channel && !slackMessage.channel.startsWith('#') && !/^[C|D|G][A-Z0-9]{8,10}$/.test(slackMessage.channel)) {
+                slackMessage.channel = `#${slackMessage.channel}`;
+            }
+
+            const result = await sendSlackMessage(slackMessage);
+
+            if (result && result.ok) {
+                const messageTs = result.ts;
+                const channelId = result.channel;
+
+                // 2. Save tracking info to SlackMessageEntity
+                await this.slackMessageService.saveSlackMessageInfo({
+                    channel: channelId,
+                    messageTs: messageTs,
+                    threadTs: messageTs, // It's a root message
+                    entityType: 'zapier_trigger_event',
+                    entityId: event.id,
+                    originalMessage: JSON.stringify(slackMessage)
+                });
+
+                // 3. If there is processed email content, send it as a threaded reply
+                if (event.processedMessage) {
+                    await sendSlackMessage({
+                        channel: channelId,
+                        text: event.processedMessage,
+                        bot_name: event.botName,
+                        bot_icon: event.botIcon,
+                    }, messageTs);
+                }
+            } else {
+                logger.error(`[ZapierWebhookService][sendSlackNotifications] Failed to send Slack message: ${JSON.stringify(result)}`);
+            }
+        } catch (error) {
+            logger.error(`[ZapierWebhookService][sendSlackNotifications] Error: ${error}`);
         }
     }
 
@@ -169,7 +208,43 @@ export class ZapierWebhookService {
         await eventRepo.save(event);
         logger.info(`[ZapierWebhookService][updateEventStatus] Updated event ${id} to status: ${status}`);
 
+        // Notify Slack about the status change
+        // We run this asynchronously to not block the API response
+        this.notifySlackStatusChange(event, event.updatedBy).catch(err => {
+            logger.error(`[ZapierWebhookService][updateEventStatus] Slack notification failed: ${err}`);
+        });
+
         return event;
+    }
+
+    /**
+     * Notify Slack about a status change (update original message + threaded reply)
+     */
+    private async notifySlackStatusChange(event: ZapierTriggerEvent, user: string) {
+        try {
+            // 1. Get Slack message tracking info
+            const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+            const slackMsg = await slackMessageRepo.findOne({
+                where: { entityType: 'zapier_trigger_event', entityId: event.id }
+            });
+
+            if (slackMsg) {
+                // 2. Update the original message (to show new status and keep the dropdown)
+                const updatePayload = buildZapierEventStatusUpdateMessage(event, user);
+                await updateSlackMessage(updatePayload, slackMsg.messageTs, slackMsg.channel);
+
+                // 3. Send threaded reply for the change log
+                const threadPayload = buildZapierStatusChangeThreadMessage(event, user);
+                await sendSlackMessage({
+                    channel: slackMsg.channel,
+                    ...threadPayload,
+                }, slackMsg.messageTs);
+
+                logger.info(`[ZapierWebhookService][notifySlackStatusChange] Slack updated for event ${event.id}`);
+            }
+        } catch (error) {
+            logger.error(`[ZapierWebhookService][notifySlackStatusChange] Error: ${error}`);
+        }
     }
 
     /**

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { UnifiedWebhookController } from "../controllers/UnifiedWebhookController";
 import { ZapierWebhookController } from "../controllers/ZapierWebhookController";
 import bodyParser from "body-parser"
+import verifyMobileSession from "../middleware/verifyMobileSession";
+import verifySession from "../middleware/verifySession";
 
 const router = Router();
 const unifiedWebhookController = new UnifiedWebhookController();
@@ -22,9 +24,9 @@ router.route('/slack-events-webhook').post(unifiedWebhookController.handleSlackE
 router.route('/zapier').post(zapierWebhookController.handleWebhook);
 
 // Zapier events management endpoints (for GR Tasks page)
-router.route('/zapier/events').get(zapierWebhookController.getEvents);
-router.route('/zapier/events/:id').get(zapierWebhookController.getEventById);
-router.route('/zapier/events/:id/status').put(zapierWebhookController.updateEventStatus);
-router.route('/zapier/event-types').get(zapierWebhookController.getEventTypes);
+router.route('/zapier/events').get(verifySession, zapierWebhookController.getEvents);
+router.route('/zapier/events/:id').get(verifySession, zapierWebhookController.getEventById);
+router.route('/zapier/events/:id/status').put(verifySession, zapierWebhookController.updateEventStatus);
+router.route('/zapier/event-types').get(verifySession, zapierWebhookController.getEventTypes);
 
 export default router;

@@ -87,7 +87,9 @@ export class ZapierWebhookController {
                 });
             }
 
-            const updatedBy = (req as any).user?.email || 'user';
+            const user = (req as any).user;
+            const updatedBy = user?.user_metadata?.full_name || user?.email || 'user';
+
             const event = await this.webhookService.updateEventStatus(id, status, updatedBy);
 
             return res.status(200).json({

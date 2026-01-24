@@ -14,6 +14,7 @@ import { ReviewEntity } from "../entity/Review";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -1283,5 +1284,150 @@ export const buildOnboardingSlackMessage = (
         text: `${emoji} Onboarding Update: ${title} for ${client.firstName} ${client.lastName}`,
         blocks,
         thread_ts: threadTs
+    };
+};
+
+export const buildZapierEventSlackMessage = (event: ZapierTriggerEvent) => {
+    const statusEmoji = event.status === 'New' ? '🔵' : event.status === 'In Progress' ? '🟡' : '🟢';
+
+    const blocks: any[] = [];
+
+    // Add Title if available
+    if (event.title) {
+        blocks.push({
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*${event.title}*`
+            }
+        });
+    }
+
+    // Add Message
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: event.message
+        }
+    });
+
+    // Add Status info
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `*Status:* ${statusEmoji} ${event.status}`
+        }
+    });
+
+    // Add Dropdown for status update
+    blocks.push({
+        type: "actions",
+        elements: [
+            {
+                type: "static_select",
+                action_id: slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS,
+                placeholder: {
+                    type: "plain_text",
+                    text: "Update Status",
+                    emoji: true
+                },
+                options: [
+                    {
+                        text: { type: "plain_text", text: "New", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "New" })
+                    },
+                    {
+                        text: { type: "plain_text", text: "In Progress", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "In Progress" })
+                    },
+                    {
+                        text: { type: "plain_text", text: "Completed", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "Completed" })
+                    }
+                ]
+            }
+        ]
+    });
+
+    return {
+        channel: event.slackChannel,
+        text: `${event.botName || 'Zapier Event'}: ${event.title || event.message.slice(0, 50)}`,
+        bot_name: event.botName,
+        bot_icon: event.botIcon,
+        blocks
+    };
+};
+
+export const buildZapierEventStatusUpdateMessage = (event: ZapierTriggerEvent, user: string) => {
+    const statusEmoji = event.status === 'New' ? '🔵' : event.status === 'In Progress' ? '🟡' : '🟢';
+
+    const blocks: any[] = [];
+
+    if (event.title) {
+        blocks.push({
+            type: "section",
+            text: { type: "mrkdwn", text: `*${event.title}*` }
+        });
+    }
+
+    blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: event.message }
+    });
+
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `*Status:* ${statusEmoji} ${event.status} (Updated by ${user})`
+        }
+    });
+
+    // Add Dropdown for status update (to allow further updates)
+    blocks.push({
+        type: "actions",
+        elements: [
+            {
+                type: "static_select",
+                action_id: slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS,
+                placeholder: {
+                    type: "plain_text",
+                    text: "Update Status",
+                    emoji: true
+                },
+                options: [
+                    {
+                        text: { type: "plain_text", text: "New", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "New" })
+                    },
+                    {
+                        text: { type: "plain_text", text: "In Progress", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "In Progress" })
+                    },
+                    {
+                        text: { type: "plain_text", text: "Completed", emoji: true },
+                        value: JSON.stringify({ id: event.id, status: "Completed" })
+                    }
+                ]
+            }
+        ]
+    });
+
+    return {
+        text: `Status updated to ${event.status} by ${user}`,
+        bot_name: event.botName,
+        bot_icon: event.botIcon,
+        blocks
+    };
+};
+
+export const buildZapierStatusChangeThreadMessage = (event: ZapierTriggerEvent, user: string) => {
+    const statusEmoji = event.status === 'New' ? '🔵' : event.status === 'In Progress' ? '🟡' : '🟢';
+    return {
+        text: `*${statusEmoji} Status changed to ${event.status} by ${user}*`,
+        bot_name: event.botName,
+        bot_icon: event.botIcon
     };
 };

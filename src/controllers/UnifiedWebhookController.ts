@@ -3,6 +3,7 @@ import logger from "../utils/logger.utils";
 import { ReservationInfoService } from "../services/ReservationInfoService";
 import { runAsync } from "../utils/asyncUtils";
 import axios from "axios";
+import sendSlackMessage from "../utils/sendSlackMsg";
 import { slackInteractivityEventNames } from "../constant";
 import { formatCurrency } from "../helpers/helpers";
 import { RefundRequestService } from "../services/RefundRequestService";
@@ -13,6 +14,10 @@ import { ActionItemsService } from "../services/ActionItemsService";
 import { ExpenseService } from "../services/ExpenseService";
 import { SlackEventsService } from "../services/SlackEventsService";
 import { MessagingService } from "../services/MessagingServices";
+import { ZapierWebhookService } from "../services/ZapierWebhookService";
+import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { appDatabase } from "../utils/database.util";
 
 export class UnifiedWebhookController {
 
@@ -58,7 +63,7 @@ export class UnifiedWebhookController {
         try {
             const payload = request.body.payload && JSON.parse(request.body.payload);
             const action = payload.actions[0];
-            const user = payload?.user.username;
+            const user = payload?.user?.username ? `@${payload.user.username}` : 'user';
             const actionData = action.value && JSON.parse(action.value);
             const responseUrl = payload.response_url;
             let messageText = "";
@@ -83,8 +88,18 @@ export class UnifiedWebhookController {
                     logger.info(`Expense status update request`);
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS: {
+                    messageText = `Your request to update Zapier event status is being processed...`;
+                    await this.sendResponseInSlack(responseUrl, messageText);
+                    break;
+                }
                 default: {
-                    messageText = `Action not recognized.`;
+                    if (action.action_id.startsWith(slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS)) {
+                        messageText = `Your request to update Zapier event status is being processed...`;
+                        await this.sendResponseInSlack(responseUrl, messageText);
+                    } else {
+                        messageText = `Action not recognized.`;
+                    }
                     break;
                 }
             }
@@ -161,6 +176,18 @@ export class UnifiedWebhookController {
                         logger.info(`User ${user} updated expense ${requestObj.id} status to ${requestObj.status}`);
                     } catch (error) {
                         logger.error(`Error updating expense status: ${error}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const zapierService = new ZapierWebhookService();
+                        await zapierService.updateEventStatus(Number(requestObj.id), requestObj.status, user);
+                        // The service now handles database update AND Slack notification sync (main msg + thread reply)
+                    } catch (error) {
+                        logger.error(`Error updating Zapier event status: ${error}`);
+                        await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
                     }
                     break;
                 }
