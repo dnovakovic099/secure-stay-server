@@ -1,8 +1,14 @@
-import { Between, Repository } from "typeorm";
+import { Between, Repository, Like, IsNull } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPostStayAudit, CompletionStatus, PotentialReviewIssue, DamageReport, MissingItems, UtilityIssues, KeysAndLocks, GuestBookCheck, SecurityDepositStatus } from "../entity/ReservationDetailPostStayAudit";
 import { FileInfo } from "../entity/FileInfo";
 import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
+import { Contact } from "../entity/Contact";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { CategoryEntity } from "../entity/Category";
+import { runAsync } from "../utils/asyncUtils";
+import { format } from "date-fns";
 import logger from "../utils/logger.utils";
 
 interface ReservationDetailPostStayAuditDTO {
@@ -38,6 +44,10 @@ interface ReservationDetailPostStayAuditUpdateDTO extends ReservationDetailPostS
 export class ReservationDetailPostStayAuditService {
     private postStayAuditRepository: Repository<ReservationDetailPostStayAudit>;
     private fileInfoRepo: Repository<FileInfo> = appDatabase.getRepository(FileInfo);
+    private expenseRepo: Repository<ExpenseEntity> = appDatabase.getRepository(ExpenseEntity);
+    private contactRepo: Repository<Contact> = appDatabase.getRepository(Contact);
+    private reservationRepo: Repository<ReservationInfoEntity> = appDatabase.getRepository(ReservationInfoEntity);
+    private categoryRepo: Repository<CategoryEntity> = appDatabase.getRepository(CategoryEntity);
 
     constructor() {
         this.postStayAuditRepository = appDatabase.getRepository(ReservationDetailPostStayAudit);
@@ -83,6 +93,10 @@ export class ReservationDetailPostStayAuditService {
         });
 
         const savedData = await this.postStayAuditRepository.save(audit);
+
+        if (savedData.completionStatus === CompletionStatus.COMPLETED) {
+            runAsync(this.createCleanerExpenseForAudit(savedData.reservationId, userId), "createCleanerExpenseForAudit");
+        }
 
         if (fileInfo) {
             for (const file of fileInfo) {
@@ -136,6 +150,11 @@ export class ReservationDetailPostStayAuditService {
         audit.improvementSuggestion = dto.improvementSuggestion ?? audit.improvementSuggestion;
 
         const updatedData = await this.postStayAuditRepository.save(audit);
+
+        if (updatedData.completionStatus === CompletionStatus.COMPLETED) {
+            runAsync(this.createCleanerExpenseForAudit(updatedData.reservationId, userId), "createCleanerExpenseForAudit");
+        }
+
         if (fileInfo) {
             for (const file of fileInfo) {
                 const fileRecord = new FileInfo();
@@ -247,4 +266,120 @@ export class ReservationDetailPostStayAuditService {
             }
         }
     }
-} 
+
+    private async createCleanerExpenseForAudit(reservationId: number, userId: string): Promise<void> {
+        try {
+            logger.info(`[createCleanerExpenseForAudit] Checking for expense creation for reservation ${reservationId}`);
+
+            // 1. Fetch reservation info
+            const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
+            if (!reservation) {
+                logger.warn(`[createCleanerExpenseForAudit] Reservation ${reservationId} not found`);
+                return;
+            }
+
+            // 2. Resolve "Cleaning" category
+            const cleaningCategory = await this.categoryRepo
+                .createQueryBuilder("category")
+                .where("category.categoryName LIKE :name", { name: '%Cleaning%' })
+                .getOne();
+
+            if (!cleaningCategory) {
+                logger.error(`[createCleanerExpenseForAudit] Cleaning category not found in database`);
+                return;
+            }
+
+            // 3. Prevent duplicate: Check if a cleaning expense already exists for this reservation
+            const existingExpense = await this.expenseRepo.findOne({
+                where: {
+                    reservationId: String(reservationId),
+                    categories: Like(`%${cleaningCategory.hostawayId}%`)
+                }
+            });
+
+            if (existingExpense) {
+                logger.info(`[createCleanerExpenseForAudit] Cleaning expense already exists for reservation ${reservationId}`);
+                return;
+            }
+
+            // 4. Find active cleaner
+            const postStay = await this.postStayAuditRepository.findOne({ where: { reservationId } });
+            const cleaner = await this.getNotificationCleaner(reservation, postStay);
+
+            if (!cleaner) {
+                logger.warn(`[createCleanerExpenseForAudit] No active cleaner found for reservation ${reservationId}`);
+                return;
+            }
+
+            // 5. Check for rate
+            if (!cleaner.rate) {
+                logger.info(`[createCleanerExpenseForAudit] Cleaner ${cleaner.name} has no rate set. Skipping expense creation.`);
+                return;
+            }
+
+            const rateAmount = parseFloat(cleaner.rate);
+            if (isNaN(rateAmount)) {
+                logger.error(`[createCleanerExpenseForAudit] Invalid rate for cleaner ${cleaner.name}: ${cleaner.rate}`);
+                return;
+            }
+
+            // 6. Create Expense record
+            const newExpense = new ExpenseEntity();
+            newExpense.listingMapId = Number(reservation.listingMapId);
+            newExpense.expenseDate = format(new Date(), "yyyy-MM-dd");
+            newExpense.concept = `Cleaning Fee - Reservation #${reservationId} - ${reservation.guestName}`;
+            newExpense.amount = rateAmount * -1; // Negative amount for expense
+            newExpense.isDeleted = 0;
+            newExpense.categories = JSON.stringify([cleaningCategory.hostawayId || cleaningCategory.id]);
+            newExpense.contractorName = cleaner.name;
+            newExpense.dateOfWork = reservation.departureDate ? format(new Date(reservation.departureDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
+            newExpense.userId = userId;
+            newExpense.status = ExpenseStatus.PENDING;
+            newExpense.createdBy = "system";
+            newExpense.reservationId = String(reservationId);
+            newExpense.guestName = reservation.guestName;
+            newExpense.fileNames = "";
+
+            await this.expenseRepo.save(newExpense);
+
+            logger.info(`[createCleanerExpenseForAudit] Automated cleaner expense created for reservation ${reservationId}: ${newExpense.amount}`);
+
+        } catch (error) {
+            logger.error(`[createCleanerExpenseForAudit] Error creating automated expense for reservation ${reservationId}: ${error.message}`);
+        }
+    }
+
+    private async getNotificationCleaner(
+        reservation: ReservationInfoEntity,
+        postStay: ReservationDetailPostStayAudit | null
+    ): Promise<Contact | null> {
+        // Check if there's a per-reservation override
+        if (postStay?.cleanerNotificationContactId) {
+            const overrideCleaner = await this.contactRepo.findOne({
+                where: { id: postStay.cleanerNotificationContactId }
+            });
+
+            if (overrideCleaner) {
+                return overrideCleaner;
+            }
+        }
+
+        // Query for active cleaners
+        const activeCleaners = await this.contactRepo.find({
+            where: {
+                listingId: String(reservation.listingMapId),
+                role: 'Cleaner',
+                status: 'active',
+                deletedAt: IsNull()
+            }
+        });
+
+        if (activeCleaners.length !== 1) {
+            // Either 0 or multiple cleaners - user wants to skip in this case
+            logger.warn(`[createCleanerExpenseForAudit] Found ${activeCleaners.length} active cleaners for listing ${reservation.listingMapId}. Expected 1.`);
+            return null;
+        }
+
+        return activeCleaners[0];
+    }
+}
