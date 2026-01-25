@@ -409,6 +409,40 @@ export class Hostify {
         }
     }
 
+    async getCalendar(apiKey: string, listingId: number, startDate: string, endDate: string): Promise<HostifyCalendarDay[]> {
+        try {
+            const url = "https://api-rms.hostify.com/calendar";
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+                params: {
+                    listing_id: listingId,
+                    start_date: startDate,
+                    end_date: endDate
+                }
+            });
+
+            const data = response.data;
+            if (Array.isArray(data)) {
+                return data;
+            }
+            if (data && Array.isArray(data.calendar)) {
+                return data.calendar;
+            }
+            if (data && Array.isArray(data.data)) {
+                return data.data;
+            }
+
+            logger.warn(`Unexpected calendar data format for listing ${listingId}: ${JSON.stringify(data).substring(0, 100)}`);
+            return [];
+        } catch (error: any) {
+            logger.error(`Error fetching calendar for listing ${listingId}: ${error.message}`);
+            return [];
+        }
+    }
+
 }
 
 // --- Type Definitions ---
@@ -433,4 +467,19 @@ export interface HostifyInboxThread {
     messages: HostifyInboxMessage[];
     createdAt: string;
     updatedAt: string;
+}
+export interface HostifyCalendarDay {
+    date: string;
+    status: string;
+    price: number;
+    listing_id: number;
+    currency: string;
+    min_stay: number;
+    max_stay: number;
+    cta: boolean;
+    ctd: boolean;
+    losPrice: any;
+    bookingValue: number | null;
+    note: string | null;
+    statusNote: string | null;
 }
