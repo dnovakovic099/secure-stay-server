@@ -3,7 +3,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
-import { subHours, subDays, isAfter, format } from "date-fns";
+import { subHours, subDays, isAfter, format, differenceInDays } from "date-fns";
 import redis from "../utils/redisConnection";
 
 export class VelocityAlertService {
@@ -96,18 +96,29 @@ export class VelocityAlertService {
         const subject = `URGENT - HIGH BOOKING VELOCITY FOR ${propertyName.toUpperCase()}`;
 
         const tableRows = reservations.map(r => {
+            const bookingDate = new Date(r.reservationDate);
+            const arrivalDate = new Date(r.arrivalDate);
+            const departureDate = new Date(r.departureDate);
+
             const formattedBookingDate = r.reservationDate
-                ? format(new Date(r.reservationDate), 'MMM d, yyyy')
+                ? format(bookingDate, 'MMM d, yyyy')
                 : '-';
+
+            const leadTime = Math.max(0, differenceInDays(arrivalDate, bookingDate));
+            const numDays = differenceInDays(departureDate, arrivalDate);
+            const dayOfWeekRange = `${format(arrivalDate, 'EEE')} to ${format(departureDate, 'EEE')}`;
+            const formattedPrice = r.totalPrice ? parseFloat(r.totalPrice).toFixed(2) : '0.00';
+
             return `
             <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.guestName}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${r.listingName}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${formattedBookingDate}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${leadTime}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.arrivalDate}</td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${r.departureDate}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${r.status}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${r.totalPrice} ${r.currency || ''}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${numDays}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${dayOfWeekRange}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${formattedPrice} ${r.currency || ''}</td>
             </tr>
         `;
         }).join("");
@@ -121,11 +132,12 @@ export class VelocityAlertService {
                 <thead>
                     <tr style="background-color: #f2f2f2;">
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Guest Name</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Listing Name</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Booking Date</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Arrival</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Departure</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Status</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Lead Time</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Check-in</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Check-out</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Number of Days Booked</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Booked Day of Week</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Total Price</th>
                     </tr>
                 </thead>
