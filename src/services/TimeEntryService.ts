@@ -486,7 +486,7 @@ export class TimeEntryService {
 
             // Diagnostic log
             if (activeSessionEntries.length > 0) {
-                console.log(`[AdminOverview] Dept: ${dept.name}, Active IDs: ${activeUserIds.length}, Mapped Users: ${activeUsers.length}`);
+                logger.info(`[AdminOverview] Dept: ${dept.name}, Active IDs: ${activeUserIds.length}, Mapped Users: ${activeUsers.length}`);
             }
 
             return {

@@ -5,6 +5,7 @@ import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { supabaseAdmin } from "../utils/supabase";
 import { Like, In } from "typeorm";
+import logger from "../utils/logger.utils";
 
 interface UserFilters {
     page?: number;
@@ -198,7 +199,7 @@ export class UserManagementService {
                 return { success: true, message: "User has been disabled successfully" };
             }
         } catch (error) {
-            console.error("Error toggling user status:", error);
+            logger.error("Error toggling user status:", error);
             return { success: false, message: "Failed to update user status in Supabase" };
         }
     }

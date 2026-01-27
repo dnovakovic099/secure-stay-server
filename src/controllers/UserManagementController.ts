@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { UserManagementService } from "../services/UserManagementService";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -26,7 +27,7 @@ export class UserManagementController {
             const result = await this.userManagementService.getAllUsers(filters);
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error fetching users:", error);
+            logger.error("Error fetching users:", error);
             return next(error);
         }
     };
@@ -51,7 +52,7 @@ export class UserManagementController {
 
             return res.status(200).json({ success: true, data: user });
         } catch (error) {
-            console.error("Error fetching user:", error);
+            logger.error("Error fetching user:", error);
             return next(error);
         }
     };
@@ -83,7 +84,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error updating user:", error);
+            logger.error("Error updating user:", error);
             return next(error);
         }
     };
@@ -114,7 +115,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error toggling user status:", error);
+            logger.error("Error toggling user status:", error);
             return next(error);
         }
     };
@@ -128,7 +129,7 @@ export class UserManagementController {
             const departments = await this.userManagementService.getAllDepartments();
             return res.status(200).json({ success: true, data: departments });
         } catch (error) {
-            console.error("Error fetching departments:", error);
+            logger.error("Error fetching departments:", error);
             return next(error);
         }
     };
@@ -154,7 +155,7 @@ export class UserManagementController {
 
             return res.status(201).json(result);
         } catch (error) {
-            console.error("Error creating department:", error);
+            logger.error("Error creating department:", error);
             return next(error);
         }
     };
@@ -185,7 +186,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error assigning departments:", error);
+            logger.error("Error assigning departments:", error);
             return next(error);
         }
     };
@@ -216,7 +217,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error updating user type:", error);
+            logger.error("Error updating user type:", error);
             return next(error);
         }
     };
@@ -241,7 +242,7 @@ export class UserManagementController {
 
             return res.status(200).json({ success: true, data: user });
         } catch (error) {
-            console.error("Error fetching current user:", error);
+            logger.error("Error fetching current user:", error);
             return next(error);
         }
     };
@@ -262,7 +263,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error updating last login:", error);
+            logger.error("Error updating last login:", error);
             return next(error);
         }
     };
@@ -287,7 +288,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error fetching employee settings:", error);
+            logger.error("Error fetching employee settings:", error);
             return next(error);
         }
     };
@@ -319,7 +320,7 @@ export class UserManagementController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error updating employee settings:", error);
+            logger.error("Error updating employee settings:", error);
             return next(error);
         }
     };

@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { TimeEntryService } from "../services/TimeEntryService";
 import { appDatabase } from "../utils/database.util";
 import { UsersEntity } from "../entity/Users";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -40,7 +41,7 @@ export class TimeEntryController {
 
             return res.status(201).json(result);
         } catch (error) {
-            console.error("Error clocking in:", error);
+            logger.error("Error clocking in:", error);
             return next(error);
         }
     };
@@ -75,7 +76,7 @@ export class TimeEntryController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error clocking out:", error);
+            logger.error("Error clocking out:", error);
             return next(error);
         }
     };
@@ -105,7 +106,7 @@ export class TimeEntryController {
 
             return res.status(200).json({ success: true, ...status });
         } catch (error) {
-            console.error("Error getting status:", error);
+            logger.error("Error getting status:", error);
             return next(error);
         }
     };
@@ -142,7 +143,7 @@ export class TimeEntryController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error getting time entries:", error);
+            logger.error("Error getting time entries:", error);
             return next(error);
         }
     };
@@ -189,7 +190,7 @@ export class TimeEntryController {
                 custom,
             });
         } catch (error) {
-            console.error("Error getting summary:", error);
+            logger.error("Error getting summary:", error);
             return next(error);
         }
     };
@@ -228,7 +229,7 @@ export class TimeEntryController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error deleting entry:", error);
+            logger.error("Error deleting entry:", error);
             return next(error);
         }
     };
@@ -268,7 +269,7 @@ export class TimeEntryController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error updating notes:", error);
+            logger.error("Error updating notes:", error);
             return next(error);
         }
     };
@@ -282,7 +283,7 @@ export class TimeEntryController {
             const result = await this.timeEntryService.getAdminOverview();
             return res.status(200).json({ success: true, ...result });
         } catch (error) {
-            console.error("Error getting admin overview:", error);
+            logger.error("Error getting admin overview:", error);
             return next(error);
         }
     };
@@ -305,7 +306,7 @@ export class TimeEntryController {
             const result = await this.timeEntryService.getAllTimeEntriesAdmin(filters);
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error getting all time entries:", error);
+            logger.error("Error getting all time entries:", error);
             return next(error);
         }
     };
@@ -333,7 +334,7 @@ export class TimeEntryController {
 
             return res.status(200).json(result);
         } catch (error) {
-            console.error("Error creating test entry:", error);
+            logger.error("Error creating test entry:", error);
             return next(error);
         }
     };
@@ -352,7 +353,7 @@ export class TimeEntryController {
                 ...result
             });
         } catch (error) {
-            console.error("Error processing missed clockouts:", error);
+            logger.error("Error processing missed clockouts:", error);
             return next(error);
         }
     };
