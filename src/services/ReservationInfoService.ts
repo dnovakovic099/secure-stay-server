@@ -762,6 +762,72 @@ export class ReservationInfoService {
     }));
   }
 
+  /**
+   * Get past reservations for a specific listing (or all listings if not specified)
+   * Used to fetch guests who have already stayed at a property
+   * @param listingId Optional - if provided, filters by this listing; otherwise returns across all listings
+   * @param limit Optional - number of records to return, defaults to 10
+   */
+  async getPastReservationsByListingId(listingId?: number, limit: number = 10): Promise<{
+    id: number;
+    listingId: number;
+    listingName: string;
+    guestName: string;
+    guestEmail: string;
+    guestPhone: string;
+    arrivalDate: Date;
+    departureDate: Date;
+    nights: number;
+    totalPrice: string;
+    status: string;
+  }[]> {
+    const today = format(new Date(), 'yyyy-MM-dd');
+
+    logger.info(`[getPastReservationsByListingId] Called with listingId: ${listingId}, limit: ${limit}`);
+
+    const queryBuilder = this.reservationInfoRepository
+      .createQueryBuilder('reservation')
+      .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus })
+      .andWhere('DATE(reservation.departureDate) < :today', { today });
+
+    // Only filter by listingId if provided and is a valid positive number
+    if (typeof listingId === 'number' && !isNaN(listingId) && listingId > 0) {
+      logger.info(`[getPastReservationsByListingId] Filtering by listingId: ${listingId}`);
+      queryBuilder.andWhere('reservation.listingMapId = :listingId', { listingId });
+    } else {
+      logger.info(`[getPastReservationsByListingId] No listingId filter applied`);
+    }
+
+    const reservations = await queryBuilder
+      .orderBy('reservation.departureDate', 'DESC')
+      .take(limit)
+      .getMany();
+
+    // Get all unique listing IDs from reservations
+    const listingIds = [...new Set(reservations.map(r => r.listingMapId))];
+
+
+    return reservations.map(r => {
+      // Round totalPrice to 2 decimal places
+      const price = parseFloat(r.totalPrice || '0');
+      const roundedPrice = isNaN(price) ? '0.00' : price.toFixed(2);
+
+      return {
+        id: r.id,
+        listingId: r.listingMapId,
+        listingName: r.listingName,
+        guestName: r.guestName || `${r.guestFirstName || ''} ${r.guestLastName || ''}`.trim(),
+        guestEmail: r.guestEmail || '',
+        guestPhone: r.phone || '',
+        arrivalDate: r.arrivalDate,
+        departureDate: r.departureDate,
+        nights: r.nights || 0,
+        totalPrice: roundedPrice,
+        status: r.status || ''
+      };
+    });
+  }
+
   async updateReservationStatusForStatement(id: number, isProcessedInStatement: boolean) {
     const reservation = await this.reservationInfoRepository.findOne({ where: { id: id } });
     if (!reservation) {

@@ -117,4 +117,45 @@ export class ReservationInfoController {
             return next(error);
         }
     }
+
+    async getPastReservationsByListingId(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const listingIdParam = request.query.listingId as string | undefined;
+            const limitParam = request.query.limit as string | undefined;
+
+            // listingId is optional - if provided, validate it
+            let listingId: number | undefined;
+            if (listingIdParam) {
+                listingId = Number(listingIdParam);
+                if (isNaN(listingId)) {
+                    return response.status(400).json({
+                        status: false,
+                        message: 'listingId must be a valid number'
+                    });
+                }
+            }
+
+            // limit defaults to 10
+            let limit = 10;
+            if (limitParam) {
+                limit = Number(limitParam);
+                if (isNaN(limit) || limit < 1) {
+                    return response.status(400).json({
+                        status: false,
+                        message: 'limit must be a positive number'
+                    });
+                }
+            }
+
+            const result = await reservationInfoService.getPastReservationsByListingId(listingId, limit);
+            return response.status(200).json({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
+
