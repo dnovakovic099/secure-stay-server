@@ -42,6 +42,7 @@ import overtimeRoutes from "./overtimeRoutes";
 import leaveRoutes from "./leaveRoutes";
 import timesheetRoutes from "./timesheetRoutes";
 import guestAnalysisRoutes from "./guestAnalysisRoutes";
+import noBookingAlertRoutes from "./noBookingAlertRoutes";
 
 const router = Router();
 
@@ -90,6 +91,7 @@ router.use('/overtime', overtimeRoutes);
 router.use('/leave', leaveRoutes);
 router.use(timesheetRoutes);
 router.use('/guest-analysis', guestAnalysisRoutes);
+router.use('/no-booking-alert', noBookingAlertRoutes);
 
 export default router;
 

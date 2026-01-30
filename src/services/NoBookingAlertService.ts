@@ -4,11 +4,26 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
-import { subDays, isAfter, format } from "date-fns";
+import { subDays, isAfter, format, parse, isValid } from "date-fns";
 
 interface ListingWithLastBooking {
     listing: Listing;
     lastBookingDate: string | null;
+}
+
+/**
+ * Response interface for the API endpoint
+ */
+export interface NoBookingAlertResult {
+    referenceDate: string;
+    totalListings: number;
+    flaggedListings: number;
+    emailSent: boolean;
+    listings: {
+        listingId: number;
+        internalName: string | null;
+        lastBookingDate: string | null;
+    }[];
 }
 
 /**
@@ -34,6 +49,7 @@ export class NoBookingAlertService {
 
     /**
      * Main method to check all listings and trigger alerts for those without recent bookings
+     * Used by the scheduler (Monday 6 AM EST)
      */
     async checkAndTriggerAlerts(): Promise<void> {
         try {
@@ -59,9 +75,54 @@ export class NoBookingAlertService {
     }
 
     /**
-     * Get all active listings that haven't received any bookings in the last 7 days
+     * API method to check listings for a custom reference date and send email notification
+     * @param referenceDate Date string in yyyy-MM-dd format
+     * @returns Result object with flagged listings and email status
      */
-    private async getListingsWithoutRecentBookings(): Promise<ListingWithLastBooking[]> {
+    async checkAndTriggerAlertsForDate(referenceDate: string): Promise<NoBookingAlertResult> {
+        // Validate and parse the date
+        const parsedDate = parse(referenceDate, 'yyyy-MM-dd', new Date());
+        if (!isValid(parsedDate)) {
+            throw new Error('Invalid date format. Please use yyyy-MM-dd format.');
+        }
+
+        logger.info(`[NoBookingAlertService] Starting no-booking check for custom date: ${referenceDate}`);
+
+        // Get all listings without recent bookings relative to the custom date
+        const flaggedListings = await this.getListingsWithoutRecentBookings(parsedDate);
+
+        // Get total listings count
+        const allListings = await this.listingRepo.find({
+            where: { deletedAt: IsNull() }
+        });
+
+        let emailSent = false;
+        if (flaggedListings.length > 0) {
+            // Send email with custom reference date mentioned
+            await this.sendNoBookingAlertEmailForDate(flaggedListings, referenceDate);
+            emailSent = true;
+        }
+
+        logger.info(`[NoBookingAlertService] Custom date check completed. Flagged: ${flaggedListings.length}/${allListings.length}`);
+
+        return {
+            referenceDate,
+            totalListings: allListings.length,
+            flaggedListings: flaggedListings.length,
+            emailSent,
+            listings: flaggedListings.map(item => ({
+                listingId: item.listing.id,
+                internalName: item.listing.internalListingName || null,
+                lastBookingDate: item.lastBookingDate
+            }))
+        };
+    }
+
+    /**
+     * Get all active listings that haven't received any bookings in the last 7 days
+     * @param referenceDate Optional reference date (defaults to current date)
+     */
+    private async getListingsWithoutRecentBookings(referenceDate?: Date): Promise<ListingWithLastBooking[]> {
         // Get all active listings (not soft-deleted)
         const allListings = await this.listingRepo.find({
             where: { deletedAt: IsNull() }
@@ -69,7 +130,8 @@ export class NoBookingAlertService {
 
         logger.info(`[NoBookingAlertService] Found ${allListings.length} active listings to check.`);
 
-        const thresholdDate = subDays(new Date(), this.noBookingThresholdDays);
+        const baseDate = referenceDate || new Date();
+        const thresholdDate = subDays(baseDate, this.noBookingThresholdDays);
         const flaggedListings: ListingWithLastBooking[] = [];
 
         for (const listing of allListings) {
@@ -156,6 +218,71 @@ export class NoBookingAlertService {
         if (this.recipients.length > 0) {
             await sendEmail(subject, html, from, to);
             logger.info(`[NoBookingAlertService] Alert email sent for ${listings.length} listing(s)`);
+        } else {
+            logger.warn('[NoBookingAlertService] No recipients configured for no-booking alert.');
+        }
+    }
+
+    /**
+     * Send email notification for listings without recent bookings (for custom date API)
+     * Includes the reference date in the email subject and body
+     */
+    private async sendNoBookingAlertEmailForDate(listings: ListingWithLastBooking[], referenceDate: string): Promise<void> {
+        // Format the reference date for display
+        let formattedRefDate = referenceDate;
+        try {
+            formattedRefDate = format(new Date(referenceDate), 'MMM d, yyyy');
+        } catch {
+            // Keep original format if parsing fails
+        }
+
+        const subject = `ALERT - ${listings.length} Listing(s) Without Bookings for 7 Days (as of ${formattedRefDate})`;
+
+        const tableRows = listings.map(item => {
+            // Format the last booking date as "Jan 12, 2026"
+            let formattedDate = 'Never';
+            if (item.lastBookingDate) {
+                try {
+                    formattedDate = format(new Date(item.lastBookingDate), 'MMM d, yyyy');
+                } catch {
+                    formattedDate = item.lastBookingDate;
+                }
+            }
+
+            return `
+            <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.id}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${item.listing.internalListingName || '-'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${formattedDate}</td>
+            </tr>
+        `;
+        }).join("");
+
+        const html = `
+            <h2>No Booking Alert</h2>
+            <p>The following listing(s) have not received any new bookings in the last <strong>7 days</strong> as of <strong>${formattedRefDate}</strong>:</p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Listing ID</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Internal Name</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Last Booking Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+            <p style="margin-top: 16px;">Please review these listings and take appropriate action to increase bookings.</p>
+            <p>Regards,<br><strong>Secure Stay</strong></p>
+        `;
+
+        const from = process.env.EMAIL_FROM;
+        const to = this.recipients.join(", ");
+
+        if (this.recipients.length > 0) {
+            await sendEmail(subject, html, from, to);
+            logger.info(`[NoBookingAlertService] Alert email sent for ${listings.length} listing(s) (reference date: ${referenceDate})`);
         } else {
             logger.warn('[NoBookingAlertService] No recipients configured for no-booking alert.');
         }
