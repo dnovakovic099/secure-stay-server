@@ -11,6 +11,7 @@ import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers"
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { buildUnansweredMessageAlert } from "../utils/slackMessageBuilder";
+import { Listing } from "../entity/Listing";
 
 // Hostify message webhook payload interface
 export interface HostifyMessagePayload {
@@ -364,12 +365,22 @@ export class MessagingService {
      */
     private async notifyUnansweredMessageSlack(msg: Message) {
         try {
+            // Fetch the internal listing name if listingId is available
+            let propertyName: string | undefined;
+            if (msg.listingId) {
+                const listing = await appDatabase.getRepository(Listing).findOne({
+                    where: { id: Number(msg.listingId) },
+                    select: ['internalListingName']
+                });
+                propertyName = listing?.internalListingName || undefined;
+            }
+
             const slackMessage = buildUnansweredMessageAlert(
                 msg.body,
                 msg.reservationId,
                 msg.receivedAt,
                 msg.guestName || undefined,
-                msg.listingId || undefined
+                propertyName
             );
             await sendSlackMessage(slackMessage);
             logger.info(`[Slack] Unanswered message notification sent for messageId: ${msg.messageId}`);

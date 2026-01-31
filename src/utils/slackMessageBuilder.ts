@@ -1440,40 +1440,49 @@ export const buildUnansweredMessageAlert = (
     reservationId: number,
     receivedAt: Date,
     guestName?: string,
-    listingId?: string
+    propertyName?: string
 ) => {
     const formattedTime = format(receivedAt, "MMM dd, yyyy 'at' hh:mm a");
     const truncatedMessage = guestMessage.length > 500 ? guestMessage.slice(0, 500) + '...' : guestMessage;
+    const hostifyLink = `https://us.hostify.com/reservations/view/${reservationId}`;
 
-    const fields: any[] = [
-        { type: "mrkdwn", text: `*Reservation ID:*\n<https://securestay.ai/reservations/${reservationId}|${reservationId}>` },
-        { type: "mrkdwn", text: `*Received At:*\n${formattedTime}` }
-    ];
+    // Build title with property name in brackets if available
+    const titleProperty = propertyName ? ` (🏠 ${propertyName})` : '';
+    const title = `*⚠️ Unanswered Guest Message Alert${titleProperty}*`;
 
+    const fields: any[] = [];
+
+    // Guest Name with Hostify link
     if (guestName) {
-        fields.push({ type: "mrkdwn", text: `*Guest Name:*\n${guestName}` });
+        fields.push({ type: "mrkdwn", text: `*👤 Guest:*\n<${hostifyLink}|${guestName}>` });
+    } else {
+        fields.push({ type: "mrkdwn", text: `*🔗 Reservation:*\n<${hostifyLink}|View in Hostify>` });
     }
 
-    if (listingId) {
-        fields.push({ type: "mrkdwn", text: `*Listing ID:*\n${listingId}` });
+    // Property Name with icon
+    if (propertyName) {
+        fields.push({ type: "mrkdwn", text: `*🏠 Property:*\n${propertyName}` });
     }
+
+    // Received time
+    fields.push({ type: "mrkdwn", text: `*🕐 Received At:*\n${formattedTime}` });
 
     return {
         channel: UNRESPONDED_MESSAGES_CHANNEL,
-        text: `⚠️ Unanswered Guest Message Alert - Reservation ${reservationId}`,
+        text: `⚠️ Unanswered Guest Message Alert${propertyName ? ` - ${propertyName}` : ''}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*⚠️ Unanswered Guest Message Alert*`
+                    text: title
                 }
             },
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Message:*\n>${truncatedMessage.replace(/\n/g, '\n>')}`
+                    text: `*💬 Message:*\n>${truncatedMessage.replace(/\n/g, '\n>')}`
                 }
             },
             {
@@ -1483,3 +1492,4 @@ export const buildUnansweredMessageAlert = (
         ]
     };
 };
+
