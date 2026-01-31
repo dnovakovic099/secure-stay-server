@@ -456,5 +456,20 @@ export class ClientController {
     }
   }
 
+  /**
+   * Update property onboarding stage
+   */
+  async updatePropertyOnboardingStage(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const { propertyId } = request.params;
+      const { stage } = request.body;
+      const result = await clientService.updatePropertyOnboardingStage(propertyId, stage, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
 

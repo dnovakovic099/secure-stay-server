@@ -4749,4 +4749,51 @@ export class ClientService {
     };
   }
 
+  /**
+   * Valid onboarding stages for properties
+   */
+  private readonly VALID_ONBOARDING_STAGES = [
+    'Phase 1: Information Gathering',
+    'Phase 2: Listing Setup',
+    'Phase 3: Client Coordination',
+    'Phase 4: Property Live',
+    'Postponed/On Hold',
+    'Potential Offboarding',
+    'Offboarded',
+    'Did Not Proceed Onboarding',
+  ];
+
+  /**
+   * Update the onboarding stage of a property
+   */
+  async updatePropertyOnboardingStage(
+    propertyId: string,
+    stage: string,
+    userId: string
+  ): Promise<ClientPropertyEntity> {
+    // Validate stage value
+    if (!this.VALID_ONBOARDING_STAGES.includes(stage)) {
+      throw CustomErrorHandler.validationError(
+        `Invalid onboarding stage. Valid stages are: ${this.VALID_ONBOARDING_STAGES.join(', ')}`
+      );
+    }
+
+    // Find property
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: ["client"],
+    });
+
+    if (!property) {
+      throw CustomErrorHandler.notFound("Property not found");
+    }
+
+    // Update stage
+    property.onboardingStage = stage;
+    property.updatedBy = userId;
+    property.updatedAt = new Date();
+
+    return await this.propertyRepo.save(property);
+  }
+
 }

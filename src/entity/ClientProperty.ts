@@ -90,6 +90,10 @@ export class ClientPropertyEntity {
     @Column({ name: "asana_task_error", type: "text", nullable: true })
     asanaTaskError: string;
 
+    // Onboarding stage tracking
+    @Column({ name: "onboarding_stage", nullable: true, default: 'Phase 1: Information Gathering' })
+    onboardingStage: string;
+
     @ManyToOne(() => ClientEntity, (client) => client.properties, { onDelete: "CASCADE" })
     client: ClientEntity;
 
