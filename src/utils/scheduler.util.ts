@@ -47,7 +47,7 @@ export function scheduleGetReservation() {
   // schedule.scheduleJob("*/5 * * * *", checkUnasweredMessages);
 
   // Hostify unanswered messages - runs every 5 minutes
-  // schedule.scheduleJob("*/5 * * * *", checkUnasweredMessagesHostify);
+  schedule.scheduleJob("*/5 * * * *", checkUnasweredMessagesHostify);
 
   schedule.scheduleJob("0 9 * * *", checkForUnresolvedReviews);
 

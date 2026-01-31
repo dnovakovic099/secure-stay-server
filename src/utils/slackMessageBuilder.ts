@@ -23,6 +23,7 @@ const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
 const EXPENSE_CHANNEL = "#payment-requests";
 const ONBOARDING_CHANNEL = "#onboarding";
+const UNRESPONDED_MESSAGES_CHANNEL = "#unresponded-messages";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -1429,5 +1430,56 @@ export const buildZapierStatusChangeThreadMessage = (event: ZapierTriggerEvent, 
         text: `*${statusEmoji} Status changed to ${event.status} by ${user}*`,
         bot_name: event.botName,
         bot_icon: event.botIcon
+    };
+};
+
+
+
+export const buildUnansweredMessageAlert = (
+    guestMessage: string,
+    reservationId: number,
+    receivedAt: Date,
+    guestName?: string,
+    listingId?: string
+) => {
+    const formattedTime = format(receivedAt, "MMM dd, yyyy 'at' hh:mm a");
+    const truncatedMessage = guestMessage.length > 500 ? guestMessage.slice(0, 500) + '...' : guestMessage;
+
+    const fields: any[] = [
+        { type: "mrkdwn", text: `*Reservation ID:*\n<https://securestay.ai/reservations/${reservationId}|${reservationId}>` },
+        { type: "mrkdwn", text: `*Received At:*\n${formattedTime}` }
+    ];
+
+    if (guestName) {
+        fields.push({ type: "mrkdwn", text: `*Guest Name:*\n${guestName}` });
+    }
+
+    if (listingId) {
+        fields.push({ type: "mrkdwn", text: `*Listing ID:*\n${listingId}` });
+    }
+
+    return {
+        channel: UNRESPONDED_MESSAGES_CHANNEL,
+        text: `⚠️ Unanswered Guest Message Alert - Reservation ${reservationId}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*⚠️ Unanswered Guest Message Alert*`
+                }
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Message:*\n>${truncatedMessage.replace(/\n/g, '\n>')}`
+                }
+            },
+            {
+                type: "section",
+                fields
+            }
+        ]
     };
 };
