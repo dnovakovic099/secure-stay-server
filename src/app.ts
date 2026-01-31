@@ -1,5 +1,5 @@
-import AgentAPI from 'apminsight';
-AgentAPI.config();
+// import AgentAPI from 'apminsight';
+// AgentAPI.config();
 import dotenv from "dotenv";
 dotenv.config();
 import "reflect-metadata";
