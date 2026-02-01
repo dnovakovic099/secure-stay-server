@@ -24,6 +24,7 @@ import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeServi
 import { TimeEntryService } from "../services/TimeEntryService";
 import { NoBookingAlertService } from "../services/NoBookingAlertService";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
+import { CleanerNotificationService } from "../services/CleanerNotificationService";
 
 
 export function scheduleGetReservation() {
@@ -414,9 +415,6 @@ export function scheduleGetReservation() {
         }
 
         logger.info('[CleanerCheckoutSMS] Scheduled task started - processing checkout notifications...');
-
-        const { CleanerNotificationService } = await import('../services/CleanerNotificationService');
-        const { ReservationInfoService } = await import('../services/ReservationInfoService');
 
         const cleanerNotificationService = new CleanerNotificationService();
         const reservationInfoService = new ReservationInfoService();

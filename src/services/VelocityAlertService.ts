@@ -50,6 +50,7 @@ export class VelocityAlertService {
             const recentReservations = await this.reservationRepo.find({
                 where: {
                     listingName: propertyName,
+                    reservationDate: MoreThanOrEqual(format(threshold7D, 'yyyy-MM-dd'))
                 },
                 order: { reservationDate: "DESC" }
             });

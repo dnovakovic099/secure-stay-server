@@ -6,5 +6,15 @@ import logger from "./logger.utils";
  * @param label - A short label to identify the task in logs
  */
 export function runAsync(task: Promise<any>, label: string) {
-    task.catch(err => logger.error(`[${label}] Error: ${err?.message}`));
+    const start = Date.now();
+    task.then(() => {
+        const duration = Date.now() - start;
+        logger.info(`[${label}] Completed in ${duration}ms`);
+    }).catch(err => {
+        const duration = Date.now() - start;
+        logger.error(`[${label}] Error after ${duration}ms: ${err?.message}`);
+        if (err?.stack) {
+            logger.error(err.stack);
+        }
+    });
 }
