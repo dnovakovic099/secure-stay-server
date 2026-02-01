@@ -44,6 +44,7 @@ import timesheetRoutes from "./timesheetRoutes";
 import guestAnalysisRoutes from "./guestAnalysisRoutes";
 import noBookingAlertRoutes from "./noBookingAlertRoutes";
 import photographerRequestRoutes from "./photographerRequestRoutes";
+import cleanerRequestRoutes from "./cleanerRequestRoutes";
 
 const router = Router();
 
@@ -94,6 +95,7 @@ router.use(timesheetRoutes);
 router.use('/guest-analysis', guestAnalysisRoutes);
 router.use('/no-booking-alert', noBookingAlertRoutes);
 router.use('/photographer-request', photographerRequestRoutes);
+router.use('/cleaner-request', cleanerRequestRoutes);
 
 export default router;
 
