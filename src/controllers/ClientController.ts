@@ -471,5 +471,16 @@ export class ClientController {
     }
   }
 
+  async getClientsForExport(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getAllClientsForExport();
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
 }
 

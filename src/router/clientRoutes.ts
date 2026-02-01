@@ -10,6 +10,7 @@ const clientController = new ClientController();
 router.route('/create').post(verifySession, validateCreateClient, clientController.createClient.bind(clientController));
 router.route('/update').put(verifySession, validateUpdateClient, clientController.updateClient.bind(clientController));
 router.route('/').get(verifySession, validateGetClients, clientController.getClients.bind(clientController));
+router.route('/export-all').get(verifySession, clientController.getClientsForExport.bind(clientController));
 router.route('/check-existing-client').get(verifySession, clientController.checkExistingClient.bind(clientController));
 router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
 router.route('/:id').delete(verifySession, clientController.deleteClient.bind(clientController));

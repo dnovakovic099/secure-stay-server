@@ -1030,6 +1030,52 @@ export class ClientService {
 
   }
 
+  async getAllClientsForExport() {
+    const stageCounts: Record<string, number> = {};
+    this.VALID_ONBOARDING_STAGES.forEach(stage => {
+      stageCounts[stage] = 0;
+    });
+
+    const stageData: Record<string, any[]> = {};
+    this.VALID_ONBOARDING_STAGES.forEach(stage => {
+      stageData[stage] = [];
+    });
+
+    const properties = await this.propertyRepo.createQueryBuilder("property")
+      .leftJoinAndSelect("property.client", "client")
+      .where("property.deletedAt IS NULL")
+      .andWhere("client.deletedAt IS NULL")
+      .getMany();
+
+    properties.forEach(property => {
+      let stage = property.onboardingStage;
+      if (!stage || !this.VALID_ONBOARDING_STAGES.includes(stage)) {
+        stage = 'Phase 1: Information Gathering';
+      }
+
+      // If stage exists in our counts, increment it
+      if (stageCounts.hasOwnProperty(stage)) {
+        stageCounts[stage]++;
+      }
+
+      // If stage exists in our data map, push the client info
+      if (stageData.hasOwnProperty(stage)) {
+        stageData[stage].push({
+          clientName: property.client ? `${property.client.firstName} ${property.client.lastName}` : "Unknown",
+          phone: property.client?.phone || "-",
+          email: property.client?.email || "-",
+          propertyAddress: property.address || "-",
+        });
+      }
+    });
+
+    return {
+      stageCounts,
+      stageData
+    };
+  }
+
+
   async deleteClient(clientId: string, userId: string) {
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
