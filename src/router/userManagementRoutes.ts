@@ -10,10 +10,7 @@ const controller = new UserManagementController();
 // Public routes (only require session, not admin)
 // Public routes (only require session, not admin)
 router.get('/test-me', (req, res) => res.send("Test Me works"));
-router.get('/me', verifySession, (req, res, next) => {
-    console.log("Matched /me route, calling controller.getMe");
-    controller.getMe(req, res, next);
-});
+router.get('/me', verifySession, controller.getMe);
 
 router.post('/update-last-login', verifySession, controller.updateLastLogin);
 
