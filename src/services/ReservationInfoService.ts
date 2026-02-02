@@ -1096,7 +1096,7 @@ export class ReservationInfoService {
         `;
 
     const receipientsList = [
-      "ferdinand@luxurylodgingpm.com",
+      // "ferdinand@luxurylodgingpm.com",
       "operations@luxurylodgingpm.com"
     ];
 
