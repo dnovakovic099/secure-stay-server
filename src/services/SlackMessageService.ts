@@ -28,4 +28,13 @@ export class SlackMessageService {
         return savedMessage;
     }
 
+    async getLatestMessageByEntity(entityType: string, entityId: number) {
+        return this.slackMessageRepo.findOne({
+            where: { entityType, entityId },
+            order: { createdAt: "DESC" }
+        });
+    }
+
 }
+
+export const slackMessageService = new SlackMessageService();

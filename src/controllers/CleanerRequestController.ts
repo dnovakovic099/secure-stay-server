@@ -33,7 +33,8 @@ export class CleanerRequestController {
             }
 
             const createdBy = (req as any).user?.email || null;
-            const result = await this.cleanerRequestService.create(propertyId, req.body, createdBy);
+            const authenticatedUserId = (req as any).user?.id;
+            const result = await this.cleanerRequestService.create(propertyId, req.body, createdBy, authenticatedUserId);
 
             return res.status(201).json({
                 message: "Cleaner request created successfully",
@@ -54,7 +55,8 @@ export class CleanerRequestController {
             }
 
             const updatedBy = (req as any).user?.email || null;
-            const result = await this.cleanerRequestService.update(id, req.body, updatedBy);
+            const authenticatedUserId = (req as any).user?.id;
+            const result = await this.cleanerRequestService.update(id, req.body, updatedBy, authenticatedUserId);
 
             return res.status(200).json({
                 message: "Cleaner request updated successfully",

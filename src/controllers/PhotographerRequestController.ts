@@ -29,9 +29,9 @@ export class PhotographerRequestController {
         try {
             const { propertyId } = request.params;
             const data = request.body;
-            const userId = request.user?.userId;
+            const userId = request.user?.id;
 
-            const result = await photographerRequestService.create(Number(propertyId), data, userId);
+            const result = await photographerRequestService.create(Number(propertyId), data, userId, userId);
 
             response.status(201).json({
                 success: true,
@@ -50,9 +50,9 @@ export class PhotographerRequestController {
         try {
             const { id } = request.params;
             const data = request.body;
-            const userId = request.user?.userId;
+            const userId = request.user?.id;
 
-            const result = await photographerRequestService.update(Number(id), data, userId);
+            const result = await photographerRequestService.update(Number(id), data, userId, userId);
 
             response.json({
                 success: true,

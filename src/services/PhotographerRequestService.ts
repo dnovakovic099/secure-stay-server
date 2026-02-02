@@ -1,10 +1,16 @@
 import { appDatabase } from "../utils/database.util";
 import { PhotographerRequest } from "../entity/PhotographerRequest";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { UsersService } from "./UsersService";
+import { slackMessageService } from "./SlackMessageService";
+import { buildPhotographerRequestSlackMessage, buildPhotographerRequestUpdateSlackMessage } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
+import { getDiff } from "../helpers/helpers";
 
 export class PhotographerRequestService {
     private photographerRequestRepo = appDatabase.getRepository(PhotographerRequest);
     private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
+    private usersService = new UsersService();
 
     async getByProperty(propertyId: number): Promise<PhotographerRequest | null> {
         return this.photographerRequestRepo.findOne({
@@ -13,48 +19,111 @@ export class PhotographerRequestService {
         });
     }
 
-    async create(propertyId: number, data: Partial<PhotographerRequest>, createdBy?: string): Promise<PhotographerRequest> {
-        // Verify property exists
-        const property = await this.propertyRepo.findOne({ where: { id: String(propertyId) } });
+    async create(propertyId: number, data: Partial<PhotographerRequest>, createdBy?: string, authenticatedUserId?: string): Promise<PhotographerRequest> {
+        // Check if property exists
+        const property = await this.propertyRepo.findOne({
+            where: { id: propertyId.toString() },
+        });
+
         if (!property) {
             throw new Error("Property not found");
         }
 
-        // Check if a request already exists for this property
-        const existingRequest = await this.photographerRequestRepo.findOne({
+        // Check if request already exists for this property
+        let existingRequest = await this.photographerRequestRepo.findOne({
             where: { propertyId },
         });
 
+        let result: PhotographerRequest;
         if (existingRequest) {
             // Update existing request
+            const oldRequest = { ...existingRequest };
             Object.assign(existingRequest, data);
             existingRequest.updatedBy = createdBy || null;
-            return this.photographerRequestRepo.save(existingRequest);
+            result = await this.photographerRequestRepo.save(existingRequest);
+
+            await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
+        } else {
+            // Create new request
+            const request = this.photographerRequestRepo.create({
+                ...data,
+                propertyId,
+                createdBy: createdBy || null,
+            });
+            result = await this.photographerRequestRepo.save(request);
+
+            await this.handleSlackNotification(result, null, authenticatedUserId);
         }
 
-        // Create new request
-        const photographerRequest = this.photographerRequestRepo.create({
-            ...data,
-            propertyId,
-            createdBy: createdBy || null,
-        });
-
-        return this.photographerRequestRepo.save(photographerRequest);
+        return result;
     }
 
-    async update(id: number, data: Partial<PhotographerRequest>, updatedBy?: string): Promise<PhotographerRequest> {
-        const existingRequest = await this.photographerRequestRepo.findOne({
+    async update(id: number, data: Partial<PhotographerRequest>, updatedBy?: string, authenticatedUserId?: string): Promise<PhotographerRequest> {
+        const request = await this.photographerRequestRepo.findOne({
             where: { id },
         });
 
-        if (!existingRequest) {
+        if (!request) {
             throw new Error("Photographer request not found");
         }
 
-        Object.assign(existingRequest, data);
-        existingRequest.updatedBy = updatedBy || null;
+        const oldRequest = { ...request };
+        Object.assign(request, data);
+        request.updatedBy = updatedBy || null;
 
-        return this.photographerRequestRepo.save(existingRequest);
+        const result = await this.photographerRequestRepo.save(request);
+        await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
+
+        return result;
+    }
+
+    private async handleSlackNotification(request: PhotographerRequest, oldRequest: PhotographerRequest | null, authenticatedUserId: string) {
+        try {
+            const entityType = 'PhotographerRequest';
+            const entityId = request.id;
+
+            const existingMessage = await slackMessageService.getLatestMessageByEntity(entityType, entityId);
+            const threadTs = existingMessage?.messageTs;
+
+            if (oldRequest && threadTs) {
+                // Threaded update
+                const diff = getDiff(oldRequest, request);
+                // Exclude technical fields from diff
+                delete (diff as any).updatedAt;
+                delete (diff as any).updatedBy;
+                delete (diff as any).createdAt;
+                delete (diff as any).createdBy;
+
+                if (Object.keys(diff).length > 0) {
+                    const slackMsg = buildPhotographerRequestUpdateSlackMessage(diff, request);
+                    await sendSlackMessage(slackMsg, threadTs);
+                }
+            } else {
+                // New submission or fallback to new thread
+                let apiKey = '';
+                if (authenticatedUserId) {
+                    const keyObj = await this.usersService.getApiKey(authenticatedUserId);
+                    apiKey = keyObj.apiKey.toString();
+                }
+
+                const formLink = `https://securestay.ai/photographer-request/${request.propertyId}/${apiKey}`;
+                const slackMsg = buildPhotographerRequestSlackMessage(request, formLink);
+                const response = await sendSlackMessage(slackMsg);
+
+                if (response?.ok && response?.ts) {
+                    await slackMessageService.saveSlackMessageInfo({
+                        channel: slackMsg.channel,
+                        messageTs: response.ts,
+                        threadTs: response.ts,
+                        entityType,
+                        entityId,
+                        originalMessage: JSON.stringify(slackMsg)
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error handling Photographer Request Slack notification:", error);
+        }
     }
 
     async getDistinctOnboardingReps(): Promise<string[]> {

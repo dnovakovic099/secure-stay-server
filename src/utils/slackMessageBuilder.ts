@@ -15,6 +15,8 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
+import { CleanerRequest } from "../entity/CleanerRequest";
+import { PhotographerRequest } from "../entity/PhotographerRequest";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -24,6 +26,8 @@ const CLAIMS = "#claims";
 const EXPENSE_CHANNEL = "#payment-requests";
 const ONBOARDING_CHANNEL = "#onboarding";
 const UNRESPONDED_MESSAGES_CHANNEL = "#unresponded-messages";
+const CLEANING_AND_MAINTENANCE = "#cleaning-and-maintenance";
+const INTERNAL_PHOTOGRAPHY = "#internal-photography";
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
     const slackMessage = {
@@ -1490,6 +1494,103 @@ export const buildUnansweredMessageAlert = (
                 fields
             }
         ]
+    };
+};
+
+
+export const buildCleanerRequestSlackMessage = (request: CleanerRequest, formLink: string) => {
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `New Cleaner Request for ${request.fullAddress}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Full Address:*\n${request.fullAddress || '-'}\n\n` +
+                        `*Special Arrangement Preference:*\n${request.specialArrangementPreference || '-'}\n\n` +
+                        `*Is Property Ready Cleaned:*\n${request.isPropertyReadyCleaned || '-'}\n\n` +
+                        `*Schedule Initial Clean:*\n${request.scheduleInitialClean || '-'}\n\n` +
+                        `*Property Access Information:*\n${request.propertyAccessInformation || '-'}\n\n` +
+                        `*Cleaning Closet Code/Location:*\n${request.cleaningClosetCodeLocation || '-'}\n\n` +
+                        `*Trash Schedule/Instructions:*\n${request.trashScheduleInstructions || '-'}\n\n` +
+                        `*Supplies to Restock:*\n${request.suppliesToRestock || '-'}\n\n` +
+                        `*Form Link:* ${formLink}`
+                }
+            }
+        ],
+        bot_name: "Cleaner Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/housekeeper-female.png"
+    };
+};
+
+export const buildCleanerRequestUpdateSlackMessage = (diff: Record<string, { old: any; new: any; }>, request: CleanerRequest) => {
+    const changes = Object.entries(diff).map(([field, { old, new: newValue }]) => {
+        return `• *${formatFieldName(field)}* was changed from \`${formatValue(old)}\` → \`${formatValue(newValue)}\``;
+    }).join("\n");
+
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `Cleaner Request updated for ${request.fullAddress}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Cleaner Request details have been updated:*\n${changes}`
+                }
+            }
+        ],
+        bot_name: "Cleaner Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/housekeeper-female.png"
+    };
+};
+
+export const buildPhotographerRequestSlackMessage = (request: PhotographerRequest, formLink: string) => {
+    return {
+        channel: INTERNAL_PHOTOGRAPHY,
+        text: `New Photographer Request for ${request.completeAddress}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Owner Name - Property Internal Name:*\n${request.ownerNamePropertyInternalName || '-'}\n\n` +
+                        `*Service Type:*\n${request.serviceType || '-'}\n\n` +
+                        `*Complete Address:*\n${request.completeAddress || '-'}\n\n` +
+                        `*Number of Bedrooms:*\n${request.numberOfBedrooms || '-'}\n\n` +
+                        `*Number of Bathrooms:*\n${request.numberOfBathrooms || '-'}\n\n` +
+                        `*Sqft of House:*\n${request.sqftOfHouse || '-'}\n\n` +
+                        `*Availability:*\n${request.availability || '-'}\n\n` +
+                        `*Onboarding Rep:*\n${request.onboardingRep || '-'}\n\n` +
+                        `*Form Link:* ${formLink}`
+                }
+            }
+        ],
+        bot_name: "Photographer Request",
+        bot_icon: "https://img.icons8.com/external-ddara-lineal-ddara/64/external-photographer-professions-ddara-lineal-ddara.png"
+    };
+};
+
+export const buildPhotographerRequestUpdateSlackMessage = (diff: Record<string, { old: any; new: any; }>, request: PhotographerRequest) => {
+    const changes = Object.entries(diff).map(([field, { old, new: newValue }]) => {
+        return `• *${formatFieldName(field)}* was changed from \`${formatValue(old)}\` → \`${formatValue(newValue)}\``;
+    }).join("\n");
+
+    return {
+        channel: INTERNAL_PHOTOGRAPHY,
+        text: `Photographer Request updated for ${request.completeAddress}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Photographer Request details have been updated:*\n${changes}`
+                }
+            }
+        ],
+        bot_name: "Photographer Request",
+        bot_icon: "https://img.icons8.com/external-ddara-lineal-ddara/64/external-photographer-professions-ddara-lineal-ddara.png"
     };
 };
 
