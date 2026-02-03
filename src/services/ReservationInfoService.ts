@@ -130,6 +130,7 @@ export class ReservationInfoService {
     const listing = updateData.listingMapId && await this.listingInfoRepository.findOne({ where: { id: updateData.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
 
+    reservation.id = updateData.id;
     reservation.listingMapId = updateData.listingMapId;
     reservation.listingName = listingName;
     reservation.channelId = updateData.channelId;
