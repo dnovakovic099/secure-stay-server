@@ -45,7 +45,7 @@ export class CleanerRequest {
     @Column({ type: "text", nullable: true })
     suppliesToRestock: string;
 
-    @Column({ nullable: true, default: "pending" })
+    @Column({ nullable: true, default: "new" })
     status: string; // pending, scheduled, completed, cancelled
 
     @CreateDateColumn({ type: "timestamp" })
