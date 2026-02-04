@@ -1042,7 +1042,7 @@ export class ClientService {
     });
 
     const properties = await this.propertyRepo.createQueryBuilder("property")
-      .leftJoinAndSelect("property.client", "client")
+      .innerJoinAndSelect("property.client", "client")
       .where("property.deletedAt IS NULL")
       .andWhere("client.deletedAt IS NULL")
       .getMany();
