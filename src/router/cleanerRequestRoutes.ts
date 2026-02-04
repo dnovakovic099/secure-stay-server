@@ -6,6 +6,9 @@ import { validateCreateCleanerRequest, validateUpdateCleanerRequest } from "../m
 const router = Router();
 const controller = new CleanerRequestController();
 
+// Get all cleaner requests with pagination and filtering
+router.get('/', verifySession, controller.getAll.bind(controller));
+
 // Get cleaner request for a property
 router.get('/property/:propertyId', verifySession, controller.getByProperty.bind(controller));
 

@@ -11,7 +11,7 @@ export const validateCreatePhotographerRequest = (request: Request, response: Re
         sqftOfHouse: Joi.number().required(),
         availability: Joi.string().required(),
         onboardingRep: Joi.string().required(),
-        status: Joi.string().optional().valid("pending", "scheduled", "completed", "cancelled"),
+        status: Joi.string().optional().valid("new", "in_progress", "completed"),
     });
 
     const { error } = schema.validate(request.body);
@@ -31,7 +31,7 @@ export const validateUpdatePhotographerRequest = (request: Request, response: Re
         sqftOfHouse: Joi.number().optional().allow(null),
         availability: Joi.string().optional().allow(null, ""),
         onboardingRep: Joi.string().optional().allow(null, ""),
-        status: Joi.string().optional().valid("pending", "scheduled", "completed", "cancelled"),
+        status: Joi.string().optional().valid("new", "in_progress", "completed"),
     });
 
     const { error } = schema.validate(request.body);

@@ -6,6 +6,9 @@ import { validateCreatePhotographerRequest, validateUpdatePhotographerRequest } 
 const router = Router();
 const controller = new PhotographerRequestController();
 
+// Get all photographer requests with pagination and filtering
+router.get('/', verifySession, controller.getAll.bind(controller));
+
 // Get photographer request for a property
 router.get('/property/:propertyId', verifySession, controller.getByProperty.bind(controller));
 

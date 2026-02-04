@@ -11,7 +11,7 @@ export const validateCreateCleanerRequest = (request: Request, response: Respons
         cleaningClosetCodeLocation: Joi.string().required(),
         trashScheduleInstructions: Joi.string().required(),
         suppliesToRestock: Joi.string().required(),
-        status: Joi.string().optional().valid("pending", "scheduled", "completed", "cancelled"),
+        status: Joi.string().optional().valid("new", "in_progress", "completed"),
     });
 
     const { error } = schema.validate(request.body);
@@ -31,7 +31,7 @@ export const validateUpdateCleanerRequest = (request: Request, response: Respons
         cleaningClosetCodeLocation: Joi.string().optional().allow(null, ""),
         trashScheduleInstructions: Joi.string().optional().allow(null, ""),
         suppliesToRestock: Joi.string().optional().allow(null, ""),
-        status: Joi.string().optional().valid("pending", "scheduled", "completed", "cancelled"),
+        status: Joi.string().optional().valid("new", "in_progress", "completed"),
     });
 
     const { error } = schema.validate(request.body);

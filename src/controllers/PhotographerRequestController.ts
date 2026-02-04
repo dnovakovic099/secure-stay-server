@@ -6,6 +6,37 @@ interface CustomRequest extends Request {
 }
 
 export class PhotographerRequestController {
+    async getAll(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const page = parseInt(request.query.page as string) || 1;
+            const limit = parseInt(request.query.limit as string) || 10;
+            const status = request.query.status as string[] | undefined;
+            const propertyId = request.query.propertyId
+                ? (Array.isArray(request.query.propertyId)
+                    ? (request.query.propertyId as string[]).map(Number)
+                    : [Number(request.query.propertyId)])
+                : undefined;
+
+            const result = await photographerRequestService.getAll({ page, limit, status, propertyId });
+
+            response.json({
+                success: true,
+                data: result.data,
+                pagination: {
+                    page: result.page,
+                    limit: result.limit,
+                    total: result.total,
+                    totalPages: Math.ceil(result.total / result.limit),
+                },
+            });
+        } catch (error: any) {
+            response.status(500).json({
+                success: false,
+                message: error.message,
+            });
+        }
+    }
+
     async getByProperty(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const { propertyId } = request.params;

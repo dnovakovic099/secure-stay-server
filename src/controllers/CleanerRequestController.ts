@@ -8,6 +8,35 @@ export class CleanerRequestController {
         this.cleanerRequestService = new CleanerRequestService();
     }
 
+    async getAll(req: Request, res: Response): Promise<Response> {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = parseInt(req.query.limit as string) || 10;
+            const status = req.query.status as string[] | undefined;
+            const propertyId = req.query.propertyId
+                ? (Array.isArray(req.query.propertyId)
+                    ? (req.query.propertyId as string[]).map(Number)
+                    : [Number(req.query.propertyId)])
+                : undefined;
+
+            const result = await this.cleanerRequestService.getAll({ page, limit, status, propertyId });
+
+            return res.status(200).json({
+                success: true,
+                data: result.data,
+                pagination: {
+                    page: result.page,
+                    limit: result.limit,
+                    total: result.total,
+                    totalPages: Math.ceil(result.total / result.limit),
+                },
+            });
+        } catch (error: any) {
+            console.error("Error fetching cleaner requests:", error);
+            return res.status(500).json({ success: false, message: error.message || "Failed to fetch cleaner requests" });
+        }
+    }
+
     async getByProperty(req: Request, res: Response): Promise<Response> {
         try {
             const propertyId = parseInt(req.params.propertyId);

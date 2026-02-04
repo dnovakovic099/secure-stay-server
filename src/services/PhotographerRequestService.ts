@@ -19,6 +19,38 @@ export class PhotographerRequestService {
         });
     }
 
+    async getAll(params: {
+        page: number;
+        limit: number;
+        status?: string[];
+        propertyId?: number[];
+    }): Promise<{ data: PhotographerRequest[]; total: number; page: number; limit: number; }> {
+        const { page, limit, status, propertyId } = params;
+        const skip = (page - 1) * limit;
+
+        const queryBuilder = this.photographerRequestRepo
+            .createQueryBuilder("pr")
+            .leftJoinAndSelect("pr.property", "property")
+            .leftJoinAndSelect("property.client", "client");
+
+        if (status && status.length > 0) {
+            queryBuilder.andWhere("pr.status IN (:...status)", { status });
+        }
+
+        if (propertyId && propertyId.length > 0) {
+            queryBuilder.andWhere("pr.propertyId IN (:...propertyId)", { propertyId });
+        }
+
+        queryBuilder
+            .orderBy("pr.createdAt", "DESC")
+            .skip(skip)
+            .take(limit);
+
+        const [data, total] = await queryBuilder.getManyAndCount();
+
+        return { data, total, page, limit };
+    }
+
     async create(propertyId: number, data: Partial<PhotographerRequest>, createdBy?: string, authenticatedUserId?: string): Promise<PhotographerRequest> {
         // Check if property exists
         const property = await this.propertyRepo.findOne({
