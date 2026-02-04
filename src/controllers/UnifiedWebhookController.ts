@@ -67,7 +67,7 @@ export class UnifiedWebhookController {
             const actionData = action.value && JSON.parse(action.value);
             const responseUrl = payload.response_url;
             let messageText = "";
-            logger.info(JSON.stringify(payload));
+            // logger.info(JSON.stringify(payload));
 
             switch (action.action_id) {
                 case slackInteractivityEventNames.APPROVE_REFUND_REQUEST: {
@@ -221,7 +221,7 @@ export class UnifiedWebhookController {
             const body = request.body;
 
             logger.info('[handleHostBuddyWebhook]Received HostBuddy webhook request');
-            logger.info(`[handleHostBuddyWebhook]HostBuddy webhook request body: ${JSON.stringify(body)}`);
+            // logger.info(`[handleHostBuddyWebhook]HostBuddy webhook request body: ${JSON.stringify(body)}`);
             // Process the HostBuddy webhook here
             if (!body || !body.action_items || !Array.isArray(body.action_items)) {
                 logger.error("[handleHostBuddyWebhook]Invalid HostBuddy webhook request body");
@@ -325,8 +325,8 @@ export class UnifiedWebhookController {
                 return response.sendStatus(400);
             }
 
-            logger.info("[handleHostifyWebhook] Received SNS message:", message);
-            logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message, null, 2)}`);
+            // logger.info("[handleHostifyWebhook] Received SNS message:", message);
+            // logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message, null, 2)}`);
 
             // Optional auth verification (Hostify 'auth' query parameter)
             const incomingAuth = request.query.auth as string;
@@ -405,7 +405,7 @@ export class UnifiedWebhookController {
     async handleSlackEventsWebhook(request: Request, response: Response, next: NextFunction) {
         try {
             const body = request.body;
-            logger.info(`[handleSlackEventsWebhook] Received Slack event: ${JSON.stringify(body)}`);
+            // logger.info(`[handleSlackEventsWebhook] Received Slack event: ${JSON.stringify(body)}`);
 
             // Handle URL verification challenge (Slack sends this when setting up the endpoint)
             if (body.type === 'url_verification') {

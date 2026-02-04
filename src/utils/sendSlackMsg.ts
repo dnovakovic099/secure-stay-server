@@ -26,8 +26,8 @@ const sendSlackMessage = async (message: any, threadTs?: string) => {
             }
         });
 
-        logger.info(JSON.stringify(response.data));
-        logger.info(`Message sent to Slack: ${JSON.stringify(payload)}`);
+        // logger.info(JSON.stringify(response.data));
+        // logger.info(`Message sent to Slack: ${JSON.stringify(payload)}`);
 
         return response.data;
     } catch (err) {
