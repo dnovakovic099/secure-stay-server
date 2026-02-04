@@ -93,6 +93,14 @@ export class UnifiedWebhookController {
                     await this.sendResponseInSlack(responseUrl, messageText);
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_PHOTOGRAPHER_REQUEST_STATUS: {
+                    logger.info(`Photographer Request status update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_CLEANER_REQUEST_STATUS: {
+                    logger.info(`Cleaner Request status update request`);
+                    break;
+                }
                 default: {
                     if (action.action_id.startsWith(slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS)) {
                         messageText = `Your request to update Zapier event status is being processed...`;
@@ -187,6 +195,42 @@ export class UnifiedWebhookController {
                         // The service now handles database update AND Slack notification sync (main msg + thread reply)
                     } catch (error) {
                         logger.error(`Error updating Zapier event status: ${error}`);
+                        await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_PHOTOGRAPHER_REQUEST_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const { PhotographerRequestService } = await import('../services/PhotographerRequestService');
+                        const photographerService = new PhotographerRequestService();
+                        await photographerService.update(Number(requestObj.id), { status: requestObj.status }, user);
+
+                        const statusEmoji = requestObj.status === 'new' ? '🔵' : requestObj.status === 'in_progress' ? '🟡' : '🟢';
+                        const statusLabel = requestObj.status === 'new' ? 'New' : requestObj.status === 'in_progress' ? 'In Progress' : 'Completed';
+                        messageText = `${statusEmoji} Status updated to *${statusLabel}* by ${user}`;
+                        await this.sendResponseInSlack(responseUrl, messageText);
+                        logger.info(`User ${user} updated photographer request ${requestObj.id} status to ${requestObj.status}`);
+                    } catch (error) {
+                        logger.error(`Error updating photographer request status: ${error}`);
+                        await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_CLEANER_REQUEST_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const { CleanerRequestService } = await import('../services/CleanerRequestService');
+                        const cleanerService = new CleanerRequestService();
+                        await cleanerService.update(Number(requestObj.id), { status: requestObj.status }, user);
+
+                        const statusEmoji = requestObj.status === 'new' ? '🔵' : requestObj.status === 'in_progress' ? '🟡' : '🟢';
+                        const statusLabel = requestObj.status === 'new' ? 'New' : requestObj.status === 'in_progress' ? 'In Progress' : 'Completed';
+                        messageText = `${statusEmoji} Status updated to *${statusLabel}* by ${user}`;
+                        await this.sendResponseInSlack(responseUrl, messageText);
+                        logger.info(`User ${user} updated cleaner request ${requestObj.id} status to ${requestObj.status}`);
+                    } catch (error) {
+                        logger.error(`Error updating cleaner request status: ${error}`);
                         await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
                     }
                     break;

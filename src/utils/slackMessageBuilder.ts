@@ -1499,6 +1499,9 @@ export const buildUnansweredMessageAlert = (
 
 
 export const buildCleanerRequestSlackMessage = (request: CleanerRequest, formLink: string) => {
+    const statusEmoji = request.status === 'new' ? '🔵' : request.status === 'in_progress' ? '🟡' : '🟢';
+    const statusLabel = request.status === 'new' ? 'New' : request.status === 'in_progress' ? 'In Progress' : 'Completed';
+
     return {
         channel: CLEANING_AND_MAINTENANCE,
         text: `New Cleaner Request for ${request.fullAddress}`,
@@ -1515,8 +1518,37 @@ export const buildCleanerRequestSlackMessage = (request: CleanerRequest, formLin
                         `*Cleaning Closet Code/Location:*\n${request.cleaningClosetCodeLocation || '-'}\n\n` +
                         `*Trash Schedule/Instructions:*\n${request.trashScheduleInstructions || '-'}\n\n` +
                         `*Supplies to Restock:*\n${request.suppliesToRestock || '-'}\n\n` +
+                        `*Status:* ${statusEmoji} ${statusLabel}\n\n` +
                         `*Form Link:* ${formLink}`
                 }
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_CLEANER_REQUEST_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        options: [
+                            {
+                                text: { type: "plain_text", text: "🔵 New", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "new" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟡 In Progress", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "in_progress" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟢 Completed", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "completed" })
+                            }
+                        ]
+                    }
+                ]
             }
         ],
         bot_name: "Cleaner Request",
@@ -1547,6 +1579,9 @@ export const buildCleanerRequestUpdateSlackMessage = (diff: Record<string, { old
 };
 
 export const buildPhotographerRequestSlackMessage = (request: PhotographerRequest, formLink: string) => {
+    const statusEmoji = request.status === 'new' ? '🔵' : request.status === 'in_progress' ? '🟡' : '🟢';
+    const statusLabel = request.status === 'new' ? 'New' : request.status === 'in_progress' ? 'In Progress' : 'Completed';
+
     return {
         channel: INTERNAL_PHOTOGRAPHY,
         text: `New Photographer Request for ${request.completeAddress}`,
@@ -1563,8 +1598,37 @@ export const buildPhotographerRequestSlackMessage = (request: PhotographerReques
                         `*Sqft of House:*\n${request.sqftOfHouse || '-'}\n\n` +
                         `*Availability:*\n${request.availability || '-'}\n\n` +
                         `*Onboarding Rep:*\n${request.onboardingRep || '-'}\n\n` +
+                        `*Status:* ${statusEmoji} ${statusLabel}\n\n` +
                         `*Form Link:* ${formLink}`
                 }
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_PHOTOGRAPHER_REQUEST_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        options: [
+                            {
+                                text: { type: "plain_text", text: "🔵 New", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "new" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟡 In Progress", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "in_progress" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟢 Completed", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "completed" })
+                            }
+                        ]
+                    }
+                ]
             }
         ],
         bot_name: "Photographer Request",

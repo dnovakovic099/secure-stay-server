@@ -72,7 +72,9 @@ export const slackInteractivityEventNames={
     DENY_REFUND_REQUEST: "deny_refund_request",
     UPDATE_ACTION_ITEM_STATUS: "update_action_item_status",
     UPDATE_EXPENSE_STATUS: "update_expense_status",
-    UPDATE_ZAPIER_EVENT_STATUS: "update_zapier_event_status"
+    UPDATE_ZAPIER_EVENT_STATUS: "update_zapier_event_status",
+    UPDATE_PHOTOGRAPHER_REQUEST_STATUS: "update_photographer_request_status",
+    UPDATE_CLEANER_REQUEST_STATUS: "update_cleaner_request_status"
 }
 
 
