@@ -730,31 +730,54 @@ export class ReviewService {
 
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
 
-        // append reviews for each reservations
-        const reviews = await this.reviewRepository.find({
-            where: {
-                reservationId: In(reservationIds),
-                isHidden: 0,
-            },
-            relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
-            order: {
-                createdAt: 'DESC',
-            },
+        // Collect all user IDs referenced in the data to avoid fetching ALL users
+        const userIds = new Set<string>();
+        reviewCheckoutList.forEach(rc => {
+            if (rc.assignee) userIds.add(rc.assignee);
+            if (rc.createdBy) userIds.add(rc.createdBy);
+            if (rc.updatedBy) userIds.add(rc.updatedBy);
+            if (rc.deletedBy) userIds.add(rc.deletedBy);
+            rc.reviewCheckoutUpdates?.forEach(update => {
+                if (update.createdBy) userIds.add(update.createdBy);
+                if (update.updatedBy) userIds.add(update.updatedBy);
+            });
         });
-
-        const users = await this.usersRepo.find();
-        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
         const issueServices = new IssuesService();
         const actionItemServices = new ActionItemsService();
 
-        const issues = (await issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId)).issues;
-        const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus })).actionItems;
-        const guestAnalyses = await this.guestAnalysisRepo.find({
-            where: {
-                reservationId: In(reservationIds),
-            },
-        });
+        // Run all secondary queries in parallel for better performance
+        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses] = await Promise.all([
+            // Fetch reviews
+            this.reviewRepository.find({
+                where: {
+                    reservationId: In(reservationIds),
+                    isHidden: 0,
+                },
+                relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
+                order: {
+                    createdAt: 'DESC',
+                },
+            }),
+            // Fetch only referenced users (not all users)
+            userIds.size > 0
+                ? this.usersRepo.find({ where: { uid: In([...userIds]) } })
+                : Promise.resolve([]),
+            // Fetch issues
+            issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId),
+            // Fetch action items
+            actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus }),
+            // Fetch guest analyses
+            this.guestAnalysisRepo.find({
+                where: {
+                    reservationId: In(reservationIds),
+                },
+            })
+        ]);
+
+        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        const issues = issuesResult.issues;
+        const actionItems = actionItemsResult.actionItems;
 
         const transformedData = reviewCheckoutList.map(rc => {
             return {
