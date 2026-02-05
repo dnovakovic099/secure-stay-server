@@ -358,14 +358,16 @@ export class ListingService {
   }
 
   async getPmListings(includeDeleted: boolean = false) {
-    const listings = await this.listingRepository.find({ withDeleted: includeDeleted });
-    const pmListings = listings.filter(listing => {
-      let tags = [];
-      tags = listing.tags ? listing.tags.split(',') : [];
-      return tags.includes("pm");
-    });
+    // Optimized: Filter at database level instead of fetching all and filtering in JS
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .where("listing.tags LIKE :pmTag", { pmTag: "%pm%" });
 
-    return pmListings;
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    return await query.getMany();
   }
 
   /**
