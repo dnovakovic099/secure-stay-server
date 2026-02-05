@@ -13,7 +13,7 @@ export const appDatabase = new DataSource({
   subscribers: [process.env.NODE_ENV === 'production' ? "dist/out-tsc/subscriber/*.js" : "src/subscriber/*.ts"],
   migrations: [process.env.NODE_ENV === 'production' ? "dist/out-tsc/migration/*.js" : "src/migration/*.ts"],
   extra: {
-    connectionLimit: 50,           // Increased from 20 for better handling under load
+    connectionLimit: 20,           // Reduced to prevent exhausting MySQL max_connections
     connectTimeout: 10000,         // 10 second connection timeout
     acquireTimeout: 10000,         // 10 seconds to acquire connection from pool
     waitForConnections: true,      // Wait for available connection instead of throwing error
