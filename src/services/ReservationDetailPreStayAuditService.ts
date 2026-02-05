@@ -62,11 +62,11 @@ export class ReservationDetailPreStayAuditService {
         const result = new Map<number, CompletionStatus>();
         // Set default for all requested IDs
         for (const id of reservationIds) {
-            result.set(id, CompletionStatus.NOT_STARTED);
+            result.set(Number(id), CompletionStatus.NOT_STARTED);
         }
-        // Override with actual values
+        // Override with actual values (bigint comes as string from MySQL)
         for (const audit of audits) {
-            result.set(audit.reservationId, audit.completionStatus);
+            result.set(Number(audit.reservationId), audit.completionStatus);
         }
         return result;
     }
