@@ -201,7 +201,7 @@ export class GuestCommunicationService {
                 const msgId = msg.id || (msg as any).message_id;
                 const msgContent = msg.message || (msg as any).text || "";
                 const msgCreatedAt = msg.created || (msg as any).created_at || (msg as any).timestamp;
-                const msgSenderType = msg.senderType || (msg as any).sender_type;
+                const msgSenderType = msg.from || (msg as any).from;
                 const msgSender = msg.sender || (msg as any).sender_name;
 
                 const existing = await this.communicationRepo.findOne({
