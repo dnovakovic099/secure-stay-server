@@ -451,7 +451,7 @@ export interface HostifyInboxMessage {
     id: number;
     message: string;
     sender: string;
-    senderType: string;  // 'guest' | 'host' | 'system'
+    from: string;  // 'guest' | 'host' | 'system'
     created: string;
     channel?: string;
 }

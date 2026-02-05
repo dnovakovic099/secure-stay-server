@@ -507,7 +507,7 @@ export class MessagingService {
             for (const msg of inboxThread.messages) {
                 const messageTime = new Date(msg.created).getTime();
                 // Check if this is an outgoing message (host/representative) sent after the guest message
-                if (msg.senderType !== 'guest' && messageTime > guestMessageTime) {
+                if (msg.from !== 'guest' && messageTime > guestMessageTime) {
                     logger.info(`[Hostify] Found reply message ${msg.id} after guest message ${guestMessage.messageId}`);
                     await this.updateMessageAsAnswered(guestMessage);
                     return true;

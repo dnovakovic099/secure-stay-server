@@ -417,7 +417,7 @@ export class UnifiedWebhookController {
                         {
                             logger.info("[handleHostifyWebhook] Processing message_new action");
                             // Only save incoming guest messages (is_incoming === 1)
-                            if (message.message && message.type === "message" && message.reservation_id && message.is_incoming === 1) {
+                            if (message.message && message.type === "message" && message.reservation_id && message.is_incoming === 1 && message.is_automatic === 0) {
                                 const messagingService = new MessagingService();
                                 await messagingService.saveHostifyGuestMessage(message);
                                 logger.info(`[handleHostifyWebhook] Saved guest message ${message.message_id}`);
