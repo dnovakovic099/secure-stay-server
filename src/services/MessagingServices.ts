@@ -512,6 +512,11 @@ export class MessagingService {
                     await this.updateMessageAsAnswered(guestMessage);
                     return true;
                 }
+
+                if (msg.id === guestMessage.messageId && msg.from === "automatic") {
+                    await this.updateMessageAsAnswered(guestMessage);
+                    return true;
+                }
             }
 
             return false;
