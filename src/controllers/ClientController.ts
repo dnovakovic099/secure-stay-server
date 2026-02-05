@@ -69,9 +69,13 @@ export class ClientController {
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
         source: request.query.source as string | undefined,
       };
-      const { total, data, satisfactionCounts } = await clientService.getClientList(filters, request.user.id);
 
-      const summaryInfo = await clientService.getClientMetadata();
+      // Run both queries in parallel for better performance
+      const [listResult, summaryInfo] = await Promise.all([
+        clientService.getClientList(filters, request.user.id),
+        clientService.getClientMetadata()
+      ]);
+      const { total, data, satisfactionCounts } = listResult;
 
       return response.status(200).json({ total, summaryInfo, satisfactionCounts, data });
     } catch (error) {

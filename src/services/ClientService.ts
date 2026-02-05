@@ -999,18 +999,31 @@ export class ClientService {
     const listingService = new ListingService();
     const listings = await listingService.getListingNames(userId);
 
-    const transformedData = await Promise.all(data.map(async (client) => {
+    // Build client -> listingIds map for batch queries
+    const clientListingMap = new Map<string, string[]>();
+    for (const client of data) {
+      const listingIds = client.properties ? client.properties.map(p => p.listingId) : [];
+      clientListingMap.set(client.id, listingIds);
+    }
+
+    // Batch fetch satisfaction and ticket data (2 queries instead of 2*N)
+    const [satisfactionMap, ticketCountMap] = await Promise.all([
+      this.getClientSatisfactionDataBatch(clientListingMap),
+      this.getClientTicketCountBatch(clientListingMap)
+    ]);
+
+    // Transform data with batch results
+    const transformedData = data.map((client) => {
       if (client.properties) {
         client.properties = client.properties.map((property) => {
           const listing = listings.find((l) => l.id === Number(property.listingId));
           return { ...property, listingName: listing ? listing.internalListingName : "Unknown Listing" };
         });
       }
-      const listingIds = client.properties ? client.properties.map(p => p.listingId) : [];
-      const clientSatisfaction = await this.getClientSatisfactionData(listingIds);
-      const ticketCount = await this.getClientTicketCount(listingIds);
+      const clientSatisfaction = satisfactionMap.get(client.id) || "Neutral";
+      const ticketCount = ticketCountMap.get(client.id) || 0;
       return { ...client, clientSatisfaction, ticketCount };
-    }));
+    });
 
     const satisfactionCounts = transformedData.reduce(
       (acc, client) => {
@@ -1162,6 +1175,133 @@ export class ClientService {
     });
 
     return ticketCount;
+  }
+
+  /**
+   * Batch fetch satisfaction data for multiple clients at once
+   * Returns a Map of clientId -> satisfaction level
+   */
+  async getClientSatisfactionDataBatch(clientListingMap: Map<string, string[]>): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+
+    // Initialize all clients with default
+    for (const clientId of clientListingMap.keys()) {
+      result.set(clientId, "Neutral");
+    }
+
+    // Get all listing IDs
+    const allListingIds: string[] = [];
+    for (const listings of clientListingMap.values()) {
+      allListingIds.push(...listings);
+    }
+
+    if (allListingIds.length === 0) {
+      return result;
+    }
+
+    // Fetch all tickets in one query
+    const clientTickets = await this.clientTicketRepo.find({
+      where: {
+        listingId: In(allListingIds),
+        clientSatisfaction: Not(IsNull()),
+        deletedAt: IsNull(),
+      },
+      select: ['listingId', 'clientSatisfaction'],
+    });
+
+    // Group tickets by listing ID for quick lookup
+    const ticketsByListing = new Map<string, number[]>();
+    for (const ticket of clientTickets) {
+      if (!ticketsByListing.has(ticket.listingId)) {
+        ticketsByListing.set(ticket.listingId, []);
+      }
+      ticketsByListing.get(ticket.listingId)!.push(ticket.clientSatisfaction || 0);
+    }
+
+    // Calculate satisfaction for each client
+    for (const [clientId, listings] of clientListingMap.entries()) {
+      const satisfactionScores: number[] = [];
+      for (const listingId of listings) {
+        const scores = ticketsByListing.get(listingId);
+        if (scores) {
+          satisfactionScores.push(...scores);
+        }
+      }
+
+      if (satisfactionScores.length === 0) {
+        continue; // Keep default "Neutral"
+      }
+
+      const total = satisfactionScores.reduce((sum, score) => sum + score, 0);
+      const average = total / satisfactionScores.length;
+
+      let satisfaction = "Neutral";
+      if (average >= 1.0 && average <= 1.8) {
+        satisfaction = "Very Dissatisfied";
+      } else if (average > 1.8 && average <= 2.6) {
+        satisfaction = "Dissatisfied";
+      } else if (average > 2.6 && average <= 3.4) {
+        satisfaction = "Neutral";
+      } else if (average > 3.4 && average <= 4.2) {
+        satisfaction = "Satisfied";
+      } else if (average > 4.2 && average <= 5.0) {
+        satisfaction = "Very Satisfied";
+      }
+
+      result.set(clientId, satisfaction);
+    }
+
+    return result;
+  }
+
+  /**
+   * Batch fetch ticket counts for multiple clients at once
+   * Returns a Map of clientId -> ticket count
+   */
+  async getClientTicketCountBatch(clientListingMap: Map<string, string[]>): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+
+    // Initialize all clients with 0
+    for (const clientId of clientListingMap.keys()) {
+      result.set(clientId, 0);
+    }
+
+    // Get all listing IDs
+    const allListingIds: string[] = [];
+    for (const listings of clientListingMap.values()) {
+      allListingIds.push(...listings);
+    }
+
+    if (allListingIds.length === 0) {
+      return result;
+    }
+
+    // Fetch all tickets grouped by listing ID
+    const tickets = await this.clientTicketRepo
+      .createQueryBuilder("ticket")
+      .select("ticket.listingId", "listingId")
+      .addSelect("COUNT(*)", "count")
+      .where("ticket.listingId IN (:...listingIds)", { listingIds: allListingIds })
+      .andWhere("ticket.deletedAt IS NULL")
+      .groupBy("ticket.listingId")
+      .getRawMany();
+
+    // Create a map of listingId -> count
+    const countByListing = new Map<string, number>();
+    for (const row of tickets) {
+      countByListing.set(row.listingId, parseInt(row.count, 10));
+    }
+
+    // Sum up counts for each client
+    for (const [clientId, listings] of clientListingMap.entries()) {
+      let totalCount = 0;
+      for (const listingId of listings) {
+        totalCount += countByListing.get(listingId) || 0;
+      }
+      result.set(clientId, totalCount);
+    }
+
+    return result;
   }
 
   async saveClientWithPreOnboarding(
