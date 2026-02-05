@@ -68,6 +68,33 @@ export class ReservationDetailPostStayAuditService {
         return audit ? audit.completionStatus : CompletionStatus.NOT_STARTED;
     }
 
+    /**
+     * Batch fetch completion statuses for multiple reservations
+     * Used for performance optimization to avoid N+1 queries
+     */
+    async fetchCompletionStatusesByReservationIds(reservationIds: number[]): Promise<Map<number, CompletionStatus>> {
+        if (reservationIds.length === 0) {
+            return new Map();
+        }
+
+        const { In } = await import("typeorm");
+        const audits = await this.postStayAuditRepository.find({
+            where: { reservationId: In(reservationIds) },
+            select: ['reservationId', 'completionStatus']
+        });
+
+        const result = new Map<number, CompletionStatus>();
+        // Set default for all requested IDs
+        for (const id of reservationIds) {
+            result.set(id, CompletionStatus.NOT_STARTED);
+        }
+        // Override with actual values
+        for (const audit of audits) {
+            result.set(audit.reservationId, audit.completionStatus);
+        }
+        return result;
+    }
+
     async createAudit(dto: ReservationDetailPostStayAuditDTO, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]): Promise<ReservationDetailPostStayAudit> {
         const audit = this.postStayAuditRepository.create({
             reservationId: dto.reservationId,

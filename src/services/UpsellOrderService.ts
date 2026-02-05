@@ -190,6 +190,35 @@ export class UpsellOrderService {
         }));
     }
 
+    /**
+     * Batch fetch upsells for multiple reservations
+     * Used for performance optimization to avoid N+1 queries
+     */
+    async getUpsellsByReservationIds(reservationIds: number[]): Promise<Map<number, { type: string; upsellId: string; }[]>> {
+        if (reservationIds.length === 0) {
+            return new Map();
+        }
+
+        const bookingIds = reservationIds.map(id => String(id));
+        const orders = await this.upsellOrderRepo.find({
+            where: { booking_id: In(bookingIds), status: "Approved" }
+        });
+
+        const result = new Map<number, { type: string; upsellId: string; }[]>();
+        // Initialize all requested IDs with empty arrays
+        for (const id of reservationIds) {
+            result.set(id, []);
+        }
+        // Group upsells by reservation
+        for (const order of orders) {
+            const reservationId = Number(order.booking_id);
+            const upsells = result.get(reservationId) || [];
+            upsells.push({ type: order.type, upsellId: String(order.id) });
+            result.set(reservationId, upsells);
+        }
+        return result;
+    }
+
     private async getUpsellsByCheckoutDate(date: string) {
         return await this.upsellOrderRepo.find({
             where: {

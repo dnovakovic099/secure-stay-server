@@ -335,29 +335,8 @@ export class ReservationInfoService {
     // Final results => today first, then paginated future/past
     let finalResults = [...todaysReservations, ...paginated];
 
-    for (const reservation of finalResults) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
-      const issueServices = new IssuesService();
-      const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
-      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
-      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
-
-      const reservationWithAuditStatus = {
-        ...reservation,
-        preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
-        upsells: upsells,
-        issues,
-        nextReservationIssues,
-        allIssues: [...issues, ...nextReservationIssues],
-        actionItems
-      };
-      Object.assign(reservation, reservationWithAuditStatus);
-    }
+    // Batch enrich all reservations with audit statuses, issues, action items
+    await this.enrichReservationsWithDetails(finalResults, userId, issuesStatus, actionItemsStatus);
 
     if (actionItemsStatus && actionItemsStatus.length > 0) {
       finalResults = finalResults.filter((r: any) => r.actionItems && r.actionItems.length > 0);
@@ -416,29 +395,8 @@ export class ReservationInfoService {
       .take(limit)
       .getManyAndCount();
 
-    for (const reservation of results) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
-      const issueServices = new IssuesService();
-      const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
-      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
-      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
-
-      const reservationWithAuditStatus = {
-        ...reservation,
-        preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus == "Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus) : postStayStatus,
-        upsells: upsells,
-        issues,
-        nextReservationIssues,
-        allIssues: [...issues, ...nextReservationIssues],
-        actionItems
-      };
-      Object.assign(reservation, reservationWithAuditStatus);
-    }
+    // Batch enrich all reservations with audit statuses, issues, action items
+    await this.enrichReservationsWithDetails(results, userId, issuesStatus, actionItemsStatus);
 
     if (actionItemsStatus && actionItemsStatus.length > 0) {
       results = results.filter((r: any) => r.actionItems && r.actionItems.length > 0);
@@ -530,32 +488,8 @@ export class ReservationInfoService {
       return todayDateStr > arrivalDateStr && todayDateStr < departureDateStr;
     });
 
-
-
-
-    for (const reservation of filteredReservations) {
-      const preStayStatus = await this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const postStayStatus = await this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id);
-      const upsells = await this.upsellOrderService.getUpsellsByReservationId(reservation.id);
-
-      const issueServices = new IssuesService();
-      const actionItemServices = new ActionItemsService();
-      const issues = (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [reservation.id], status: issuesStatus }, userId)).issues;
-      const nextReservation = await this.getNextReservation(reservation.id, reservation.listingMapId);
-      const nextReservationIssues = nextReservation ? (await issueServices.getGuestIssues({ page: 1, limit: 50, reservationId: [nextReservation.id], status: issuesStatus }, userId)).issues : [];
-      const actionItems = (await actionItemServices.getActionItems({ page: 1, limit: 50, reservationId: [reservation.id], status: actionItemsStatus })).actionItems;
-      const reservationWithAuditStatus = {
-        ...reservation,
-        preStayAuditStatus: preStayStatus,
-        postStayAuditStatus: postStayStatus=="Completed" ? ([...issues, ...nextReservationIssues].filter(issue => issue.status != "Completed").length > 0 ? "In Progress" : postStayStatus): postStayStatus,
-        upsells: upsells,
-        issues,
-        nextReservationIssues,
-        allIssues: [...issues, ...nextReservationIssues],
-        actionItems
-      };
-      Object.assign(reservation, reservationWithAuditStatus);
-    }
+    // Batch enrich all reservations with audit statuses, issues, action items
+    await this.enrichReservationsWithDetails(filteredReservations, userId, issuesStatus, actionItemsStatus);
 
     if (actionItemsStatus && actionItemsStatus.length > 0) {
       filteredReservations = filteredReservations.filter((r: any) => r.actionItems && r.actionItems.length > 0);
@@ -573,6 +507,150 @@ export class ReservationInfoService {
       currentPage: page,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * Batch enrich reservations with audit statuses, upsells, issues, and action items.
+   * This replaces N+1 sequential queries with batch parallel fetches for performance.
+   */
+  private async enrichReservationsWithDetails(
+    reservations: ReservationInfoEntity[],
+    userId: string,
+    issuesStatus: string[] | null | undefined,
+    actionItemsStatus: string[] | null | undefined
+  ): Promise<void> {
+    if (reservations.length === 0) return;
+
+    const reservationIds = reservations.map(r => r.id);
+
+  // Services instantiated once outside the loop
+    const issueServices = new IssuesService();
+    const actionItemServices = new ActionItemsService();
+
+    // Batch fetch all related data in parallel
+    const [
+      preStayStatuses,
+      postStayStatuses,
+      allUpsells,
+      nextReservationsMap
+    ] = await Promise.all([
+      this.preStayAuditService.fetchCompletionStatusesByReservationIds(reservationIds),
+      this.postStayAuditService.fetchCompletionStatusesByReservationIds(reservationIds),
+      this.upsellOrderService.getUpsellsByReservationIds(reservationIds),
+      this.getNextReservationsMap(reservations)
+    ]);
+
+    // Get all next reservation IDs for batch issues fetch
+    const allNextReservationIds = Array.from(nextReservationsMap.values())
+      .filter(r => r !== null)
+      .map(r => r.id);
+    const allReservationIdsForIssues = [...reservationIds, ...allNextReservationIds];
+
+    // Batch fetch issues and action items
+    const [issuesResult, actionItemsResult] = await Promise.all([
+      issueServices.getGuestIssues({
+        page: 1,
+        limit: 500,
+        reservationId: allReservationIdsForIssues,
+        status: issuesStatus
+      }, userId),
+      actionItemServices.getActionItems({
+        page: 1,
+        limit: 500,
+        reservationId: reservationIds,
+        status: actionItemsStatus
+      })
+    ]);
+
+    // Create maps for quick lookup
+    const issuesByReservation = new Map<number, any[]>();
+    for (const issue of issuesResult.issues) {
+      const resId = Number(issue.reservation_id);
+      if (!issuesByReservation.has(resId)) {
+        issuesByReservation.set(resId, []);
+      }
+      issuesByReservation.get(resId).push(issue);
+    }
+
+    const actionItemsByReservation = new Map<number, any[]>();
+    for (const item of actionItemsResult.actionItems) {
+      const resId = Number(item.reservationId);
+      if (!actionItemsByReservation.has(resId)) {
+        actionItemsByReservation.set(resId, []);
+      }
+      actionItemsByReservation.get(resId).push(item);
+    }
+
+    // Enrich each reservation with the fetched data
+    for (const reservation of reservations) {
+      const preStayStatus = preStayStatuses.get(reservation.id) || null;
+      const postStayStatus = postStayStatuses.get(reservation.id) || null;
+      const upsells = allUpsells.get(reservation.id) || [];
+      const issues = issuesByReservation.get(reservation.id) || [];
+      const nextReservation = nextReservationsMap.get(reservation.id) || null;
+      const nextReservationIssues = nextReservation
+        ? (issuesByReservation.get(nextReservation.id) || [])
+        : [];
+      const actionItems = actionItemsByReservation.get(reservation.id) || [];
+
+      // Calculate adjusted postStayStatus (same logic as before)
+      const adjustedPostStayStatus = postStayStatus === "Completed"
+        ? ([...issues, ...nextReservationIssues].filter(issue => issue.status !== "Completed").length > 0
+          ? "In Progress"
+          : postStayStatus)
+        : postStayStatus;
+
+      Object.assign(reservation, {
+        preStayAuditStatus: preStayStatus,
+        postStayAuditStatus: adjustedPostStayStatus,
+        upsells,
+        issues,
+        nextReservationIssues,
+        allIssues: [...issues, ...nextReservationIssues],
+        actionItems
+      });
+    }
+  }
+
+  /**
+   * Batch fetch next reservations for a list of reservations
+   */
+  private async getNextReservationsMap(
+    reservations: ReservationInfoEntity[]
+  ): Promise<Map<number, ReservationInfoEntity | null>> {
+    const result = new Map<number, ReservationInfoEntity | null>();
+
+    // Get unique listing IDs
+    const listingIds = [...new Set(reservations.map(r => r.listingMapId))];
+
+    // Batch fetch future reservations for all listings
+    const futureReservations = await this.reservationInfoRepository
+      .createQueryBuilder("r")
+      .where("r.listingMapId IN (:...listingIds)", { listingIds })
+      .andWhere("r.status NOT IN (:...excludedStatuses)", { excludedStatuses: this.excludedStatus })
+      .orderBy("r.arrivalDate", "ASC")
+      .getMany();
+
+    // Group by listing
+    const futureByListing = new Map<number, ReservationInfoEntity[]>();
+    for (const r of futureReservations) {
+      if (!futureByListing.has(r.listingMapId)) {
+        futureByListing.set(r.listingMapId, []);
+      }
+      futureByListing.get(r.listingMapId).push(r);
+    }
+
+    // Find next reservation for each input reservation
+    for (const reservation of reservations) {
+      const listingFuture = futureByListing.get(reservation.listingMapId) || [];
+      const nextRes = listingFuture.find(r =>
+        r.id !== reservation.id &&
+        new Date(r.arrivalDate) > new Date(reservation.departureDate)
+      );
+      result.set(reservation.id, nextRes || null);
+    }
+
+    return result;
   }
 
   /**
