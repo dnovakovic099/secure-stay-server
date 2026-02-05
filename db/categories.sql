@@ -29,5 +29,7 @@ INSERT INTO `category` (`categoryName`, `hostawayId`) VALUES
 ('Pet Fee', 10003),
 ('Extra Cleaning', 10004),
 ('Review Removal', 10005),
-('Dispute', 10006);
-
+('Dispute', 10006),
+('Tech Fee', 10007)
+('Special Cleaning', 10008),
+('Other Supplies', 10009);
