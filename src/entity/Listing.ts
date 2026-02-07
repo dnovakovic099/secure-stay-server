@@ -198,4 +198,7 @@ export class Listing {
   @Column({ nullable: true })
   deletedBy: string;
 
+  @Column({ type: 'date', nullable: true })
+  startDate: Date;
+
 }

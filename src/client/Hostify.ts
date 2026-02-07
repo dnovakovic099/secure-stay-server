@@ -472,6 +472,7 @@ export interface HostifyCalendarDay {
     date: string;
     status: string;
     price: number;
+    basePrice: number;
     listing_id: number;
     currency: string;
     min_stay: number;
