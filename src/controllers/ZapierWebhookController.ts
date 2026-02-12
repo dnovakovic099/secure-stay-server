@@ -115,6 +115,51 @@ export class ZapierWebhookController {
     };
 
     /**
+     * PUT /zapier/events/bulk-update-status - Bulk update event statuses
+     */
+    bulkUpdateEventStatus = async (req: Request, res: Response) => {
+        try {
+            const { ids, status } = req.body;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return res.status(400).json({
+                    status: 'error',
+                    message: 'IDs array is required and must not be empty'
+                });
+            }
+
+            // Validate status
+            if (!Object.values(ZapierEventStatus).includes(status)) {
+                return res.status(400).json({
+                    status: 'error',
+                    message: `Invalid status. Must be one of: ${Object.values(ZapierEventStatus).join(', ')}`
+                });
+            }
+
+            const user = (req as any).user;
+            const updatedBy = user?.user_metadata?.full_name || user?.email || 'user';
+
+            const result = await this.webhookService.bulkUpdateEventStatus(ids, status, updatedBy);
+
+            return res.status(200).json(result);
+        } catch (error: any) {
+            logger.error('[ZapierWebhookController][bulkUpdateEventStatus] Error:', error);
+
+            if (error.message?.includes('not found')) {
+                return res.status(404).json({
+                    status: 'error',
+                    message: error.message
+                });
+            }
+
+            return res.status(500).json({
+                status: 'error',
+                message: 'Failed to bulk update event statuses'
+            });
+        }
+    };
+
+    /**
      * GET /zapier/event-types - Get distinct event types for filter dropdown
      */
     getEventTypes = async (req: Request, res: Response) => {

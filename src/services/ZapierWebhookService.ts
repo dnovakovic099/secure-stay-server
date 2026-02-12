@@ -1,6 +1,7 @@
 import logger from '../utils/logger.utils';
 import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
+import { In } from 'typeorm';
 import { EmailProcessor } from '../utils/emailProcessor.util';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import updateSlackMessage from '../utils/updateSlackMsg';
@@ -215,6 +216,49 @@ export class ZapierWebhookService {
         });
 
         return event;
+    }
+
+    /**
+     * Bulk update event status for multiple events
+     */
+    async bulkUpdateEventStatus(ids: number[], status: ZapierEventStatus, updatedBy: string): Promise<{ success: boolean; updatedCount: number; message: string; }> {
+        const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+
+        const events = await eventRepo.find({ where: { id: In(ids) } });
+
+        if (events.length !== ids.length) {
+            const foundIds = events.map(e => e.id);
+            const missingIds = ids.filter(id => !foundIds.includes(id));
+            throw new Error(`Events with IDs ${missingIds.join(', ')} not found`);
+        }
+
+        const updatePromises = events.map(event => {
+            event.status = status;
+            event.updatedBy = updatedBy;
+
+            if (status === ZapierEventStatus.Completed) {
+                event.completedOn = new Date();
+            }
+
+            return eventRepo.save(event);
+        });
+
+        const updatedEvents = await Promise.all(updatePromises);
+
+        logger.info(`[ZapierWebhookService][bulkUpdateEventStatus] Updated ${updatedEvents.length} events to status: ${status}`);
+
+        // Notify Slack asynchronously for each event
+        updatedEvents.forEach(event => {
+            this.notifySlackStatusChange(event, updatedBy).catch(err => {
+                logger.error(`[ZapierWebhookService][bulkUpdateEventStatus] Slack notification failed for event ${event.id}: ${err}`);
+            });
+        });
+
+        return {
+            success: true,
+            updatedCount: updatedEvents.length,
+            message: `Successfully updated ${updatedEvents.length} events`
+        };
     }
 
     /**
