@@ -9,7 +9,7 @@ export function runAsync(task: Promise<any>, label: string) {
     const start = Date.now();
     task.then(() => {
         const duration = Date.now() - start;
-        logger.info(`[${label}] Completed in ${duration}ms`);
+        // logger.info(`[${label}] Completed in ${duration}ms`);
     }).catch(err => {
         const duration = Date.now() - start;
         logger.error(`[${label}] Error after ${duration}ms: ${err?.message}`);
