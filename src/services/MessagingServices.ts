@@ -55,6 +55,7 @@ export class MessagingService {
     private messageRepository = appDatabase.getRepository(Message);
     private hostawayClient = new HostAwayClient();
     private hostifyClient = new Hostify();
+    private listingRepository = appDatabase.getRepository(Listing);
 
     async saveEmailInfo(email: string) {
         const isExist = await this.messagingEmailInfoRepository.findOne({ where: { email } });
@@ -407,6 +408,16 @@ export class MessagingService {
                 return existingMessage;
             }
 
+            //check for listing_id
+            const listing=await this.listingRepository.findOne({
+                where: { id: Number(payload.listing_id) }
+            });
+
+            if(!listing){
+                logger.info(`[Hostify] Listing ${payload.listing_id} not found, skipping save`);
+                return;
+            }
+
             const newMessage = new Message();
             newMessage.messageId = payload.message_id;
             newMessage.reservationId = Number(payload.reservation_id);
@@ -485,6 +496,15 @@ export class MessagingService {
         if (!guestMessage.threadId) {
             logger.warn(`[Hostify] No threadId for message ${guestMessage.messageId}`);
             return false;
+        }
+
+        const listing=await this.listingRepository.findOne({
+            where: { id: Number(guestMessage.listingId) }
+        });
+
+        if(!listing){
+            await this.updateMessageAsAnswered(guestMessage);
+            return true;
         }
 
         const apiKey = process.env.HOSTIFY_API_KEY;
