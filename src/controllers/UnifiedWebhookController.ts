@@ -370,7 +370,7 @@ export class UnifiedWebhookController {
             }
 
             // logger.info("[handleHostifyWebhook] Received SNS message:", message);
-            // logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message, null, 2)}`);
+            logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message, null, 2)}`);
 
             // Optional auth verification (Hostify 'auth' query parameter)
             const incomingAuth = request.query.auth as string;

@@ -44,7 +44,12 @@ export function isEmojiOrThankYouMessage(message){
         "thx",
         "ok thx",
         "thank u",
-        "ok thank you"
+        "ok thank you",
+        "okay thank you",
+        "okay thanks",
+        "okay thx",
+        "ok",
+        "okay"
     ];
 
     // Emoji regex
