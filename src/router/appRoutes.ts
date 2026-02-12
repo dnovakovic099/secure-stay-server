@@ -45,6 +45,7 @@ import guestAnalysisRoutes from "./guestAnalysisRoutes";
 import noBookingAlertRoutes from "./noBookingAlertRoutes";
 import photographerRequestRoutes from "./photographerRequestRoutes";
 import cleanerRequestRoutes from "./cleanerRequestRoutes";
+import mapsRoutes from "./mapsRoutes";
 
 const router = Router();
 
@@ -96,6 +97,7 @@ router.use('/guest-analysis', guestAnalysisRoutes);
 router.use('/no-booking-alert', noBookingAlertRoutes);
 router.use('/photographer-request', photographerRequestRoutes);
 router.use('/cleaner-request', cleanerRequestRoutes);
+router.use('/maps', mapsRoutes);
 
 export default router;
 
