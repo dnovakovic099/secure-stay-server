@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { convert } from 'html-to-text';
 import { slackInteractivityEventNames } from "../constant";
 import { ActionItems } from "../entity/ActionItems";
 import { ClientTicket } from "../entity/ClientTicket";
@@ -1446,8 +1447,14 @@ export const buildUnansweredMessageAlert = (
     guestName?: string,
     propertyName?: string
 ) => {
+    // Convert HTML to readable plain text if message contains HTML tags
+    const isHtml = /<[a-z][\s\S]*>/i.test(guestMessage);
+    const displayMessage = isHtml
+        ? convert(guestMessage, { wordwrap: false, selectors: [{ selector: 'table', format: 'dataTable' }] })
+        : guestMessage;
+
     const formattedTime = format(receivedAt, "MMM dd, yyyy 'at' hh:mm a");
-    const truncatedMessage = guestMessage.length > 500 ? guestMessage.slice(0, 500) + '...' : guestMessage;
+    const truncatedMessage = displayMessage.length > 500 ? displayMessage.slice(0, 500) + '...' : displayMessage;
     const hostifyLink = `https://us.hostify.com/reservations/view/${reservationId}`;
 
     // Build title with property name in brackets if available
