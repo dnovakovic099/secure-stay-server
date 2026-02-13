@@ -3,10 +3,10 @@
 -- Purpose: Speed up action items queries on the /action-items page
 
 -- Index for listing and status combinations (common filtering)
-CREATE INDEX IF NOT EXISTS IDX_action_items_listing_status ON action_items("listingId", "status");
+CREATE INDEX IDX_action_items_listing_status ON action_items("listingId", "status");
 
 -- Index for createdAt (default ordering)
-CREATE INDEX IF NOT EXISTS IDX_action_items_createdAt ON action_items("createdAt");
+CREATE INDEX IDX_action_items_createdAt ON action_items("createdAt");
 
 -- Index for category filtering
-CREATE INDEX IF NOT EXISTS IDX_action_items_category ON action_items("category");
+CREATE INDEX IDX_action_items_category ON action_items("category");
