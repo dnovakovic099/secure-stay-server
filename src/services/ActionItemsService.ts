@@ -4,7 +4,7 @@ import { Listing } from "../entity/Listing";
 import logger from "../utils/logger.utils";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { Between, ILike, In, Like } from "typeorm";
+import { Between, Brackets, ILike, In, Like } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
@@ -130,7 +130,7 @@ export class ActionItemsService {
       }
     }
 
-    const whereConditions = {
+    const whereConditions: any = {
       ...(ids?.length > 0 && { id: In(ids) }),
       ...(category && { category: In(category) }),
       ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
@@ -140,40 +140,61 @@ export class ActionItemsService {
       ...dateCondition,
     };
 
-    const where = keyword
-      ? [
-          { ...whereConditions, item: ILike(`%${keyword}%`) },
-          { ...whereConditions, guestName: ILike(`%${keyword}%`) },
-        ]
-      : whereConditions;
+    // Prepare users list and map once
+    const users = await this.usersRepo.find({
+      select: ["uid", "firstName", "lastName"],
+      withDeleted: true,
+    });
 
-    const users = await this.usersRepo.find();
     const userMap = new Map(
-      users.map((user) => [user.uid, `${user.firstName} ${user.lastName}`])
+      users.map((user) => [user.uid, `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.uid])
     );
 
-    const [actionItems, total] = await this.actionItemsRepo.findAndCount({
-      where,
-      skip: (page - 1) * limit,
-      relations: ["actionItemsUpdates", "reservation"],
-      take: limit,
-      order: { createdAt: "DESC" },
+    // Prepare the assignee list once to reuse it in the mapping loop
+    const globalAssigneeList = users.map((user) => {
+      const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.uid;
+      return { uid: user.uid, name };
     });
+
+    // Use QueryBuilder for selective joins and efficient keyword search
+    const query = this.actionItemsRepo
+      .createQueryBuilder("actionItem")
+      .leftJoinAndSelect("actionItem.actionItemsUpdates", "actionItemsUpdates")
+      .leftJoin("actionItem.reservation", "reservation")
+      .addSelect(["reservation.id", "reservation.arrivalDate", "reservation.departureDate"]);
+
+    if (keyword) {
+      query.andWhere(new Brackets(qb => {
+        qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` })
+          .orWhere("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
+      }));
+
+      if (Object.keys(whereConditions).length > 0) {
+        query.andWhere(whereConditions);
+      }
+    } else {
+      query.andWhere(whereConditions);
+    }
+
+    query
+      .skip((page - 1) * limit)
+      .take(limit)
+      .orderBy("actionItem.createdAt", "DESC");
+
+    const [actionItems, total] = await query.getManyAndCount();
 
     const transformedActionItems = actionItems.map((actionItem) => {
       return {
         ...actionItem,
         createdBy: userMap.get(actionItem.createdBy) || actionItem.createdBy,
         updatedBy: userMap.get(actionItem.updatedBy) || actionItem.updatedBy,
-        actionItemsUpdates: actionItem.actionItemsUpdates.map((update) => ({
+        actionItemsUpdates: (actionItem.actionItemsUpdates || []).map((update) => ({
           ...update,
           createdBy: userMap.get(update.createdBy) || update.createdBy,
           updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
         })),
         assigneeName: userMap.get(actionItem.assignee) || actionItem.assignee,
-        assigneeList: users.map((user) => {
-          return { uid: user.uid, name: `${user.firstName} ${user.lastName}` };
-        }),
+        assigneeList: globalAssigneeList, // Reuse the same reference
       };
     });
 

@@ -1,8 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { ActionItemsUpdates } from './ActionItemsUpdates';
 import { ReservationInfoEntity } from './ReservationInfo';
 
 @Entity('action_items')
+@Index('IDX_action_items_listing_status', ['listingId', 'status'])
+@Index('IDX_action_items_createdAt', ['createdAt'])
+@Index('IDX_action_items_category', ['category'])
 export class ActionItems {
     @PrimaryGeneratedColumn({ type: 'int' })
     id: number;
