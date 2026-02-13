@@ -1,0 +1,45 @@
+name: Deploy Server to Production
+
+on:
+  push:
+    branches:
+      - dev-new
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy secure-stay-server to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+
+            echo "========== Deploying secure-stay-server =========="
+            cd /home/ec2-user/secure_stay/secure-stay-server || { echo "❌ Failed to change directory"; exit 1; }
+
+            echo ">>> Pulling latest code from dev-new..."
+            git pull origin dev-new || { echo "❌ Git pull origin dev-new failed"; exit 1; }
+
+            echo ">>> Installing dependencies..."
+            npm install || { echo "❌ npm install failed"; exit 1; }
+
+            echo ">>> Building the project..."
+            npm run build || { echo "❌ Build failed"; exit 1; }
+
+            echo ">>> Zero-downtime reload using ecosystem.config.js..."
+            pm2 reload ecosystem.config.js || { echo "❌ PM2 reload failed"; exit 1; }
+
+            echo ">>> Saving PM2 process list..."
+            pm2 save || { echo "❌ PM2 save failed"; exit 1; }
+
+            echo "========== Deployment complete =========="
+            pm2 list
