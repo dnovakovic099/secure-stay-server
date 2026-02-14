@@ -160,7 +160,9 @@ export class ExpenseService {
             keyword,
             expenseId,
             isRecurring,
-            type
+            type,
+            excludeCategories,
+            excludeContractorName
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -181,8 +183,12 @@ export class ExpenseService {
         if (propertyType && Array.isArray(propertyType)) {
             listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
         } else {
-            listingIds = Array.isArray(listingId) ? listingId.map(Number) : [];
+            listingIds = Array.isArray(listingId) ? listingId.map(Number) : (listingId ? [Number(listingId)] : []);
         }
+
+        const normalizedContractorName = Array.isArray(contractorName) ? contractorName : (contractorName ? [String(contractorName)] : []);
+        const normalizedStatus = Array.isArray(status) ? status : (status ? [String(status)] : []);
+        const normalizedPaymentMethod = Array.isArray(paymentMethod) ? paymentMethod : (paymentMethod ? [String(paymentMethod)] : []);
 
         // Decide which listing IDs to use
         const effectiveListingIds =
@@ -206,18 +212,20 @@ export class ExpenseService {
                     ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
                     ...(fromDate && toDate && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
                     ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
-                    ...(Array.isArray(status) && status.length > 0 && {
-                        status: In(status),
+                    ...(normalizedStatus.length > 0 && {
+                        status: In(normalizedStatus),
                     }),
-                    ...(Array.isArray(paymentMethod) && paymentMethod.length > 0 && {
-                        paymentMethod: In(paymentMethod),
+                    ...(normalizedPaymentMethod.length > 0 && {
+                        paymentMethod: In(normalizedPaymentMethod),
                     }),
                     ...(expenseIds.length > 0 && { id: In(expenseIds) }),
-                    ...(Array.isArray(contractorName) && contractorName.length > 0 && {
-                        contractorName: In(contractorName),
+                    ...(normalizedContractorName.length > 0 && {
+                        contractorName: excludeContractorName === 'true' ? Not(In(normalizedContractorName)) : In(normalizedContractorName),
                     }),
                     ...(categoriesFilter.length > 0 && {
-                        categories: Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
+                        categories: excludeCategories === 'true'
+                            ? Raw(alias => `(${alias} IS NULL OR JSON_LENGTH(${alias}) = 0 OR NOT (JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'))`)
+                            : Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
                     }),
                     ...(isRecurring !== undefined && { isRecurring: Number(isRecurring) }),
                     ...(type && type == "extras" && { amount: MoreThan(0) }),
@@ -337,14 +345,24 @@ export class ExpenseService {
             });
         }
 
-        if (Array.isArray(contractorName) && contractorName.length > 0) {
-            qb.andWhere('expense.contractorName IN (:...contractors)', { contractors: contractorName });
+        if (normalizedContractorName.length > 0) {
+            if (excludeContractorName === 'true') {
+                qb.andWhere('(expense.contractorName NOT IN (:...contractors) OR expense.contractorName IS NULL)', { contractors: normalizedContractorName });
+            } else {
+                qb.andWhere('expense.contractorName IN (:...contractors)', { contractors: normalizedContractorName });
+            }
         }
 
         if (categoriesFilter.length > 0) {
-            qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
-                regex: categoriesFilter.join('|'),
-            });
+            if (excludeCategories === 'true') {
+                qb.andWhere(`(expense.categories IS NULL OR JSON_LENGTH(expense.categories) = 0 OR NOT (JSON_EXTRACT(expense.categories, '$') REGEXP :regex))`, {
+                    regex: categoriesFilter.join('|'),
+                });
+            } else {
+                qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
+                    regex: categoriesFilter.join('|'),
+                });
+            }
         }
 
         if (type && type == "extras") {
