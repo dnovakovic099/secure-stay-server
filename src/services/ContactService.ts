@@ -22,7 +22,7 @@ interface FilterQuery {
     rate?: string;
     paymentMethod?: string[];
     isAutoPay?: boolean;
-    propertyType?: number[];
+    propertyType?: string[];
     source?: string[];
     email?: string;
     keyword?: string;
@@ -143,7 +143,7 @@ export class ContactService {
         const hasCity = city && city.length > 0;
 
         if (hasPropertyType) {
-            let listings = await listingService.getListingsByTagIds(propertyType, userId);
+            let listings = await listingService.getListingsByPropertyTypes(propertyType as any, userId);
 
             if (hasState) {
                 listings = listings.filter(l => l.state && state.includes(l.state));

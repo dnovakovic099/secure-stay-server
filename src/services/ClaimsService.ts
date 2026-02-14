@@ -62,7 +62,7 @@ export class ClaimsService {
         claimAmount?: string,
         guestName?: string,
         claimIds?: string,
-        propertyType?: string,
+        propertyType?: string[],
         keyword?: string
     ) {
         const queryOptions: any = {
@@ -112,7 +112,7 @@ export class ClaimsService {
 
         if (propertyType && Array.isArray(propertyType)) {
             const listingService = new ListingService();
-            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            const listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
             queryOptions.where.listing_id = In(listingIds);
         }
 

@@ -38,7 +38,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         isClaimOnly: Joi.boolean().optional(),
         status: Joi.string().required().valid("active", "hidden").allow(null, ""),
         keyword: Joi.string().optional(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         channel: Joi.array().items(Joi.number()).optional(),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
@@ -93,7 +93,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         actionItems: Joi.array().items(
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),
@@ -177,7 +177,7 @@ export const validateGetBadReview = (request: Request, response: Response, next:
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         actionItems: Joi.array().items(
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),

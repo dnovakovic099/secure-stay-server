@@ -26,7 +26,7 @@ interface ClientTicketFilter {
   page: number;
   limit: number;
   ids?: number[];
-  propertyType?: number[];
+  propertyType?: string[];
   keyword?: string;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
@@ -158,7 +158,7 @@ export class ClientTicketService {
 
     if (propertyType && propertyType.length > 0) {
       listingIds = (
-        await listingService.getListingsByTagIds(propertyType, userId)
+        await listingService.getListingsByPropertyTypes(propertyType, userId)
       ).map((l) => l.id);
     } else {
       listingIds = listingId;
@@ -558,8 +558,8 @@ export class ClientTicketService {
     if (filters.propertyType && filters.propertyType.length > 0) {
       const listingService = new ListingService();
       listingIds = (
-        await listingService.getListingsByTagIds(
-          filters.propertyType.map(Number),
+        await listingService.getListingsByPropertyTypes(
+          filters.propertyType,
           userId
         )
       ).map((l) => l.id);

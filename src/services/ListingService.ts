@@ -1,4 +1,4 @@
-import { EntityManager, In, Not } from "typeorm";
+import { Brackets, EntityManager, In, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Listing } from "../entity/Listing";
 import { ListingImage } from "../entity/ListingImage";
@@ -349,8 +349,39 @@ export class ListingService {
       query.withDeleted();
     }
 
-    if (userId) {
-      query.andWhere("listing.userId = :userId", { userId });
+    // if (userId) {
+    //   query.andWhere("listing.userId = :userId", { userId });
+    // }
+
+    const listings = await query.getMany();
+    return listings;
+  }
+
+  async getListingsByPropertyTypes(propertyTypes: string[], userId?: string, includeDeleted: boolean = false) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select(["listing.id", "listing.name", "listing.internalListingName",
+        "listing.address", "listing.state", "listing.city"
+      ]);
+
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    // if (userId) {
+    //   query.andWhere("listing.userId = :userId", { userId });
+    // }
+
+    if (propertyTypes && propertyTypes.length > 0) {
+      query.andWhere(new Brackets(qb => {
+        propertyTypes.forEach((type, index) => {
+          if (index === 0) {
+            qb.where("FIND_IN_SET(:type" + index + ", listing.tags) > 0", { ["type" + index]: type });
+          } else {
+            qb.orWhere("FIND_IN_SET(:type" + index + ", listing.tags) > 0", { ["type" + index]: type });
+          }
+        });
+      }));
     }
 
     const listings = await query.getMany();
@@ -361,7 +392,7 @@ export class ListingService {
     // Optimized: Filter at database level instead of fetching all and filtering in JS
     const query = this.listingRepository
       .createQueryBuilder("listing")
-      .where("listing.tags LIKE :pmTag", { pmTag: "%pm%" });
+      .where("FIND_IN_SET('pm', listing.tags) > 0");
 
     if (includeDeleted) {
       query.withDeleted();
@@ -566,9 +597,9 @@ export class ListingService {
       query.withDeleted();
     }
 
-    if (userId) {
-      query.andWhere("listing.userId = :userId", { userId });
-    }
+    // if (userId) {
+    //   query.andWhere("listing.userId = :userId", { userId });
+    // }
 
     const listings = await query.getMany();
     return listings;
@@ -586,9 +617,9 @@ export class ListingService {
       query.withDeleted();
     }
 
-    if (userId) {
-      query.andWhere("listing.userId = :userId", { userId });
-    }
+    // if (userId) {
+    //   query.andWhere("listing.userId = :userId", { userId });
+    // }
 
     const listings = await query.getMany();
     return listings;

@@ -190,7 +190,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .allow('', null),
 
         tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional(),
         isRecurring: Joi.number().valid(0, 1).optional(),

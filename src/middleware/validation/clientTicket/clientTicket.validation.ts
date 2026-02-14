@@ -83,7 +83,7 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
         page: Joi.number().required(),
         limit: Joi.number().required(),
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
-        propertyType: Joi.array().items(Joi.number()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         keyword: Joi.string().optional(),
         sortBy: Joi.string().optional(),
         sortOrder: Joi.string().valid('ASC', 'DESC').optional()

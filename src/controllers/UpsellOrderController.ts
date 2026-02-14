@@ -16,7 +16,7 @@ export class UpsellOrderController {
             const listingId = request.query.listingId as string || '';
             const frontendDateType = request.query.dateType as string || 'purchase';
             const keyword = request.query.keyword as string || '';
-            const propertyType = request.query.propertyType as string || '';
+            const propertyType = request.query.propertyType as string[] || [];
 
             const dateTypeMapping: { [key: string]: string } = {
                 'purchase': 'order_date',

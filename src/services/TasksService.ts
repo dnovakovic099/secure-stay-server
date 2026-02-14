@@ -32,7 +32,7 @@ export class TasksService {
         toDate: string = '', 
         status: any, 
         listingId: any,
-        propertyType: any,
+        propertyType: string[],
         keyword: any
     ) {
         const queryOptions: any = {
@@ -72,7 +72,7 @@ export class TasksService {
 
         if (propertyType && Array.isArray(propertyType)) {
             const listingService = new ListingService();
-            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            const listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(l => l.id);
             queryOptions.where.listing_id = In(listingIds);
         }
 

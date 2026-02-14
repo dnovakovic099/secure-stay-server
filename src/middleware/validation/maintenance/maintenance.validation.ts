@@ -52,7 +52,7 @@ export const validateGetMaintenance = (request: Request, response: Response, nex
         }).optional(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        propertyType: Joi.array().items(Joi.number()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         keyword: Joi.string().optional(),
         type: Joi.string().valid("unassigned", "today", "upcoming", "past").optional(),
         currentDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({

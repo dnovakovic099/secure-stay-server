@@ -271,7 +271,7 @@ export class RefundRequestService {
         const listingService = new ListingService();
         
         if (propertyType && propertyType.length > 0) {
-            listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
+          listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
         }
         
         const whereConditions: any = {};

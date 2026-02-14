@@ -82,7 +82,7 @@ export const validateGetResolutions = (request: Request, response: Response, nex
         limit: Joi.number().required(),
         category: Joi.array().items(Joi.string().required()).min(1).optional(),
         dateType: Joi.string().required().valid('claimDate', 'arrivalDate', 'departureDate', 'createdAt').optional(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         keyword: Joi.string().optional(),
     });
     const { error } = schema.validate(request.query);

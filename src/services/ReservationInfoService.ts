@@ -227,7 +227,7 @@ export class ReservationInfoService {
         page?: string;
         limit?: string;
           currentHour: string;
-          propertyType: any;
+          propertyType?: string[];
           actionItems?: string[];
           issues?: string[],
           channel?: string[],
@@ -244,7 +244,7 @@ export class ReservationInfoService {
       let listingIds = [];
       if (propertyType && propertyType.length > 0) {
         const listingService = new ListingService();
-        listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+        listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(l => l.id);
       } else {
         listingIds = listingMapId;
       }

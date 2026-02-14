@@ -11,7 +11,7 @@ interface MaintenanceFilter {
     contactId?: number[];
     fromDate?: string;
     toDate?: string;
-    propertyType?: number[];
+    propertyType?: string[];
     keyword?: string;
     type?: string;
     page: number;

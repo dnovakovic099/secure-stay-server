@@ -201,7 +201,7 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         rate: Joi.string().optional(),
         paymentMethod: Joi.array().items(Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),).optional(),
         isAutoPay: Joi.boolean().optional(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         email: Joi.string().email().optional().allow(null),
         source: Joi.array().items(Joi.string().valid("Owner", "Turno", "LL")).optional().allow(null),
         keyword: Joi.string().optional(),

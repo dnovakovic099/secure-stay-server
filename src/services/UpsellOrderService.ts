@@ -38,7 +38,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date', keyword: string = '', propertyType: string = '') {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] = []) {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
@@ -71,7 +71,7 @@ export class UpsellOrderService {
 
         if (propertyType && Array.isArray(propertyType)) {
             const listingService = new ListingService();
-            const listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            const listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(l => l.id);
             queryOptions.where.listing_id = In(listingIds);
         }
 

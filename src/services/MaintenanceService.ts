@@ -17,7 +17,7 @@ interface MaintenanceFilter {
     contactId?: number[];
     fromDate?: string;
     toDate?: string;
-    propertyType?: number[];
+    propertyType?: string[];
     keyword?: string;
     type?: string;
     page: number;
@@ -85,7 +85,7 @@ export class MaintenanceService {
         let listingIds = [];
         const listingService = new ListingService();
         if (propertyType && propertyType.length > 0) {
-            listingIds = (await listingService.getListingsByTagIds(propertyType)).map(l => l.id);
+            listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(l => l.id);
         } else {
             listingIds = listingId;
         }

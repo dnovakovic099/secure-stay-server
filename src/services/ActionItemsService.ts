@@ -109,7 +109,7 @@ export class ActionItemsService {
     let listingIds = [];
     if (propertyType && propertyType.length > 0) {
       const listingService = new ListingService();
-      listingIds = (await listingService.getListingsByTagIds(propertyType)).map(
+      listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(
         (l) => l.id
       );
     } else {
@@ -592,8 +592,8 @@ export class ActionItemsService {
     if (filters.propertyType && filters.propertyType.length > 0) {
       const listingService = new ListingService();
       listingIds = (
-        await listingService.getListingsByTagIds(
-          filters.propertyType.map(Number),
+        await listingService.getListingsByPropertyTypes(
+          filters.propertyType,
           userId
         )
       ).map((l) => l.id);

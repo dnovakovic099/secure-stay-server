@@ -11,7 +11,7 @@ export class TasksController {
             const toDate = request.query.toDate as string || '';
             const status = request.query.status; 
             const listingId = request.query.listingId;
-            const propertyType = request.query.propertyType;
+            const propertyType = request.query.propertyType as string[];
             const keyword = request.query.keyword;
 
             const result = await tasksService.getTasks(

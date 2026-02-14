@@ -24,7 +24,7 @@ export const validateGetReservationList = (request: Request, response: Response,
         page: Joi.number().required(),
         limit: Joi.number().required(),
         currentHour: Joi.string(),
-        propertyType: Joi.array().items(Joi.number().required()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         actionItems: Joi.array().items(
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),

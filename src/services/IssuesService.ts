@@ -281,7 +281,7 @@ export class IssuesService {
     if (filters.propertyType && filters.propertyType.length > 0) {
       const listingService = new ListingService();
       listingIds = (
-        await listingService.getListingsByTagIds(filters.propertyType, userId)
+        await listingService.getListingsByPropertyTypes(filters.propertyType, userId)
       ).map((l) => l.id);
     } else {
       listingIds = filters.listingId;
@@ -538,7 +538,7 @@ export class IssuesService {
     if (propertyType && propertyType.length > 0) {
       const listingService = new ListingService();
       listingIds = (
-        await listingService.getListingsByTagIds(propertyType, userId)
+        await listingService.getListingsByPropertyTypes(propertyType, userId)
       ).map((l) => l.id);
     } else {
       listingIds = listingId;

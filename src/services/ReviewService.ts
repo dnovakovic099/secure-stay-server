@@ -146,7 +146,7 @@ export class ReviewService {
 
             if (propertyType && propertyType.length > 0) {
                 const listingService = new ListingService();
-                listingIds = listingIds.concat((await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id));
+                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id));
             }
             
             // Add listingId(s) if provided

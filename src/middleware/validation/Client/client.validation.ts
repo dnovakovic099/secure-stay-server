@@ -1576,7 +1576,7 @@ export const validateSaveListingDetailsClientForm = (request: Request, response:
                     }),
                     listing: Joi.object({
                         //General
-                        propertyTypeId: Joi.number().required().allow(null),
+                        propertyTypeId: Joi.string().required().allow(null),
                         noOfFloors: Joi.number().required().allow(null),
                         squareMeters: Joi.number().required().allow(null),
                         squareFeet: Joi.number().optional().allow(null),

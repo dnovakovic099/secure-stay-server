@@ -133,9 +133,9 @@ export class ExpenseService {
         return hostawayExpense;
     }
 
-    private async getListingIdByTags(tags: number[]): Promise<number[]> {
+    private async getListingIdByPropertyTypes(propertyTypes: string[]): Promise<number[]> {
         const listingService = new ListingService();
-        const listings = await listingService.getListingsByTagIds(tags);
+        const listings = await listingService.getListingsByPropertyTypes(propertyTypes as any);
 
         const listingIds = listings.map(listing => listing.id);
         const distinctIds = Array.from(new Set(listingIds));
@@ -173,13 +173,13 @@ export class ExpenseService {
             : [];
 
         // fetch all the listingIds associated with the tags
-        const listingIdsFromTags = tags ? await this.getListingIdByTags(String(tags).split(',').map(Number)) : [];
+        const listingIdsFromTags = tags ? await this.getListingIdByPropertyTypes(String(tags).split(',')) : [];
 
         let listingIds = [];
         const listingService = new ListingService();
 
         if (propertyType && Array.isArray(propertyType)) {
-            listingIds = (await listingService.getListingsByTagIds(propertyType as any)).map(l => l.id);
+            listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
         } else {
             listingIds = Array.isArray(listingId) ? listingId.map(Number) : [];
         }

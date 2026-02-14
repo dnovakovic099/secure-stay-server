@@ -61,7 +61,7 @@ export const getActionItemsValidation = (request: Request, response: Response, n
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
-        propertyType: Joi.array().items(Joi.number()).min(1).optional(),
+        propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         keyword: Joi.string().optional(),
         dateType: Joi.string().valid('CREATED', 'UPDATED', 'CHECK_IN', 'CHECK_OUT').optional(),
     }).custom((value, helpers) => {
