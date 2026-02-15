@@ -131,16 +131,16 @@ export const AppRoutes = () => {
             file: false,
             rawJson: false,
         },
-        // GR Tasks Thread endpoints
+        // GR Tasks Thread endpoints (Slack sync)
         {
-            path: "/gr-tasks/:id/thread",
+            path: "/webhook/zapier/events/:id/thread",
             method: "get",
             action: threadController.getThreadMessages.bind(threadController),
             file: false,
             rawJson: false,
         },
         {
-            path: "/gr-tasks/:id/thread",
+            path: "/webhook/zapier/events/:id/thread",
             method: "post",
             action: threadController.postThreadMessage.bind(threadController),
             file: false,
