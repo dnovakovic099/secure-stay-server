@@ -6,6 +6,7 @@ import { FaqController } from "../controllers/FaqController";
 import { PaymentController } from "../controllers/PaymentController";
 import { CheckInController } from "../controllers/CheckInController";
 import { DevicesController } from "../controllers/devicesController";
+import { ThreadController } from "../controllers/ThreadController";
 
 export const AppRoutes = () => {
     const userVerificationController = new UserVerificationController();
@@ -16,6 +17,7 @@ export const AppRoutes = () => {
     const payController = new PaymentController();
     const checkInController = new CheckInController();
     const devicesController = new DevicesController();
+    const threadController = new ThreadController();
     return [
         {
             path: "/user-verification/:reservationLink",
@@ -126,6 +128,21 @@ export const AppRoutes = () => {
             path: "/device/unlock_door",
             method: "post",
             action: devicesController.unlockDevice,
+            file: false,
+            rawJson: false,
+        },
+        // GR Tasks Thread endpoints
+        {
+            path: "/gr-tasks/:id/thread",
+            method: "get",
+            action: threadController.getThreadMessages.bind(threadController),
+            file: false,
+            rawJson: false,
+        },
+        {
+            path: "/gr-tasks/:id/thread",
+            method: "post",
+            action: threadController.postThreadMessage.bind(threadController),
             file: false,
             rawJson: false,
         }

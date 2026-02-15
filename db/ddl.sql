@@ -209,3 +209,21 @@ CREATE TABLE IF NOT EXISTS `user_verification` (
 /*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;
+
+-- Thread messages table for GR Tasks Slack sync
+CREATE TABLE IF NOT EXISTS `thread_message` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `gr_task_id` int(11) NOT NULL,
+  `source` varchar(20) NOT NULL COMMENT 'slack or securestay',
+  `user_name` varchar(255) NOT NULL,
+  `user_avatar` varchar(500) DEFAULT NULL,
+  `content` text NOT NULL,
+  `slack_message_ts` varchar(50) DEFAULT NULL,
+  `message_timestamp` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_gr_task_id` (`gr_task_id`),
+  KEY `idx_source` (`source`),
+  KEY `idx_message_timestamp` (`message_timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
