@@ -25,7 +25,7 @@ import { TimeEntryService } from "../services/TimeEntryService";
 import { NoBookingAlertService } from "../services/NoBookingAlertService";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { CleanerNotificationService } from "../services/CleanerNotificationService";
-import { EscalationService } from "../services/EscalationService";
+// import { EscalationService } from "../services/EscalationService"; // TODO: Enable after DB migration
 
 
 export function scheduleGetReservation() {
@@ -477,36 +477,35 @@ export function scheduleGetReservation() {
     }
   );
 
-  // GR Tasks Overdue Escalation - Every 5 minutes
-  // Checks for New tasks > 4 hours, sends alerts and hourly reminders
-  schedule.scheduleJob(
-    "*/5 * * * *",  // Every 5 minutes
-    async () => {
-      try {
-        logger.info('[GRTasksEscalation] Processing overdue tasks...');
-        const escalationService = new EscalationService();
-        await escalationService.processOverdueTasks();
-        logger.info('[GRTasksEscalation] Overdue task processing completed.');
-      } catch (error) {
-        logger.error("[GRTasksEscalation] Error processing overdue tasks:", error);
-      }
-    }
-  );
+  // GR Tasks Overdue Escalation - DISABLED until DB migration
+  // TODO: Enable after running ALTER TABLE to add escalation columns
+  // schedule.scheduleJob(
+  //   "*/5 * * * *",  // Every 5 minutes
+  //   async () => {
+  //     try {
+  //       logger.info('[GRTasksEscalation] Processing overdue tasks...');
+  //       const escalationService = new EscalationService();
+  //       await escalationService.processOverdueTasks();
+  //       logger.info('[GRTasksEscalation] Overdue task processing completed.');
+  //     } catch (error) {
+  //       logger.error("[GRTasksEscalation] Error processing overdue tasks:", error);
+  //     }
+  //   }
+  // );
 
-  // GR Tasks Daily Reminder for In Progress - Daily at 10 AM EST
-  // Sends daily reminder for tasks that are In Progress
-  schedule.scheduleJob(
-    { hour: 10, minute: 0, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('[GRTasksEscalation] Processing daily reminders for In Progress tasks...');
-        const escalationService = new EscalationService();
-        await escalationService.processDailyReminders();
-        logger.info('[GRTasksEscalation] Daily reminder processing completed.');
-      } catch (error) {
-        logger.error("[GRTasksEscalation] Error processing daily reminders:", error);
-      }
-    }
-  );
+  // GR Tasks Daily Reminder - DISABLED until DB migration
+  // schedule.scheduleJob(
+  //   { hour: 10, minute: 0, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('[GRTasksEscalation] Processing daily reminders for In Progress tasks...');
+  //       const escalationService = new EscalationService();
+  //       await escalationService.processDailyReminders();
+  //       logger.info('[GRTasksEscalation] Daily reminder processing completed.');
+  //     } catch (error) {
+  //       logger.error("[GRTasksEscalation] Error processing daily reminders:", error);
+  //     }
+  //   }
+  // );
 }
 

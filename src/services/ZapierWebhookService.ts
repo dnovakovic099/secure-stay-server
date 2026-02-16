@@ -211,13 +211,13 @@ export class ZapierWebhookService {
         // Set completedOn if status is Completed
         if (status === ZapierEventStatus.Completed) {
             event.completedOn = new Date();
-            event.remindersActive = false; // Stop all reminders
+            // event.remindersActive = false; // TODO: Enable after DB migration
         }
 
         // Stop overdue reminders when moving to In Progress
-        if (status === ZapierEventStatus.InProgress) {
-            event.remindersActive = false; // Stop overdue reminders
-        }
+        // if (status === ZapierEventStatus.InProgress) {
+        //     event.remindersActive = false; // TODO: Enable after DB migration
+        // }
 
         await eventRepo.save(event);
         logger.info(`[ZapierWebhookService][updateEventStatus] Updated event ${id} to status: ${status}`);

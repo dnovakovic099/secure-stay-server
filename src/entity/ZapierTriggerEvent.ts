@@ -67,16 +67,21 @@ export class ZapierTriggerEvent {
     @Column({ name: 'updated_by', type: 'varchar', length: 100, nullable: true })
     updatedBy: string;  // User/system that last updated the record
 
-    // Overdue escalation tracking
-    @Column({ name: 'overdue_triggered_at', type: 'datetime', nullable: true })
-    overdueTriggeredAt: Date;  // When the task first became overdue (New > 4 hours)
-
-    @Column({ name: 'last_reminder_sent_at', type: 'datetime', nullable: true })
-    lastReminderSentAt: Date;  // Last hourly reminder for overdue tasks
-
-    @Column({ name: 'reminders_active', type: 'boolean', default: true })
-    remindersActive: boolean;  // Whether reminders should continue (false when In Progress/Completed)
-
-    @Column({ name: 'daily_reminder_sent_at', type: 'datetime', nullable: true })
-    dailyReminderSentAt: Date;  // Last 10 AM reminder for In Progress tasks
+    // NOTE: Escalation columns commented out until DB migration is run
+    // Run this SQL first:
+    // ALTER TABLE zapier_trigger_events 
+    //   ADD COLUMN overdue_triggered_at DATETIME NULL,
+    //   ADD COLUMN last_reminder_sent_at DATETIME NULL,
+    //   ADD COLUMN reminders_active BOOLEAN DEFAULT TRUE,
+    //   ADD COLUMN daily_reminder_sent_at DATETIME NULL;
+    
+    // Uncomment after migration:
+    // @Column({ name: 'overdue_triggered_at', type: 'datetime', nullable: true })
+    // overdueTriggeredAt: Date;
+    // @Column({ name: 'last_reminder_sent_at', type: 'datetime', nullable: true })
+    // lastReminderSentAt: Date;
+    // @Column({ name: 'reminders_active', type: 'boolean', default: true })
+    // remindersActive: boolean;
+    // @Column({ name: 'daily_reminder_sent_at', type: 'datetime', nullable: true })
+    // dailyReminderSentAt: Date;
 }
