@@ -51,11 +51,29 @@ export class ZapierWebhookService {
             logger.info(`[ZapierWebhookService][processWebhook] Created event record with ID: ${event.id}`);
 
             // Send Slack notifications (main message + threaded reply)
-            await this.sendSlackNotifications(event);
+            const slackInfo = await this.sendSlackNotifications(event);
+
+            // Save Slack info to the event (if columns exist in DB)
+            // Note: These columns need to be added via migration:
+            // ALTER TABLE zapier_trigger_events 
+            //   ADD COLUMN slack_channel_id VARCHAR(50) NULL,
+            //   ADD COLUMN slack_thread_ts VARCHAR(50) NULL,
+            //   ADD COLUMN slack_permalink VARCHAR(500) NULL;
+            try {
+                if (slackInfo.channelId) {
+                    event.slackChannelId = slackInfo.channelId;
+                }
+                if (slackInfo.messageTs) {
+                    event.slackThreadTs = slackInfo.messageTs;
+                }
+                if (slackInfo.permalink) {
+                    event.slackPermalink = slackInfo.permalink;
+                }
+            } catch (slackInfoError) {
+                logger.warn(`[ZapierWebhookService][processWebhook] Could not save Slack info (columns may not exist): ${slackInfoError}`);
+            }
 
             // Note: Status remains as 'New', user will manually update to 'In Progress' or 'Completed'
-            // event.status = ZapierEventStatus.Completed;
-            // event.completedOn = new Date();
             event.updatedBy = 'zapier_webhook';
             await eventRepo.save(event);
 
@@ -86,11 +104,18 @@ export class ZapierWebhookService {
 
     /**
      * Send Slack notifications for a Zapier event
+     * Returns Slack info (channelId, messageTs, permalink) for saving to the event
      */
-    private async sendSlackNotifications(event: ZapierTriggerEvent) {
+    private async sendSlackNotifications(event: ZapierTriggerEvent): Promise<{channelId?: string; messageTs?: string; permalink?: string}> {
         try {
             // 1. Build and send the main interactive message
             const slackMessage = buildZapierEventSlackMessage(event);
+
+            // Add SecureStay task link to the message
+            const securestayTaskUrl = `https://app.securestay.ai/messages/gr-tasks?taskId=${event.id}`;
+            if (slackMessage.text) {
+                slackMessage.text += `\n\n📋 <${securestayTaskUrl}|View in SecureStay>`;
+            }
 
             // Ensure channel starts with # if it's a name and not an ID (IDs start with C, D, or G)
             if (slackMessage.channel && !slackMessage.channel.startsWith('#') && !/^[C|D|G][A-Z0-9]{8,10}$/.test(slackMessage.channel)) {
@@ -122,11 +147,19 @@ export class ZapierWebhookService {
                         bot_icon: event.botIcon,
                     }, messageTs);
                 }
+
+                // 4. Construct permalink (format: https://workspace.slack.com/archives/{channel}/p{ts_without_dot})
+                const tsWithoutDot = messageTs.replace('.', '');
+                const permalink = `https://luxurylodging.slack.com/archives/${channelId}/p${tsWithoutDot}`;
+
+                return { channelId, messageTs, permalink };
             } else {
                 logger.error(`[ZapierWebhookService][sendSlackNotifications] Failed to send Slack message: ${JSON.stringify(result)}`);
+                return {};
             }
         } catch (error) {
             logger.error(`[ZapierWebhookService][sendSlackNotifications] Error: ${error}`);
+            return {};
         }
     }
 
