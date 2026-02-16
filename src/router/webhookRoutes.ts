@@ -12,6 +12,7 @@ const zapierWebhookController = new ZapierWebhookController();
 const threadController = new ThreadController();
 
 router.route('/ha-unified-webhook').post(unifiedWebhookController.handleWebhookResponse);
+router.route('/stripe').post(unifiedWebhookController.handleStripeWebhook);
 
 router.route('/slack-interactivity-webhook').post(bodyParser.urlencoded({ extended: true }), unifiedWebhookController.handleSlackInteractivity);
 

@@ -18,6 +18,7 @@ import { ZapierWebhookService } from "../services/ZapierWebhookService";
 import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { appDatabase } from "../utils/database.util";
+import sendEmail from "../utils/sendEmai";
 
 export class UnifiedWebhookController {
 
@@ -27,6 +28,7 @@ export class UnifiedWebhookController {
         this.handleCreateIssue = this.handleCreateIssue.bind(this);
         this.handleHostBuddyWebhook = this.handleHostBuddyWebhook.bind(this);
         this.handleHostifyWebhook = this.handleHostifyWebhook.bind(this);
+        this.handleStripeWebhook = this.handleStripeWebhook.bind(this);
     }
 
     async handleWebhookResponse(request: Request, response: Response, next: NextFunction) {
@@ -478,6 +480,34 @@ export class UnifiedWebhookController {
             logger.error(`[handleSlackEventsWebhook] Error:`, error.message);
             logger.error(error.stack);
             // Don't call next() since we already sent response
+        }
+    }
+
+    /**
+     * Handle Stripe webhooks (Minimalist approach - No verification)
+     */
+    async handleStripeWebhook(request: Request, response: Response, next: NextFunction) {
+        try {
+            const event = request.body;
+
+            logger.info(`Received Stripe webhook for event: ${event.type}`);
+
+            if (event.type === 'issuing_dispute.closed') {
+                logger.info(`Stripe issuing_dispute.closed event body: ${JSON.stringify(event)}`);
+                await sendEmail(
+                    "Stripe Issuing Dispute Closed Notification",
+                    `<p>A Stripe <b>issuing_dispute.closed</b> event has occurred.</p>
+                     <p><b>Event Body:</b></p>
+                     <pre>${JSON.stringify(event)}</pre>`,
+                    process.env.EMAIL_FROM,
+                    "prasannakb440@gmail.com"
+                );
+            }
+
+            return response.status(200).send("Ok");
+        } catch (error: any) {
+            logger.error(`Error handling Stripe webhook: ${error.message}`);
+            return next(error);
         }
     }
 }
