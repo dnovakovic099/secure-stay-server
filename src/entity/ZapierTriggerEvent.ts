@@ -33,6 +33,15 @@ export class ZapierTriggerEvent {
     @Column({ name: 'slack_channel', type: 'varchar', length: 100, nullable: true })
     slackChannel: string;  // Target Slack channel
 
+    @Column({ name: 'slack_channel_id', type: 'varchar', length: 50, nullable: true })
+    slackChannelId: string;  // Slack channel ID (C...)
+
+    @Column({ name: 'slack_thread_ts', type: 'varchar', length: 50, nullable: true })
+    slackThreadTs: string;  // Slack message timestamp (thread ID)
+
+    @Column({ name: 'slack_permalink', type: 'varchar', length: 500, nullable: true })
+    slackPermalink: string;  // Permalink to Slack message
+
     @Column({ name: 'email_subject', type: 'varchar', length: 500, nullable: true })
     emailSubject: string;  // Email subject (for email-related events)
 
