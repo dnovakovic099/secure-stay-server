@@ -29,5 +29,6 @@ router.route('/zapier/events/bulk-update-status').put(verifySession, zapierWebho
 router.route('/zapier/events/:id').get(verifySession, zapierWebhookController.getEventById);
 router.route('/zapier/events/:id/status').put(verifySession, zapierWebhookController.updateEventStatus);
 router.route('/zapier/event-types').get(verifySession, zapierWebhookController.getEventTypes);
+router.route('/zapier/slack-channels').get(verifySession, zapierWebhookController.getSlackChannels);
 
 export default router;

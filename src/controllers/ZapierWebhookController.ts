@@ -24,11 +24,12 @@ export class ZapierWebhookController {
      */
     getEvents = async (req: Request, res: Response) => {
         try {
-            const { status, event, fromDate, toDate, dateType, page, limit } = req.query;
+            const { status, event, slackChannel, fromDate, toDate, dateType, page, limit } = req.query;
 
             const result = await this.webhookService.getEvents({
                 status: status as string,
                 event: event as string,
+                slackChannel: slackChannel as string,
                 fromDate: fromDate as string,
                 toDate: toDate as string,
                 dateType: dateType as 'createdAt' | 'updatedAt',
@@ -171,6 +172,22 @@ export class ZapierWebhookController {
             return res.status(500).json({
                 status: 'error',
                 message: 'Failed to fetch event types'
+            });
+        }
+    };
+
+    /**
+     * GET /zapier/slack-channels - Get distinct Slack channels for filter dropdown
+     */
+    getSlackChannels = async (req: Request, res: Response) => {
+        try {
+            const slackChannels = await this.webhookService.getSlackChannels();
+            return res.status(200).json(slackChannels);
+        } catch (error) {
+            logger.error('[ZapierWebhookController][getSlackChannels] Error:', error);
+            return res.status(500).json({
+                status: 'error',
+                message: 'Failed to fetch slack channels'
             });
         }
     };

@@ -136,6 +136,7 @@ export class ZapierWebhookService {
     async getEvents(filters: {
         status?: string;
         event?: string;
+        slackChannel?: string;
         fromDate?: string;
         toDate?: string;
         dateType?: 'createdAt' | 'updatedAt';
@@ -160,6 +161,11 @@ export class ZapierWebhookService {
         // Filter by event type
         if (filters.event) {
             queryBuilder.andWhere('event.event = :eventType', { eventType: filters.event });
+        }
+
+        // Filter by Slack channel
+        if (filters.slackChannel) {
+            queryBuilder.andWhere('event.slackChannel = :slackChannel', { slackChannel: filters.slackChannel });
         }
 
         // Filter by date range
@@ -198,12 +204,19 @@ export class ZapierWebhookService {
             throw new Error(`Event with ID ${id} not found`);
         }
 
+        const previousStatus = event.status;
         event.status = status;
         event.updatedBy = updatedBy || 'user';
 
         // Set completedOn if status is Completed
         if (status === ZapierEventStatus.Completed) {
             event.completedOn = new Date();
+            event.remindersActive = false; // Stop all reminders
+        }
+
+        // Stop overdue reminders when moving to In Progress
+        if (status === ZapierEventStatus.InProgress) {
+            event.remindersActive = false; // Stop overdue reminders
         }
 
         await eventRepo.save(event);
@@ -215,7 +228,39 @@ export class ZapierWebhookService {
             logger.error(`[ZapierWebhookService][updateEventStatus] Slack notification failed: ${err}`);
         });
 
+        // Send completion message if status changed to Completed
+        if (status === ZapierEventStatus.Completed && previousStatus !== ZapierEventStatus.Completed) {
+            this.sendCompletionMessage(event).catch(err => {
+                logger.error(`[ZapierWebhookService][updateEventStatus] Completion message failed: ${err}`);
+            });
+        }
+
         return event;
+    }
+
+    /**
+     * Send completion thank-you message to Slack thread
+     */
+    private async sendCompletionMessage(event: ZapierTriggerEvent) {
+        try {
+            const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+            const slackMsg = await slackMessageRepo.findOne({
+                where: { entityType: 'zapier_trigger_event', entityId: event.id }
+            });
+
+            if (slackMsg) {
+                const completionText = `✅ Thanks team! Marked *Completed*. Appreciate the quick turnaround—please keep an eye on GR Tasks so nothing sits too long.`;
+                
+                await sendSlackMessage({
+                    channel: slackMsg.channel,
+                    text: completionText,
+                }, slackMsg.messageTs);
+
+                logger.info(`[ZapierWebhookService][sendCompletionMessage] Sent completion message for event ${event.id}`);
+            }
+        } catch (error) {
+            logger.error(`[ZapierWebhookService][sendCompletionMessage] Error: ${error}`);
+        }
     }
 
     /**
@@ -309,5 +354,19 @@ export class ZapierWebhookService {
             .select('DISTINCT event.event', 'eventType')
             .getRawMany();
         return result.map(r => r.eventType);
+    }
+
+    /**
+     * Get distinct Slack channels for filter dropdown
+     */
+    async getSlackChannels(): Promise<string[]> {
+        const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+        const result = await eventRepo
+            .createQueryBuilder('event')
+            .select('DISTINCT event.slackChannel', 'slackChannel')
+            .where('event.slackChannel IS NOT NULL')
+            .andWhere('event.slackChannel != :empty', { empty: '' })
+            .getRawMany();
+        return result.map(r => r.slackChannel).filter(Boolean);
     }
 }
