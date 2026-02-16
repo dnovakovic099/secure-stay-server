@@ -169,6 +169,7 @@ export class ZapierWebhookService {
     async getEvents(filters: {
         status?: string;
         event?: string;
+        slackChannel?: string;
         fromDate?: string;
         toDate?: string;
         dateType?: 'createdAt' | 'updatedAt';
@@ -193,6 +194,11 @@ export class ZapierWebhookService {
         // Filter by event type
         if (filters.event) {
             queryBuilder.andWhere('event.event = :eventType', { eventType: filters.event });
+        }
+
+        // Filter by Slack channel
+        if (filters.slackChannel) {
+            queryBuilder.andWhere('event.slackChannel = :slackChannel', { slackChannel: filters.slackChannel });
         }
 
         // Filter by date range
@@ -342,5 +348,19 @@ export class ZapierWebhookService {
             .select('DISTINCT event.event', 'eventType')
             .getRawMany();
         return result.map(r => r.eventType);
+    }
+
+    /**
+     * Get distinct Slack channels for filter dropdown
+     */
+    async getSlackChannels(): Promise<string[]> {
+        const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+        const result = await eventRepo
+            .createQueryBuilder('event')
+            .select('DISTINCT event.slackChannel', 'slackChannel')
+            .where('event.slackChannel IS NOT NULL')
+            .andWhere('event.slackChannel != :empty', { empty: '' })
+            .getRawMany();
+        return result.map(r => r.slackChannel).filter(Boolean);
     }
 }

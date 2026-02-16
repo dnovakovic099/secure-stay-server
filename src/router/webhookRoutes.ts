@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { UnifiedWebhookController } from "../controllers/UnifiedWebhookController";
 import { ZapierWebhookController } from "../controllers/ZapierWebhookController";
+import { ThreadController } from "../controllers/ThreadController";
 import bodyParser from "body-parser"
 import verifyMobileSession from "../middleware/verifyMobileSession";
 import verifySession from "../middleware/verifySession";
@@ -8,6 +9,7 @@ import verifySession from "../middleware/verifySession";
 const router = Router();
 const unifiedWebhookController = new UnifiedWebhookController();
 const zapierWebhookController = new ZapierWebhookController();
+const threadController = new ThreadController();
 
 router.route('/ha-unified-webhook').post(unifiedWebhookController.handleWebhookResponse);
 
@@ -29,5 +31,10 @@ router.route('/zapier/events/bulk-update-status').put(verifySession, zapierWebho
 router.route('/zapier/events/:id').get(verifySession, zapierWebhookController.getEventById);
 router.route('/zapier/events/:id/status').put(verifySession, zapierWebhookController.updateEventStatus);
 router.route('/zapier/event-types').get(verifySession, zapierWebhookController.getEventTypes);
+router.route('/zapier/slack-channels').get(verifySession, zapierWebhookController.getSlackChannels);
+
+// Thread messages for GR Tasks (Slack sync)
+router.route('/zapier/events/:id/thread').get(verifySession, threadController.getThreadMessages);
+router.route('/zapier/events/:id/thread').post(verifySession, threadController.postThreadMessage);
 
 export default router;
