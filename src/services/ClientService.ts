@@ -4983,11 +4983,13 @@ export class ClientService {
   }
 
   /**
-   * Get all client properties with their display names for URL generation dropdowns
+   * Get all client properties with their display names for URL generation dropdowns.
+   * Excludes properties whose parent client has been soft-deleted.
    */
   async getClientPropertyNames(): Promise<{ id: string; name: string; }[]> {
     const properties = await this.propertyRepo
       .createQueryBuilder("property")
+      .innerJoin("property.client", "client")
       .leftJoin("property.propertyInfo", "info")
       .select([
         "property.id",
@@ -4996,6 +4998,7 @@ export class ClientService {
         "info.externalListingName",
       ])
       .where("property.deletedAt IS NULL")
+      .andWhere("client.deletedAt IS NULL")
       .orderBy("property.id", "ASC")
       .getMany();
 
