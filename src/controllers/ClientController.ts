@@ -485,6 +485,14 @@ export class ClientController {
     }
   }
 
+  async getClientPropertyNames(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getClientPropertyNames();
+      return response.status(200).json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
 
 }
-

@@ -13,6 +13,7 @@ router.route('/').get(verifySession, validateGetClients, clientController.getCli
 router.route('/export-all').get(verifySession, clientController.getClientsForExport.bind(clientController));
 router.route('/check-existing-client').get(verifySession, clientController.checkExistingClient.bind(clientController));
 router.route('/get-client-details/:id').get(verifySession, clientController.getClientDetails.bind(clientController));
+router.route('/properties/names').get(verifySession, clientController.getClientPropertyNames.bind(clientController));
 router.route('/:id').delete(verifySession, clientController.deleteClient.bind(clientController));
 router.route('/property/:propertyId').delete(verifySession, clientController.deleteProperty.bind(clientController));
 

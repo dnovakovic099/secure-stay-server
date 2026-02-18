@@ -4982,4 +4982,31 @@ export class ClientService {
     return await this.propertyRepo.save(property);
   }
 
+  /**
+   * Get all client properties with their display names for URL generation dropdowns
+   */
+  async getClientPropertyNames(): Promise<{ id: string; name: string; }[]> {
+    const properties = await this.propertyRepo
+      .createQueryBuilder("property")
+      .leftJoin("property.propertyInfo", "info")
+      .select([
+        "property.id",
+        "property.address",
+        "info.internalListingName",
+        "info.externalListingName",
+      ])
+      .where("property.deletedAt IS NULL")
+      .orderBy("property.id", "ASC")
+      .getMany();
+
+    return properties.map((p) => ({
+      id: String(p.id),
+      name:
+        (p as any).propertyInfo?.internalListingName ||
+        (p as any).propertyInfo?.externalListingName ||
+        p.address ||
+        `Property ${p.id}`,
+    }));
+  }
+
 }
