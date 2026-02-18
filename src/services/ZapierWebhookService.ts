@@ -150,7 +150,7 @@ export class ZapierWebhookService {
 
                 // 4. Construct permalink (format: https://workspace.slack.com/archives/{channel}/p{ts_without_dot})
                 const tsWithoutDot = messageTs.replace('.', '');
-                const permalink = `https://luxurylodging.slack.com/archives/${channelId}/p${tsWithoutDot}`;
+                const permalink = `${process.env.SLACK_WORKSPACE_URL}archives/${channelId}/p${tsWithoutDot}`;
 
                 return { channelId, messageTs, permalink };
             } else {

@@ -1357,6 +1357,15 @@ export const buildZapierEventSlackMessage = (event: ZapierTriggerEvent) => {
         ]
     });
 
+    // Add View link on separate line
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `<http://localhost:3000/messages/gr-tasks?eventId=${event.id}|View in Secure Stay>`
+        }
+    });
+
     return {
         channel: event.slackChannel,
         text: `${event.botName || 'Zapier Event'}: ${event.title || event.message.slice(0, 50)}`,
@@ -1419,6 +1428,15 @@ export const buildZapierEventStatusUpdateMessage = (event: ZapierTriggerEvent, u
                 ]
             }
         ]
+    });
+
+    // Add View link on separate line
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `<http://localhost:3000/messages/gr-tasks?eventId=${event.id}|View in Secure Stay>`
+        }
     });
 
     return {
