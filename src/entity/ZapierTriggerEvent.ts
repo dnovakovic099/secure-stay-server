@@ -76,21 +76,16 @@ export class ZapierTriggerEvent {
     @Column({ name: 'updated_by', type: 'varchar', length: 100, nullable: true })
     updatedBy: string;  // User/system that last updated the record
 
-    // NOTE: Escalation columns commented out until DB migration is run
-    // Run this SQL first:
-    // ALTER TABLE zapier_trigger_events 
-    //   ADD COLUMN overdue_triggered_at DATETIME NULL,
-    //   ADD COLUMN last_reminder_sent_at DATETIME NULL,
-    //   ADD COLUMN reminders_active BOOLEAN DEFAULT TRUE,
-    //   ADD COLUMN daily_reminder_sent_at DATETIME NULL;
-    
-    // Uncomment after migration:
-    // @Column({ name: 'overdue_triggered_at', type: 'datetime', nullable: true })
-    // overdueTriggeredAt: Date;
-    // @Column({ name: 'last_reminder_sent_at', type: 'datetime', nullable: true })
-    // lastReminderSentAt: Date;
-    // @Column({ name: 'reminders_active', type: 'boolean', default: true })
-    // remindersActive: boolean;
-    // @Column({ name: 'daily_reminder_sent_at', type: 'datetime', nullable: true })
-    // dailyReminderSentAt: Date;
+    // Escalation columns - requires migration: 20260218_add_thread_and_escalation_fields.sql
+    @Column({ name: 'escalation_level', type: 'int', default: 0 })
+    escalationLevel: number;
+
+    @Column({ name: 'last_reminder_at', type: 'timestamp', nullable: true })
+    lastReminderAt: Date;
+
+    @Column({ name: 'reminder_count', type: 'int', default: 0 })
+    reminderCount: number;
+
+    @Column({ name: 'is_overdue', type: 'boolean', default: false })
+    isOverdue: boolean;
 }

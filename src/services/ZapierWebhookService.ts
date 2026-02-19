@@ -244,13 +244,17 @@ export class ZapierWebhookService {
         // Set completedOn if status is Completed
         if (status === ZapierEventStatus.Completed) {
             event.completedOn = new Date();
-            // event.remindersActive = false; // TODO: Enable after DB migration
+            event.isOverdue = false;
+            event.reminderCount = 0;
+            event.escalationLevel = 0;
         }
 
         // Stop overdue reminders when moving to In Progress
-        // if (status === ZapierEventStatus.InProgress) {
-        //     event.remindersActive = false; // TODO: Enable after DB migration
-        // }
+        if (status === ZapierEventStatus.InProgress) {
+            event.isOverdue = false;
+            event.reminderCount = 0;
+            event.escalationLevel = 0;
+        }
 
         await eventRepo.save(event);
         logger.info(`[ZapierWebhookService][updateEventStatus] Updated event ${id} to status: ${status}`);
@@ -316,6 +320,15 @@ export class ZapierWebhookService {
 
             if (status === ZapierEventStatus.Completed) {
                 event.completedOn = new Date();
+                event.isOverdue = false;
+                event.reminderCount = 0;
+                event.escalationLevel = 0;
+            }
+
+            if (status === ZapierEventStatus.InProgress) {
+                event.isOverdue = false;
+                event.reminderCount = 0;
+                event.escalationLevel = 0;
             }
 
             return eventRepo.save(event);
