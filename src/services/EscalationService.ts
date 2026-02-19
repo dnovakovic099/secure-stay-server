@@ -10,7 +10,7 @@ import axios from 'axios';
 // Guest Relations user group ID for Slack mentions
 const GR_USERGROUP_ID = 'S09AUHMA6HE';
 const OVERDUE_THRESHOLD_HOURS = 4;
-const REMINDER_INTERVAL_HOURS = 0.25;
+const REMINDER_INTERVAL_HOURS = 1;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 
 interface SlackThreadMessage {
