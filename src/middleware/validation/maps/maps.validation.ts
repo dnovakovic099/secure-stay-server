@@ -26,6 +26,9 @@ export const validateMapsSearch = (
       })
       .optional(),
     guests: Joi.number().min(1).optional(),
+    petsIncluded: Joi.boolean().optional(),
+    numberOfPets: Joi.number().optional(),
+    maxTotalPrice: Joi.number().optional(),
   }).custom((value, helpers) => {
     // If one date is provided, the other must be too
     if ((value.startDate && !value.endDate) || (!value.startDate && value.endDate)) {
