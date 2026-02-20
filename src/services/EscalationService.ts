@@ -35,6 +35,49 @@ export class EscalationService {
     }
 
     /**
+     * Send a message as a thread reply and validate the Slack API response.
+     * Returns true if the message was successfully posted as a thread reply.
+     * If the thread no longer exists or the message was posted as a new message,
+     * it cleans up (deletes the orphaned message) and returns false.
+     */
+    private async sendThreadReply(
+        channel: string,
+        text: string,
+        threadTs: string,
+        eventId: number
+    ): Promise<boolean> {
+        const result = await sendSlackMessage({ channel, text }, threadTs);
+
+        // Slack API returned an error (e.g., thread_not_found, channel_not_found)
+        if (!result?.ok) {
+            logger.warn(`[EscalationService] Thread reply failed for event ${eventId}: ${result?.error || 'unknown error'} — skipping`);
+            return false;
+        }
+
+        // Message was posted, but verify it is actually a thread reply
+        if (!result.message?.thread_ts) {
+            // Slack ignored the thread_ts and posted as a new standalone message — delete it
+            logger.warn(`[EscalationService] Message for event ${eventId} posted as new message instead of thread reply (thread may have been deleted) — deleting and skipping`);
+            try {
+                await axios.post('https://slack.com/api/chat.delete', {
+                    channel,
+                    ts: result.ts
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${SLACK_BOT_TOKEN}`
+                    }
+                });
+            } catch (deleteErr) {
+                logger.error(`[EscalationService] Failed to delete orphaned message for event ${eventId}: ${deleteErr}`);
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Process overdue tasks (runs every 5 minutes)
      * 
      * 1. Find newly-overdue tasks (New for 4+ hours, not yet flagged)
@@ -86,12 +129,8 @@ export class EscalationService {
                             `Please pick this up and move to *In Progress*, or mark *Completed* if already resolved.`,
                         ].filter(Boolean).join('\n');
 
-                        await sendSlackMessage({
-                            channel: slackMsg.channel,
-                            text: alertText,
-                        }, slackMsg.messageTs);
-
-                        logger.info(`[EscalationService] Sent overdue alert for event ${event.id}`);
+                        const sent = await this.sendThreadReply(slackMsg.channel, alertText, slackMsg.messageTs, event.id);
+                        if (!sent) continue;
 
                         // Update escalation state only after successfully sending the Slack message
                         event.isOverdue = true;
@@ -155,10 +194,8 @@ export class EscalationService {
 
                         reminderParts.push(`Please update the status to *In Progress* if someone is working on this.`);
 
-                        await sendSlackMessage({
-                            channel: slackMsg.channel,
-                            text: reminderParts.join('\n'),
-                        }, slackMsg.messageTs);
+                        const sent = await this.sendThreadReply(slackMsg.channel, reminderParts.join('\n'), slackMsg.messageTs, event.id);
+                        if (!sent) continue;
 
                         logger.info(`[EscalationService] Sent hourly reminder #${event.reminderCount + 1} for event ${event.id}`);
 
@@ -222,10 +259,8 @@ export class EscalationService {
                             `If this is resolved, please mark it as *Completed*. Otherwise, let the team know the current status.`,
                         ].filter(Boolean).join('\n');
 
-                        await sendSlackMessage({
-                            channel: slackMsg.channel,
-                            text: reminderText,
-                        }, slackMsg.messageTs);
+                        const sent = await this.sendThreadReply(slackMsg.channel, reminderText, slackMsg.messageTs, event.id);
+                        if (!sent) continue;
 
                         // Update last reminder timestamp
                         event.lastReminderAt = new Date();
