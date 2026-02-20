@@ -48,6 +48,7 @@ import cleanerRequestRoutes from "./cleanerRequestRoutes";
 import mapsRoutes from "./mapsRoutes";
 import maintenanceFormRequestRoutes from "./maintenanceFormRequestRoutes";
 import itemSupplyRequestRoutes from "./itemSupplyRequestRoutes";
+import allServiceRequestRoutes from "./allServiceRequestRoutes";
 
 const router = Router();
 
@@ -102,6 +103,7 @@ router.use('/cleaner-request', cleanerRequestRoutes);
 router.use('/maps', mapsRoutes);
 router.use('/maintenance-form-request', maintenanceFormRequestRoutes);
 router.use('/item-supply-request', itemSupplyRequestRoutes);
+router.use('/service-requests', allServiceRequestRoutes);
 
 export default router;
 
