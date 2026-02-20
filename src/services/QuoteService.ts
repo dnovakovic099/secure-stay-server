@@ -2,19 +2,19 @@ import { appDatabase } from "../utils/database.util";
 import { Listing } from "../entity/Listing";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { Hostify, HostifyCalendarDay } from "../client/Hostify";
+import { Hostify, HostifyCalendarDay, HostifyListingFees } from "../client/Hostify";
 import logger from "../utils/logger.utils";
 import { In, Not, LessThan, MoreThan } from "typeorm";
 
 /**
- * Default tax rate used when no property-specific tax is configured.
- * IMPORTANT: This is a fallback only. Production should use property/jurisdiction-specific rates.
- * Common STR tax rates by state:
- * - Florida: ~11-13% (varies by county)
- * - Illinois (Chicago): ~17.4%
- * - Most US markets: 10-15%
+ * Default tax rate used ONLY when Hostify returns 0 or null.
+ * Most listings should have tax configured in Hostify.
  */
 const DEFAULT_TAX_RATE = 0.12;
+
+// Cache for listing fees to avoid repeated API calls
+const listingFeesCache = new Map<number, { fees: HostifyListingFees; timestamp: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Valid reservation statuses (exclude cancelled/declined)
 const INVALID_BOOKING_STATUSES = ["cancelled", "declined", "expired", "inquiry"];
@@ -144,18 +144,49 @@ export class QuoteService {
   }
 
   /**
-   * Get tax rate for a property.
-   * Checks PropertyInfo.tax field first, falls back to default.
+   * Get listing fees from Hostify with caching.
+   * Returns tax rate, pet policy, cleaning fee, etc.
+   */
+  async getListingFees(listingId: number): Promise<HostifyListingFees | null> {
+    // Check cache first
+    const cached = listingFeesCache.get(listingId);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+      return cached.fees;
+    }
+
+    try {
+      const fees = await this.hostify.getListingFees(this.apiKey, listingId);
+      if (fees) {
+        listingFeesCache.set(listingId, { fees, timestamp: Date.now() });
+      }
+      return fees;
+    } catch (error) {
+      logger.error(`Error fetching listing fees for ${listingId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get tax rate for a property from Hostify.
+   * Hostify stores tax as a percentage (e.g., 10.25 means 10.25%).
    */
   async getTaxRate(listingId: number): Promise<number> {
     try {
+      const fees = await this.getListingFees(listingId);
+      
+      if (fees && fees.tax > 0) {
+        // Hostify tax is stored as percentage (10.25 = 10.25%)
+        // Convert to decimal (0.1025)
+        return fees.tax / 100;
+      }
+
+      // Fallback: try PropertyInfo.tax
       const clientProperty = await this.clientPropertyRepository.findOne({
         where: { listingId: String(listingId) },
         relations: ['propertyInfo'],
       });
 
       if (clientProperty?.propertyInfo?.tax) {
-        // Try to parse tax field (could be "12%", "0.12", "12", etc.)
         const taxStr = clientProperty.propertyInfo.tax.trim();
         let taxRate: number;
 
@@ -163,7 +194,6 @@ export class QuoteService {
           taxRate = parseFloat(taxStr.replace('%', '')) / 100;
         } else {
           const parsed = parseFloat(taxStr);
-          // If > 1, assume it's a percentage (e.g., "12" means 12%)
           taxRate = parsed > 1 ? parsed / 100 : parsed;
         }
 
@@ -454,7 +484,8 @@ export class QuoteService {
   }
 
   /**
-   * Get pet policy for a listing by checking ClientPropertyEntity → PropertyInfo.
+   * Get pet policy for a listing.
+   * Priority: Hostify API > PropertyInfo > Listing entity
    */
   private async getPetPolicy(listingId: number): Promise<{
     allowPets: boolean;
@@ -463,6 +494,18 @@ export class QuoteService {
     numberOfPetsAllowed: number;
   }> {
     try {
+      // First try Hostify API (most accurate, directly from PMS)
+      const hostifyFees = await this.getListingFees(listingId);
+      if (hostifyFees) {
+        return {
+          allowPets: hostifyFees.petsAllowed,
+          petFee: hostifyFees.petsFee || 0,
+          petFeeType: "Per Stay",  // Hostify default
+          numberOfPetsAllowed: 2,  // Default if not specified
+        };
+      }
+
+      // Fallback: PropertyInfo
       const clientProperty = await this.clientPropertyRepository.findOne({
         where: { listingId: String(listingId) },
         relations: ['propertyInfo'],
@@ -477,7 +520,7 @@ export class QuoteService {
         };
       }
 
-      // Fallback: check if listing has pet fee amount (implies pets allowed)
+      // Last fallback: check if listing has pet fee amount (implies pets allowed)
       const listing = await this.listingRepository.findOne({
         where: { id: listingId },
         select: ['airbnbPetFeeAmount'],
@@ -487,10 +530,11 @@ export class QuoteService {
         allowPets: (listing?.airbnbPetFeeAmount || 0) > 0,
         petFee: listing?.airbnbPetFeeAmount || 0,
         petFeeType: "Per Stay",
-        numberOfPetsAllowed: 2, // Default
+        numberOfPetsAllowed: 2,
       };
     } catch (error) {
       logger.error(`Error getting pet policy for listing ${listingId}:`, error);
+      // Return safe default - assume no pets allowed
       return {
         allowPets: false,
         petFee: 0,
@@ -502,22 +546,73 @@ export class QuoteService {
 
   /**
    * Check if a listing is pet-friendly.
+   * Returns false on error (safe default).
    */
   async isPetFriendly(listingId: number): Promise<boolean> {
-    const policy = await this.getPetPolicy(listingId);
-    return policy.allowPets;
+    try {
+      const policy = await this.getPetPolicy(listingId);
+      return policy.allowPets;
+    } catch (error) {
+      logger.error(`Error checking pet-friendly status for listing ${listingId}:`, error);
+      return false;  // Safe default
+    }
   }
 
   /**
    * Get pet-friendly listing IDs from a list.
+   * Non-fatal: errors are logged but don't crash the filter.
+   * Returns empty array on complete failure.
    */
   async filterPetFriendlyListings(listingIds: number[]): Promise<number[]> {
-    const results = await Promise.all(
-      listingIds.map(async id => ({
-        id,
-        petFriendly: await this.isPetFriendly(id),
-      }))
-    );
-    return results.filter(r => r.petFriendly).map(r => r.id);
+    try {
+      const results = await Promise.all(
+        listingIds.map(async id => {
+          try {
+            return {
+              id,
+              petFriendly: await this.isPetFriendly(id),
+              error: false,
+            };
+          } catch (error) {
+            logger.warn(`Pet check failed for listing ${id}:`, error);
+            return { id, petFriendly: false, error: true };
+          }
+        })
+      );
+      
+      const petFriendlyIds = results.filter(r => r.petFriendly).map(r => r.id);
+      const errorCount = results.filter(r => r.error).length;
+      
+      if (errorCount > 0) {
+        logger.warn(`Pet filter: ${errorCount}/${listingIds.length} listings had errors`);
+      }
+      
+      return petFriendlyIds;
+    } catch (error) {
+      logger.error('Complete failure in filterPetFriendlyListings:', error);
+      return [];  // Return empty array, not throw
+    }
+  }
+
+  /**
+   * Safe wrapper for pet filtering that never throws.
+   * Returns { success, ids, error } for graceful UI handling.
+   */
+  async filterPetFriendlyListingsSafe(listingIds: number[]): Promise<{
+    success: boolean;
+    ids: number[];
+    error?: string;
+  }> {
+    try {
+      const ids = await this.filterPetFriendlyListings(listingIds);
+      return { success: true, ids };
+    } catch (error: any) {
+      logger.error('Pet filtering failed completely:', error);
+      return {
+        success: false,
+        ids: listingIds,  // Return all IDs as fallback
+        error: error.message || 'Pet filter failed',
+      };
+    }
   }
 }

@@ -90,7 +90,19 @@ export class MapsController {
         numberOfPets 
       } = req.body;
 
-      const properties = await this.mapsService.searchProperties(
+      // Validate numberOfPets if provided
+      let validatedNumberOfPets: number | undefined;
+      if (numberOfPets !== undefined && numberOfPets !== null && numberOfPets !== '') {
+        const parsed = Number(numberOfPets);
+        if (isNaN(parsed) || parsed <= 0 || !Number.isInteger(parsed)) {
+          // Invalid pets value - treat as null (no pet filter)
+          validatedNumberOfPets = undefined;
+        } else {
+          validatedNumberOfPets = parsed;
+        }
+      }
+
+      const result = await this.mapsService.searchProperties(
         {
           state,
           city,
@@ -100,14 +112,20 @@ export class MapsController {
           guests: guests ? Number(guests) : undefined,
           maxTotalPrice: maxTotalPrice ? Number(maxTotalPrice) : undefined,
           petsIncluded: petsIncluded === true,
-          numberOfPets: numberOfPets ? Number(numberOfPets) : 1,
+          numberOfPets: validatedNumberOfPets || 1,
         },
         userId
       );
 
+      // Return properties with metadata for frontend to handle warnings
       res.status(200).json({
         success: true,
-        data: properties,
+        data: result.properties,
+        metadata: result.metadata,
+        // Include warning message if pet filter failed
+        warning: result.metadata.petFilterError 
+          ? `Pet filter couldn't be applied. Showing results without pet filtering.`
+          : undefined,
       });
     } catch (error) {
       logger.error("Error searching properties:", error);

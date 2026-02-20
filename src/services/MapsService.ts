@@ -56,6 +56,15 @@ interface PropertyWithDistance {
   };
 }
 
+export interface SearchResult {
+  properties: PropertyWithDistance[];
+  metadata: {
+    petFilterApplied: boolean;
+    petFilterError?: string;
+    totalFound: number;
+  };
+}
+
 export class MapsService {
   private cityStateInfoRepository = appDatabase.getRepository(CityStateInfo);
   private listingRepository = appDatabase.getRepository(Listing);
@@ -126,15 +135,22 @@ export class MapsService {
   }
 
   /**
-   * Search for properties based on filters
+   * Search for properties based on filters.
+   * Returns SearchResult with properties and metadata (including pet filter status).
    */
-  async searchProperties(filters: SearchFilters, userId?: string): Promise<PropertyWithDistance[]> {
+  async searchProperties(filters: SearchFilters, userId?: string): Promise<SearchResult> {
+    // Initialize metadata
+    const metadata: SearchResult['metadata'] = {
+      petFilterApplied: false,
+      totalFound: 0,
+    };
+
     // If no filters are provided, return an empty array (enforce strict search)
     const hasFilters = filters.state || filters.city || filters.propertyId || 
       (filters.startDate && filters.endDate) || filters.guests || 
       filters.maxTotalPrice || filters.petsIncluded;
     if (!hasFilters) {
-      return [];
+      return { properties: [], metadata };
     }
 
     const queryBuilder = this.listingRepository
@@ -159,13 +175,23 @@ export class MapsService {
 
     const listings = await queryBuilder.getMany();
 
-    // If pets filter is ON, filter to only pet-friendly listings first
+    // If pets filter is ON, filter to only pet-friendly listings (gracefully)
     let filteredListings = listings;
     if (filters.petsIncluded) {
-      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+      const petFilterResult = await this.quoteService.filterPetFriendlyListingsSafe(
         listings.map(l => l.id)
       );
-      filteredListings = listings.filter(l => petFriendlyIds.includes(l.id));
+      
+      if (petFilterResult.success) {
+        filteredListings = listings.filter(l => petFilterResult.ids.includes(l.id));
+        metadata.petFilterApplied = true;
+      } else {
+        // Pet filter failed - show all results with warning
+        logger.warn('Pet filter failed, showing all results:', petFilterResult.error);
+        metadata.petFilterApplied = false;
+        metadata.petFilterError = petFilterResult.error || "Pet filter couldn't be applied";
+        // Don't filter - show all listings
+      }
     }
 
     // If dates are provided, we need to check availability and get quotes
@@ -180,7 +206,7 @@ export class MapsService {
         filters.endDate,
         {
           guests: filters.guests,
-          includePets: filters.petsIncluded,
+          includePets: filters.petsIncluded && metadata.petFilterApplied,
           numberOfPets: filters.numberOfPets || 1,
         }
       );
@@ -212,27 +238,22 @@ export class MapsService {
         });
       }
     } else {
-      // No dates - do basic availability check and skip pricing
-      const availabilityPromises = filteredListings.map(async (listing) => {
-        // Check if there's any way to verify availability without dates
-        // For now, assume all are available without date filter
-        return { listing, isAvailable: true };
-      });
-      
-      const availabilityResults = await Promise.all(availabilityPromises);
-      availableListings = availabilityResults
-        .filter(r => r.isAvailable)
-        .map(r => r.listing);
+      // No dates - skip availability check and pricing
     }
 
-    // Get pet-friendly status for all remaining listings
+    // Get pet-friendly status for all remaining listings (for badge display)
     const petFriendlyMap = new Map<number, boolean>();
-    if (!filters.petsIncluded) {
-      // Only need to check if not already filtered
-      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
-        availableListings.map(l => l.id)
-      );
-      petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
+    if (!filters.petsIncluded || !metadata.petFilterApplied) {
+      // Check pet-friendly status for badge display
+      try {
+        const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+          availableListings.map(l => l.id)
+        );
+        petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
+      } catch (error) {
+        logger.warn('Failed to get pet-friendly status for badges:', error);
+        // Continue without pet badges
+      }
     }
 
     // Transform to response format
@@ -330,15 +351,19 @@ export class MapsService {
         // Use a unique set to double-check no duplicates by ID
         const finalResults = [refProp, ...propertiesWithDistance];
         const uniquePIDs = new Set();
-        return finalResults.filter(p => {
+        const dedupedResults = finalResults.filter(p => {
           if (uniquePIDs.has(p.id)) return false;
           uniquePIDs.add(p.id);
           return true;
         });
+        
+        metadata.totalFound = dedupedResults.length;
+        return { properties: dedupedResults, metadata };
       }
     }
 
-    return properties;
+    metadata.totalFound = properties.length;
+    return { properties, metadata };
   }
 
   /**
