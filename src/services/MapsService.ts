@@ -32,7 +32,7 @@ interface PricingInfo {
 }
 
 interface PropertyWithDistance {
-  id: number;
+  id: number;  // This is the Hostify listing ID
   internalListingName: string;
   address: string;
   city: string;
@@ -40,6 +40,8 @@ interface PropertyWithDistance {
   lat: number;
   lng: number;
   guests: number;
+  bedrooms?: number;
+  bathrooms?: number;  // Full baths + half baths combined
   image?: string;
   isReference: boolean;
   price?: number;  // Base nightly rate (for display)
@@ -53,6 +55,15 @@ interface PropertyWithDistance {
   duration?: {
     text: string;
     value: number;
+  };
+}
+
+export interface SearchResult {
+  properties: PropertyWithDistance[];
+  metadata: {
+    petFilterApplied: boolean;
+    petFilterError?: string;
+    totalFound: number;
   };
 }
 
@@ -126,15 +137,22 @@ export class MapsService {
   }
 
   /**
-   * Search for properties based on filters
+   * Search for properties based on filters.
+   * Returns SearchResult with properties and metadata (including pet filter status).
    */
-  async searchProperties(filters: SearchFilters, userId?: string): Promise<PropertyWithDistance[]> {
+  async searchProperties(filters: SearchFilters, userId?: string): Promise<SearchResult> {
+    // Initialize metadata
+    const metadata: SearchResult['metadata'] = {
+      petFilterApplied: false,
+      totalFound: 0,
+    };
+
     // If no filters are provided, return an empty array (enforce strict search)
     const hasFilters = filters.state || filters.city || filters.propertyId || 
       (filters.startDate && filters.endDate) || filters.guests || 
       filters.maxTotalPrice || filters.petsIncluded;
     if (!hasFilters) {
-      return [];
+      return { properties: [], metadata };
     }
 
     const queryBuilder = this.listingRepository
@@ -159,13 +177,23 @@ export class MapsService {
 
     const listings = await queryBuilder.getMany();
 
-    // If pets filter is ON, filter to only pet-friendly listings first
+    // If pets filter is ON, filter to only pet-friendly listings (gracefully)
     let filteredListings = listings;
     if (filters.petsIncluded) {
-      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+      const petFilterResult = await this.quoteService.filterPetFriendlyListingsSafe(
         listings.map(l => l.id)
       );
-      filteredListings = listings.filter(l => petFriendlyIds.includes(l.id));
+      
+      if (petFilterResult.success) {
+        filteredListings = listings.filter(l => petFilterResult.ids.includes(l.id));
+        metadata.petFilterApplied = true;
+      } else {
+        // Pet filter failed - show all results with warning
+        logger.warn('Pet filter failed, showing all results:', petFilterResult.error);
+        metadata.petFilterApplied = false;
+        metadata.petFilterError = petFilterResult.error || "Pet filter couldn't be applied";
+        // Don't filter - show all listings
+      }
     }
 
     // If dates are provided, we need to check availability and get quotes
@@ -180,7 +208,7 @@ export class MapsService {
         filters.endDate,
         {
           guests: filters.guests,
-          includePets: filters.petsIncluded,
+          includePets: filters.petsIncluded && metadata.petFilterApplied,
           numberOfPets: filters.numberOfPets || 1,
         }
       );
@@ -212,33 +240,31 @@ export class MapsService {
         });
       }
     } else {
-      // No dates - do basic availability check and skip pricing
-      const availabilityPromises = filteredListings.map(async (listing) => {
-        // Check if there's any way to verify availability without dates
-        // For now, assume all are available without date filter
-        return { listing, isAvailable: true };
-      });
-      
-      const availabilityResults = await Promise.all(availabilityPromises);
-      availableListings = availabilityResults
-        .filter(r => r.isAvailable)
-        .map(r => r.listing);
+      // No dates - skip availability check and pricing
     }
 
-    // Get pet-friendly status for all remaining listings
+    // Get pet-friendly status for all remaining listings (for badge display)
     const petFriendlyMap = new Map<number, boolean>();
-    if (!filters.petsIncluded) {
-      // Only need to check if not already filtered
-      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
-        availableListings.map(l => l.id)
-      );
-      petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
+    if (!filters.petsIncluded || !metadata.petFilterApplied) {
+      // Check pet-friendly status for badge display
+      try {
+        const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+          availableListings.map(l => l.id)
+        );
+        petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
+      } catch (error) {
+        logger.warn('Failed to get pet-friendly status for badges:', error);
+        // Continue without pet badges
+      }
     }
 
     // Transform to response format
     const properties: PropertyWithDistance[] = availableListings.map((listing) => {
       const pricing = quotesMap.get(listing.id);
       const isPetFriendly = filters.petsIncluded ? true : petFriendlyMap.get(listing.id) || false;
+      
+      // Calculate total bathrooms (full + half baths)
+      const totalBathrooms = (listing.bathroomsNumber || 0) + (listing.guestBathroomsNumber || 0) * 0.5;
 
       return {
         id: listing.id,
@@ -249,6 +275,8 @@ export class MapsService {
         lat: listing.lat,
         lng: listing.lng,
         guests: listing.guests,
+        bedrooms: listing.bedroomsNumber || undefined,
+        bathrooms: totalBathrooms > 0 ? totalBathrooms : undefined,
         image: listing.images?.[0]?.url || undefined,
         isReference: filters.propertyId === listing.id,
         price: listing.price,
@@ -308,6 +336,10 @@ export class MapsService {
           refPetFriendly = await this.quoteService.isPetFriendly(referenceProperty.id);
         }
 
+        // Calculate total bathrooms for reference property
+        const refTotalBathrooms = (referenceProperty.bathroomsNumber || 0) + 
+          (referenceProperty.guestBathroomsNumber || 0) * 0.5;
+
         // Prepare the reference property in response format
         const refProp: PropertyWithDistance = {
           id: referenceProperty.id,
@@ -318,6 +350,8 @@ export class MapsService {
           lat: referenceProperty.lat,
           lng: referenceProperty.lng,
           guests: referenceProperty.guests,
+          bedrooms: referenceProperty.bedroomsNumber || undefined,
+          bathrooms: refTotalBathrooms > 0 ? refTotalBathrooms : undefined,
           image: referenceProperty.images?.[0]?.url || undefined,
           isReference: true,
           price: referenceProperty.price,
@@ -330,15 +364,19 @@ export class MapsService {
         // Use a unique set to double-check no duplicates by ID
         const finalResults = [refProp, ...propertiesWithDistance];
         const uniquePIDs = new Set();
-        return finalResults.filter(p => {
+        const dedupedResults = finalResults.filter(p => {
           if (uniquePIDs.has(p.id)) return false;
           uniquePIDs.add(p.id);
           return true;
         });
+        
+        metadata.totalFound = dedupedResults.length;
+        return { properties: dedupedResults, metadata };
       }
     }
 
-    return properties;
+    metadata.totalFound = properties.length;
+    return { properties, metadata };
   }
 
   /**

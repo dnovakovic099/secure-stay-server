@@ -409,6 +409,45 @@ export class Hostify {
         }
     }
 
+    /**
+     * Get listing fees including tax rate from Hostify
+     * Tax is stored as a percentage (e.g., 10.25 = 10.25%)
+     */
+    async getListingFees(apiKey: string, listingId: number): Promise<HostifyListingFees | null> {
+        try {
+            const url = `https://api-rms.hostify.com/listings/${listingId}`;
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+                params: {
+                    include_related_objects: 0,  // We only need the listing data
+                },
+            });
+
+            const listing = response.data?.listing;
+            if (!listing) {
+                return null;
+            }
+
+            return {
+                listingId: listing.id,
+                tax: listing.tax || 0,  // Tax percentage (e.g., 10.25)
+                cleaningFee: listing.cleaning_fee || 0,
+                petsAllowed: listing.pets_allowed === 1,
+                petsFee: listing.pets_fee || 0,
+                securityDeposit: listing.security_deposit || 0,
+                extraPerson: listing.extra_person || 0,
+                guestsIncluded: listing.guests_included || 1,
+                currency: listing.currency || 'USD',
+            };
+        } catch (error: any) {
+            logger.error(`Error fetching listing fees for ${listingId}: ${error.message}`);
+            return null;
+        }
+    }
+
     async getCalendar(apiKey: string, listingId: number, startDate: string, endDate: string): Promise<HostifyCalendarDay[]> {
         try {
             const url = "https://api-rms.hostify.com/calendar";
@@ -483,4 +522,16 @@ export interface HostifyCalendarDay {
     bookingValue: number | null;
     note: string | null;
     statusNote: string | null;
+}
+
+export interface HostifyListingFees {
+    listingId: number;
+    tax: number;  // Tax percentage (e.g., 10.25 means 10.25%)
+    cleaningFee: number;
+    petsAllowed: boolean;
+    petsFee: number;
+    securityDeposit: number;
+    extraPerson: number;
+    guestsIncluded: number;
+    currency: string;
 }
