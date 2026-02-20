@@ -1,16 +1,31 @@
 import { appDatabase } from "../utils/database.util";
 import { Listing } from "../entity/Listing";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Hostify, HostifyCalendarDay } from "../client/Hostify";
 import logger from "../utils/logger.utils";
+import { In, Not, LessThan, MoreThan } from "typeorm";
 
-// Default tax rate (12% is common for STR in many US markets)
+/**
+ * Default tax rate used when no property-specific tax is configured.
+ * IMPORTANT: This is a fallback only. Production should use property/jurisdiction-specific rates.
+ * Common STR tax rates by state:
+ * - Florida: ~11-13% (varies by county)
+ * - Illinois (Chicago): ~17.4%
+ * - Most US markets: 10-15%
+ */
 const DEFAULT_TAX_RATE = 0.12;
+
+// Valid reservation statuses (exclude cancelled/declined)
+const INVALID_BOOKING_STATUSES = ["cancelled", "declined", "expired", "inquiry"];
+
+// Calendar statuses that indicate unavailability
+const UNAVAILABLE_STATUSES = ["booked", "blocked", "unavailable", "reserved", "maintenance"];
 
 export interface QuoteRequest {
   listingId: number;
-  startDate: string;  // YYYY-MM-DD
-  endDate: string;    // YYYY-MM-DD
+  startDate: string;  // YYYY-MM-DD (check-in date)
+  endDate: string;    // YYYY-MM-DD (check-out date, NOT a night)
   guests?: number;
   includePets?: boolean;
   numberOfPets?: number;
@@ -28,6 +43,7 @@ export interface QuoteBreakdown {
     numberOfNights: number;
   };
   extraGuestFee: number;
+  otherFees: number;  // Any other listing fees
   feesSubtotal: number;
   subtotalBeforeTax: number;
   taxRate: number;
@@ -43,17 +59,128 @@ export interface PropertyQuote {
   listingId: number;
   isAvailable: boolean;
   isPetFriendly: boolean;
+  unavailableReason?: string;
   quote?: QuoteBreakdown;
 }
 
 export class QuoteService {
   private listingRepository = appDatabase.getRepository(Listing);
   private clientPropertyRepository = appDatabase.getRepository(ClientPropertyEntity);
+  private reservationRepository = appDatabase.getRepository(ReservationInfoEntity);
   private hostify = new Hostify();
   private apiKey = process.env.HOSTIFY_API_KEY || '';
 
   /**
-   * Calculate a quote for a single listing
+   * Check if a property has any booking conflicts for the date range.
+   * Uses overlap logic: booking.startDate < checkOut AND booking.endDate > checkIn
+   * This treats stay as [checkIn, checkOut) - checkout date is NOT a night.
+   */
+  async hasBookingConflict(
+    listingId: number,
+    checkIn: string,
+    checkOut: string
+  ): Promise<{ hasConflict: boolean; conflictType?: string }> {
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+
+    // Query: arrivalDate < checkOut AND departureDate > checkIn
+    const conflictingReservations = await this.reservationRepository.count({
+      where: {
+        listingMapId: listingId,
+        status: Not(In(INVALID_BOOKING_STATUSES)),
+        arrivalDate: LessThan(checkOutDate),
+        departureDate: MoreThan(checkInDate),
+      },
+    });
+
+    if (conflictingReservations > 0) {
+      return { hasConflict: true, conflictType: "existing_booking" };
+    }
+
+    return { hasConflict: false };
+  }
+
+  /**
+   * Check if calendar has any blocked/unavailable dates in the range.
+   * Checks each night from checkIn to (checkOut - 1).
+   */
+  async hasCalendarBlock(
+    listingId: number,
+    checkIn: string,
+    checkOut: string,
+    calendar: HostifyCalendarDay[]
+  ): Promise<{ hasBlock: boolean; blockedDates: string[] }> {
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+    const numberOfNights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Build calendar map
+    const calendarMap = new Map<string, HostifyCalendarDay>();
+    calendar.forEach(day => {
+      calendarMap.set(day.date, day);
+    });
+
+    const blockedDates: string[] = [];
+
+    // Check each night (excluding checkout date)
+    for (let i = 0; i < numberOfNights; i++) {
+      const date = new Date(checkInDate);
+      date.setDate(date.getDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+
+      const dayData = calendarMap.get(dateStr);
+      if (dayData) {
+        const status = (dayData.status || '').toLowerCase();
+        if (UNAVAILABLE_STATUSES.some(s => status.includes(s))) {
+          blockedDates.push(dateStr);
+        }
+      }
+    }
+
+    return {
+      hasBlock: blockedDates.length > 0,
+      blockedDates,
+    };
+  }
+
+  /**
+   * Get tax rate for a property.
+   * Checks PropertyInfo.tax field first, falls back to default.
+   */
+  async getTaxRate(listingId: number): Promise<number> {
+    try {
+      const clientProperty = await this.clientPropertyRepository.findOne({
+        where: { listingId: String(listingId) },
+        relations: ['propertyInfo'],
+      });
+
+      if (clientProperty?.propertyInfo?.tax) {
+        // Try to parse tax field (could be "12%", "0.12", "12", etc.)
+        const taxStr = clientProperty.propertyInfo.tax.trim();
+        let taxRate: number;
+
+        if (taxStr.includes('%')) {
+          taxRate = parseFloat(taxStr.replace('%', '')) / 100;
+        } else {
+          const parsed = parseFloat(taxStr);
+          // If > 1, assume it's a percentage (e.g., "12" means 12%)
+          taxRate = parsed > 1 ? parsed / 100 : parsed;
+        }
+
+        if (!isNaN(taxRate) && taxRate >= 0 && taxRate <= 1) {
+          return taxRate;
+        }
+      }
+    } catch (error) {
+      logger.warn(`Error getting tax rate for listing ${listingId}, using default:`, error);
+    }
+
+    return DEFAULT_TAX_RATE;
+  }
+
+  /**
+   * Calculate a quote for a single listing.
+   * Checks BOTH reservations table AND calendar blocks for availability.
    */
   async getQuote(request: QuoteRequest): Promise<PropertyQuote> {
     const { listingId, startDate, endDate, guests = 1, includePets = false, numberOfPets = 1 } = request;
@@ -69,10 +196,11 @@ export class QuoteService {
           listingId,
           isAvailable: false,
           isPetFriendly: false,
+          unavailableReason: "listing_not_found",
         };
       }
 
-      // Get pet policy from ClientPropertyEntity → PropertyInfo
+      // Get pet policy
       const petPolicy = await this.getPetPolicy(listingId);
       const isPetFriendly = petPolicy.allowPets;
 
@@ -82,10 +210,22 @@ export class QuoteService {
           listingId,
           isAvailable: false,
           isPetFriendly: false,
+          unavailableReason: "pets_not_allowed",
         };
       }
 
-      // Get calendar rates from Hostify
+      // Step 1: Check for booking conflicts in reservations table
+      const bookingCheck = await this.hasBookingConflict(listingId, startDate, endDate);
+      if (bookingCheck.hasConflict) {
+        return {
+          listingId,
+          isAvailable: false,
+          isPetFriendly,
+          unavailableReason: bookingCheck.conflictType,
+        };
+      }
+
+      // Step 2: Get calendar and check for blocks
       const calendar = await this.hostify.getCalendar(
         this.apiKey,
         listingId,
@@ -93,61 +233,79 @@ export class QuoteService {
         endDate
       );
 
-      // Check availability and collect nightly rates
+      const blockCheck = await this.hasCalendarBlock(listingId, startDate, endDate, calendar);
+      if (blockCheck.hasBlock) {
+        return {
+          listingId,
+          isAvailable: false,
+          isPetFriendly,
+          unavailableReason: `calendar_blocked:${blockCheck.blockedDates.join(',')}`,
+        };
+      }
+
+      // Step 3: Calculate pricing using calendar nightly rates
       const nightlyRates: { date: string; rate: number; }[] = [];
-      let isAvailable = true;
       let hasAllPrices = true;
+      let missingRateDates: string[] = [];
 
-      // Calculate number of nights
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const numberOfNights = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      const checkInDate = new Date(startDate);
+      const checkOutDate = new Date(endDate);
+      const numberOfNights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
 
-      // Build a map of calendar days
+      // Build calendar map
       const calendarMap = new Map<string, HostifyCalendarDay>();
       calendar.forEach(day => {
         calendarMap.set(day.date, day);
       });
 
-      // Check each night (excluding checkout date)
+      // Collect nightly rates for each night
       for (let i = 0; i < numberOfNights; i++) {
-        const date = new Date(start);
+        const date = new Date(checkInDate);
         date.setDate(date.getDate() + i);
         const dateStr = date.toISOString().split('T')[0];
 
         const dayData = calendarMap.get(dateStr);
 
-        if (!dayData) {
-          // No data for this date - use base price from listing
+        if (dayData && (dayData.price > 0 || dayData.basePrice > 0)) {
           nightlyRates.push({
             date: dateStr,
-            rate: listing.price || 0,
+            rate: dayData.price || dayData.basePrice,
           });
-          if (!listing.price) {
-            hasAllPrices = false;
-          }
         } else {
-          // Check if day is blocked
-          if (dayData.status && dayData.status.toLowerCase() !== 'available') {
-            isAvailable = false;
-          }
-
+          // No calendar rate for this date - mark as unavailable (Option A per spec)
+          hasAllPrices = false;
+          missingRateDates.push(dateStr);
+          // Still add with 0 rate for tracking
           nightlyRates.push({
             date: dateStr,
-            rate: dayData.price || dayData.basePrice || listing.price || 0,
+            rate: 0,
           });
-
-          if (!dayData.price && !dayData.basePrice && !listing.price) {
-            hasAllPrices = false;
-          }
         }
       }
 
-      if (!isAvailable) {
+      // Per spec Option A: If any night missing rate, mark price unavailable
+      if (!hasAllPrices) {
         return {
           listingId,
-          isAvailable: false,
+          isAvailable: true,  // Available but price unknown
           isPetFriendly,
+          quote: {
+            nightlyRates,
+            nightlySubtotal: 0,
+            cleaningFee: 0,
+            petFee: 0,
+            extraGuestFee: 0,
+            otherFees: 0,
+            feesSubtotal: 0,
+            subtotalBeforeTax: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            totalPrice: 0,
+            currency: listing.currencyCode || "USD",
+            isPetFriendly,
+            priceAvailable: false,
+            unavailableReason: `Missing rates for: ${missingRateDates.join(', ')}`,
+          },
         };
       }
 
@@ -193,11 +351,14 @@ export class QuoteService {
         extraGuestFee = listing.priceForExtraPerson * extraGuests * numberOfNights;
       }
 
-      const feesSubtotal = cleaningFee + petFee + extraGuestFee;
+      // Other fees (placeholder for resort fees, linen fees, etc.)
+      const otherFees = 0;
+
+      const feesSubtotal = cleaningFee + petFee + extraGuestFee + otherFees;
       const subtotalBeforeTax = nightlySubtotal + feesSubtotal;
 
-      // Calculate tax
-      const taxRate = DEFAULT_TAX_RATE;
+      // Get tax rate (property-specific or default)
+      const taxRate = await this.getTaxRate(listingId);
       const taxAmount = Math.round(subtotalBeforeTax * taxRate * 100) / 100;
 
       const totalPrice = Math.round((subtotalBeforeTax + taxAmount) * 100) / 100;
@@ -209,6 +370,7 @@ export class QuoteService {
         petFee,
         petFeeDetails,
         extraGuestFee,
+        otherFees,
         feesSubtotal,
         subtotalBeforeTax,
         taxRate,
@@ -216,8 +378,7 @@ export class QuoteService {
         totalPrice,
         currency: listing.currencyCode || "USD",
         isPetFriendly,
-        priceAvailable: hasAllPrices,
-        unavailableReason: hasAllPrices ? undefined : "Missing nightly rates for some dates",
+        priceAvailable: true,
       };
 
       return {
@@ -233,12 +394,14 @@ export class QuoteService {
         listingId,
         isAvailable: false,
         isPetFriendly: false,
+        unavailableReason: "quote_calculation_error",
       };
     }
   }
 
   /**
-   * Get quotes for multiple listings (batched for performance)
+   * Get quotes for multiple listings (batched for performance).
+   * Filters out unavailable properties and optionally by max total price.
    */
   async getBatchQuotes(
     listingIds: number[],
@@ -275,10 +438,14 @@ export class QuoteService {
     }
 
     // Filter by max total price if specified
+    // Per spec: only include if priceAvailable AND totalPrice <= maxTotalPrice
     if (maxTotalPrice !== undefined) {
       return results.filter(r => {
-        if (!r.isAvailable || !r.quote) return false;
-        if (!r.quote.priceAvailable) return false; // Exclude if price unavailable
+        // Keep unavailable properties out of price-filtered results
+        if (!r.isAvailable) return false;
+        if (!r.quote) return false;
+        // Exclude properties where price is unavailable (Option A from spec)
+        if (!r.quote.priceAvailable) return false;
         return r.quote.totalPrice <= maxTotalPrice;
       });
     }
@@ -287,7 +454,7 @@ export class QuoteService {
   }
 
   /**
-   * Get pet policy for a listing by checking ClientPropertyEntity → PropertyInfo
+   * Get pet policy for a listing by checking ClientPropertyEntity → PropertyInfo.
    */
   private async getPetPolicy(listingId: number): Promise<{
     allowPets: boolean;
@@ -334,7 +501,7 @@ export class QuoteService {
   }
 
   /**
-   * Check if a listing is pet-friendly
+   * Check if a listing is pet-friendly.
    */
   async isPetFriendly(listingId: number): Promise<boolean> {
     const policy = await this.getPetPolicy(listingId);
@@ -342,7 +509,7 @@ export class QuoteService {
   }
 
   /**
-   * Get pet-friendly listing IDs from a list
+   * Get pet-friendly listing IDs from a list.
    */
   async filterPetFriendlyListings(listingIds: number[]): Promise<number[]> {
     const results = await Promise.all(
