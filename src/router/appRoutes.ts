@@ -46,6 +46,8 @@ import noBookingAlertRoutes from "./noBookingAlertRoutes";
 import photographerRequestRoutes from "./photographerRequestRoutes";
 import cleanerRequestRoutes from "./cleanerRequestRoutes";
 import mapsRoutes from "./mapsRoutes";
+import maintenanceFormRequestRoutes from "./maintenanceFormRequestRoutes";
+import itemSupplyRequestRoutes from "./itemSupplyRequestRoutes";
 
 const router = Router();
 
@@ -98,6 +100,8 @@ router.use('/no-booking-alert', noBookingAlertRoutes);
 router.use('/photographer-request', photographerRequestRoutes);
 router.use('/cleaner-request', cleanerRequestRoutes);
 router.use('/maps', mapsRoutes);
+router.use('/maintenance-form-request', maintenanceFormRequestRoutes);
+router.use('/item-supply-request', itemSupplyRequestRoutes);
 
 export default router;
 

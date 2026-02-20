@@ -103,6 +103,14 @@ export class UnifiedWebhookController {
                     logger.info(`Cleaner Request status update request`);
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_MAINTENANCE_FORM_REQUEST_STATUS: {
+                    logger.info(`Maintenance Form Request status update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_ITEM_SUPPLY_REQUEST_STATUS: {
+                    logger.info(`Item/Supply Request status update request`);
+                    break;
+                }
                 default: {
                     if (action.action_id.startsWith(slackInteractivityEventNames.UPDATE_ZAPIER_EVENT_STATUS)) {
                         messageText = `Your request to update Zapier event status is being processed...`;
@@ -233,6 +241,42 @@ export class UnifiedWebhookController {
                         logger.info(`User ${user} updated cleaner request ${requestObj.id} status to ${requestObj.status}`);
                     } catch (error) {
                         logger.error(`Error updating cleaner request status: ${error}`);
+                        await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_MAINTENANCE_FORM_REQUEST_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const { MaintenanceFormRequestService } = await import('../services/MaintenanceFormRequestService');
+                        const maintenanceService = new MaintenanceFormRequestService();
+                        await maintenanceService.update(Number(requestObj.id), { status: requestObj.status }, user);
+
+                        const statusEmoji = requestObj.status === 'new' ? '🔵' : requestObj.status === 'in_progress' ? '🟡' : '🟢';
+                        const statusLabel = requestObj.status === 'new' ? 'New' : requestObj.status === 'in_progress' ? 'In Progress' : 'Completed';
+                        messageText = `${statusEmoji} Status updated to *${statusLabel}* by ${user}`;
+                        await this.sendResponseInSlack(responseUrl, messageText);
+                        logger.info(`User ${user} updated maintenance form request ${requestObj.id} status to ${requestObj.status}`);
+                    } catch (error) {
+                        logger.error(`Error updating maintenance form request status: ${error}`);
+                        await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_ITEM_SUPPLY_REQUEST_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const { ItemSupplyRequestService } = await import('../services/ItemSupplyRequestService');
+                        const itemSupplyService = new ItemSupplyRequestService();
+                        await itemSupplyService.update(Number(requestObj.id), { status: requestObj.status }, user);
+
+                        const statusEmoji = requestObj.status === 'new' ? '🔵' : requestObj.status === 'in_progress' ? '🟡' : '🟢';
+                        const statusLabel = requestObj.status === 'new' ? 'New' : requestObj.status === 'in_progress' ? 'In Progress' : 'Completed';
+                        messageText = `${statusEmoji} Status updated to *${statusLabel}* by ${user}`;
+                        await this.sendResponseInSlack(responseUrl, messageText);
+                        logger.info(`User ${user} updated item supply request ${requestObj.id} status to ${requestObj.status}`);
+                    } catch (error) {
+                        logger.error(`Error updating item supply request status: ${error}`);
                         await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
                     }
                     break;

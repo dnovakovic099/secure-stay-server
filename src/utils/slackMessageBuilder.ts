@@ -18,6 +18,8 @@ import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { CleanerRequest } from "../entity/CleanerRequest";
 import { PhotographerRequest } from "../entity/PhotographerRequest";
+import { MaintenanceFormRequest } from "../entity/MaintenanceFormRequest";
+import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
 
 const REFUND_REQUEST_CHANNEL = "#bookkeeping";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -1682,4 +1684,161 @@ export const buildPhotographerRequestUpdateSlackMessage = (diff: Record<string, 
         bot_icon: "https://img.icons8.com/external-ddara-lineal-ddara/64/external-photographer-professions-ddara-lineal-ddara.png"
     };
 };
+
+export const buildMaintenanceFormRequestSlackMessage = (request: MaintenanceFormRequest, formLink: string) => {
+    const statusEmoji = request.status === 'new' ? '🔵' : request.status === 'in_progress' ? '🟡' : '🟢';
+    const statusLabel = request.status === 'new' ? 'New' : request.status === 'in_progress' ? 'In Progress' : 'Completed';
+
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `New Maintenance Request - Property #${request.propertyId}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Property Name:*\n${(request as any).propertyName || '-'}\n\n` +
+                        `*Budget:*\n${request.budget || '-'}\n\n` +
+                        `*Email:*\n${request.email || '-'}\n\n` +
+                        `*Scope of Work:*\n${request.scopeOfWork || '-'}\n\n` +
+                        `*Property Access Information:*\n${request.propertyAccessInformation || '-'}\n\n` +
+                        `*Expected Timeframe:*\n${request.expectedTimeframe || '-'}\n\n` +
+                        `*Status:* ${statusEmoji} ${statusLabel}\n\n` +
+                        `*Form Link:* ${formLink}`
+                }
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_MAINTENANCE_FORM_REQUEST_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        options: [
+                            {
+                                text: { type: "plain_text", text: "🔵 New", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "new" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟡 In Progress", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "in_progress" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟢 Completed", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "completed" })
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        bot_name: "Maintenance Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/maintenance.png"
+    };
+};
+
+export const buildMaintenanceFormRequestUpdateSlackMessage = (diff: Record<string, { old: any; new: any; }>, request: MaintenanceFormRequest) => {
+    const changes = Object.entries(diff).map(([field, { old, new: newValue }]) => {
+        return `• *${formatFieldName(field)}* was changed from \`${formatValue(old)}\` → \`${formatValue(newValue)}\``;
+    }).join("\n");
+
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `Maintenance Request updated - Property #${request.propertyId}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Maintenance Request details have been updated:*\n${changes}`
+                }
+            }
+        ],
+        bot_name: "Maintenance Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/maintenance.png"
+    };
+};
+
+export const buildItemSupplyRequestSlackMessage = (request: ItemSupplyRequest, formLink: string) => {
+    const statusEmoji = request.status === 'new' ? '🔵' : request.status === 'in_progress' ? '🟡' : '🟢';
+    const statusLabel = request.status === 'new' ? 'New' : request.status === 'in_progress' ? 'In Progress' : 'Completed';
+
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `New Item/Supply Request - Property #${request.propertyId}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Property Name:*\n${(request as any).propertyName || '-'}\n\n` +
+                        `*Items to Restock:*\n${request.itemsToRestock || '-'}\n\n` +
+                        `*Is Urgent:*\n${request.isUrgent || '-'}\n\n` +
+                        `*Approved by Client:*\n${request.approvedByClient || '-'}\n\n` +
+                        `*Send to Address:*\n${request.sendToAddress || '-'}\n\n` +
+                        `*Requested By:*\n${request.requestedBy || '-'}\n\n` +
+                        `*Status:* ${statusEmoji} ${statusLabel}\n\n` +
+                        `*Form Link:* ${formLink}`
+                }
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_ITEM_SUPPLY_REQUEST_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        options: [
+                            {
+                                text: { type: "plain_text", text: "🔵 New", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "new" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟡 In Progress", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "in_progress" })
+                            },
+                            {
+                                text: { type: "plain_text", text: "🟢 Completed", emoji: true },
+                                value: JSON.stringify({ id: request.id, status: "completed" })
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        bot_name: "Item/Supply Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/shopping-cart.png"
+    };
+};
+
+export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { old: any; new: any; }>, request: ItemSupplyRequest) => {
+    const changes = Object.entries(diff).map(([field, { old, new: newValue }]) => {
+        return `• *${formatFieldName(field)}* was changed from \`${formatValue(old)}\` → \`${formatValue(newValue)}\``;
+    }).join("\n");
+
+    return {
+        channel: CLEANING_AND_MAINTENANCE,
+        text: `Item/Supply Request updated - Property #${request.propertyId}`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Item/Supply Request details have been updated:*\n${changes}`
+                }
+            }
+        ],
+        bot_name: "Item/Supply Request",
+        bot_icon: "https://img.icons8.com/ios-filled/50/shopping-cart.png"
+    };
+};
+
 

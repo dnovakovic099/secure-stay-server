@@ -74,7 +74,9 @@ export const slackInteractivityEventNames={
     UPDATE_EXPENSE_STATUS: "update_expense_status",
     UPDATE_ZAPIER_EVENT_STATUS: "update_zapier_event_status",
     UPDATE_PHOTOGRAPHER_REQUEST_STATUS: "update_photographer_request_status",
-    UPDATE_CLEANER_REQUEST_STATUS: "update_cleaner_request_status"
+    UPDATE_CLEANER_REQUEST_STATUS: "update_cleaner_request_status",
+    UPDATE_MAINTENANCE_FORM_REQUEST_STATUS: "update_maintenance_form_request_status",
+    UPDATE_ITEM_SUPPLY_REQUEST_STATUS: "update_item_supply_request_status"
 }
 
 
