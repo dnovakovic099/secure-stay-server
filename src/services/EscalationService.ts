@@ -92,14 +92,16 @@ export class EscalationService {
                         }, slackMsg.messageTs);
 
                         logger.info(`[EscalationService] Sent overdue alert for event ${event.id}`);
-                    }
 
-                    // Update escalation state
-                    event.isOverdue = true;
-                    event.escalationLevel = 1;
-                    event.lastReminderAt = new Date();
-                    event.reminderCount = 1;
-                    await eventRepo.save(event);
+                        // Update escalation state only after successfully sending the Slack message
+                        event.isOverdue = true;
+                        event.escalationLevel = 1;
+                        event.lastReminderAt = new Date();
+                        event.reminderCount = 1;
+                        await eventRepo.save(event);
+                    } else {
+                        logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping escalation, will retry next cycle`);
+                    }
 
                 } catch (error) {
                     logger.error(`[EscalationService] Failed to process newly overdue event ${event.id}: ${error}`);
@@ -159,13 +161,15 @@ export class EscalationService {
                         }, slackMsg.messageTs);
 
                         logger.info(`[EscalationService] Sent hourly reminder #${event.reminderCount + 1} for event ${event.id}`);
-                    }
 
-                    // Update escalation state
-                    event.reminderCount += 1;
-                    event.escalationLevel += 1;
-                    event.lastReminderAt = new Date();
-                    await eventRepo.save(event);
+                        // Update escalation state only after successfully sending the Slack message
+                        event.reminderCount += 1;
+                        event.escalationLevel += 1;
+                        event.lastReminderAt = new Date();
+                        await eventRepo.save(event);
+                    } else {
+                        logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping reminder, will retry next cycle`);
+                    }
 
                 } catch (error) {
                     logger.error(`[EscalationService] Failed to send hourly reminder for event ${event.id}: ${error}`);
@@ -228,6 +232,8 @@ export class EscalationService {
                         await eventRepo.save(event);
 
                         logger.info(`[EscalationService] Sent daily reminder for In Progress event ${event.id}`);
+                    } else {
+                        logger.warn(`[EscalationService] No Slack message record found for In Progress event ${event.id} — skipping daily reminder`);
                     }
                 } catch (error) {
                     logger.error(`[EscalationService] Failed to send daily reminder for event ${event.id}: ${error}`);
