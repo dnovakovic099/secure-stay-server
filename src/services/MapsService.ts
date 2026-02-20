@@ -16,6 +16,7 @@ interface SearchFilters {
   startDate?: string;
   endDate?: string;
   guests?: number;
+  maxPrice?: number;
 }
 
 interface PropertyWithDistance {
@@ -29,6 +30,8 @@ interface PropertyWithDistance {
   guests: number;
   image?: string;
   isReference: boolean;
+  price?: number;
+  currencyCode?: string;
   distance?: {
     text: string;
     value: number;
@@ -112,7 +115,7 @@ export class MapsService {
    */
   async searchProperties(filters: SearchFilters, userId?: string): Promise<PropertyWithDistance[]> {
     // If no filters are provided, return an empty array (enforce strict search)
-    const hasFilters = filters.state || filters.city || filters.propertyId || (filters.startDate && filters.endDate) || filters.guests;
+    const hasFilters = filters.state || filters.city || filters.propertyId || (filters.startDate && filters.endDate) || filters.guests || filters.maxPrice;
     if (!hasFilters) {
       return [];
     }
@@ -135,6 +138,11 @@ export class MapsService {
     // Apply guest capacity filter
     if (filters.guests) {
       queryBuilder.andWhere("listing.guests >= :guests", { guests: filters.guests });
+    }
+
+    // Apply max price filter (nightly rate <= maxPrice)
+    if (filters.maxPrice) {
+      queryBuilder.andWhere("listing.price <= :maxPrice", { maxPrice: filters.maxPrice });
     }
 
     const listings = await queryBuilder.getMany();
@@ -169,6 +177,8 @@ export class MapsService {
       guests: listing.guests,
       image: listing.images?.[0]?.url || undefined,
       isReference: filters.propertyId === listing.id,
+      price: listing.price,
+      currencyCode: listing.currencyCode || "USD",
     }));
 
     // If a reference property is selected, calculate distances
@@ -204,6 +214,8 @@ export class MapsService {
           guests: referenceProperty.guests,
           image: referenceProperty.images?.[0]?.url || undefined,
           isReference: true,
+          price: referenceProperty.price,
+          currencyCode: referenceProperty.currencyCode || "USD",
         };
 
         // If the reference property itself matches the search criteria, put it at the top

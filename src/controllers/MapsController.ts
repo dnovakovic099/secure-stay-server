@@ -78,7 +78,7 @@ export class MapsController {
   searchProperties = async (req: Request, res: Response) => {
     try {
       const userId = (req as any).session?.userId;
-      const { state, city, propertyId, startDate, endDate, guests } = req.body;
+      const { state, city, propertyId, startDate, endDate, guests, maxPrice } = req.body;
 
       const properties = await this.mapsService.searchProperties(
         {
@@ -88,6 +88,7 @@ export class MapsController {
           startDate,
           endDate,
           guests: guests ? Number(guests) : undefined,
+          maxPrice: maxPrice ? Number(maxPrice) : undefined,
         },
         userId
       );
