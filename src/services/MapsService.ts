@@ -5,6 +5,7 @@ import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import logger from "../utils/logger.utils";
 import { Between, In, LessThanOrEqual, MoreThanOrEqual, Not } from "typeorm";
+import { QuoteService, QuoteBreakdown } from "./QuoteService";
 
 // Valid statuses that indicate a property is booked (not cancelled)
 const INVALID_STATUSES = ["cancelled", "declined", "expired", "inquiry"];
@@ -16,7 +17,18 @@ interface SearchFilters {
   startDate?: string;
   endDate?: string;
   guests?: number;
-  maxPrice?: number;
+  maxTotalPrice?: number;  // Filter by computed total (incl. fees & tax)
+  petsIncluded?: boolean;  // Filter for pet-friendly properties
+  numberOfPets?: number;   // Number of pets for fee calculation
+}
+
+interface PricingInfo {
+  totalPrice?: number;
+  nightlySubtotal?: number;
+  cleaningFee?: number;
+  petFee?: number;
+  taxAmount?: number;
+  priceAvailable: boolean;
 }
 
 interface PropertyWithDistance {
@@ -30,8 +42,10 @@ interface PropertyWithDistance {
   guests: number;
   image?: string;
   isReference: boolean;
-  price?: number;
+  price?: number;  // Base nightly rate (for display)
   currencyCode?: string;
+  isPetFriendly?: boolean;
+  pricing?: PricingInfo;  // Full computed pricing when dates provided
   distance?: {
     text: string;
     value: number;
@@ -46,6 +60,7 @@ export class MapsService {
   private cityStateInfoRepository = appDatabase.getRepository(CityStateInfo);
   private listingRepository = appDatabase.getRepository(Listing);
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
+  private quoteService = new QuoteService();
 
   /**
    * Get all unique states from city_state_info table
@@ -115,7 +130,9 @@ export class MapsService {
    */
   async searchProperties(filters: SearchFilters, userId?: string): Promise<PropertyWithDistance[]> {
     // If no filters are provided, return an empty array (enforce strict search)
-    const hasFilters = filters.state || filters.city || filters.propertyId || (filters.startDate && filters.endDate) || filters.guests || filters.maxPrice;
+    const hasFilters = filters.state || filters.city || filters.propertyId || 
+      (filters.startDate && filters.endDate) || filters.guests || 
+      filters.maxTotalPrice || filters.petsIncluded;
     if (!hasFilters) {
       return [];
     }
@@ -140,46 +157,106 @@ export class MapsService {
       queryBuilder.andWhere("listing.guests >= :guests", { guests: filters.guests });
     }
 
-    // Apply max price filter (nightly rate <= maxPrice)
-    if (filters.maxPrice) {
-      queryBuilder.andWhere("listing.price <= :maxPrice", { maxPrice: filters.maxPrice });
-    }
-
     const listings = await queryBuilder.getMany();
 
-    // Filter by availability if date range is provided
-    let availableListings = listings;
-    if (filters.startDate && filters.endDate) {
-      const availabilityChecks = await Promise.all(
-        listings.map(async (listing) => ({
-          listing,
-          isAvailable: await this.checkPropertyAvailability(
-            listing.id,
-            filters.startDate!,
-            filters.endDate!
-          ),
-        }))
+    // If pets filter is ON, filter to only pet-friendly listings first
+    let filteredListings = listings;
+    if (filters.petsIncluded) {
+      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+        listings.map(l => l.id)
       );
-      availableListings = availabilityChecks
-        .filter((check) => check.isAvailable)
-        .map((check) => check.listing);
+      filteredListings = listings.filter(l => petFriendlyIds.includes(l.id));
+    }
+
+    // If dates are provided, we need to check availability and get quotes
+    let availableListings = filteredListings;
+    const quotesMap = new Map<number, PricingInfo>();
+
+    if (filters.startDate && filters.endDate) {
+      // Get quotes for all listings (includes availability check via Hostify calendar)
+      const quotes = await this.quoteService.getBatchQuotes(
+        filteredListings.map(l => l.id),
+        filters.startDate,
+        filters.endDate,
+        {
+          guests: filters.guests,
+          includePets: filters.petsIncluded,
+          numberOfPets: filters.numberOfPets || 1,
+        }
+      );
+
+      // Filter to available listings and build quotes map
+      const availableIds = new Set<number>();
+      quotes.forEach(q => {
+        if (q.isAvailable && q.quote) {
+          availableIds.add(q.listingId);
+          quotesMap.set(q.listingId, {
+            totalPrice: q.quote.totalPrice,
+            nightlySubtotal: q.quote.nightlySubtotal,
+            cleaningFee: q.quote.cleaningFee,
+            petFee: q.quote.petFee,
+            taxAmount: q.quote.taxAmount,
+            priceAvailable: q.quote.priceAvailable,
+          });
+        }
+      });
+
+      availableListings = filteredListings.filter(l => availableIds.has(l.id));
+
+      // Apply max total price filter (on computed total)
+      if (filters.maxTotalPrice) {
+        availableListings = availableListings.filter(l => {
+          const pricing = quotesMap.get(l.id);
+          if (!pricing || !pricing.priceAvailable) return false;
+          return (pricing.totalPrice || 0) <= filters.maxTotalPrice!;
+        });
+      }
+    } else {
+      // No dates - do basic availability check and skip pricing
+      const availabilityPromises = filteredListings.map(async (listing) => {
+        // Check if there's any way to verify availability without dates
+        // For now, assume all are available without date filter
+        return { listing, isAvailable: true };
+      });
+      
+      const availabilityResults = await Promise.all(availabilityPromises);
+      availableListings = availabilityResults
+        .filter(r => r.isAvailable)
+        .map(r => r.listing);
+    }
+
+    // Get pet-friendly status for all remaining listings
+    const petFriendlyMap = new Map<number, boolean>();
+    if (!filters.petsIncluded) {
+      // Only need to check if not already filtered
+      const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
+        availableListings.map(l => l.id)
+      );
+      petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
     }
 
     // Transform to response format
-    const properties: PropertyWithDistance[] = availableListings.map((listing) => ({
-      id: listing.id,
-      internalListingName: listing.internalListingName,
-      address: listing.address,
-      city: listing.city,
-      state: listing.state,
-      lat: listing.lat,
-      lng: listing.lng,
-      guests: listing.guests,
-      image: listing.images?.[0]?.url || undefined,
-      isReference: filters.propertyId === listing.id,
-      price: listing.price,
-      currencyCode: listing.currencyCode || "USD",
-    }));
+    const properties: PropertyWithDistance[] = availableListings.map((listing) => {
+      const pricing = quotesMap.get(listing.id);
+      const isPetFriendly = filters.petsIncluded ? true : petFriendlyMap.get(listing.id) || false;
+
+      return {
+        id: listing.id,
+        internalListingName: listing.internalListingName,
+        address: listing.address,
+        city: listing.city,
+        state: listing.state,
+        lat: listing.lat,
+        lng: listing.lng,
+        guests: listing.guests,
+        image: listing.images?.[0]?.url || undefined,
+        isReference: filters.propertyId === listing.id,
+        price: listing.price,
+        currencyCode: listing.currencyCode || "USD",
+        isPetFriendly,
+        pricing: pricing || { priceAvailable: false },
+      };
+    });
 
     // If a reference property is selected, calculate distances
     if (filters.propertyId) {
@@ -202,6 +279,35 @@ export class MapsService {
           propertiesToCalculate
         );
 
+        // Get pricing for reference property if dates provided
+        let refPricing: PricingInfo | undefined;
+        let refPetFriendly = false;
+
+        if (filters.startDate && filters.endDate) {
+          const refQuote = await this.quoteService.getQuote({
+            listingId: referenceProperty.id,
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            guests: filters.guests,
+            includePets: filters.petsIncluded,
+            numberOfPets: filters.numberOfPets || 1,
+          });
+
+          if (refQuote.quote) {
+            refPricing = {
+              totalPrice: refQuote.quote.totalPrice,
+              nightlySubtotal: refQuote.quote.nightlySubtotal,
+              cleaningFee: refQuote.quote.cleaningFee,
+              petFee: refQuote.quote.petFee,
+              taxAmount: refQuote.quote.taxAmount,
+              priceAvailable: refQuote.quote.priceAvailable,
+            };
+          }
+          refPetFriendly = refQuote.isPetFriendly;
+        } else {
+          refPetFriendly = await this.quoteService.isPetFriendly(referenceProperty.id);
+        }
+
         // Prepare the reference property in response format
         const refProp: PropertyWithDistance = {
           id: referenceProperty.id,
@@ -216,6 +322,8 @@ export class MapsService {
           isReference: true,
           price: referenceProperty.price,
           currencyCode: referenceProperty.currencyCode || "USD",
+          isPetFriendly: refPetFriendly,
+          pricing: refPricing || { priceAvailable: false },
         };
 
         // If the reference property itself matches the search criteria, put it at the top
