@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { UsersEntity } from './Users';
+import { AssignedTaskUpdate } from './AssignedTaskUpdate';
 
 @Entity({ name: 'assigned_tasks' })
 export class AssignedTask {
@@ -50,4 +51,7 @@ export class AssignedTask {
 
     @UpdateDateColumn()
     updatedAt: Date;
+
+    @OneToMany(() => AssignedTaskUpdate, update => update.task)
+    updates: AssignedTaskUpdate[];
 }
