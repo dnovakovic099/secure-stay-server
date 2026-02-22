@@ -49,6 +49,7 @@ import mapsRoutes from "./mapsRoutes";
 import maintenanceFormRequestRoutes from "./maintenanceFormRequestRoutes";
 import itemSupplyRequestRoutes from "./itemSupplyRequestRoutes";
 import allServiceRequestRoutes from "./allServiceRequestRoutes";
+import assignedTaskRoutes from "./assignedTaskRoutes";
 
 const router = Router();
 
@@ -104,6 +105,7 @@ router.use('/maps', mapsRoutes);
 router.use('/maintenance-form-request', maintenanceFormRequestRoutes);
 router.use('/item-supply-request', itemSupplyRequestRoutes);
 router.use('/service-requests', allServiceRequestRoutes);
+router.use('/assigned-tasks', assignedTaskRoutes);
 
 export default router;
 

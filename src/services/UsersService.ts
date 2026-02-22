@@ -17,6 +17,7 @@ import { tagIds } from "../constant";
 import { ListingService } from "./ListingService";
 import { format } from "date-fns";
 import { LiveIssue } from "../entity/LiveIssue";
+import { AssignedTask } from "../entity/AssignedTask";
 
 
 interface ApiKey {
@@ -35,6 +36,7 @@ export class UsersService {
     private actionItemsRepo = appDatabase.getRepository(ActionItems);
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private liveIssuesRepo = appDatabase.getRepository(LiveIssue);
+    private assignedTaskRepo = appDatabase.getRepository(AssignedTask);
 
 
     async createUser(request: Request, response: Response) {
@@ -645,6 +647,15 @@ export class UsersService {
             order: { followUp: "DESC" },
         })
 
+        // Assigned Tasks (HR Management - Personal)
+        const assignedTasks = await this.assignedTaskRepo.find({
+            where: {
+                assignee: { uid: userId }
+            },
+            relations: ["updates"],
+            order: { createdAt: "DESC" }
+        });
+
         const users = await this.usersRepository.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName}`]));
 
@@ -725,16 +736,41 @@ export class UsersService {
 
         });
 
+        const transformedAssignedTasks = assignedTasks.map(task => {
+            return {
+                id: task.id,
+                status: task.status,
+                assignee: task.assignee?.uid, // Using relation uid
+                assigneeName: userMap.get(task.assignee?.uid) || task.assignee?.uid,
+                area: task.taskType || "Personal", // Or use strict Personal
+                property: "Internal",
+                description: task.title,
+                latestUpdate: task.updates?.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.content || '',
+                urgency: 10, // Max urgency to float near top, but area takes precedence essentially
+                mistake: null,
+                mistakeResolvedOn: null,
+                createdAt: task.createdAt,
+                completedOn: task.status === 'Completed' ? new Date().toISOString() : "" // Mocking completion for simplistic count
+            };
+        });
+
         const data = [
+            ...transformedAssignedTasks,
             ...transformedActionItems, 
             ...transformedClientTickets, 
             ...transformedIssues,
             ...transformedLiveIssues
-        ].sort((a, b) => b.urgency - a.urgency || (b.createdAt.getTime() - a.createdAt.getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0));
+        ].sort((a, b) => {
+            // Force Personal/Internal tasks to the absolute top
+            if (a.area === 'Personal' || a.area === 'Internal') return -1;
+            if (b.area === 'Personal' || b.area === 'Internal') return 1;
+            // Native sorting handles the rest
+            return b.urgency - a.urgency || (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) || (a.mistake && !b.mistake ? -1 : !a.mistake && b.mistake ? 1 : 0);
+        });
 
         const taggedDataCount = {
-            active: data.filter(item => item.status && item.status.toLowerCase() !== "completed").length,
-            new: data.filter(item => item.status && item.status.toLowerCase() === "new").length,
+            active: data.filter(item => item.status && !['completed', 'resolved', 'closed'].some(s => item.status.toLowerCase().includes(s))).length,
+            new: data.filter(item => item.status && ["new", "pending"].includes(item.status.toLowerCase())).length,
             inProgress: data.filter(item => item.status && item.status.toLowerCase() === "in progress").length,
             needHelp: data.filter(item => item.status && item.status.toLowerCase() === "need help").length,
             completedToday: data.filter(item => item.completedOn && format(new Date(item.completedOn), "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")).length,
