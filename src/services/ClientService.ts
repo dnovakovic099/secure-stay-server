@@ -944,29 +944,16 @@ export class ClientService {
   async getClientList(filter: ClientFilter, userId: string) {
     const { page, limit, keyword } = filter;
 
-    // fetch the associated clientSecondaryContacts and clientProperties as well
-    const query = this.clientRepo.createQueryBuilder("client")
-      .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
-      .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
-      //fetch the onboarding, serviceInfo and propertyInfo of the property as well
-      .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
-      .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
-      .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
-      // ✅ NEW: fetch property-related entities for PDF generation
-      .leftJoinAndSelect("propertyInfo.propertyBedTypes", "propertyBedTypes")
-      .leftJoinAndSelect("propertyInfo.propertyBathroomLocation", "propertyBathroomLocation")
-      .leftJoinAndSelect("propertyInfo.propertyParkingInfo", "propertyParkingInfo")
-      .leftJoinAndSelect("propertyInfo.propertyUpsells", "propertyUpsells")
-      .leftJoinAndSelect("propertyInfo.vendorManagementInfo", "vendorManagementInfo")
-      .leftJoinAndSelect("vendorManagementInfo.vendorInfo", "vendorInfo")
-      .leftJoinAndSelect("vendorManagementInfo.suppliesToRestock", "suppliesToRestock")
-      .where("client.deletedAt IS NULL")
-      .orderBy("client.createdAt", "DESC");
-    //order by client.createdAt desc
+    // STEP 1: Lightweight query for filtering, counting, and pagination
+    const baseQuery = this.clientRepo.createQueryBuilder("client")
+      // Only join what is strictly necessary for filtering
+      .leftJoin("client.properties", "property", "property.deletedAt IS NULL")
+      .leftJoin("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .where("client.deletedAt IS NULL");
 
     if (keyword) {
       const k = `%${keyword.toLowerCase()}%`;
-      query.andWhere(
+      baseQuery.andWhere(
         `(LOWER(client.firstName) LIKE :keyword 
         OR LOWER(client.lastName) LIKE :keyword 
         OR LOWER(client.preferredName) LIKE :keyword
@@ -977,24 +964,56 @@ export class ClientService {
     }
 
     if (filter.listingId && filter.listingId.length > 0) {
-      query.andWhere("property.listingId IN (:...listingIds)", { listingIds: filter.listingId });
+      baseQuery.andWhere("property.listingId IN (:...listingIds)", { listingIds: filter.listingId });
     }
 
     if (filter.serviceType && filter.serviceType.length > 0) {
-      query.andWhere("serviceInfo.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
+      baseQuery.andWhere("serviceInfo.serviceType IN (:...serviceTypes)", { serviceTypes: filter.serviceType });
     }
 
     if (filter.status && filter.status.length > 0) {
-      query.andWhere("property.status IN (:...statuses)", { statuses: filter.status });
+      baseQuery.andWhere("property.status IN (:...statuses)", { statuses: filter.status });
     }
 
     if (filter.source) {
-      query.andWhere("client.source = :source", { source: filter.source });
+      baseQuery.andWhere("client.source = :source", { source: filter.source });
     }
 
-    query.skip((page - 1) * limit).take(limit);
+    // Get total count and paginated IDs
+    // We remove .select() because using a custom select with skip/take and orderBy
+    // triggers a known TypeORM bug with distinctAlias in the count subquery.
+    baseQuery
+      .orderBy("client.createdAt", "DESC")
+      .skip((page - 1) * limit)
+      .take(limit);
 
-    const [data, total] = await query.getManyAndCount();
+    // Using getManyAndCount on this lightweight baseQuery is very fast
+    const [paginatedClients, total] = await baseQuery.getManyAndCount();
+
+    let data: ClientEntity[] = [];
+
+    if (paginatedClients.length > 0) {
+      const clientIds = paginatedClients.map(c => c.id);
+
+      // STEP 2: Deep query to fetch fully hydrated entities only for the paginated IDs
+      data = await this.clientRepo.createQueryBuilder("client")
+        .leftJoinAndSelect("client.secondaryContacts", "secondaryContact", "secondaryContact.deletedAt IS NULL")
+        .leftJoinAndSelect("client.properties", "property", "property.deletedAt IS NULL")
+        .leftJoinAndSelect("property.onboarding", "onboarding", "onboarding.deletedAt IS NULL")
+        .leftJoinAndSelect("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+        .leftJoinAndSelect("property.propertyInfo", "propertyInfo", "propertyInfo.deletedAt IS NULL")
+        .leftJoinAndSelect("propertyInfo.propertyBedTypes", "propertyBedTypes")
+        .leftJoinAndSelect("propertyInfo.propertyBathroomLocation", "propertyBathroomLocation")
+        .leftJoinAndSelect("propertyInfo.propertyParkingInfo", "propertyParkingInfo")
+        .leftJoinAndSelect("propertyInfo.propertyUpsells", "propertyUpsells")
+        .leftJoinAndSelect("propertyInfo.vendorManagementInfo", "vendorManagementInfo")
+        .leftJoinAndSelect("vendorManagementInfo.vendorInfo", "vendorInfo")
+        .leftJoinAndSelect("vendorManagementInfo.suppliesToRestock", "suppliesToRestock")
+        .where("client.id IN (:...clientIds)", { clientIds })
+        // Must apply the exact same sorting so the final array matches the paginated order
+        .orderBy("client.createdAt", "DESC")
+        .getMany();
+    }
 
     const listingService = new ListingService();
     const listings = await listingService.getListingNames(userId);
