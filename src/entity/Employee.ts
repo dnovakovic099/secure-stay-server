@@ -24,7 +24,7 @@ export class Employee {
     user: UsersEntity;
 
     // Employee number (LL-001, LL-002, etc.) - generated based on start date order
-    @Column({ type: 'varchar', length: 20, unique: true, nullable: true })
+    @Column({ name: 'employee_number', type: 'varchar', length: 20, unique: true, nullable: true })
     employeeNumber: string;
 
     // Department
@@ -32,19 +32,19 @@ export class Employee {
     department: EmployeeDepartment;
 
     // Job title
-    @Column({ type: 'varchar', length: 100 })
+    @Column({ name: 'job_title', type: 'varchar', length: 100 })
     jobTitle: string;
 
     // Hourly rate
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    @Column({ name: 'hourly_rate', type: 'decimal', precision: 10, scale: 2, default: 0 })
     hourlyRate: number;
 
     // Start date (used for employee number ordering)
-    @Column({ type: 'date' })
+    @Column({ name: 'start_date', type: 'date' })
     startDate: Date;
 
     // Overtime hours (for payroll)
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    @Column({ name: 'overtime_hours', type: 'decimal', precision: 10, scale: 2, default: 0 })
     overtimeHours: number;
 
     // Bonuses (for payroll)
@@ -52,20 +52,20 @@ export class Employee {
     bonuses: number;
 
     // Status
-    @Column({ type: 'boolean', default: true })
+    @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive: boolean;
 
     // Internal notes relationship
     @OneToMany(() => EmployeeNote, note => note.employee)
     notes: EmployeeNote[];
 
-    @CreateDateColumn()
+    @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ name: 'updated_at' })
     updatedAt: Date;
 
-    @DeleteDateColumn({ nullable: true })
+    @DeleteDateColumn({ name: 'deleted_at', nullable: true })
     deletedAt: Date;
 
     @Column({ name: 'created_by', nullable: true })

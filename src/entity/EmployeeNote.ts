@@ -27,6 +27,6 @@ export class EmployeeNote {
     @JoinColumn({ name: 'added_by' })
     addedByUser: UsersEntity;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }

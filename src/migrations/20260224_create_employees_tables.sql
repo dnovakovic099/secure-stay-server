@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS employee_notes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     employee_id INT NOT NULL,
     content TEXT NOT NULL,
-    added_by INT NOT NULL,
+    added_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
     FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL,
