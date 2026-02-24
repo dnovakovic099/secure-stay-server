@@ -50,6 +50,7 @@ import maintenanceFormRequestRoutes from "./maintenanceFormRequestRoutes";
 import itemSupplyRequestRoutes from "./itemSupplyRequestRoutes";
 import allServiceRequestRoutes from "./allServiceRequestRoutes";
 import assignedTaskRoutes from "./assignedTaskRoutes";
+import employeeRoutes from "./employeeRoutes";
 
 const router = Router();
 
@@ -106,6 +107,7 @@ router.use('/maintenance-form-request', maintenanceFormRequestRoutes);
 router.use('/item-supply-request', itemSupplyRequestRoutes);
 router.use('/service-requests', allServiceRequestRoutes);
 router.use('/assigned-tasks', assignedTaskRoutes);
+router.use('/employees', employeeRoutes);
 
 export default router;
 
