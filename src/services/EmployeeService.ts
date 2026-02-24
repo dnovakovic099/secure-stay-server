@@ -23,10 +23,75 @@ interface UpdateEmployeeDto {
     isActive?: boolean;
 }
 
+// Flag to track if tables have been initialized
+let tablesInitialized = false;
+
 export class EmployeeService {
     private employeeRepo = appDatabase.getRepository(Employee);
     private noteRepo = appDatabase.getRepository(EmployeeNote);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+
+    /**
+     * Ensures the employees and employee_notes tables exist
+     */
+    private async ensureTables(): Promise<void> {
+        if (tablesInitialized) return;
+
+        try {
+            // Check if employees table exists
+            await appDatabase.query(`SELECT 1 FROM employees LIMIT 1`);
+            tablesInitialized = true;
+        } catch (error: any) {
+            // Table doesn't exist, create it
+            if (error.code === 'ER_NO_SUCH_TABLE' || error.message?.includes("doesn't exist")) {
+                console.log('Creating employees tables...');
+                
+                // Create employees table
+                await appDatabase.query(`
+                    CREATE TABLE IF NOT EXISTS employees (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL UNIQUE,
+                        employee_number VARCHAR(20) UNIQUE,
+                        department ENUM('Guest Relations', 'Client Relations', 'Maintenance', 'Onboarding', 'Admin') NOT NULL,
+                        job_title VARCHAR(100) NOT NULL,
+                        hourly_rate DECIMAL(10, 2) DEFAULT 0,
+                        start_date DATE NOT NULL,
+                        overtime_hours DECIMAL(10, 2) DEFAULT 0,
+                        bonuses DECIMAL(10, 2) DEFAULT 0,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        deleted_at TIMESTAMP NULL,
+                        created_by INT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+                        INDEX idx_employees_department (department),
+                        INDEX idx_employees_start_date (start_date),
+                        INDEX idx_employees_is_active (is_active)
+                    )
+                `);
+
+                // Create employee_notes table
+                await appDatabase.query(`
+                    CREATE TABLE IF NOT EXISTS employee_notes (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        employee_id INT NOT NULL,
+                        content TEXT NOT NULL,
+                        added_by INT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                        FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL,
+                        INDEX idx_employee_notes_employee_id (employee_id)
+                    )
+                `);
+
+                console.log('Employees tables created successfully');
+                tablesInitialized = true;
+            } else {
+                throw error;
+            }
+        }
+    }
 
     /**
      * Get all employees with pagination and filters
@@ -38,6 +103,8 @@ export class EmployeeService {
         search?: string;
         isActive?: boolean;
     }) {
+        await this.ensureTables();
+        
         const page = filters.page || 1;
         const limit = filters.limit || 20;
         const offset = (page - 1) * limit;
@@ -94,6 +161,8 @@ export class EmployeeService {
      * Get available users (not yet assigned as employees)
      */
     async getAvailableUsers() {
+        await this.ensureTables();
+        
         const existingEmployeeUserIds = await this.employeeRepo
             .createQueryBuilder('employee')
             .select('employee.userId')
@@ -121,6 +190,8 @@ export class EmployeeService {
      * Create new employee
      */
     async createEmployee(dto: CreateEmployeeDto) {
+        await this.ensureTables();
+        
         // Check if user is already an employee
         const existing = await this.employeeRepo.findOne({
             where: { userId: dto.userId, deletedAt: IsNull() },
