@@ -18,6 +18,17 @@ import { ListingService } from "./ListingService";
 import { format } from "date-fns";
 import { LiveIssue } from "../entity/LiveIssue";
 import { AssignedTask } from "../entity/AssignedTask";
+import { DepartmentEntity } from "../entity/Department";
+import { UserDepartmentEntity } from "../entity/UserDepartment";
+
+// Priority departments per page type
+const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
+    'resolutions': ['Resolutions', 'Guest Relations'],
+    'action-items': ['Guest Relations', 'Maintenance', 'Resolutions'],
+    'client-tickets': ['Client Relations', 'Onboarding', 'Maintenance', 'Guest Relations', 'Resolutions'],
+    'guest-issues': ['Maintenance', 'Guest Relations', 'Resolutions'],
+    'default': [], // All departments alphabetically
+};
 
 
 interface ApiKey {
@@ -586,6 +597,123 @@ export class UsersService {
             .addSelect("CONCAT(user.firstName, ' ', user.lastName)", "name")
             .where("user.isActive = :isActive", { isActive: true })
             .getRawMany();
+    }
+
+    /**
+     * Fetch users grouped by department with priority ordering.
+     * @param pageType - The page requesting assignees (e.g., 'resolutions', 'action-items', 'client-tickets', 'guest-issues')
+     * @returns Object with priorityDepartments (shown first) and otherDepartments (for "See More")
+     */
+    async fetchUserListByDepartment(pageType: string = 'default') {
+        const departmentRepo = appDatabase.getRepository(DepartmentEntity);
+        const userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
+
+        // Get all departments
+        const departments = await departmentRepo.find({
+            where: { deletedAt: null as any },
+            order: { name: 'ASC' },
+        });
+
+        // Get all user-department mappings with user details
+        const userDepartments = await userDepartmentRepo
+            .createQueryBuilder('ud')
+            .innerJoinAndSelect('ud.user', 'user')
+            .innerJoinAndSelect('ud.department', 'department')
+            .where('user.isActive = :isActive', { isActive: true })
+            .andWhere('user.deletedAt IS NULL')
+            .getMany();
+
+        // Build department -> users map
+        const departmentUsersMap: Record<string, { id: number; name: string; users: { uid: string; name: string }[] }> = {};
+
+        for (const dept of departments) {
+            departmentUsersMap[dept.name] = {
+                id: dept.id,
+                name: dept.name,
+                users: [],
+            };
+        }
+
+        // Add "Unassigned" for users without a department
+        departmentUsersMap['Unassigned'] = {
+            id: 0,
+            name: 'Unassigned',
+            users: [],
+        };
+
+        // Populate users into their departments (sorted alphabetically)
+        const usersInDepartments = new Set<string>();
+        for (const ud of userDepartments) {
+            const deptName = ud.department?.name;
+            const userName = `${ud.user.firstName || ''} ${ud.user.lastName || ''}`.trim();
+            
+            if (deptName && departmentUsersMap[deptName]) {
+                departmentUsersMap[deptName].users.push({
+                    uid: ud.user.uid,
+                    name: userName || ud.user.email,
+                });
+                usersInDepartments.add(ud.user.uid);
+            }
+        }
+
+        // Find users without any department assignment
+        const allActiveUsers = await this.usersRepository.find({
+            where: { isActive: true, deletedAt: null as any },
+        });
+        
+        for (const user of allActiveUsers) {
+            if (!usersInDepartments.has(user.uid)) {
+                const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+                departmentUsersMap['Unassigned'].users.push({
+                    uid: user.uid,
+                    name: userName || user.email,
+                });
+            }
+        }
+
+        // Sort users alphabetically within each department
+        for (const deptName of Object.keys(departmentUsersMap)) {
+            departmentUsersMap[deptName].users.sort((a, b) => 
+                a.name.localeCompare(b.name)
+            );
+        }
+
+        // Get priority departments for this page type
+        const priorityDeptNames = PAGE_DEPARTMENT_PRIORITIES[pageType] || PAGE_DEPARTMENT_PRIORITIES['default'];
+
+        // Build response arrays
+        const priorityDepartments: { id: number; name: string; users: { uid: string; name: string }[] }[] = [];
+        const otherDepartments: { id: number; name: string; users: { uid: string; name: string }[] }[] = [];
+
+        // Add priority departments first (in specified order)
+        for (const deptName of priorityDeptNames) {
+            const dept = Object.values(departmentUsersMap).find(
+                d => d.name.toLowerCase() === deptName.toLowerCase()
+            );
+            if (dept && dept.users.length > 0) {
+                priorityDepartments.push(dept);
+            }
+        }
+
+        // Add remaining departments alphabetically (excluding empty ones and already added)
+        const addedDeptNames = new Set(priorityDepartments.map(d => d.name.toLowerCase()));
+        const remainingDepts = Object.values(departmentUsersMap)
+            .filter(d => !addedDeptNames.has(d.name.toLowerCase()) && d.users.length > 0)
+            .sort((a, b) => a.name.localeCompare(b.name));
+        
+        otherDepartments.push(...remainingDepts);
+
+        return {
+            priorityDepartments,
+            otherDepartments,
+            // Flat list for backward compatibility
+            allUsers: Object.values(departmentUsersMap)
+                .flatMap(d => d.users)
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter((user, index, self) => 
+                    index === self.findIndex(u => u.uid === user.uid)
+                ),
+        };
     }
 
     async fetchPaginatedUserList(filter: any) {

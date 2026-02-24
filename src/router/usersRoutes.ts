@@ -68,6 +68,7 @@ router
 
 
 router.route('/fetchuserlist').get(verifySession, usersController.fetchUserList);
+router.route('/fetchuserlistbydepartment').get(verifySession, usersController.fetchUserListByDepartment);
 router.route('/fetchpaginateduserlist').get(verifySession, validateFetchPaginatedUserList, usersController.fetchPaginatedUserList);
 router.route('/deleteuser/:id').delete(verifySession, usersController.removeUser);
 router.route('/assignedtaskinfo').get(verifySession, usersController.getAssignedTaskInfo);

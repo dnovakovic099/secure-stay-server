@@ -166,6 +166,21 @@ export class UsersController{
         }
     }
 
+    /**
+     * Fetch users grouped by department for assignee dropdowns
+     * Query params:
+     *   - pageType: 'resolutions' | 'action-items' | 'client-tickets' | 'guest-issues' | 'default'
+     */
+    async fetchUserListByDepartment(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const usersService = new UsersService();
+            const pageType = (request.query.pageType as string) || 'default';
+            return response.send(await usersService.fetchUserListByDepartment(pageType));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async fetchPaginatedUserList(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const usersService = new UsersService();
