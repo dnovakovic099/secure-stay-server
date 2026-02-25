@@ -15,7 +15,6 @@ export class Employee {
     @PrimaryGeneratedColumn()
     id: number;
 
-    // Link to SecureStay user (required)
     @Column({ name: 'user_id', unique: true })
     userId: number;
 
@@ -23,39 +22,30 @@ export class Employee {
     @JoinColumn({ name: 'user_id' })
     user: UsersEntity;
 
-    // Employee number (LL-001, LL-002, etc.) - generated based on start date order
     @Column({ name: 'employee_number', type: 'varchar', length: 20, unique: true, nullable: true })
     employeeNumber: string;
 
-    // Department
-    @Column({ type: 'enum', enum: EmployeeDepartment })
+    @Column({ name: 'department', type: 'enum', enum: EmployeeDepartment })
     department: EmployeeDepartment;
 
-    // Job title
     @Column({ name: 'job_title', type: 'varchar', length: 100 })
     jobTitle: string;
 
-    // Hourly rate
     @Column({ name: 'hourly_rate', type: 'decimal', precision: 10, scale: 2, default: 0 })
     hourlyRate: number;
 
-    // Start date (used for employee number ordering)
     @Column({ name: 'start_date', type: 'date' })
     startDate: Date;
 
-    // Overtime hours (for payroll)
     @Column({ name: 'overtime_hours', type: 'decimal', precision: 10, scale: 2, default: 0 })
     overtimeHours: number;
 
-    // Bonuses (for payroll)
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    @Column({ name: 'bonuses', type: 'decimal', precision: 10, scale: 2, default: 0 })
     bonuses: number;
 
-    // Status
     @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive: boolean;
 
-    // Internal notes relationship
     @OneToMany(() => EmployeeNote, note => note.employee)
     notes: EmployeeNote[];
 

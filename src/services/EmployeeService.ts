@@ -210,6 +210,13 @@ export class EmployeeService {
 
         console.log('Creating employee with data:', JSON.stringify(dto));
 
+        // Verify the user exists first
+        const userExists = await this.usersRepo.findOne({ where: { id: dto.userId } });
+        if (!userExists) {
+            throw new Error(`User with id ${dto.userId} not found`);
+        }
+        console.log('User verified:', userExists.email);
+
         // Create employee - don't include createdBy if it's undefined
         const employeeData: any = {
             userId: dto.userId,
@@ -223,15 +230,23 @@ export class EmployeeService {
             employeeData.createdBy = dto.createdBy;
         }
 
-        const employee = this.employeeRepo.create(employeeData);
+        console.log('Employee data to save:', JSON.stringify(employeeData));
 
-        const saved = await this.employeeRepo.save(employee);
-        console.log('Employee saved with id:', saved.id);
+        try {
+            const employee = this.employeeRepo.create(employeeData);
+            const saved = await this.employeeRepo.save(employee);
+            console.log('Employee saved with id:', saved.id);
 
-        // Generate employee number after save
-        await this.regenerateEmployeeNumbers();
+            // Generate employee number after save
+            await this.regenerateEmployeeNumbers();
 
-        return this.getEmployeeById(saved.id);
+            return this.getEmployeeById(saved.id);
+        } catch (saveError: any) {
+            console.error('Error saving employee:', saveError);
+            console.error('SQL Message:', saveError.sqlMessage);
+            console.error('SQL:', saveError.sql);
+            throw new Error(`Database error: ${saveError.sqlMessage || saveError.message}`);
+        }
     }
 
     /**
