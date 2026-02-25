@@ -218,7 +218,7 @@ export class EmployeeService {
         console.log('User verified:', userExists.email);
 
         // Create employee - don't include createdBy if it's undefined
-        const employeeData: any = {
+        const employeeData: Partial<Employee> = {
             userId: dto.userId,
             department: dto.department,
             jobTitle: dto.jobTitle,

@@ -1,10 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/EmployeeService';
 import { EmployeeDepartment } from '../entity/Employee';
+import { appDatabase } from '../utils/database.util';
+import { UsersEntity } from '../entity/Users';
 
 interface CustomRequest extends Request {
     user?: {
-        id: number;
+        id: any;
         uid: string;
         email: string;
         userType: string;
@@ -13,6 +15,19 @@ interface CustomRequest extends Request {
 
 export class EmployeeController {
     private employeeService = new EmployeeService();
+
+    private async getInternalUserId(reqUser?: any): Promise<number | undefined> {
+        if (!reqUser) return undefined;
+        if (typeof reqUser.id === 'number') {
+            return reqUser.id;
+        }
+        if (typeof reqUser.id === 'string') {
+            const userRepo = appDatabase.getRepository(UsersEntity);
+            const user = await userRepo.findOne({ where: { uid: reqUser.id } });
+            return user?.id;
+        }
+        return undefined;
+    }
 
     /**
      * Get all employees with filters
@@ -86,13 +101,15 @@ export class EmployeeController {
                 return res.status(400).json({ error: 'Invalid department' });
             }
 
+            const creatorId = await this.getInternalUserId(req.user);
+
             const employee = await this.employeeService.createEmployee({
                 userId,
                 department,
                 jobTitle,
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
-                createdBy: req.user?.id,
+                createdBy: creatorId,
             });
 
             return res.status(201).json(employee);
@@ -181,10 +198,15 @@ export class EmployeeController {
                 return res.status(400).json({ error: 'Note content is required' });
             }
 
+            const creatorId = await this.getInternalUserId(req.user);
+            if (!creatorId) {
+                return res.status(401).json({ error: 'User not found' });
+            }
+
             const note = await this.employeeService.addNote(
                 parseInt(id),
                 content,
-                req.user?.id!
+                creatorId
             );
 
             return res.status(201).json(note);
