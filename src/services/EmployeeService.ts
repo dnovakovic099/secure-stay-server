@@ -10,6 +10,7 @@ interface CreateEmployeeDto {
     jobTitle: string;
     hourlyRate: number;
     startDate: Date;
+    slackUserId?: string;
     createdBy?: number;
 }
 
@@ -20,6 +21,7 @@ interface UpdateEmployeeDto {
     startDate?: Date;
     overtimeHours?: number;
     bonuses?: number;
+    slackUserId?: string | null;
     isActive?: boolean;
 }
 
@@ -224,6 +226,7 @@ export class EmployeeService {
             jobTitle: dto.jobTitle,
             hourlyRate: dto.hourlyRate || 0,
             startDate: dto.startDate,
+            slackUserId: dto.slackUserId || null,
         };
         
         if (dto.createdBy) {
@@ -267,6 +270,7 @@ export class EmployeeService {
         if (dto.hourlyRate !== undefined) employee.hourlyRate = dto.hourlyRate;
         if (dto.overtimeHours !== undefined) employee.overtimeHours = dto.overtimeHours;
         if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
+        if (dto.slackUserId !== undefined) employee.slackUserId = dto.slackUserId || null;
         if (dto.isActive !== undefined) employee.isActive = dto.isActive;
 
         const startDateChanged = dto.startDate !== undefined && 

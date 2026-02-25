@@ -89,7 +89,7 @@ export class EmployeeController {
             console.log('Body:', JSON.stringify(req.body));
             console.log('User:', req.user?.id);
             
-            const { userId, department, jobTitle, hourlyRate, startDate } = req.body;
+            const { userId, department, jobTitle, hourlyRate, startDate, slackUserId } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
                 console.log('Missing fields:', { userId, department, jobTitle, startDate });
@@ -109,6 +109,7 @@ export class EmployeeController {
                 jobTitle,
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
+                slackUserId: slackUserId || undefined,
                 createdBy: creatorId,
             });
 
@@ -132,7 +133,7 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, isActive } = req.body;
+            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, isActive } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -146,6 +147,7 @@ export class EmployeeController {
                 startDate: startDate ? new Date(startDate) : undefined,
                 overtimeHours,
                 bonuses,
+                slackUserId,
                 isActive,
             });
 

@@ -43,6 +43,9 @@ export class Employee {
     @Column({ name: 'bonuses', type: 'decimal', precision: 10, scale: 2, default: 0 })
     bonuses: number;
 
+    @Column({ name: 'slack_user_id', type: 'varchar', length: 50, nullable: true })
+    slackUserId: string | null;
+
     @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive: boolean;
 
