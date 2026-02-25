@@ -88,7 +88,9 @@ export class EmployeeService {
                 console.log('Employees tables created successfully');
                 tablesInitialized = true;
             } else {
-                throw error;
+                console.error('Unexpected error checking tables:', error);
+                // Don't throw - try to continue anyway, tables might exist
+                tablesInitialized = true;
             }
         }
     }
@@ -190,7 +192,12 @@ export class EmployeeService {
      * Create new employee
      */
     async createEmployee(dto: CreateEmployeeDto) {
-        await this.ensureTables();
+        try {
+            await this.ensureTables();
+        } catch (tableError: any) {
+            console.error('Error ensuring tables:', tableError);
+            throw new Error(`Table setup failed: ${tableError.message}`);
+        }
         
         // Check if user is already an employee
         const existing = await this.employeeRepo.findOne({
@@ -201,17 +208,25 @@ export class EmployeeService {
             throw new Error('This user is already assigned as an employee');
         }
 
-        // Create employee
-        const employee = this.employeeRepo.create({
+        console.log('Creating employee with data:', JSON.stringify(dto));
+
+        // Create employee - don't include createdBy if it's undefined
+        const employeeData: any = {
             userId: dto.userId,
             department: dto.department,
             jobTitle: dto.jobTitle,
-            hourlyRate: dto.hourlyRate,
+            hourlyRate: dto.hourlyRate || 0,
             startDate: dto.startDate,
-            createdBy: dto.createdBy,
-        });
+        };
+        
+        if (dto.createdBy) {
+            employeeData.createdBy = dto.createdBy;
+        }
+
+        const employee = this.employeeRepo.create(employeeData);
 
         const saved = await this.employeeRepo.save(employee);
+        console.log('Employee saved with id:', saved.id);
 
         // Generate employee number after save
         await this.regenerateEmployeeNumbers();

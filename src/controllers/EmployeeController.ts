@@ -92,10 +92,15 @@ export class EmployeeController {
 
             return res.status(201).json(employee);
         } catch (error: any) {
+            console.error('Error creating employee:', error);
             if (error.message === 'This user is already assigned as an employee') {
                 return res.status(400).json({ error: error.message });
             }
-            next(error);
+            // Return detailed error for debugging
+            return res.status(500).json({ 
+                error: error.message || 'Failed to create employee',
+                details: error.code || error.sqlMessage || null
+            });
         }
     };
 
