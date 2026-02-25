@@ -1,5 +1,9 @@
 name: Deploy Server to Production
 
+concurrency:
+  group: server-deployment-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     branches:
