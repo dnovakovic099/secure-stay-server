@@ -70,10 +70,15 @@ export class EmployeeController {
      */
     createEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
+            console.log('=== CREATE EMPLOYEE REQUEST ===');
+            console.log('Body:', JSON.stringify(req.body));
+            console.log('User:', req.user?.id);
+            
             const { userId, department, jobTitle, hourlyRate, startDate } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
-                return res.status(400).json({ error: 'Missing required fields' });
+                console.log('Missing fields:', { userId, department, jobTitle, startDate });
+                return res.status(400).json({ error: 'Missing required fields', missing: { userId: !userId, department: !department, jobTitle: !jobTitle, startDate: !startDate } });
             }
 
             // Validate department
