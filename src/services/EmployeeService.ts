@@ -316,6 +316,15 @@ export class EmployeeService {
      * Format: LL-001, LL-002, etc.
      */
     async regenerateEmployeeNumbers() {
+        // First, clear all employee numbers to avoid unique constraint violations
+        // when the ordering changes during reassignment
+        await this.employeeRepo
+            .createQueryBuilder()
+            .update(Employee)
+            .set({ employeeNumber: () => 'NULL' })
+            .where('deletedAt IS NULL')
+            .execute();
+
         const employees = await this.employeeRepo
             .createQueryBuilder('employee')
             .where('employee.deletedAt IS NULL')
