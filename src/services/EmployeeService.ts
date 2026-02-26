@@ -23,6 +23,14 @@ interface UpdateEmployeeDto {
     bonuses?: number;
     slackUserId?: string | null;
     isActive?: boolean;
+    phone?: string | null;
+    birthday?: Date | null;
+    schedule?: string | null;
+    slackId?: string | null;
+    paymentMethod?: string | null;
+    paymentMethodOther?: string | null;
+    paymentSchedule?: string | null;
+    paymentInfo?: string | null;
 }
 
 // Flag to track if tables have been initialized
@@ -42,6 +50,26 @@ export class EmployeeService {
         try {
             // Check if employees table exists
             await appDatabase.query(`SELECT 1 FROM employees LIMIT 1`);
+
+            // Table exists - ensure new columns are present
+            const addColumnIfNotExists = async (col: string, definition: string) => {
+                try {
+                    await appDatabase.query(`SELECT ${col} FROM employees LIMIT 1`);
+                } catch {
+                    await appDatabase.query(`ALTER TABLE employees ADD COLUMN ${col} ${definition}`);
+                    console.log(`Added column ${col} to employees table`);
+                }
+            };
+
+            await addColumnIfNotExists('phone', 'VARCHAR(30) NULL');
+            await addColumnIfNotExists('birthday', 'DATE NULL');
+            await addColumnIfNotExists('schedule', 'VARCHAR(255) NULL');
+            await addColumnIfNotExists('slack_id', 'VARCHAR(100) NULL');
+            await addColumnIfNotExists('payment_method', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('payment_method_other', 'VARCHAR(100) NULL');
+            await addColumnIfNotExists('payment_schedule', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('payment_info', 'TEXT NULL');
+
             tablesInitialized = true;
         } catch (error: any) {
             // Table doesn't exist, create it
@@ -60,6 +88,15 @@ export class EmployeeService {
                         start_date DATE NOT NULL,
                         overtime_hours DECIMAL(10, 2) DEFAULT 0,
                         bonuses DECIMAL(10, 2) DEFAULT 0,
+                        slack_user_id VARCHAR(50) NULL,
+                        phone VARCHAR(30) NULL,
+                        birthday DATE NULL,
+                        schedule VARCHAR(255) NULL,
+                        slack_id VARCHAR(100) NULL,
+                        payment_method VARCHAR(50) NULL,
+                        payment_method_other VARCHAR(100) NULL,
+                        payment_schedule VARCHAR(50) NULL,
+                        payment_info TEXT NULL,
                         is_active BOOLEAN DEFAULT TRUE,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -286,6 +323,14 @@ export class EmployeeService {
         if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
         if (dto.slackUserId !== undefined) employee.slackUserId = dto.slackUserId || null;
         if (dto.isActive !== undefined) employee.isActive = dto.isActive;
+        if (dto.phone !== undefined) employee.phone = dto.phone || null;
+        if (dto.birthday !== undefined) employee.birthday = dto.birthday || null;
+        if (dto.schedule !== undefined) employee.schedule = dto.schedule || null;
+        if (dto.slackId !== undefined) employee.slackId = dto.slackId || null;
+        if (dto.paymentMethod !== undefined) employee.paymentMethod = dto.paymentMethod || null;
+        if (dto.paymentMethodOther !== undefined) employee.paymentMethodOther = dto.paymentMethodOther || null;
+        if (dto.paymentSchedule !== undefined) employee.paymentSchedule = dto.paymentSchedule || null;
+        if (dto.paymentInfo !== undefined) employee.paymentInfo = dto.paymentInfo || null;
 
         const startDateChanged = dto.startDate !== undefined && 
             new Date(dto.startDate).getTime() !== new Date(employee.startDate).getTime();

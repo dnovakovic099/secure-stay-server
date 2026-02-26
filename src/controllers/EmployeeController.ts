@@ -135,7 +135,8 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, isActive } = req.body;
+            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, isActive,
+                phone, birthday, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -151,6 +152,14 @@ export class EmployeeController {
                 bonuses,
                 slackUserId,
                 isActive,
+                phone,
+                birthday: birthday ? new Date(birthday) : birthday,
+                schedule,
+                slackId,
+                paymentMethod,
+                paymentMethodOther,
+                paymentSchedule,
+                paymentInfo,
             });
 
             return res.json(employee);
