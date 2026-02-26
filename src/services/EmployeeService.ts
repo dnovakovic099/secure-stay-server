@@ -106,6 +106,8 @@ export class EmployeeService {
         department?: string;
         search?: string;
         isActive?: boolean;
+        sortField?: string;
+        sortDir?: 'ASC' | 'DESC';
     }) {
         await this.ensureTables();
         
@@ -134,8 +136,20 @@ export class EmployeeService {
             queryBuilder.andWhere('employee.isActive = :isActive', { isActive: filters.isActive });
         }
 
-        // Order by start date for consistent employee numbering display
-        queryBuilder.orderBy('employee.startDate', 'ASC');
+        // Sorting - whitelist allowed fields
+        const sortFieldMap: Record<string, string> = {
+            'name': 'user.firstName',
+            'department': 'employee.department',
+            'start_date': 'employee.startDate',
+            'created_at': 'employee.createdAt',
+            'hourly_rate': 'employee.hourlyRate',
+            'job_title': 'employee.jobTitle',
+            'employee_number_seq': 'employee.id',
+            'schedule': 'employee.schedule',
+        };
+        const sortDir = filters.sortDir === 'DESC' ? 'DESC' : 'ASC';
+        const sortColumn = sortFieldMap[filters.sortField || ''] || 'employee.startDate';
+        queryBuilder.orderBy(sortColumn, sortDir);
 
         const [employees, total] = await queryBuilder
             .skip(offset)

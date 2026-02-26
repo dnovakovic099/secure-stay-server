@@ -34,7 +34,7 @@ export class EmployeeController {
      */
     getAllEmployees = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const { page, limit, department, search, isActive } = req.query;
+            const { page, limit, department, search, isActive, sortField, sortDir } = req.query;
 
             const result = await this.employeeService.getAllEmployees({
                 page: page ? parseInt(page as string) : 1,
@@ -42,6 +42,8 @@ export class EmployeeController {
                 department: department as string,
                 search: search as string,
                 isActive: isActive !== undefined ? isActive === 'true' : undefined,
+                sortField: sortField as string,
+                sortDir: (sortDir as string)?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC',
             });
 
             return res.json(result);
