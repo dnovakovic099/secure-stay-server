@@ -1,5 +1,5 @@
 import { appDatabase } from "../utils/database.util";
-import { Employee, EmployeeDepartment } from "../entity/Employee";
+import { Employee, EmployeeDepartment, PaymentMethod, PaymentSchedule } from "../entity/Employee";
 import { EmployeeNote } from "../entity/EmployeeNote";
 import { UsersEntity } from "../entity/Users";
 import { IsNull } from "typeorm";
@@ -11,6 +11,14 @@ interface CreateEmployeeDto {
     hourlyRate: number;
     startDate: Date;
     createdBy?: number;
+    phone?: string;
+    birthday?: Date;
+    schedule?: string;
+    slackId?: string;
+    paymentMethod?: PaymentMethod;
+    paymentMethodOther?: string;
+    paymentSchedule?: PaymentSchedule;
+    paymentInfo?: string;
 }
 
 interface UpdateEmployeeDto {
@@ -21,6 +29,24 @@ interface UpdateEmployeeDto {
     overtimeHours?: number;
     bonuses?: number;
     isActive?: boolean;
+    phone?: string;
+    birthday?: Date;
+    schedule?: string;
+    slackId?: string;
+    paymentMethod?: PaymentMethod;
+    paymentMethodOther?: string;
+    paymentSchedule?: PaymentSchedule;
+    paymentInfo?: string;
+}
+
+interface EmployeeFilters {
+    page?: number;
+    limit?: number;
+    department?: EmployeeDepartment;
+    search?: string;
+    isActive?: boolean;
+    sortField?: string;
+    sortDir?: 'ASC' | 'DESC';
 }
 
 // Flag to track if tables have been initialized
@@ -32,7 +58,7 @@ export class EmployeeService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
     /**
-     * Ensures the employees and employee_notes tables exist
+     * Ensures the employees and employee_notes tables exist with all columns
      */
     private async ensureTables(): Promise<void> {
         if (tablesInitialized) return;
@@ -40,18 +66,48 @@ export class EmployeeService {
         try {
             // Check if employees table exists
             await appDatabase.query(`SELECT 1 FROM employees LIMIT 1`);
+            
+            // Add new columns if they don't exist
+            const columnsToAdd = [
+                { name: 'employee_number_seq', sql: 'INT NULL' },
+                { name: 'phone', sql: 'VARCHAR(50) NULL' },
+                { name: 'birthday', sql: 'DATE NULL' },
+                { name: 'schedule', sql: 'VARCHAR(100) NULL' },
+                { name: 'slack_id', sql: 'VARCHAR(100) NULL' },
+                { name: 'payment_method', sql: "ENUM('Wise', 'ACH', 'Other') NULL" },
+                { name: 'payment_method_other', sql: 'VARCHAR(100) NULL' },
+                { name: 'payment_schedule', sql: "ENUM('Batch A', 'Batch B') NULL" },
+                { name: 'payment_info', sql: 'TEXT NULL' },
+            ];
+
+            for (const col of columnsToAdd) {
+                try {
+                    await appDatabase.query(`ALTER TABLE employees ADD COLUMN ${col.name} ${col.sql}`);
+                    console.log(`Added column ${col.name} to employees table`);
+                } catch (e: any) {
+                    // Column likely already exists
+                    if (!e.message?.includes('Duplicate column')) {
+                        // console.log(`Column ${col.name} check:`, e.message);
+                    }
+                }
+            }
+
+            // Backfill employee_number_seq for existing records
+            await this.backfillEmployeeNumberSeq();
+
             tablesInitialized = true;
         } catch (error: any) {
             // Table doesn't exist, create it
             if (error.code === 'ER_NO_SUCH_TABLE' || error.message?.includes("doesn't exist")) {
                 console.log('Creating employees tables...');
                 
-                // Create employees table
+                // Create employees table with all columns
                 await appDatabase.query(`
                     CREATE TABLE IF NOT EXISTS employees (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         user_id INT NOT NULL UNIQUE,
                         employee_number VARCHAR(20) UNIQUE,
+                        employee_number_seq INT NULL,
                         department ENUM('Guest Relations', 'Client Relations', 'Maintenance', 'Onboarding', 'Admin') NOT NULL,
                         job_title VARCHAR(100) NOT NULL,
                         hourly_rate DECIMAL(10, 2) DEFAULT 0,
@@ -59,6 +115,14 @@ export class EmployeeService {
                         overtime_hours DECIMAL(10, 2) DEFAULT 0,
                         bonuses DECIMAL(10, 2) DEFAULT 0,
                         is_active BOOLEAN DEFAULT TRUE,
+                        phone VARCHAR(50) NULL,
+                        birthday DATE NULL,
+                        schedule VARCHAR(100) NULL,
+                        slack_id VARCHAR(100) NULL,
+                        payment_method ENUM('Wise', 'ACH', 'Other') NULL,
+                        payment_method_other VARCHAR(100) NULL,
+                        payment_schedule ENUM('Batch A', 'Batch B') NULL,
+                        payment_info TEXT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         deleted_at TIMESTAMP NULL,
@@ -67,7 +131,8 @@ export class EmployeeService {
                         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
                         INDEX idx_employees_department (department),
                         INDEX idx_employees_start_date (start_date),
-                        INDEX idx_employees_is_active (is_active)
+                        INDEX idx_employees_is_active (is_active),
+                        INDEX idx_employees_number_seq (employee_number_seq)
                     )
                 `);
 
@@ -80,36 +145,79 @@ export class EmployeeService {
                         added_by INT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
-                        FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL,
-                        INDEX idx_employee_notes_employee_id (employee_id)
+                        FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE CASCADE,
+                        INDEX idx_employee_notes_employee (employee_id)
                     )
                 `);
 
+                tablesInitialized = true;
                 console.log('Employees tables created successfully');
-                tablesInitialized = true;
             } else {
-                console.error('Unexpected error checking tables:', error);
-                // Don't throw - try to continue anyway, tables might exist
-                tablesInitialized = true;
+                throw error;
             }
         }
     }
 
     /**
-     * Get all employees with pagination and filters
+     * Backfill employee_number_seq for existing employees
      */
-    async getAllEmployees(filters: {
-        page?: number;
-        limit?: number;
-        department?: string;
-        search?: string;
-        isActive?: boolean;
-    }) {
-        await this.ensureTables();
+    private async backfillEmployeeNumberSeq(): Promise<void> {
+        try {
+            // Find employees with employee_number but no employee_number_seq
+            const employees = await appDatabase.query(`
+                SELECT id, employee_number 
+                FROM employees 
+                WHERE employee_number IS NOT NULL 
+                AND employee_number_seq IS NULL
+                AND deleted_at IS NULL
+            `);
+
+            for (const emp of employees) {
+                if (emp.employee_number) {
+                    const match = emp.employee_number.match(/LL-(\d+)/);
+                    if (match) {
+                        const seq = parseInt(match[1], 10);
+                        await appDatabase.query(
+                            `UPDATE employees SET employee_number_seq = ? WHERE id = ?`,
+                            [seq, emp.id]
+                        );
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error backfilling employee_number_seq:', e);
+        }
+    }
+
+    /**
+     * Generate next employee number (transaction-safe)
+     */
+    private async generateEmployeeNumber(): Promise<{ number: string; seq: number }> {
+        // Get max sequence number with FOR UPDATE lock
+        const result = await appDatabase.query(`
+            SELECT COALESCE(MAX(employee_number_seq), 0) as max_seq 
+            FROM employees 
+            WHERE deleted_at IS NULL
+            FOR UPDATE
+        `);
         
+        const nextSeq = (result[0]?.max_seq || 0) + 1;
+        const employeeNumber = `LL-${String(nextSeq).padStart(3, '0')}`;
+        
+        return { number: employeeNumber, seq: nextSeq };
+    }
+
+    /**
+     * Get all employees with filters and sorting
+     */
+    async getAllEmployees(filters: EmployeeFilters = {}) {
+        await this.ensureTables();
+
         const page = filters.page || 1;
         const limit = filters.limit || 20;
         const offset = (page - 1) * limit;
+        const sortField = filters.sortField || 'employee_number_seq';
+        const sortDir = filters.sortDir || 'DESC';
 
         const queryBuilder = this.employeeRepo
             .createQueryBuilder('employee')
@@ -123,7 +231,7 @@ export class EmployeeService {
 
         if (filters.search) {
             queryBuilder.andWhere(
-                '(user.firstName LIKE :search OR user.lastName LIKE :search OR user.email LIKE :search)',
+                '(user.firstName LIKE :search OR user.lastName LIKE :search OR user.email LIKE :search OR employee.employeeNumber LIKE :search)',
                 { search: `%${filters.search}%` }
             );
         }
@@ -132,8 +240,23 @@ export class EmployeeService {
             queryBuilder.andWhere('employee.isActive = :isActive', { isActive: filters.isActive });
         }
 
-        // Order by start date for consistent employee numbering display
-        queryBuilder.orderBy('employee.startDate', 'ASC');
+        // Apply sorting
+        const sortMap: Record<string, string> = {
+            'employee_number_seq': 'employee.employeeNumberSeq',
+            'employee_number': 'employee.employeeNumberSeq', // Sort by seq for proper numeric order
+            'name': 'user.firstName',
+            'department': 'employee.department',
+            'start_date': 'employee.startDate',
+            'created_at': 'employee.createdAt',
+        };
+
+        const orderField = sortMap[sortField] || 'employee.employeeNumberSeq';
+        queryBuilder.orderBy(orderField, sortDir);
+        
+        // Secondary sort for stability
+        if (orderField !== 'employee.employeeNumberSeq') {
+            queryBuilder.addOrderBy('employee.employeeNumberSeq', 'DESC');
+        }
 
         const [employees, total] = await queryBuilder
             .skip(offset)
@@ -189,7 +312,7 @@ export class EmployeeService {
     }
 
     /**
-     * Create new employee
+     * Create new employee with unique employee number
      */
     async createEmployee(dto: CreateEmployeeDto) {
         try {
@@ -208,43 +331,56 @@ export class EmployeeService {
             throw new Error('This user is already assigned as an employee');
         }
 
-        console.log('Creating employee with data:', JSON.stringify(dto));
-
-        // Verify the user exists first
+        // Verify the user exists
         const userExists = await this.usersRepo.findOne({ where: { id: dto.userId } });
         if (!userExists) {
             throw new Error(`User with id ${dto.userId} not found`);
         }
-        console.log('User verified:', userExists.email);
 
-        // Create employee - don't include createdBy if it's undefined
+        // Generate unique employee number (transaction-safe)
+        const { number: employeeNumber, seq: employeeNumberSeq } = await this.generateEmployeeNumber();
+
+        // Create employee
         const employeeData: any = {
             userId: dto.userId,
+            employeeNumber,
+            employeeNumberSeq,
             department: dto.department,
             jobTitle: dto.jobTitle,
             hourlyRate: dto.hourlyRate || 0,
             startDate: dto.startDate,
+            phone: dto.phone,
+            birthday: dto.birthday,
+            schedule: dto.schedule,
+            slackId: dto.slackId,
+            paymentMethod: dto.paymentMethod,
+            paymentMethodOther: dto.paymentMethodOther,
+            paymentSchedule: dto.paymentSchedule,
+            paymentInfo: dto.paymentInfo,
         };
         
         if (dto.createdBy) {
             employeeData.createdBy = dto.createdBy;
         }
 
-        console.log('Employee data to save:', JSON.stringify(employeeData));
-
         try {
             const employee = this.employeeRepo.create(employeeData);
             const saved = await this.employeeRepo.save(employee);
-            console.log('Employee saved with id:', saved.id);
-
-            // Generate employee number after save
-            await this.regenerateEmployeeNumbers();
-
             return this.getEmployeeById(saved.id);
         } catch (saveError: any) {
             console.error('Error saving employee:', saveError);
-            console.error('SQL Message:', saveError.sqlMessage);
-            console.error('SQL:', saveError.sql);
+            
+            // Handle duplicate key error - retry with new number
+            if (saveError.code === 'ER_DUP_ENTRY' && saveError.message?.includes('employee_number')) {
+                console.log('Duplicate employee number, retrying...');
+                const { number: newNumber, seq: newSeq } = await this.generateEmployeeNumber();
+                employeeData.employeeNumber = newNumber;
+                employeeData.employeeNumberSeq = newSeq;
+                const employee = this.employeeRepo.create(employeeData);
+                const saved = await this.employeeRepo.save(employee);
+                return this.getEmployeeById(saved.id);
+            }
+            
             throw new Error(`Database error: ${saveError.sqlMessage || saveError.message}`);
         }
     }
@@ -261,28 +397,26 @@ export class EmployeeService {
             throw new Error('Employee not found');
         }
 
-        // Update fields
+        // Update basic fields
         if (dto.department !== undefined) employee.department = dto.department;
         if (dto.jobTitle !== undefined) employee.jobTitle = dto.jobTitle;
         if (dto.hourlyRate !== undefined) employee.hourlyRate = dto.hourlyRate;
         if (dto.overtimeHours !== undefined) employee.overtimeHours = dto.overtimeHours;
         if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
         if (dto.isActive !== undefined) employee.isActive = dto.isActive;
+        if (dto.startDate !== undefined) employee.startDate = dto.startDate;
 
-        const startDateChanged = dto.startDate !== undefined && 
-            new Date(dto.startDate).getTime() !== new Date(employee.startDate).getTime();
-        
-        if (dto.startDate !== undefined) {
-            employee.startDate = dto.startDate;
-        }
+        // Update new fields
+        if (dto.phone !== undefined) employee.phone = dto.phone;
+        if (dto.birthday !== undefined) employee.birthday = dto.birthday;
+        if (dto.schedule !== undefined) employee.schedule = dto.schedule;
+        if (dto.slackId !== undefined) employee.slackId = dto.slackId;
+        if (dto.paymentMethod !== undefined) employee.paymentMethod = dto.paymentMethod;
+        if (dto.paymentMethodOther !== undefined) employee.paymentMethodOther = dto.paymentMethodOther;
+        if (dto.paymentSchedule !== undefined) employee.paymentSchedule = dto.paymentSchedule;
+        if (dto.paymentInfo !== undefined) employee.paymentInfo = dto.paymentInfo;
 
         await this.employeeRepo.save(employee);
-
-        // If start date changed, regenerate all employee numbers
-        if (startDateChanged) {
-            await this.regenerateEmployeeNumbers();
-        }
-
         return this.getEmployeeById(id);
     }
 
@@ -301,31 +435,7 @@ export class EmployeeService {
         employee.deletedAt = new Date();
         await this.employeeRepo.save(employee);
 
-        // Regenerate employee numbers
-        await this.regenerateEmployeeNumbers();
-
         return { success: true, message: 'Employee deleted successfully' };
-    }
-
-    /**
-     * Regenerate employee numbers based on start date order
-     * Format: LL-001, LL-002, etc.
-     */
-    async regenerateEmployeeNumbers() {
-        const employees = await this.employeeRepo
-            .createQueryBuilder('employee')
-            .where('employee.deletedAt IS NULL')
-            .orderBy('employee.startDate', 'ASC')
-            .addOrderBy('employee.createdAt', 'ASC')
-            .addOrderBy('employee.id', 'ASC')
-            .getMany();
-
-        for (let i = 0; i < employees.length; i++) {
-            const number = String(i + 1).padStart(3, '0');
-            employees[i].employeeNumber = `LL-${number}`;
-        }
-
-        await this.employeeRepo.save(employees);
     }
 
     /**

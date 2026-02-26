@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/EmployeeService';
-import { EmployeeDepartment } from '../entity/Employee';
+import { EmployeeDepartment, PaymentMethod, PaymentSchedule } from '../entity/Employee';
 
 interface CustomRequest extends Request {
     user?: {
@@ -15,11 +15,11 @@ export class EmployeeController {
     private employeeService = new EmployeeService();
 
     /**
-     * Get all employees with filters
+     * Get all employees with filters and sorting
      */
     getAllEmployees = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const { page, limit, department, search, isActive } = req.query;
+            const { page, limit, department, search, isActive, sortField, sortDir } = req.query;
 
             const result = await this.employeeService.getAllEmployees({
                 page: page ? parseInt(page as string) : 1,
@@ -27,6 +27,8 @@ export class EmployeeController {
                 department: department as string,
                 search: search as string,
                 isActive: isActive !== undefined ? isActive === 'true' : undefined,
+                sortField: sortField as string,
+                sortDir: (sortDir as 'ASC' | 'DESC') || 'DESC',
             });
 
             return res.json(result);
@@ -72,18 +74,33 @@ export class EmployeeController {
         try {
             console.log('=== CREATE EMPLOYEE REQUEST ===');
             console.log('Body:', JSON.stringify(req.body));
-            console.log('User:', req.user?.id);
             
-            const { userId, department, jobTitle, hourlyRate, startDate } = req.body;
+            const { 
+                userId, department, jobTitle, hourlyRate, startDate,
+                phone, birthday, schedule, slackId,
+                paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo
+            } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
-                console.log('Missing fields:', { userId, department, jobTitle, startDate });
-                return res.status(400).json({ error: 'Missing required fields', missing: { userId: !userId, department: !department, jobTitle: !jobTitle, startDate: !startDate } });
+                return res.status(400).json({ 
+                    error: 'Missing required fields', 
+                    missing: { userId: !userId, department: !department, jobTitle: !jobTitle, startDate: !startDate } 
+                });
             }
 
             // Validate department
             if (!Object.values(EmployeeDepartment).includes(department)) {
                 return res.status(400).json({ error: 'Invalid department' });
+            }
+
+            // Validate payment method if provided
+            if (paymentMethod && !Object.values(PaymentMethod).includes(paymentMethod)) {
+                return res.status(400).json({ error: 'Invalid payment method' });
+            }
+
+            // Validate payment schedule if provided
+            if (paymentSchedule && !Object.values(PaymentSchedule).includes(paymentSchedule)) {
+                return res.status(400).json({ error: 'Invalid payment schedule' });
             }
 
             const employee = await this.employeeService.createEmployee({
@@ -93,6 +110,14 @@ export class EmployeeController {
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
                 createdBy: req.user?.id,
+                phone,
+                birthday: birthday ? new Date(birthday) : undefined,
+                schedule,
+                slackId,
+                paymentMethod,
+                paymentMethodOther,
+                paymentSchedule,
+                paymentInfo,
             });
 
             return res.status(201).json(employee);
@@ -101,7 +126,6 @@ export class EmployeeController {
             if (error.message === 'This user is already assigned as an employee') {
                 return res.status(400).json({ error: error.message });
             }
-            // Return detailed error for debugging
             return res.status(500).json({ 
                 error: error.message || 'Failed to create employee',
                 details: error.code || error.sqlMessage || null
@@ -115,11 +139,25 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, isActive } = req.body;
+            const { 
+                department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, isActive,
+                phone, birthday, schedule, slackId,
+                paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo
+            } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
                 return res.status(400).json({ error: 'Invalid department' });
+            }
+
+            // Validate payment method if provided
+            if (paymentMethod && !Object.values(PaymentMethod).includes(paymentMethod)) {
+                return res.status(400).json({ error: 'Invalid payment method' });
+            }
+
+            // Validate payment schedule if provided
+            if (paymentSchedule && !Object.values(PaymentSchedule).includes(paymentSchedule)) {
+                return res.status(400).json({ error: 'Invalid payment schedule' });
             }
 
             const employee = await this.employeeService.updateEmployee(parseInt(id), {
@@ -130,6 +168,14 @@ export class EmployeeController {
                 overtimeHours,
                 bonuses,
                 isActive,
+                phone,
+                birthday: birthday ? new Date(birthday) : undefined,
+                schedule,
+                slackId,
+                paymentMethod,
+                paymentMethodOther,
+                paymentSchedule,
+                paymentInfo,
             });
 
             return res.json(employee);
