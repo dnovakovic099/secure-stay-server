@@ -46,6 +46,30 @@ export class Employee {
     @Column({ name: 'slack_user_id', type: 'varchar', length: 50, nullable: true })
     slackUserId: string | null;
 
+    @Column({ name: 'phone', type: 'varchar', length: 30, nullable: true })
+    phone: string | null;
+
+    @Column({ name: 'birthday', type: 'date', nullable: true })
+    birthday: Date | null;
+
+    @Column({ name: 'schedule', type: 'varchar', length: 255, nullable: true })
+    schedule: string | null;
+
+    @Column({ name: 'slack_id', type: 'varchar', length: 100, nullable: true })
+    slackId: string | null;
+
+    @Column({ name: 'payment_method', type: 'varchar', length: 50, nullable: true })
+    paymentMethod: string | null;
+
+    @Column({ name: 'payment_method_other', type: 'varchar', length: 100, nullable: true })
+    paymentMethodOther: string | null;
+
+    @Column({ name: 'payment_schedule', type: 'varchar', length: 50, nullable: true })
+    paymentSchedule: string | null;
+
+    @Column({ name: 'payment_info', type: 'text', nullable: true })
+    paymentInfo: string | null;
+
     @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive: boolean;
 
