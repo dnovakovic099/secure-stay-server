@@ -46,6 +46,9 @@ export class Employee {
     @Column({ name: 'slack_user_id', type: 'varchar', length: 50, nullable: true })
     slackUserId: string | null;
 
+    @Column({ name: 'profile_photo', type: 'varchar', length: 500, nullable: true })
+    profilePhoto: string | null;
+
     @Column({ name: 'phone', type: 'varchar', length: 30, nullable: true })
     phone: string | null;
 
