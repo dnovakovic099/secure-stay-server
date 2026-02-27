@@ -22,6 +22,7 @@ interface UpdateEmployeeDto {
     overtimeHours?: number;
     bonuses?: number;
     slackUserId?: string | null;
+    profilePhoto?: string | null;
     isActive?: boolean;
     phone?: string | null;
     birthday?: Date | null;
@@ -69,6 +70,7 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_method_other', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('payment_schedule', 'VARCHAR(50) NULL');
             await addColumnIfNotExists('payment_info', 'TEXT NULL');
+            await addColumnIfNotExists('profile_photo', 'VARCHAR(500) NULL');
 
             tablesInitialized = true;
         } catch (error: any) {
@@ -322,6 +324,7 @@ export class EmployeeService {
         if (dto.overtimeHours !== undefined) employee.overtimeHours = dto.overtimeHours;
         if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
         if (dto.slackUserId !== undefined) employee.slackUserId = dto.slackUserId || null;
+        if (dto.profilePhoto !== undefined) employee.profilePhoto = dto.profilePhoto || null;
         if (dto.isActive !== undefined) employee.isActive = dto.isActive;
         if (dto.phone !== undefined) employee.phone = dto.phone || null;
         if (dto.birthday !== undefined) employee.birthday = dto.birthday || null;
