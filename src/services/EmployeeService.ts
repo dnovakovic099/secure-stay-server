@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { Employee, EmployeeDepartment } from "../entity/Employee";
 import { EmployeeNote } from "../entity/EmployeeNote";
 import { UsersEntity } from "../entity/Users";
+import { FileInfo } from "../entity/FileInfo";
 import { IsNull } from "typeorm";
 
 interface CreateEmployeeDto {
@@ -183,17 +184,29 @@ export class EmployeeService {
             'created_at': 'employee.createdAt',
             'hourly_rate': 'employee.hourlyRate',
             'job_title': 'employee.jobTitle',
-            'employee_number_seq': 'employee.id',
+            'employee_number_seq': 'employee.employeeNumber',
             'schedule': 'employee.schedule',
         };
-        const sortDir = filters.sortDir === 'DESC' ? 'DESC' : 'ASC';
-        const sortColumn = sortFieldMap[filters.sortField || ''] || 'employee.startDate';
-        queryBuilder.orderBy(sortColumn, sortDir);
+        const sortDir = filters.sortDir || 'DESC'; // Default to DESC
+        const sortColumn = filters.sortField ? sortFieldMap[filters.sortField] : 'employee.employeeNumber'; // Default to employee.employeeNumber
+        queryBuilder.orderBy(sortColumn || 'employee.employeeNumber', sortDir as 'ASC' | 'DESC');
 
-        const [employees, total] = await queryBuilder
+        let [employees, total] = await queryBuilder
             .skip(offset)
             .take(limit)
             .getManyAndCount();
+
+        // Attach profile photo FileInfo
+        const fileInfoRepo = appDatabase.getRepository(FileInfo);
+        employees = await Promise.all(employees.map(async (emp: any) => {
+            if (emp.profilePhoto && !isNaN(Number(emp.profilePhoto))) {
+                const fileInfo = await fileInfoRepo.findOne({ where: { id: Number(emp.profilePhoto) } });
+                if (fileInfo) {
+                    emp.profilePhotoInfo = fileInfo;
+                }
+            }
+            return emp;
+        }));
 
         return {
             data: employees,
@@ -208,10 +221,20 @@ export class EmployeeService {
      * Get single employee by ID
      */
     async getEmployeeById(id: number) {
-        return this.employeeRepo.findOne({
+        const employee: any = await this.employeeRepo.findOne({
             where: { id, deletedAt: IsNull() },
             relations: ['user', 'notes', 'notes.addedByUser'],
         });
+
+        if (employee && employee.profilePhoto && !isNaN(Number(employee.profilePhoto))) {
+            const fileInfoRepo = appDatabase.getRepository(FileInfo);
+            const fileInfo = await fileInfoRepo.findOne({ where: { id: Number(employee.profilePhoto) } });
+            if (fileInfo) {
+                employee.profilePhotoInfo = fileInfo;
+            }
+        }
+
+        return employee;
     }
 
     /**
