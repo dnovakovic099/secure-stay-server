@@ -25,11 +25,26 @@ export class Employee {
     @Column({ name: 'employee_number', type: 'varchar', length: 20, unique: true, nullable: true })
     employeeNumber: string;
 
+    @Column({ name: 'employee_number_seq', type: 'int', nullable: true })
+    employeeNumberSeq: number;
+
     @Column({ name: 'department', type: 'enum', enum: EmployeeDepartment })
     department: EmployeeDepartment;
 
     @Column({ name: 'job_title', type: 'varchar', length: 100 })
     jobTitle: string;
+
+    @Column({ name: 'job_type', type: 'varchar', length: 50, nullable: true })
+    jobType: string | null;
+
+    @Column({ name: 'hired_from', type: 'varchar', length: 50, nullable: true })
+    hiredFrom: string | null;
+
+    @Column({ name: 'hired_from_other', type: 'varchar', length: 100, nullable: true })
+    hiredFromOther: string | null;
+
+    @Column({ name: 'employee_type', type: 'varchar', length: 50, nullable: true })
+    employeeType: string | null;
 
     @Column({ name: 'hourly_rate', type: 'decimal', precision: 10, scale: 2, default: 0 })
     hourlyRate: number;
@@ -75,6 +90,15 @@ export class Employee {
 
     @Column({ name: 'payment_info', type: 'text', nullable: true })
     paymentInfo: string | null;
+
+    @Column({ name: 'payment_day', type: 'varchar', length: 20, nullable: true })
+    paymentDay: string | null;
+
+    @Column({ name: 'payment_recurrence', type: 'varchar', length: 20, nullable: true })
+    paymentRecurrence: string | null;
+
+    @Column({ name: 'payment_start_date', type: 'date', nullable: true })
+    paymentStartDate: Date | null;
 
     @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive: boolean;

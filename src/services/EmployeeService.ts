@@ -18,6 +18,10 @@ interface CreateEmployeeDto {
 interface UpdateEmployeeDto {
     department?: EmployeeDepartment;
     jobTitle?: string;
+    jobType?: string | null;
+    hiredFrom?: string | null;
+    hiredFromOther?: string | null;
+    employeeType?: string | null;
     hourlyRate?: number;
     startDate?: Date;
     overtimeHours?: number;
@@ -34,6 +38,9 @@ interface UpdateEmployeeDto {
     paymentMethodOther?: string | null;
     paymentSchedule?: string | null;
     paymentInfo?: string | null;
+    paymentDay?: string | null;
+    paymentRecurrence?: string | null;
+    paymentStartDate?: Date | null;
 }
 
 // Flag to track if tables have been initialized
@@ -74,6 +81,14 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_schedule', 'VARCHAR(50) NULL');
             await addColumnIfNotExists('payment_info', 'TEXT NULL');
             await addColumnIfNotExists('profile_photo', 'VARCHAR(500) NULL');
+            await addColumnIfNotExists('employee_number_seq', 'INT NULL');
+            await addColumnIfNotExists('job_type', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('hired_from', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('hired_from_other', 'VARCHAR(100) NULL');
+            await addColumnIfNotExists('employee_type', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('payment_day', 'VARCHAR(20) NULL');
+            await addColumnIfNotExists('payment_recurrence', 'VARCHAR(20) NULL');
+            await addColumnIfNotExists('payment_start_date', 'DATE NULL');
 
             tablesInitialized = true;
         } catch (error: any) {
@@ -87,6 +102,7 @@ export class EmployeeService {
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         user_id INT NOT NULL UNIQUE,
                         employee_number VARCHAR(20) UNIQUE,
+                        employee_number_seq INT NULL,
                         department ENUM('Guest Relations', 'Client Relations', 'Maintenance', 'Onboarding', 'Admin') NOT NULL,
                         job_title VARCHAR(100) NOT NULL,
                         hourly_rate DECIMAL(10, 2) DEFAULT 0,
@@ -346,6 +362,10 @@ export class EmployeeService {
         // Update fields
         if (dto.department !== undefined) employee.department = dto.department;
         if (dto.jobTitle !== undefined) employee.jobTitle = dto.jobTitle;
+        if (dto.jobType !== undefined) employee.jobType = dto.jobType || null;
+        if (dto.hiredFrom !== undefined) employee.hiredFrom = dto.hiredFrom || null;
+        if (dto.hiredFromOther !== undefined) employee.hiredFromOther = dto.hiredFromOther || null;
+        if (dto.employeeType !== undefined) employee.employeeType = dto.employeeType || null;
         if (dto.hourlyRate !== undefined) employee.hourlyRate = dto.hourlyRate;
         if (dto.overtimeHours !== undefined) employee.overtimeHours = dto.overtimeHours;
         if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
@@ -361,6 +381,9 @@ export class EmployeeService {
         if (dto.paymentMethodOther !== undefined) employee.paymentMethodOther = dto.paymentMethodOther || null;
         if (dto.paymentSchedule !== undefined) employee.paymentSchedule = dto.paymentSchedule || null;
         if (dto.paymentInfo !== undefined) employee.paymentInfo = dto.paymentInfo || null;
+        if (dto.paymentDay !== undefined) employee.paymentDay = dto.paymentDay || null;
+        if (dto.paymentRecurrence !== undefined) employee.paymentRecurrence = dto.paymentRecurrence || null;
+        if (dto.paymentStartDate !== undefined) employee.paymentStartDate = dto.paymentStartDate || null;
 
         const startDateChanged = dto.startDate !== undefined && 
             new Date(dto.startDate).getTime() !== new Date(employee.startDate).getTime();
@@ -423,8 +446,10 @@ export class EmployeeService {
             .getMany();
 
         for (let i = 0; i < employees.length; i++) {
-            const number = String(i + 1).padStart(3, '0');
+            const seq = i + 1;
+            const number = String(seq).padStart(3, '0');
             employees[i].employeeNumber = `LL-${number}`;
+            employees[i].employeeNumberSeq = seq;
         }
 
         await this.employeeRepo.save(employees);
