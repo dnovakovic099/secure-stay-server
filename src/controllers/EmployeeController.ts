@@ -362,4 +362,16 @@ export class EmployeeController {
             next(error);
         }
     };
+
+    /**
+     * Regenerate employee numbers based on start date
+     */
+    regenerateNumbers = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            await this.employeeService.regenerateEmployeeNumbers();
+            res.json({ message: 'Employee numbers regenerated successfully' });
+        } catch (error) {
+            next(error);
+        }
+    };
 }
