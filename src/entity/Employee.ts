@@ -70,6 +70,9 @@ export class Employee {
     @Column({ name: 'birthday', type: 'date', nullable: true })
     birthday: Date | null;
 
+    @Column({ name: 'country', type: 'varchar', length: 100, nullable: true })
+    country: string | null;
+
     @Column({ name: 'schedule', type: 'varchar', length: 255, nullable: true })
     schedule: string | null;
 

@@ -11,4 +11,13 @@ export class SlackController {
             next(error);
         }
     }
+
+    async getTeamInfo(req: Request, res: Response, next: NextFunction) {
+        try {
+            const workspaceUrl = process.env.SLACK_WORKSPACE_URL || '';
+            res.json({ workspaceUrl });
+        } catch (error) {
+            next(error);
+        }
+    }
 }

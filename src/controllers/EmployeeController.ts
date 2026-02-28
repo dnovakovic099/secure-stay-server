@@ -3,6 +3,10 @@ import { EmployeeService } from '../services/EmployeeService';
 import { EmployeeDepartment } from '../entity/Employee';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
+import { FileInfo } from '../entity/FileInfo';
+import { deleteFromDrive } from '../utils/drive';
+import path from 'path';
+import fs from 'fs';
 
 interface CustomRequest extends Request {
     user?: {
@@ -136,7 +140,7 @@ export class EmployeeController {
         try {
             const { id } = req.params;
             const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
-                phone, birthday, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
+                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -155,6 +159,7 @@ export class EmployeeController {
                 isActive,
                 phone,
                 birthday: birthday ? new Date(birthday) : birthday,
+                country,
                 schedule,
                 slackId,
                 paymentMethod,
@@ -255,6 +260,103 @@ export class EmployeeController {
             return res.json(result);
         } catch (error: any) {
             if (error.message === 'Note not found') {
+                return res.status(404).json({ error: error.message });
+            }
+            next(error);
+        }
+    };
+
+    /**
+     * Upload employee profile photo
+     */
+    uploadPhoto = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { id } = req.params;
+            const file = req.file;
+
+            if (!file) {
+                return res.status(400).json({ error: 'No photo file provided' });
+            }
+
+            const fileInfoRepo = appDatabase.getRepository(FileInfo);
+
+            // Delete old FileInfo record if employee already has a photo
+            const existingEmployee = await this.employeeService.getEmployeeById(parseInt(id));
+            if (existingEmployee?.profilePhoto) {
+                const oldFileInfo = await fileInfoRepo.findOne({ where: { id: parseInt(existingEmployee.profilePhoto) } });
+                if (oldFileInfo) {
+                    if (oldFileInfo.driveFileId) {
+                        await deleteFromDrive(oldFileInfo.driveFileId, oldFileInfo.fileName);
+                    }
+                    if (oldFileInfo.localPath && fs.existsSync(oldFileInfo.localPath)) {
+                        fs.unlinkSync(oldFileInfo.localPath);
+                    }
+                    await fileInfoRepo.softRemove(oldFileInfo);
+                }
+            }
+
+            // Create FileInfo record — this auto-triggers FileInfoSubscriber → Google Drive upload queue
+            const fileRecord = new FileInfo();
+            fileRecord.entityType = 'employees';
+            fileRecord.entityId = parseInt(id);
+            fileRecord.fileName = file.filename;
+            fileRecord.originalName = file.originalname;
+            fileRecord.localPath = file.path;
+            fileRecord.mimetype = file.mimetype;
+            fileRecord.status = 'pending';
+
+            const savedFileInfo = await fileInfoRepo.save(fileRecord);
+
+            // Store fileInfo.id in employee.profilePhoto
+            const employee = await this.employeeService.updateEmployee(parseInt(id), {
+                profilePhoto: String(savedFileInfo.id),
+            });
+
+            return res.json({ profilePhoto: String(savedFileInfo.id), employee });
+        } catch (error: any) {
+            if (error.message === 'Employee not found') {
+                return res.status(404).json({ error: error.message });
+            }
+            next(error);
+        }
+    };
+
+    /**
+     * Delete employee profile photo
+     */
+    deletePhoto = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { id } = req.params;
+            const employee = await this.employeeService.getEmployeeById(parseInt(id));
+            if (!employee) {
+                return res.status(404).json({ error: 'Employee not found' });
+            }
+
+            if (employee.profilePhoto) {
+                const fileInfoRepo = appDatabase.getRepository(FileInfo);
+                const fileInfo = await fileInfoRepo.findOne({ where: { id: parseInt(employee.profilePhoto) } });
+
+                if (fileInfo) {
+                    // Delete from Google Drive if uploaded
+                    if (fileInfo.driveFileId) {
+                        await deleteFromDrive(fileInfo.driveFileId, fileInfo.fileName);
+                    }
+                    // Delete local file if still exists
+                    if (fileInfo.localPath && fs.existsSync(fileInfo.localPath)) {
+                        fs.unlinkSync(fileInfo.localPath);
+                    }
+                    // Soft delete the FileInfo record
+                    await fileInfoRepo.softRemove(fileInfo);
+                }
+            }
+
+            const updated = await this.employeeService.updateEmployee(parseInt(id), {
+                profilePhoto: null as any,
+            });
+
+            return res.json({ message: 'Photo deleted', employee: updated });
+        } catch (error: any) {
+            if (error.message === 'Employee not found') {
                 return res.status(404).json({ error: error.message });
             }
             next(error);
