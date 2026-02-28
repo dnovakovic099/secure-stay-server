@@ -27,6 +27,7 @@ interface UpdateEmployeeDto {
     isActive?: boolean;
     phone?: string | null;
     birthday?: Date | null;
+    country?: string | null;
     schedule?: string | null;
     slackId?: string | null;
     paymentMethod?: string | null;
@@ -65,6 +66,7 @@ export class EmployeeService {
 
             await addColumnIfNotExists('phone', 'VARCHAR(30) NULL');
             await addColumnIfNotExists('birthday', 'DATE NULL');
+            await addColumnIfNotExists('country', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('schedule', 'VARCHAR(255) NULL');
             await addColumnIfNotExists('slack_id', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('payment_method', 'VARCHAR(50) NULL');
@@ -94,6 +96,7 @@ export class EmployeeService {
                         slack_user_id VARCHAR(50) NULL,
                         phone VARCHAR(30) NULL,
                         birthday DATE NULL,
+                        country VARCHAR(100) NULL,
                         schedule VARCHAR(255) NULL,
                         slack_id VARCHAR(100) NULL,
                         payment_method VARCHAR(50) NULL,
@@ -351,6 +354,7 @@ export class EmployeeService {
         if (dto.isActive !== undefined) employee.isActive = dto.isActive;
         if (dto.phone !== undefined) employee.phone = dto.phone || null;
         if (dto.birthday !== undefined) employee.birthday = dto.birthday || null;
+        if (dto.country !== undefined) employee.country = dto.country || null;
         if (dto.schedule !== undefined) employee.schedule = dto.schedule || null;
         if (dto.slackId !== undefined) employee.slackId = dto.slackId || null;
         if (dto.paymentMethod !== undefined) employee.paymentMethod = dto.paymentMethod || null;
