@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import { drive } from "../utils/drive";
 
 export class FileController {
     async getFile(request: Request, response: Response, next: NextFunction) {
@@ -79,5 +80,55 @@ export class FileController {
             // Stream the image file to the response
             fs.createReadStream(filePath).pipe(response);
         });
+    }
+
+    async getDriveImage(request: Request, response: Response, next: NextFunction) {
+        try {
+            const fileId = request.params.fileId;
+            if (!fileId) {
+                return response.status(400).json({ error: 'File ID is required' });
+            }
+
+            // Get file metadata to determine mime type
+            const metadataResponse = await drive.files.get({
+                fileId: fileId,
+                fields: 'mimeType',
+                supportsAllDrives: true,
+            });
+
+            const mimeType = metadataResponse.data.mimeType;
+
+            // Optional: you can check if it's an image mimeType here
+
+            response.setHeader('Content-Type', mimeType || 'application/octet-stream');
+            response.setHeader('Cache-Control', 'public, max-age=31536000');
+
+            // Download file stream from Google Drive
+            const fileStream = await drive.files.get(
+                {
+                    fileId: fileId,
+                    alt: 'media',
+                    supportsAllDrives: true,
+                },
+                { responseType: 'stream' }
+            );
+
+            // Pipe the stream directly to the express response
+            fileStream.data.pipe(response);
+
+            // Handle stream events
+            fileStream.data.on('error', (err) => {
+                console.error('Error streaming file from Drive:', err);
+                if (!response.headersSent) {
+                    response.status(500).json({ error: 'Error streaming file' });
+                }
+            });
+
+        } catch (error: any) {
+            console.error('Error fetching image from Drive:', error.message);
+            if (!response.headersSent) {
+                response.status(500).json({ error: 'Failed to retrieve image from Drive' });
+            }
+        }
     }
 }
