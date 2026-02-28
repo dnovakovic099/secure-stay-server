@@ -69,4 +69,7 @@ router.get('/:id/notes', verifySession, employeeController.getNotes);
 router.post('/:id/notes', verifySession, employeeController.addNote);
 router.delete('/notes/:noteId', verifySession, employeeController.deleteNote);
 
+// Regenerate employee numbers (based on start date)
+router.post('/regenerate-numbers', verifySession, employeeController.regenerateNumbers);
+
 export default router;
