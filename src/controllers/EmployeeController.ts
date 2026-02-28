@@ -140,7 +140,7 @@ export class EmployeeController {
         try {
             const { id } = req.params;
             const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
-                phone, birthday, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
+                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -159,6 +159,7 @@ export class EmployeeController {
                 isActive,
                 phone,
                 birthday: birthday ? new Date(birthday) : birthday,
+                country,
                 schedule,
                 slackId,
                 paymentMethod,

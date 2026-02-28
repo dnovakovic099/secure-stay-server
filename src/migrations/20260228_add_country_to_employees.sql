@@ -1,0 +1,2 @@
+ALTER TABLE employees
+ADD COLUMN country VARCHAR(100) NULL;
