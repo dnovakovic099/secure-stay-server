@@ -168,8 +168,8 @@ export class ZapierWebhookService {
      */
     async getEvents(filters: {
         status?: string;
-        event?: string;
-        slackChannel?: string;
+        events?: string[];
+        slackChannels?: string[];
         fromDate?: string;
         toDate?: string;
         dateType?: 'createdAt' | 'updatedAt';
@@ -191,14 +191,14 @@ export class ZapierWebhookService {
             queryBuilder.andWhere('event.status = :status', { status: filters.status });
         }
 
-        // Filter by event type
-        if (filters.event) {
-            queryBuilder.andWhere('event.event = :eventType', { eventType: filters.event });
+        // Filter by event types (multi-select)
+        if (filters.events && filters.events.length > 0) {
+            queryBuilder.andWhere('event.event IN (:...eventTypes)', { eventTypes: filters.events });
         }
 
-        // Filter by Slack channel
-        if (filters.slackChannel) {
-            queryBuilder.andWhere('event.slackChannel = :slackChannel', { slackChannel: filters.slackChannel });
+        // Filter by Slack channels (multi-select)
+        if (filters.slackChannels && filters.slackChannels.length > 0) {
+            queryBuilder.andWhere('event.slackChannel IN (:...slackChannels)', { slackChannels: filters.slackChannels });
         }
 
         // Filter by date range

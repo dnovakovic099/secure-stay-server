@@ -24,12 +24,16 @@ export class ZapierWebhookController {
      */
     getEvents = async (req: Request, res: Response) => {
         try {
-            const { status, event, slackChannel, fromDate, toDate, dateType, page, limit } = req.query;
+            const { status, event, events, slackChannel, slackChannels, fromDate, toDate, dateType, page, limit } = req.query;
+
+            // Parse comma-separated values for multi-select filters
+            const eventsList = events ? (events as string).split(',').filter(Boolean) : (event ? [event as string] : undefined);
+            const channelsList = slackChannels ? (slackChannels as string).split(',').filter(Boolean) : (slackChannel ? [slackChannel as string] : undefined);
 
             const result = await this.webhookService.getEvents({
                 status: status as string,
-                event: event as string,
-                slackChannel: slackChannel as string,
+                events: eventsList,
+                slackChannels: channelsList,
                 fromDate: fromDate as string,
                 toDate: toDate as string,
                 dateType: dateType as 'createdAt' | 'updatedAt',
