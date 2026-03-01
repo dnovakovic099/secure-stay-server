@@ -17,6 +17,8 @@ interface SearchFilters {
   startDate?: string;
   endDate?: string;
   guests?: number;
+  bedrooms?: number;       // Filter by minimum bedrooms
+  bathrooms?: number;      // Filter by minimum bathrooms
   maxTotalPrice?: number;  // Filter by computed total (incl. fees & tax)
   petsIncluded?: boolean;  // Filter for pet-friendly properties
   numberOfPets?: number;   // Number of pets for fee calculation
@@ -174,6 +176,19 @@ export class MapsService {
     if (filters.guests) {
       queryBuilder.andWhere("listing.guests >= :guests", { guests: filters.guests });
     }
+
+    // Apply bedrooms filter
+    if (filters.bedrooms) {
+      queryBuilder.andWhere("listing.bedroomsNumber >= :bedrooms", { bedrooms: filters.bedrooms });
+    }
+
+    // Apply bathrooms filter (sum of full + half baths)
+    if (filters.bathrooms) {
+      queryBuilder.andWhere("(COALESCE(listing.bathroomsNumber, 0) + COALESCE(listing.guestBathroomsNumber, 0) * 0.5) >= :bathrooms", { bathrooms: filters.bathrooms });
+    }
+
+    // Limit results to prevent slow queries - get max 100 listings
+    queryBuilder.take(100);
 
     const listings = await queryBuilder.getMany();
 
