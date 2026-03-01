@@ -57,13 +57,19 @@ export class MaintenanceController {
         try {
             const userId = request.user.id;
             const maintenanceService = new MaintenanceService();
+            const normalizeArray = (val: any) => {
+                if (!val) return undefined;
+                if (Array.isArray(val)) return val;
+                return Object.values(val);
+            };
+
             const filter: any = {
-                listingId: request.query.listingId || undefined,
-                workCategory: request.query.workCategory || undefined,
-                contactId: request.query.contactId || undefined,
+                listingId: normalizeArray(request.query.listingId),
+                workCategory: normalizeArray(request.query.workCategory),
+                contactId: normalizeArray(request.query.contactId) ? normalizeArray(request.query.contactId).map(Number) : undefined,
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
-                propertyType: request.query.propertyType || undefined,
+                propertyType: normalizeArray(request.query.propertyType),
                 keyword: request.query.keyword || undefined,
                 type: request.query.type || undefined,
                 page: request.query.page,
@@ -72,6 +78,45 @@ export class MaintenanceController {
             };
             const maintenance = await maintenanceService.getMaintenanceList(filter, userId);
             return response.status(200).json(maintenance);
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async exportMaintenace(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const userId = request.user.id;
+            const maintenanceService = new MaintenanceService();
+
+            const normalizeArray = (val: any) => {
+                if (!val) return undefined;
+                if (Array.isArray(val)) return val;
+                return Object.values(val);
+            };
+
+            const filter: any = {
+                listingId: normalizeArray(request.query.listingId),
+                workCategory: normalizeArray(request.query.workCategory),
+                contactId: normalizeArray(request.query.contactId) ? normalizeArray(request.query.contactId).map(Number) : undefined,
+                fromDate: request.query.fromDate || undefined,
+                toDate: request.query.toDate || undefined,
+                propertyType: normalizeArray(request.query.propertyType),
+                keyword: request.query.keyword || undefined,
+                type: request.query.type || undefined,
+                currentDate: request.query.currentDate
+            };
+            const excelBuffer = await maintenanceService.exportMaintenanceToExcel(filter, userId);
+
+            response.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            response.setHeader(
+                "Content-Disposition",
+                "attachment; filename=" + "Maintenance_Export.xlsx"
+            );
+
+            return response.send(excelBuffer);
         } catch (error) {
             return next(error);
         }

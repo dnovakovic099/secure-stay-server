@@ -9,18 +9,15 @@ export class AllServiceRequestController {
             const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
             const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
 
-            // Parse array query params
-            const status = req.query.status
-                ? (Array.isArray(req.query.status)
-                    ? req.query.status as string[]
-                    : Object.values(req.query.status as any) as string[])
-                : undefined;
+            const normalizeArray = (val: any) => {
+                if (!val) return undefined;
+                if (Array.isArray(val)) return val;
+                if (typeof val === 'object') return Object.values(val);
+                return [val];
+            };
 
-            const propertyId = req.query.propertyId
-                ? (Array.isArray(req.query.propertyId)
-                    ? (req.query.propertyId as string[]).map(Number)
-                    : Object.values(req.query.propertyId as any).map(Number))
-                : undefined;
+            const status = normalizeArray(req.query.status) as string[];
+            const propertyId = normalizeArray(req.query.propertyId) ? normalizeArray(req.query.propertyId).map(Number) : undefined;
 
             const result = await service.getAll({ page, limit, status, propertyId });
 
@@ -33,6 +30,38 @@ export class AllServiceRequestController {
                     totalPages: result.totalPages,
                 },
             });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async exportCSV(req: Request, res: Response, next: NextFunction) {
+        try {
+            const service = new AllServiceRequestService();
+
+            const normalizeArray = (val: any) => {
+                if (!val) return undefined;
+                if (Array.isArray(val)) return val;
+                if (typeof val === 'object') return Object.values(val);
+                return [val];
+            };
+
+            const status = normalizeArray(req.query.status) as string[];
+            const propertyId = normalizeArray(req.query.propertyId) ? normalizeArray(req.query.propertyId).map(Number) : undefined;
+            const type = req.query.type as string;
+
+            const excelBuffer = await service.exportToExcel({ status, propertyId, type });
+
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            res.setHeader(
+                "Content-Disposition",
+                "attachment; filename=" + "Service_Requests_Export.xlsx"
+            );
+
+            return res.send(excelBuffer);
         } catch (error) {
             next(error);
         }

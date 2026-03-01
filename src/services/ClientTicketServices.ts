@@ -553,10 +553,9 @@ export class ClientTicketService {
   }): Promise<Buffer> {
     const userId = filters["userId"]; // Отримується з контролера
 
-    // Побудова where clause аналогічно до getTickets
+    const listingService = new ListingService();
     let listingIds = [];
     if (filters.propertyType && filters.propertyType.length > 0) {
-      const listingService = new ListingService();
       listingIds = (
         await listingService.getListingsByPropertyTypes(
           filters.propertyType,
@@ -585,8 +584,11 @@ export class ClientTicketService {
 
     const tickets = await this.clientTicketRepo.find({
       where: whereClause,
+      relations: ["clientTicketUpdates"],
       order: { createdAt: "DESC" },
     });
+
+    const listings = await listingService.getAllListingsForLookup();
 
     // Отримати імена користувачів
     const users = await this.usersRepo.find();
@@ -595,29 +597,57 @@ export class ClientTicketService {
     );
 
     // Форматувати всі поля для експорту
-    console.log(tickets[0].category);
-    const formattedData = tickets.map((ticket) => ({
-      ID: ticket.id,
-      Status: ticket.status,
-      Category: (() => {
-        if (!ticket.category) return "";
+    const formattedData = tickets.map((ticket) => {
+      // Find latest update if any
+      let latestUpdateText = "-";
+      if (ticket.clientTicketUpdates && ticket.clientTicketUpdates.length > 0) {
+        const latestUpdate = ticket.clientTicketUpdates.reduce((latest, current) =>
+          Number(current.id) > Number(latest.id) ? current : latest
+        );
+        latestUpdateText = latestUpdate?.updates || "-";
+      }
 
-        try {
-          const parsed = JSON.parse(ticket.category);
-          return Array.isArray(parsed) ? parsed.join(", ") : parsed;
-        } catch {
-          return ticket.category;
-        }
-      })(),
-      "Listing ID": ticket.listingId,
-      Assignee: userMap.get(ticket.assignee) || ticket.assignee,
-      "Created By": userMap.get(ticket.createdBy) || ticket.createdBy,
-      "Updated By": userMap.get(ticket.updatedBy) || ticket.updatedBy,
-      "Created At": ticket.createdAt,
-      "Updated At": ticket.updatedAt,
-      "Completed By": userMap.get(ticket.completedBy) || ticket.completedBy,
-      "Completed At": ticket.completedOn,
-    }));
+      // Format Client Satisfaction
+      const satisfactionOptions = [
+        { value: 1, label: "Very Dissatisfied" },
+        { value: 2, label: "Dissatisfied" },
+        { value: 3, label: "Neutral" },
+        { value: 4, label: "Satisfied" },
+        { value: 5, label: "Very Satisfied" },
+      ];
+      const satisfactionOption = satisfactionOptions.find(opt => opt.value === ticket.clientSatisfaction);
+      const clientSatisfactionText = ticket.clientSatisfaction ? (satisfactionOption?.label || String(ticket.clientSatisfaction)) : "Not Rated";
+
+      return {
+        ID: ticket.id,
+        Status: ticket.status || "-",
+        Assignee: userMap.get(ticket.assignee) || ticket.assignee || "-",
+        Property: listings.find((listing) => String(listing.id) === String(ticket.listingId))?.internalListingName || ticket.listingId || "-",
+        Category: (() => {
+          if (!ticket.category) return "-";
+          try {
+            const parsed = JSON.parse(ticket.category);
+            return Array.isArray(parsed) ? parsed.join(", ") : parsed;
+          } catch {
+            return ticket.category;
+          }
+        })(),
+        Description: ticket.description || "-",
+        "Latest Update": latestUpdateText,
+        Urgency: ticket.urgency || 0,
+        "Due Date": ticket.dueDate ? format(new Date(ticket.dueDate + "T00:00:00"), "yyyy-MM-dd") : "-",
+        Mistake: ticket.mistake || "-",
+        "Mistake Resolved On": ticket.mistakeResolvedOn || "-",
+        Resolution: ticket.resolution || "-",
+        "Client Satisfaction": clientSatisfactionText,
+        "Created On": ticket.createdAt ? format(new Date(ticket.createdAt), "MM-dd-yyyy hh:mm a") : "-",
+        "Created By": userMap.get(ticket.createdBy) || ticket.createdBy || "-",
+        "Updated On": ticket.updatedAt ? format(new Date(ticket.updatedAt), "MM-dd-yyyy hh:mm a") : "-",
+        "Updated By": userMap.get(ticket.updatedBy) || ticket.updatedBy || "-",
+        "Completed At": ticket.completedOn ? format(new Date(ticket.completedOn), "MM-dd-yyyy hh:mm a") : "-",
+        "Completed By": userMap.get(ticket.completedBy) || ticket.completedBy || "-",
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
     const csv = XLSX.utils.sheet_to_csv(worksheet);
