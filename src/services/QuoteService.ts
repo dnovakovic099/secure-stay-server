@@ -447,7 +447,7 @@ export class QuoteService {
     const { guests = 1, includePets = false, numberOfPets = 1, maxTotalPrice } = options;
 
     // Process in parallel with concurrency limit
-    const concurrencyLimit = 10;
+    const concurrencyLimit = 20;
     const results: PropertyQuote[] = [];
 
     for (let i = 0; i < listingIds.length; i += concurrencyLimit) {
