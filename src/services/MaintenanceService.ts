@@ -10,6 +10,7 @@ import { Contact } from "../entity/Contact";
 import { ContactRole } from "../entity/ContactRole";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
+import * as XLSX from "xlsx";
 
 interface MaintenanceFilter {
     listingId?: string[];
@@ -149,7 +150,7 @@ export class MaintenanceService {
         const listings = await listingService.getListings(userId);
 
         const transformedMaintenanceLogs = maintenanceLogs.map(logs => {
-            const role = roleCategory.find(r => r.workCategory == logs.workCategory).role;
+            const role = roleCategory.find(r => r.workCategory == logs.workCategory)?.role;
             return {
                 ...logs,
                 contactOptions: contacts.filter(c => c.listingId == logs.listingId && (c.status == "active" || c.status == "active-backup") && c.role==role),
@@ -162,6 +163,31 @@ export class MaintenanceService {
 
         return { maintenanceLogs: transformedMaintenanceLogs, total };
 
+    }
+
+    async exportMaintenanceToExcel(filter: MaintenanceFilter, userId: string) {
+        // Fetch the filtered list using the existing logic
+        filter.page = 1;
+        filter.limit = 10000; // Large limit to get all matching records for export
+        const result = await this.getMaintenanceList(filter, userId);
+        logger.info(`Exporting ${result.maintenanceLogs.length} maintenance logs for user ${userId}`);
+
+        const formattedData = result.maintenanceLogs.map((log: any) => ({
+            Date: log.nextSchedule ? format(new Date(log.nextSchedule), 'yyyy-MM-dd') : "-",
+            Property: log.listingName,
+            "Work Category": log.workCategory,
+            Assignee: log.contact ? log.contact.name : "-",
+            "Vendor Role": log.contact ? log.contact.role : "-",
+            Notes: log.notes || "-",
+            "Assigned By": log.createdBy
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(formattedData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "MaintenanceLogs");
+
+        const excelBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+        return excelBuffer;
     }
 
 

@@ -7,6 +7,7 @@ const router = Router();
 const maintenanceController = new MaintenanceController();
 
 router.route('/').get(verifySession, validateGetMaintenance, maintenanceController.getMaintenace);
+router.route('/export').get(verifySession, maintenanceController.exportMaintenace);
 router.route('/create').post(verifySession, validateCreateMaintenance, maintenanceController.createMaintenace);
 router.route('/update').put(verifySession, validateUpdateMaintenance, maintenanceController.updateMaintenace);
 router.route('/delete/:id').delete(verifySession, maintenanceController.deleteMaintenace);
