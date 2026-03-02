@@ -9,10 +9,22 @@ interface CreateEmployeeDto {
     userId: number;
     department: EmployeeDepartment;
     jobTitle: string;
+    jobType?: string | null;
+    hiredFrom?: string | null;
+    hiredFromOther?: string | null;
     hourlyRate: number;
     startDate: Date;
     slackUserId?: string;
     createdBy?: number;
+    phone?: string | null;
+    birthday?: Date | null;
+    country?: string | null;
+    paymentMethod?: string | null;
+    paymentMethodOther?: string | null;
+    paymentSchedule?: string | null;
+    paymentDay?: string | null;
+    paymentStartDate?: Date | null;
+    paymentInfo?: string | null;
 }
 
 interface UpdateEmployeeDto {
@@ -163,6 +175,7 @@ export class EmployeeService {
         page?: number;
         limit?: number;
         department?: string;
+        jobType?: string;
         search?: string;
         isActive?: boolean;
         sortField?: string;
@@ -182,6 +195,10 @@ export class EmployeeService {
         // Apply filters
         if (filters.department) {
             queryBuilder.andWhere('employee.department = :department', { department: filters.department });
+        }
+
+        if (filters.jobType) {
+            queryBuilder.andWhere('employee.jobType = :jobType', { jobType: filters.jobType });
         }
 
         if (filters.search) {
@@ -319,9 +336,21 @@ export class EmployeeService {
             userId: dto.userId,
             department: dto.department,
             jobTitle: dto.jobTitle,
+            jobType: dto.jobType || null,
+            hiredFrom: dto.hiredFrom || null,
+            hiredFromOther: dto.hiredFromOther || null,
             hourlyRate: dto.hourlyRate || 0,
             startDate: dto.startDate,
             slackUserId: dto.slackUserId || null,
+            phone: dto.phone || null,
+            birthday: dto.birthday || null,
+            country: dto.country || null,
+            paymentMethod: dto.paymentMethod || null,
+            paymentMethodOther: dto.paymentMethodOther || null,
+            paymentSchedule: dto.paymentSchedule || null,
+            paymentDay: dto.paymentDay || null,
+            paymentStartDate: dto.paymentStartDate || null,
+            paymentInfo: dto.paymentInfo || null,
         };
         
         if (dto.createdBy) {
