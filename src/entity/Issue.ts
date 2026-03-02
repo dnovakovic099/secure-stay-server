@@ -153,4 +153,7 @@ export class Issue {
 
     @Column({ nullable: true })
     nextUpdateDate: string;
+
+    @Column({ nullable: true })
+    due_date: string;
 }

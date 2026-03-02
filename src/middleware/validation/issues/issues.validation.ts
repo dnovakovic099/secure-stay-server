@@ -49,6 +49,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
+        due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
     });
 
     const { error } = schema.validate(request.body);
@@ -105,6 +106,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
+        due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
     });
 
     const { error } = schema.validate(request.body);
@@ -209,6 +211,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
             date_time_contractor_deployed: Joi.date().optional(),
             date_time_work_finished: Joi.date().optional(),
             final_contractor_name: Joi.string().optional(),
+            due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, '').optional(),
         }).min(1).required()
     });
 
