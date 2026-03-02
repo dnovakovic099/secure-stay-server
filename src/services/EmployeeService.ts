@@ -444,6 +444,8 @@ export class EmployeeService {
         }
 
         employee.deletedAt = new Date();
+        employee.employeeNumber = null;
+        employee.employeeNumberSeq = null;
         await this.employeeRepo.save(employee);
 
         // Regenerate employee numbers
@@ -457,31 +459,36 @@ export class EmployeeService {
      * Format: LL-001, LL-002, etc.
      */
     async regenerateEmployeeNumbers() {
-        // First, clear all employee numbers to avoid unique constraint violations
-        // when the ordering changes during reassignment
-        await this.employeeRepo
-            .createQueryBuilder()
-            .update(Employee)
-            .set({ employeeNumber: () => 'NULL' })
-            .where('deletedAt IS NULL')
-            .execute();
+        await appDatabase.manager.transaction(async (transactionalEntityManager) => {
+            // First, clear all employee numbers to avoid unique constraint violations
+            // and use a pessimistic lock to ensure only one regeneration process runs at a time
+            await transactionalEntityManager
+                .createQueryBuilder(Employee, 'employee')
+                .setLock('pessimistic_write')
+                .update()
+                .set({ employeeNumber: null, employeeNumberSeq: null })
+                .where('deletedAt IS NULL')
+                .execute();
 
-        const employees = await this.employeeRepo
-            .createQueryBuilder('employee')
-            .where('employee.deletedAt IS NULL')
-            .orderBy('employee.startDate', 'ASC')
-            .addOrderBy('employee.createdAt', 'ASC')
-            .addOrderBy('employee.id', 'ASC')
-            .getMany();
+            const employees = await transactionalEntityManager
+                .createQueryBuilder(Employee, 'employee')
+                .where('employee.deletedAt IS NULL')
+                .orderBy('employee.startDate', 'ASC')
+                .addOrderBy('employee.createdAt', 'ASC')
+                .addOrderBy('employee.id', 'ASC')
+                .getMany();
 
-        for (let i = 0; i < employees.length; i++) {
-            const seq = i + 1;
-            const number = String(seq).padStart(3, '0');
-            employees[i].employeeNumber = `LL-${number}`;
-            employees[i].employeeNumberSeq = seq;
-        }
+            for (let i = 0; i < employees.length; i++) {
+                const seq = i + 1;
+                const number = String(seq).padStart(3, '0');
+                employees[i].employeeNumber = `LL-${number}`;
+                employees[i].employeeNumberSeq = seq;
+            }
 
-        await this.employeeRepo.save(employees);
+            if (employees.length > 0) {
+                await transactionalEntityManager.save(employees);
+            }
+        });
     }
 
     /**
