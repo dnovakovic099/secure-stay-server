@@ -567,6 +567,25 @@ export class ExpenseService {
         return expense;
     }
 
+    async bulkDeleteExpenses(expenseIds: number[], userId: string): Promise<number> {
+        const expenses = await this.expenseRepo.findByIds(expenseIds);
+        
+        if (expenses.length === 0) {
+            return 0;
+        }
+
+        const now = new Date();
+        for (const expense of expenses) {
+            expense.isDeleted = 1;
+            expense.updatedBy = userId;
+            expense.updatedAt = now;
+        }
+
+        await this.expenseRepo.save(expenses);
+        
+        return expenses.length;
+    }
+
     private async deleteHostawayExpense(expenseId: number, userId: string) {
         const { clientId, clientSecret } = await this.connectedAccountServices.getPmAccountInfo(userId);
         await this.hostAwayClient.deleteExpense(expenseId, clientId, clientSecret);

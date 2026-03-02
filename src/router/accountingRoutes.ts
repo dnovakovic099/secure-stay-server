@@ -50,6 +50,8 @@ router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseB
 
 router.route('/deleteexpense/:id').delete(verifySession, expenseController.deleteExpense);
 
+router.route('/bulkdeleteexpenses').post(verifySession, expenseController.bulkDeleteExpenses);
+
 router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 
 router.route('/expense/migratefilestodrive').get(verifySession, expenseController.migrateFilesToDrive);
