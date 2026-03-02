@@ -297,8 +297,8 @@ export class EscalationService {
         const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
         const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
-        const overdueThreshold = new Date(Date.now() - OVERDUE_THRESHOLD_HOURS * 60 * 60 * 1000);
-        const reminderThreshold = new Date(Date.now() - REMINDER_INTERVAL_HOURS * 60 * 60 * 1000);
+        const overdueThreshold = new Date(Date.now() - DEFAULT_OVERDUE_THRESHOLD_HOURS * 60 * 60 * 1000);
+        const reminderThreshold = new Date(Date.now() - DEFAULT_REMINDER_INTERVAL_HOURS * 60 * 60 * 1000);
 
         // ── Step 1: Flag newly overdue tasks ──
         try {

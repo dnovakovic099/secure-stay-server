@@ -103,7 +103,7 @@ export class EscalationSettingsService {
                     .leftJoinAndSelect('emp.user', 'user')
                     .where('emp.department = :dept', { dept: EmployeeDepartment.GUEST_RELATIONS })
                     .andWhere('emp.isActive = :active', { active: true })
-                    .andWhere('LOWER(user.full_name) LIKE :name', { name: '%kaz%' })
+                    .andWhere("(LOWER(user.firstName) LIKE :name OR LOWER(user.lastName) LIKE :name OR LOWER(CONCAT(user.firstName, ' ', user.lastName)) LIKE :name)", { name: '%kaz%' })
                     .getOne();
                 
                 if (kaz) {
@@ -153,7 +153,7 @@ export class EscalationSettingsService {
                     if (employee) {
                         enriched.primaryEmployee = {
                             id: employee.id,
-                            name: employee.user?.fullName || 'Unknown',
+                            name: employee.user ? `${employee.user.firstName || ''} ${employee.user.lastName || ''}`.trim() || 'Unknown' : 'Unknown',
                             slackUserId: employee.slackUserId || employee.slackId,
                             schedule: employee.schedule
                         };
@@ -196,7 +196,7 @@ export class EscalationSettingsService {
                 if (employee) {
                     enriched.primaryEmployee = {
                         id: employee.id,
-                        name: employee.user?.fullName || 'Unknown',
+                        name: employee.user ? `${employee.user.firstName || ''} ${employee.user.lastName || ''}`.trim() || 'Unknown' : 'Unknown',
                         slackUserId: employee.slackUserId || employee.slackId,
                         schedule: employee.schedule
                     };
@@ -248,7 +248,7 @@ export class EscalationSettingsService {
 
         return employees.map(emp => ({
             id: emp.id,
-            name: emp.user?.fullName || `Employee #${emp.id}`,
+            name: emp.user ? `${emp.user.firstName || ''} ${emp.user.lastName || ''}`.trim() || `Employee #${emp.id}` : `Employee #${emp.id}`,
             slackUserId: emp.slackUserId || emp.slackId,
             schedule: emp.schedule
         }));
