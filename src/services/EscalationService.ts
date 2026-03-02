@@ -2,6 +2,8 @@ import logger from '../utils/logger.utils';
 import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
+import { Employee, EmployeeDepartment } from '../entity/Employee';
+import { UsersEntity } from '../entity/Users';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { LessThan } from 'typeorm';
 import OpenAI from 'openai';
@@ -9,6 +11,8 @@ import axios from 'axios';
 
 // Guest Relations user group ID for Slack mentions
 const GR_USERGROUP_ID = 'S09AUHMA6HE';
+// Special channel that should only tag Kaz when on shift
+const ALL_CHANNEL_SUPPORT = 'all-channel-support-messages';
 const OVERDUE_THRESHOLD_HOURS = 4;
 const REMINDER_INTERVAL_HOURS = 1;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -22,6 +26,202 @@ interface SlackThreadMessage {
 
 export class EscalationService {
     private openai: OpenAI | null = null;
+    private employeeRepo = appDatabase.getRepository(Employee);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+
+    /**
+     * Get the appropriate Slack mention based on channel and shift status.
+     * For "all-channel-support-messages" channel:
+     *   - If Kaz is on shift → tag only Kaz
+     *   - Otherwise → tag the whole GR group
+     * For other channels → always tag the whole GR group
+     */
+    private async getMentionForChannel(slackChannel: string | null): Promise<string> {
+        // Normalize channel name (remove # prefix if present, lowercase for comparison)
+        const channelName = (slackChannel || '').replace(/^#/, '').toLowerCase();
+        
+        // Check if this is the special channel
+        if (channelName === ALL_CHANNEL_SUPPORT.toLowerCase()) {
+            try {
+                const kazOnShift = await this.isKazOnShift();
+                if (kazOnShift) {
+                    const kazSlackId = await this.getKazSlackId();
+                    if (kazSlackId) {
+                        logger.info(`[EscalationService] Channel is ${ALL_CHANNEL_SUPPORT} and Kaz is on shift - tagging only Kaz`);
+                        return `<@${kazSlackId}>`;
+                    }
+                }
+                logger.info(`[EscalationService] Channel is ${ALL_CHANNEL_SUPPORT} but Kaz is NOT on shift - tagging GR group`);
+            } catch (error) {
+                logger.warn(`[EscalationService] Error checking Kaz shift status: ${error} - falling back to GR group`);
+            }
+        }
+
+        // Default: tag the whole GR usergroup
+        return `<!subteam^${GR_USERGROUP_ID}>`;
+    }
+
+    /**
+     * Check if Kaz is currently on shift based on Employee schedule data.
+     * Schedule format expected: "Mon-Fri, 9am-5pm" or comma-separated days "Mon,Tue,Wed"
+     */
+    private async isKazOnShift(): Promise<boolean> {
+        try {
+            // Find Kaz by name in the Guest Relations department
+            const kaz = await this.employeeRepo
+                .createQueryBuilder('emp')
+                .leftJoinAndSelect('emp.user', 'user')
+                .where('emp.department = :dept', { dept: EmployeeDepartment.GUEST_RELATIONS })
+                .andWhere('emp.isActive = :active', { active: true })
+                .andWhere('LOWER(user.full_name) LIKE :name', { name: '%kaz%' })
+                .getOne();
+
+            if (!kaz) {
+                logger.warn('[EscalationService] Kaz not found in Employee table');
+                return false;
+            }
+
+            if (!kaz.schedule) {
+                logger.warn('[EscalationService] Kaz has no schedule defined');
+                return false;
+            }
+
+            // Parse and check the schedule
+            return this.isCurrentTimeInSchedule(kaz.schedule);
+        } catch (error) {
+            logger.error(`[EscalationService] Error checking if Kaz is on shift: ${error}`);
+            return false;
+        }
+    }
+
+    /**
+     * Get Kaz's Slack user ID from the Employee table
+     */
+    private async getKazSlackId(): Promise<string | null> {
+        try {
+            const kaz = await this.employeeRepo
+                .createQueryBuilder('emp')
+                .leftJoinAndSelect('emp.user', 'user')
+                .where('emp.department = :dept', { dept: EmployeeDepartment.GUEST_RELATIONS })
+                .andWhere('emp.isActive = :active', { active: true })
+                .andWhere('LOWER(user.full_name) LIKE :name', { name: '%kaz%' })
+                .getOne();
+
+            return kaz?.slackUserId || kaz?.slackId || null;
+        } catch (error) {
+            logger.error(`[EscalationService] Error getting Kaz Slack ID: ${error}`);
+            return null;
+        }
+    }
+
+    /**
+     * Check if current time falls within a schedule string.
+     * Supports formats like:
+     *   - "Mon-Fri, 9am-5pm ET"
+     *   - "Mon,Tue,Wed,Thu,Fri 9:00-17:00"
+     *   - "Mon-Fri"
+     */
+    private isCurrentTimeInSchedule(schedule: string): boolean {
+        try {
+            // Get current time in ET (Eastern Time)
+            const now = new Date();
+            const etOptions: Intl.DateTimeFormatOptions = { 
+                timeZone: 'America/New_York', 
+                weekday: 'short', 
+                hour: 'numeric', 
+                minute: 'numeric',
+                hour12: false 
+            };
+            const etNow = new Intl.DateTimeFormat('en-US', etOptions).formatToParts(now);
+            
+            const dayMap: Record<string, number> = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+            const currentDay = etNow.find(p => p.type === 'weekday')?.value || '';
+            const currentDayNum = dayMap[currentDay] ?? new Date().getDay();
+            const currentHour = parseInt(etNow.find(p => p.type === 'hour')?.value || '0', 10);
+            const currentMinute = parseInt(etNow.find(p => p.type === 'minute')?.value || '0', 10);
+            const currentTimeMinutes = currentHour * 60 + currentMinute;
+
+            const scheduleLower = schedule.toLowerCase();
+
+            // Parse day range (e.g., "mon-fri" or "mon,tue,wed")
+            let scheduledDays: number[] = [];
+            const dayRangeMatch = scheduleLower.match(/(sun|mon|tue|wed|thu|fri|sat)[\s-]*(sun|mon|tue|wed|thu|fri|sat)?/g);
+            
+            if (dayRangeMatch) {
+                for (const match of dayRangeMatch) {
+                    if (match.includes('-')) {
+                        // Range like mon-fri
+                        const [startDay, endDay] = match.split('-').map(d => d.trim());
+                        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+                        const startIdx = dayNames.indexOf(startDay.substring(0, 3));
+                        const endIdx = dayNames.indexOf(endDay.substring(0, 3));
+                        if (startIdx !== -1 && endIdx !== -1) {
+                            for (let i = startIdx; i <= endIdx; i++) {
+                                scheduledDays.push(i);
+                            }
+                        }
+                    } else {
+                        // Single day
+                        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+                        const idx = dayNames.indexOf(match.trim().substring(0, 3));
+                        if (idx !== -1) scheduledDays.push(idx);
+                    }
+                }
+            }
+
+            // Also check for comma-separated days
+            const commaDays = scheduleLower.match(/(sun|mon|tue|wed|thu|fri|sat)/g);
+            if (commaDays) {
+                const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+                commaDays.forEach(d => {
+                    const idx = dayNames.indexOf(d);
+                    if (idx !== -1 && !scheduledDays.includes(idx)) {
+                        scheduledDays.push(idx);
+                    }
+                });
+            }
+
+            // Check if current day is in scheduled days
+            if (scheduledDays.length > 0 && !scheduledDays.includes(currentDayNum)) {
+                logger.debug(`[EscalationService] Current day ${currentDay} (${currentDayNum}) not in scheduled days: ${scheduledDays}`);
+                return false;
+            }
+
+            // Parse time range (e.g., "9am-5pm" or "09:00-17:00")
+            const timeMatch = scheduleLower.match(/(\d{1,2})(:\d{2})?\s*(am|pm)?\s*-\s*(\d{1,2})(:\d{2})?\s*(am|pm)?/);
+            
+            if (timeMatch) {
+                let startHour = parseInt(timeMatch[1], 10);
+                const startMin = timeMatch[2] ? parseInt(timeMatch[2].slice(1), 10) : 0;
+                const startAmPm = timeMatch[3];
+                
+                let endHour = parseInt(timeMatch[4], 10);
+                const endMin = timeMatch[5] ? parseInt(timeMatch[5].slice(1), 10) : 0;
+                const endAmPm = timeMatch[6];
+
+                // Convert to 24-hour if AM/PM specified
+                if (startAmPm === 'pm' && startHour < 12) startHour += 12;
+                if (startAmPm === 'am' && startHour === 12) startHour = 0;
+                if (endAmPm === 'pm' && endHour < 12) endHour += 12;
+                if (endAmPm === 'am' && endHour === 12) endHour = 0;
+
+                const startMinutes = startHour * 60 + startMin;
+                const endMinutes = endHour * 60 + endMin;
+
+                // Check if current time is within range
+                if (currentTimeMinutes < startMinutes || currentTimeMinutes > endMinutes) {
+                    logger.debug(`[EscalationService] Current time ${currentHour}:${currentMinute} not in scheduled hours ${startHour}:${startMin}-${endHour}:${endMin}`);
+                    return false;
+                }
+            }
+
+            // If we got here, both day and time (if specified) match
+            return true;
+        } catch (error) {
+            logger.error(`[EscalationService] Error parsing schedule "${schedule}": ${error}`);
+            return false;
+        }
+    }
 
     private getOpenAI(): OpenAI {
         if (!this.openai) {
@@ -118,8 +318,11 @@ export class EscalationService {
                             (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60)
                         );
 
+                        // Get appropriate mention based on channel and shift status
+                        const mention = await this.getMentionForChannel(event.slackChannel);
+
                         const alertText = [
-                            `<!subteam^${GR_USERGROUP_ID}> 🚨 *OVERDUE TASK*`,
+                            `${mention} 🚨 *OVERDUE TASK*`,
                             ``,
                             `This task has been in *New* status for *${hoursSinceCreation} hours* without being picked up.`,
                             ``,
@@ -182,8 +385,11 @@ export class EscalationService {
                             (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60)
                         );
 
+                        // Get appropriate mention based on channel and shift status
+                        const mention = await this.getMentionForChannel(event.slackChannel);
+
                         const reminderParts = [
-                            `<!subteam^${GR_USERGROUP_ID}> ⏰ *Reminder #${event.reminderCount + 1}* — Task still overdue (*${hoursSinceCreation}h*)`,
+                            `${mention} ⏰ *Reminder #${event.reminderCount + 1}* — Task still overdue (*${hoursSinceCreation}h*)`,
                             ``,
                         ];
 
@@ -250,8 +456,11 @@ export class EscalationService {
                             (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60 * 24)
                         );
 
+                        // Get appropriate mention based on channel and shift status
+                        const mention = await this.getMentionForChannel(event.slackChannel);
+
                         const reminderText = [
-                            `<!subteam^${GR_USERGROUP_ID}> 📋 *Daily Check-in* — Task is *In Progress* (day ${daysSinceCreation + 1})`,
+                            `${mention} 📋 *Daily Check-in* — Task is *In Progress* (day ${daysSinceCreation + 1})`,
                             ``,
                             `*Event:* ${event.event}`,
                             event.title ? `*Title:* ${event.title}` : null,
