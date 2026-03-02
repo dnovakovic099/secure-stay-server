@@ -2,6 +2,7 @@ import { Router } from "express";
 import { UnifiedWebhookController } from "../controllers/UnifiedWebhookController";
 import { ZapierWebhookController } from "../controllers/ZapierWebhookController";
 import { ThreadController } from "../controllers/ThreadController";
+import { EscalationSettingsController } from "../controllers/EscalationSettingsController";
 import bodyParser from "body-parser"
 import verifyMobileSession from "../middleware/verifyMobileSession";
 import verifySession from "../middleware/verifySession";
@@ -10,6 +11,7 @@ const router = Router();
 const unifiedWebhookController = new UnifiedWebhookController();
 const zapierWebhookController = new ZapierWebhookController();
 const threadController = new ThreadController();
+const escalationSettingsController = new EscalationSettingsController();
 
 router.route('/ha-unified-webhook').post(unifiedWebhookController.handleWebhookResponse);
 router.route('/stripe').post(unifiedWebhookController.handleStripeWebhook);
@@ -38,6 +40,14 @@ router.route('/zapier/slack-channels').get(verifySession, zapierWebhookControlle
 // Thread messages for GR Tasks (Slack sync)
 router.route('/zapier/events/:id/thread').get(verifySession, threadController.getThreadMessages);
 router.route('/zapier/events/:id/thread').post(verifySession, threadController.postThreadMessage);
+
+// Escalation settings for GR Tasks reminders
+router.route('/zapier/escalation-settings').get(verifySession, escalationSettingsController.getAllSettings);
+router.route('/zapier/escalation-settings').post(verifySession, escalationSettingsController.createSettings);
+router.route('/zapier/escalation-settings/employees/gr').get(verifySession, escalationSettingsController.getGREmployees);
+router.route('/zapier/escalation-settings/:key').get(verifySession, escalationSettingsController.getSettingsByKey);
+router.route('/zapier/escalation-settings/:key').put(verifySession, escalationSettingsController.updateSettings);
+router.route('/zapier/escalation-settings/:key').delete(verifySession, escalationSettingsController.deleteSettings);
 
 
 export default router;
