@@ -4,17 +4,16 @@ import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Employee, EmployeeDepartment } from '../entity/Employee';
 import { UsersEntity } from '../entity/Users';
+import { EscalationSettingsService } from './EscalationSettingsService';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { LessThan } from 'typeorm';
 import OpenAI from 'openai';
 import axios from 'axios';
 
-// Guest Relations user group ID for Slack mentions
-const GR_USERGROUP_ID = 'S09AUHMA6HE';
-// Special channel that should only tag Kaz when on shift
-const ALL_CHANNEL_SUPPORT = 'all-channel-support-messages';
-const OVERDUE_THRESHOLD_HOURS = 4;
-const REMINDER_INTERVAL_HOURS = 1;
+// Default values (used as fallback if settings not found)
+const DEFAULT_GR_USERGROUP_ID = 'S09AUHMA6HE';
+const DEFAULT_OVERDUE_THRESHOLD_HOURS = 4;
+const DEFAULT_REMINDER_INTERVAL_HOURS = 1;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 
 interface SlackThreadMessage {
@@ -28,89 +27,97 @@ export class EscalationService {
     private openai: OpenAI | null = null;
     private employeeRepo = appDatabase.getRepository(Employee);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private settingsService = new EscalationSettingsService();
 
     /**
-     * Get the appropriate Slack mention based on channel and shift status.
-     * For "all-channel-support-messages" channel:
-     *   - If Kaz is on shift → tag only Kaz
-     *   - Otherwise → tag the whole GR group
-     * For other channels → always tag the whole GR group
+     * Get the appropriate Slack mention based on channel settings and shift status.
+     * Uses settings from escalation_settings table:
+     *   - If channel has primaryEmployeeId set and checkShiftSchedule is true:
+     *     - Check if employee is on shift → tag only that employee
+     *     - Otherwise → tag the fallback group
+     *   - If no settings for channel → use default settings
      */
     private async getMentionForChannel(slackChannel: string | null): Promise<string> {
         // Normalize channel name (remove # prefix if present, lowercase for comparison)
         const channelName = (slackChannel || '').replace(/^#/, '').toLowerCase();
         
-        // Check if this is the special channel
-        if (channelName === ALL_CHANNEL_SUPPORT.toLowerCase()) {
-            try {
-                const kazOnShift = await this.isKazOnShift();
-                if (kazOnShift) {
-                    const kazSlackId = await this.getKazSlackId();
-                    if (kazSlackId) {
-                        logger.info(`[EscalationService] Channel is ${ALL_CHANNEL_SUPPORT} and Kaz is on shift - tagging only Kaz`);
-                        return `<@${kazSlackId}>`;
+        try {
+            // Try to get channel-specific settings, falls back to 'default'
+            const settings = await this.settingsService.getSettingsByKey(channelName);
+            
+            if (settings && settings.primaryEmployeeId) {
+                // Check if we should verify shift schedule
+                if (settings.checkShiftSchedule) {
+                    const isOnShift = await this.isEmployeeOnShift(settings.primaryEmployeeId);
+                    if (isOnShift && settings.primaryEmployee?.slackUserId) {
+                        logger.info(`[EscalationService] Channel "${channelName}": Primary employee ${settings.primaryEmployee.name} is on shift - tagging them`);
+                        return `<@${settings.primaryEmployee.slackUserId}>`;
+                    }
+                    logger.info(`[EscalationService] Channel "${channelName}": Primary employee NOT on shift - tagging fallback group`);
+                } else {
+                    // Don't check schedule, just tag the primary employee
+                    if (settings.primaryEmployee?.slackUserId) {
+                        logger.info(`[EscalationService] Channel "${channelName}": Tagging primary employee ${settings.primaryEmployee.name} (no shift check)`);
+                        return `<@${settings.primaryEmployee.slackUserId}>`;
                     }
                 }
-                logger.info(`[EscalationService] Channel is ${ALL_CHANNEL_SUPPORT} but Kaz is NOT on shift - tagging GR group`);
-            } catch (error) {
-                logger.warn(`[EscalationService] Error checking Kaz shift status: ${error} - falling back to GR group`);
             }
-        }
 
-        // Default: tag the whole GR usergroup
-        return `<!subteam^${GR_USERGROUP_ID}>`;
+            // Use fallback group from settings, or default
+            const fallbackGroupId = settings?.fallbackSlackGroupId || DEFAULT_GR_USERGROUP_ID;
+            return `<!subteam^${fallbackGroupId}>`;
+        } catch (error) {
+            logger.warn(`[EscalationService] Error getting settings for channel "${channelName}": ${error} - using default group`);
+            return `<!subteam^${DEFAULT_GR_USERGROUP_ID}>`;
+        }
     }
 
     /**
-     * Check if Kaz is currently on shift based on Employee schedule data.
-     * Schedule format expected: "Mon-Fri, 9am-5pm" or comma-separated days "Mon,Tue,Wed"
+     * Get settings for determining overdue threshold and reminder interval
      */
-    private async isKazOnShift(): Promise<boolean> {
+    private async getEscalationSettings(slackChannel: string | null): Promise<{
+        overdueThresholdHours: number;
+        reminderIntervalHours: number;
+    }> {
+        const channelName = (slackChannel || '').replace(/^#/, '').toLowerCase();
+        
         try {
-            // Find Kaz by name in the Guest Relations department
-            const kaz = await this.employeeRepo
-                .createQueryBuilder('emp')
-                .leftJoinAndSelect('emp.user', 'user')
-                .where('emp.department = :dept', { dept: EmployeeDepartment.GUEST_RELATIONS })
-                .andWhere('emp.isActive = :active', { active: true })
-                .andWhere('LOWER(user.full_name) LIKE :name', { name: '%kaz%' })
-                .getOne();
-
-            if (!kaz) {
-                logger.warn('[EscalationService] Kaz not found in Employee table');
-                return false;
-            }
-
-            if (!kaz.schedule) {
-                logger.warn('[EscalationService] Kaz has no schedule defined');
-                return false;
-            }
-
-            // Parse and check the schedule
-            return this.isCurrentTimeInSchedule(kaz.schedule);
+            const settings = await this.settingsService.getSettingsByKey(channelName);
+            return {
+                overdueThresholdHours: settings?.overdueThresholdHours || DEFAULT_OVERDUE_THRESHOLD_HOURS,
+                reminderIntervalHours: settings?.reminderIntervalHours || DEFAULT_REMINDER_INTERVAL_HOURS,
+            };
         } catch (error) {
-            logger.error(`[EscalationService] Error checking if Kaz is on shift: ${error}`);
+            return {
+                overdueThresholdHours: DEFAULT_OVERDUE_THRESHOLD_HOURS,
+                reminderIntervalHours: DEFAULT_REMINDER_INTERVAL_HOURS,
+            };
+        }
+    }
+
+    /**
+     * Check if a specific employee is on shift
+     */
+    private async isEmployeeOnShift(employeeId: number): Promise<boolean> {
+        try {
+            const employee = await this.employeeRepo.findOne({
+                where: { id: employeeId, isActive: true }
+            });
+
+            if (!employee) {
+                logger.warn(`[EscalationService] Employee ${employeeId} not found or inactive`);
+                return false;
+            }
+
+            if (!employee.schedule) {
+                logger.warn(`[EscalationService] Employee ${employeeId} has no schedule defined`);
+                return false;
+            }
+
+            return this.isCurrentTimeInSchedule(employee.schedule);
+        } catch (error) {
+            logger.error(`[EscalationService] Error checking if employee ${employeeId} is on shift: ${error}`);
             return false;
-        }
-    }
-
-    /**
-     * Get Kaz's Slack user ID from the Employee table
-     */
-    private async getKazSlackId(): Promise<string | null> {
-        try {
-            const kaz = await this.employeeRepo
-                .createQueryBuilder('emp')
-                .leftJoinAndSelect('emp.user', 'user')
-                .where('emp.department = :dept', { dept: EmployeeDepartment.GUEST_RELATIONS })
-                .andWhere('emp.isActive = :active', { active: true })
-                .andWhere('LOWER(user.full_name) LIKE :name', { name: '%kaz%' })
-                .getOne();
-
-            return kaz?.slackUserId || kaz?.slackId || null;
-        } catch (error) {
-            logger.error(`[EscalationService] Error getting Kaz Slack ID: ${error}`);
-            return null;
         }
     }
 
