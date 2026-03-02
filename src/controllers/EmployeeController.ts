@@ -38,12 +38,13 @@ export class EmployeeController {
      */
     getAllEmployees = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const { page, limit, department, search, isActive, sortField, sortDir } = req.query;
+            const { page, limit, department, jobType, search, isActive, sortField, sortDir } = req.query;
 
             const result = await this.employeeService.getAllEmployees({
                 page: page ? parseInt(page as string) : 1,
                 limit: limit ? parseInt(limit as string) : 20,
                 department: department as string,
+                jobType: jobType as string,
                 search: search as string,
                 isActive: isActive !== undefined ? isActive === 'true' : undefined,
                 sortField: sortField as string,
@@ -95,7 +96,8 @@ export class EmployeeController {
             console.log('Body:', JSON.stringify(req.body));
             console.log('User:', req.user?.id);
             
-            const { userId, department, jobTitle, hourlyRate, startDate, slackUserId } = req.body;
+            const { userId, department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
+                phone, birthday, country, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
                 console.log('Missing fields:', { userId, department, jobTitle, startDate });
@@ -113,9 +115,21 @@ export class EmployeeController {
                 userId,
                 department,
                 jobTitle,
+                jobType: jobType || undefined,
+                hiredFrom: hiredFrom || undefined,
+                hiredFromOther: hiredFromOther || undefined,
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
                 slackUserId: slackUserId || undefined,
+                phone: phone || undefined,
+                birthday: birthday ? new Date(birthday) : undefined,
+                country: country || undefined,
+                paymentMethod: paymentMethod || undefined,
+                paymentMethodOther: paymentMethodOther || undefined,
+                paymentSchedule: paymentSchedule || undefined,
+                paymentDay: paymentDay || undefined,
+                paymentStartDate: paymentStartDate ? new Date(paymentStartDate) : undefined,
+                paymentInfo: paymentInfo || undefined,
                 createdBy: creatorId,
             });
 
@@ -139,8 +153,8 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, jobTitle, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
-                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo } = req.body;
+            const { department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
+                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, paymentDay, paymentStartDate } = req.body;
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -150,6 +164,9 @@ export class EmployeeController {
             const employee = await this.employeeService.updateEmployee(parseInt(id), {
                 department,
                 jobTitle,
+                jobType,
+                hiredFrom,
+                hiredFromOther,
                 hourlyRate,
                 startDate: startDate ? new Date(startDate) : undefined,
                 overtimeHours,
@@ -166,6 +183,8 @@ export class EmployeeController {
                 paymentMethodOther,
                 paymentSchedule,
                 paymentInfo,
+                paymentDay,
+                paymentStartDate: paymentStartDate ? new Date(paymentStartDate) : undefined,
             });
 
             return res.json(employee);
