@@ -83,6 +83,27 @@ export class ExpenseController {
         }
     }
 
+    async bulkDeleteExpenses(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const userId = request.user.id;
+            const { expenseIds } = request.body;
+
+            if (!expenseIds || !Array.isArray(expenseIds) || expenseIds.length === 0) {
+                return response.status(400).send({ message: 'expenseIds array is required' });
+            }
+
+            const deletedCount = await expenseService.bulkDeleteExpenses(expenseIds, userId);
+
+            return response.send({ 
+                message: `${deletedCount} expense(s) deleted successfully`,
+                deletedCount 
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateExpenseStatus(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();
