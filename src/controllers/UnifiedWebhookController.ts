@@ -510,12 +510,21 @@ export class UnifiedWebhookController {
             if (body.type === 'event_callback' && body.event) {
                 const event = body.event;
 
-                // Only process message events
+                // Handle message events
                 if (event.type === 'message') {
                     const slackEventsService = new SlackEventsService();
                     runAsync(
                         slackEventsService.handleMessageEvent(event),
                         'handleSlackMessageEvent'
+                    );
+                }
+
+                // Handle app_mention events (when bot is @mentioned)
+                if (event.type === 'app_mention') {
+                    const slackEventsService = new SlackEventsService();
+                    runAsync(
+                        slackEventsService.handleAppMention(event),
+                        'handleSlackAppMention'
                     );
                 }
             }
