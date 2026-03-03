@@ -313,7 +313,7 @@ Be friendly and supportive. Max 2-3 sentences.`
                 case 'REMIND':
                 case 'ASK_UPDATE':
                 case 'ESCALATE':
-                    const mention = decision.mention || '';
+                    const mention = ('mention' in decision) ? decision.mention || '' : '';
                     const fullMessage = mention ? `${mention} ${decision.message}` : decision.message;
                     
                     const result = await sendSlackMessage({ channel: slackChannel, text: fullMessage }, threadTs);
@@ -620,7 +620,7 @@ Your response (plain text, no JSON):`;
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-                { role: 'system', content: this.MANAGER_PERSONA },
+                { role: 'system', content: this.MANAGER_PERSONAS.standard },
                 { role: 'user', content: prompt }
             ],
             temperature: 0.5,
