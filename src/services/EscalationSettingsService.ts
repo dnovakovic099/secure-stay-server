@@ -86,6 +86,19 @@ export class EscalationSettingsService {
                 ALTER TABLE escalation_settings 
                 ADD COLUMN IF NOT EXISTS event_type VARCHAR(100)
             `);
+            // Add AI-related columns
+            await appDatabase.query(`
+                ALTER TABLE escalation_settings 
+                ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT true
+            `);
+            await appDatabase.query(`
+                ALTER TABLE escalation_settings 
+                ADD COLUMN IF NOT EXISTS ai_instructions TEXT
+            `);
+            await appDatabase.query(`
+                ALTER TABLE escalation_settings 
+                ADD COLUMN IF NOT EXISTS ai_mode VARCHAR(20) DEFAULT 'standard'
+            `);
         } catch (error) {
             // Ignore errors (column might already exist in some DBs)
             logger.debug('[EscalationSettingsService] Column migration check completed');

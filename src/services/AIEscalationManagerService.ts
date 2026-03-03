@@ -3,12 +3,19 @@ import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Employee } from '../entity/Employee';
+import { EscalationSettingsService } from './EscalationSettingsService';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import OpenAI from 'openai';
 import axios from 'axios';
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+interface AISettings {
+    aiEnabled: boolean;
+    aiMode: 'standard' | 'strict' | 'lenient';
+    aiInstructions: string | null;
+}
 
 // AI Decision types
 export type AIDecision = 
@@ -35,6 +42,7 @@ interface TaskContext {
     reminderCount: number;
     assignedTo?: string;
     slackChannel?: string;
+    aiSettings?: AISettings;
 }
 
 /**
@@ -51,9 +59,11 @@ export class AIEscalationManagerService {
     private eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private employeeRepo = appDatabase.getRepository(Employee);
+    private settingsService = new EscalationSettingsService();
 
-    // Manager persona system prompt
-    private readonly MANAGER_PERSONA = `You are an AI Manager for a vacation rental property management company's Guest Relations team.
+    // Manager persona system prompts by mode
+    private readonly MANAGER_PERSONAS: Record<string, string> = {
+        standard: `You are an AI Manager for a vacation rental property management company's Guest Relations team.
 
 Your role is to:
 1. Monitor task progress and ensure timely completion
@@ -77,7 +87,54 @@ Guidelines:
 - If something is urgent and being ignored, escalate
 - If the thread shows the issue was resolved, recommend auto-completing
 
-Always be concise. Max 2-3 sentences for reminders.`;
+Always be concise. Max 2-3 sentences for reminders.`,
+
+        strict: `You are a strict AI Manager for a vacation rental property management company's Guest Relations team.
+
+Your role is to:
+1. Ensure tasks are completed QUICKLY - guest satisfaction is paramount
+2. Push back firmly on delays and excuses
+3. Escalate issues faster than normal
+4. Hold team members to high accountability standards
+
+Personality:
+- Direct and no-nonsense
+- Firm but fair
+- Does not accept vague excuses
+- Expects immediate action on urgent items
+
+Guidelines:
+- Be more aggressive with reminders - shorter grace periods
+- Push back on ANY excuse that seems weak
+- Escalate after 2 hours of no response on urgent items
+- Ask for specific timelines, not vague commitments
+- If task sits for 1+ days with no good reason, escalate
+
+Always be concise. Max 2 sentences. Be direct.`,
+
+        lenient: `You are a supportive AI Manager for a vacation rental property management company's Guest Relations team.
+
+Your role is to:
+1. Help the team succeed without adding stress
+2. Give reasonable time for complex issues
+3. Trust team members to handle their work
+4. Only escalate truly critical situations
+
+Personality:
+- Supportive and understanding
+- Patient with reasonable delays
+- Trusts team judgment
+- Encouraging rather than critical
+
+Guidelines:
+- Be more understanding of delays - give longer grace periods
+- Accept reasonable explanations without pushing back
+- Only send reminders when really necessary
+- Skip reminders if there's been any activity in the last few hours
+- Trust that "working on it" means they're working on it
+
+Be friendly and supportive. Max 2-3 sentences.`
+    };
 
     private getOpenAI(): OpenAI {
         if (!this.openai) {
@@ -90,20 +147,77 @@ Always be concise. Max 2-3 sentences for reminders.`;
     }
 
     /**
+     * Check if AI is enabled for a given task based on its channel/event settings
+     */
+    async isAIEnabledForTask(event: ZapierTriggerEvent): Promise<AISettings> {
+        try {
+            // Try to find settings for this specific channel + event combo
+            const channelKey = event.slackChannel?.toLowerCase().replace(/^#/, '') || '';
+            const eventKey = event.event || '';
+            
+            // Try specific key first, then channel-only, then event-only, then default
+            const keysToTry = [
+                `${channelKey}-${eventKey}`.replace(/\s+/g, '-'),
+                channelKey,
+                eventKey,
+                'default'
+            ].filter(k => k);
+
+            for (const key of keysToTry) {
+                const settings = await this.settingsService.getSettingsByKey(key);
+                if (settings && settings.settingKey !== 'default') {
+                    return {
+                        aiEnabled: settings.aiEnabled ?? true,
+                        aiMode: (settings.aiMode as 'standard' | 'strict' | 'lenient') || 'standard',
+                        aiInstructions: settings.aiInstructions || null
+                    };
+                }
+            }
+
+            // Fall back to default settings
+            const defaultSettings = await this.settingsService.getSettingsByKey('default');
+            return {
+                aiEnabled: defaultSettings?.aiEnabled ?? true,
+                aiMode: (defaultSettings?.aiMode as 'standard' | 'strict' | 'lenient') || 'standard',
+                aiInstructions: defaultSettings?.aiInstructions || null
+            };
+        } catch (error) {
+            logger.warn('[AIEscalationManager] Error fetching AI settings, using defaults:', error);
+            return { aiEnabled: true, aiMode: 'standard', aiInstructions: null };
+        }
+    }
+
+    /**
      * Analyze a task and decide what action to take
      */
     async analyzeAndDecide(taskId: number): Promise<AIDecision> {
         try {
-            // Fetch task and context
+            // Fetch task first to check AI settings
+            const event = await this.eventRepo.findOne({ where: { id: taskId } });
+            if (!event) {
+                return { action: 'SKIP', reason: 'Task not found' };
+            }
+
+            // Check if AI is enabled for this task
+            const aiSettings = await this.isAIEnabledForTask(event);
+            if (!aiSettings.aiEnabled) {
+                logger.info(`[AIEscalationManager] AI disabled for task ${taskId}, skipping AI analysis`);
+                return { action: 'REMIND', message: 'FALLBACK_TO_STANDARD' }; // Signal to use standard reminder
+            }
+
+            // Fetch full context
             const context = await this.getTaskContext(taskId);
             if (!context) {
                 return { action: 'SKIP', reason: 'Task not found or no Slack message' };
             }
 
+            // Add AI settings to context
+            context.aiSettings = aiSettings;
+
             // Use AI to analyze and decide
             const decision = await this.makeAIDecision(context);
             
-            logger.info(`[AIEscalationManager] Task ${taskId} decision: ${decision.action} - ${
+            logger.info(`[AIEscalationManager] Task ${taskId} decision (mode: ${aiSettings.aiMode}): ${decision.action} - ${
                 'reason' in decision ? decision.reason : 'message' in decision ? decision.message.substring(0, 50) : ''
             }`);
 
@@ -260,6 +374,16 @@ Always be concise. Max 2-3 sentences for reminders.`;
     private async makeAIDecision(context: TaskContext): Promise<AIDecision> {
         const openai = this.getOpenAI();
 
+        // Get the appropriate persona based on AI mode
+        const aiMode = context.aiSettings?.aiMode || 'standard';
+        const persona = this.MANAGER_PERSONAS[aiMode] || this.MANAGER_PERSONAS.standard;
+        
+        // Add custom instructions if provided
+        let systemPrompt = persona;
+        if (context.aiSettings?.aiInstructions) {
+            systemPrompt += `\n\nADDITIONAL INSTRUCTIONS FROM MANAGEMENT:\n${context.aiSettings.aiInstructions}`;
+        }
+
         // Build context summary for AI
         const threadSummary = context.threadMessages
             .slice(-15) // Last 15 messages
@@ -307,7 +431,7 @@ Be concise in messages. Max 2-3 sentences.`;
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-                { role: 'system', content: this.MANAGER_PERSONA },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: prompt }
             ],
             temperature: 0.3,
