@@ -64,6 +64,45 @@ export class Hostify {
         }
     }
 
+    async getChildListings(apiKey: string, parentListingId: string) {
+        try {
+            const url = `https://api-rms.hostify.com/listings/children/${parentListingId}`;
+
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+                params: {
+                    include_related_objects: 1,
+                },
+            });
+
+            return response.data?.listings || [];
+        } catch (error) {
+            logger.error(`Error fetching child listings for ${parentListingId}:`, error.message);
+            return [];
+        }
+    }
+
+    async getIntegrations(apiKey: string) {
+        try {
+            const url = "https://api-rms.hostify.com/integrations";
+
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+
+            return response.data?.integrations || [];
+        } catch (error) {
+            logger.error("Error fetching integrations:", error.message);
+            return [];
+        }
+    }
+
     async getReservations(filter: any, apiKey: string) {
         try {
             const url = "https://api-rms.hostify.com/reservations";

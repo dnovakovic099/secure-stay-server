@@ -262,4 +262,15 @@ export class ListingController {
     }
   }
 
+  async getChildListings(request: Request, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = Number(request.params.listingId);
+      const childListings = await listingService.getChildListings(listingId);
+      return response.status(200).json(successDataFetch(childListings));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 }

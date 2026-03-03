@@ -11,6 +11,8 @@ router.route('/getlistings').get(verifySession, listingController.getListings);
 
 router.route('/getlisting/:listing_id').get(verifySession, listingController.getListingById);
 
+router.route('/:listingId/children').get(verifySession, listingController.getChildListings);
+
 router.route('/synchostawaylistings').get(verifySession, listingController.syncHostawayListing);
 
 router.route('/getlistingaddresses').get(verifySession, listingController.getListingAddresses);
