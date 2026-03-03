@@ -5,6 +5,7 @@ import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Employee, EmployeeDepartment } from '../entity/Employee';
 import { UsersEntity } from '../entity/Users';
 import { EscalationSettingsService } from './EscalationSettingsService';
+import { AIEscalationManagerService } from './AIEscalationManagerService';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import { LessThan } from 'typeorm';
 import OpenAI from 'openai';
@@ -15,6 +16,9 @@ const DEFAULT_GR_USERGROUP_ID = 'S09AUHMA6HE';
 const DEFAULT_OVERDUE_THRESHOLD_HOURS = 4;
 const DEFAULT_REMINDER_INTERVAL_HOURS = 1;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+
+// Enable AI-powered escalation (can be controlled via env var)
+const AI_ESCALATION_ENABLED = process.env.AI_ESCALATION_ENABLED !== 'false';
 
 interface SlackThreadMessage {
     ts: string;
@@ -28,6 +32,7 @@ export class EscalationService {
     private employeeRepo = appDatabase.getRepository(Employee);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private settingsService = new EscalationSettingsService();
+    private aiManager = new AIEscalationManagerService();
 
     /**
      * Get the appropriate Slack mention based on channel settings and shift status.
@@ -380,7 +385,31 @@ export class EscalationService {
                     });
 
                     if (slackMsg) {
-                        // Generate AI context summary from thread
+                        // ── AI-POWERED DECISION MAKING ──
+                        if (AI_ESCALATION_ENABLED) {
+                            try {
+                                // Let AI analyze the task and decide what to do
+                                const decision = await this.aiManager.analyzeAndDecide(event.id);
+                                
+                                // Execute the AI's decision
+                                const executed = await this.aiManager.executeDecision(
+                                    event.id, 
+                                    decision, 
+                                    slackMsg.channel, 
+                                    slackMsg.messageTs
+                                );
+
+                                if (executed) {
+                                    logger.info(`[EscalationService] AI decision for event ${event.id}: ${decision.action}`);
+                                }
+                                continue; // AI handled it, move to next task
+                            } catch (aiError) {
+                                logger.warn(`[EscalationService] AI escalation failed for event ${event.id}, falling back to standard reminder: ${aiError}`);
+                                // Fall through to standard reminder
+                            }
+                        }
+
+                        // ── STANDARD REMINDER (fallback or when AI disabled) ──
                         let contextSummary = '';
                         try {
                             contextSummary = await this.generateContextSummary(slackMsg.channel, slackMsg.messageTs, event);

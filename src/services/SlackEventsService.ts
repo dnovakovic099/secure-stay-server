@@ -2,6 +2,8 @@ import { appDatabase } from "../utils/database.util";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
+import { AIEscalationManagerService } from "./AIEscalationManagerService";
+import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 import axios from "axios";
 import { getSlackUsers } from "../utils/getSlackUsers";
@@ -16,6 +18,15 @@ interface SlackMessageEvent {
     ts: string;
     thread_ts?: string;
     bot_id?: string;
+}
+
+interface SlackAppMentionEvent {
+    type: string;
+    channel: string;
+    user: string;
+    text: string;
+    ts: string;
+    thread_ts?: string;
 }
 
 export class SlackEventsService {
@@ -129,6 +140,59 @@ export class SlackEventsService {
         } catch (error) {
             logger.error('[SlackEventsService] Error fetching user info:', error);
             return 'Unknown User';
+        }
+    }
+
+    /**
+     * Handle app_mention events (when bot is @mentioned)
+     * Routes to AI Escalation Manager for conversational responses
+     */
+    async handleAppMention(event: SlackAppMentionEvent): Promise<void> {
+        try {
+            logger.info(`[SlackEventsService] App mention received in channel ${event.channel}`);
+
+            // Get the thread_ts (if in a thread) or use ts for root-level mentions
+            const threadTs = event.thread_ts || event.ts;
+
+            // Extract the actual message (remove the bot mention)
+            const botMentionRegex = /<@[A-Z0-9]+>/g;
+            const userMessage = event.text.replace(botMentionRegex, '').trim();
+
+            if (!userMessage) {
+                // Just mentioned with no message, send a helpful response
+                await sendSlackMessage({
+                    channel: event.channel,
+                    text: "👋 Hi! I'm the GR Tasks AI Manager. You can ask me about task status, request extensions, or provide updates. How can I help?"
+                }, threadTs);
+                return;
+            }
+
+            // Use AI Manager to generate a response
+            const aiManager = new AIEscalationManagerService();
+            const response = await aiManager.handleMention(event.channel, threadTs, userMessage, event.user);
+
+            if (response) {
+                // Send the AI response as a thread reply
+                await sendSlackMessage({
+                    channel: event.channel,
+                    text: response
+                }, threadTs);
+                logger.info(`[SlackEventsService] Sent AI response for mention in ${event.channel}`);
+            }
+
+        } catch (error) {
+            logger.error('[SlackEventsService] Error handling app mention:', error);
+            
+            // Send error response
+            try {
+                const threadTs = event.thread_ts || event.ts;
+                await sendSlackMessage({
+                    channel: event.channel,
+                    text: "I encountered an error processing your message. Please try again or contact support."
+                }, threadTs);
+            } catch (sendError) {
+                logger.error('[SlackEventsService] Failed to send error message:', sendError);
+            }
         }
     }
 }
