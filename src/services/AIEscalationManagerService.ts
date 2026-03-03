@@ -3,6 +3,7 @@ import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Employee } from '../entity/Employee';
+import { AIEscalationLog } from '../entity/AIEscalationLog';
 import { EscalationSettingsService } from './EscalationSettingsService';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import OpenAI from 'openai';
@@ -59,6 +60,7 @@ export class AIEscalationManagerService {
     private eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private employeeRepo = appDatabase.getRepository(Employee);
+    private logRepo = appDatabase.getRepository(AIEscalationLog);
     private settingsService = new EscalationSettingsService();
 
     // Manager persona system prompts by mode
@@ -191,6 +193,9 @@ Be friendly and supportive. Max 2-3 sentences.`
      * Analyze a task and decide what action to take
      */
     async analyzeAndDecide(taskId: number): Promise<AIDecision> {
+        let context: TaskContext | null = null;
+        let aiSettings: AISettings = { aiEnabled: true, aiMode: 'standard', aiInstructions: null };
+        
         try {
             // Fetch task first to check AI settings
             const event = await this.eventRepo.findOne({ where: { id: taskId } });
@@ -199,14 +204,14 @@ Be friendly and supportive. Max 2-3 sentences.`
             }
 
             // Check if AI is enabled for this task
-            const aiSettings = await this.isAIEnabledForTask(event);
+            aiSettings = await this.isAIEnabledForTask(event);
             if (!aiSettings.aiEnabled) {
                 logger.info(`[AIEscalationManager] AI disabled for task ${taskId}, skipping AI analysis`);
                 return { action: 'REMIND', message: 'FALLBACK_TO_STANDARD' }; // Signal to use standard reminder
             }
 
             // Fetch full context
-            const context = await this.getTaskContext(taskId);
+            context = await this.getTaskContext(taskId);
             if (!context) {
                 return { action: 'SKIP', reason: 'Task not found or no Slack message' };
             }
@@ -221,9 +226,28 @@ Be friendly and supportive. Max 2-3 sentences.`
                 'reason' in decision ? decision.reason : 'message' in decision ? decision.message.substring(0, 50) : ''
             }`);
 
+            // Log the decision
+            await this.logDecision(taskId, context, decision, aiSettings);
+
             return decision;
         } catch (error) {
             logger.error(`[AIEscalationManager] Error analyzing task ${taskId}:`, error);
+            
+            // Log the error
+            try {
+                await this.logRepo.save({
+                    taskId,
+                    slackChannel: context?.slackChannel || null,
+                    eventType: context?.event?.event || null,
+                    decision: 'ERROR',
+                    aiMode: aiSettings.aiMode,
+                    error: error instanceof Error ? error.message : String(error),
+                    executed: false
+                });
+            } catch (logError) {
+                logger.warn('[AIEscalationManager] Failed to log error:', logError);
+            }
+            
             // Fall back to simple reminder on error
             return { 
                 action: 'REMIND', 
@@ -233,9 +257,49 @@ Be friendly and supportive. Max 2-3 sentences.`
     }
 
     /**
+     * Log an AI decision for review
+     */
+    private async logDecision(
+        taskId: number, 
+        context: TaskContext, 
+        decision: AIDecision, 
+        aiSettings: AISettings
+    ): Promise<void> {
+        try {
+            // Create context summary from thread messages
+            const contextSummary = context.threadMessages
+                .slice(-5)
+                .map(m => `${m.bot_id ? '[BOT]' : '[USER]'}: ${m.text?.substring(0, 100)}`)
+                .join('\n');
+
+            const log = this.logRepo.create({
+                taskId,
+                slackChannel: context.slackChannel || null,
+                eventType: context.event.event || null,
+                decision: decision.action,
+                aiMode: aiSettings.aiMode,
+                message: 'message' in decision ? decision.message : null,
+                reason: 'reason' in decision ? decision.reason : null,
+                executed: false, // Will be updated when executed
+                hoursSinceCreation: context.hoursSinceCreation,
+                hoursSinceLastActivity: context.hoursSinceLastActivity,
+                previousReminderCount: context.reminderCount,
+                customInstructions: aiSettings.aiInstructions,
+                contextSummary
+            });
+
+            await this.logRepo.save(log);
+        } catch (error) {
+            logger.warn('[AIEscalationManager] Failed to log decision:', error);
+        }
+    }
+
+    /**
      * Execute the AI decision - send message, update status, etc.
      */
     async executeDecision(taskId: number, decision: AIDecision, slackChannel: string, threadTs: string): Promise<boolean> {
+        let executed = false;
+        
         try {
             const event = await this.eventRepo.findOne({ where: { id: taskId } });
             if (!event) return false;
@@ -243,7 +307,8 @@ Be friendly and supportive. Max 2-3 sentences.`
             switch (decision.action) {
                 case 'SKIP':
                     logger.info(`[AIEscalationManager] Skipping reminder for task ${taskId}: ${decision.reason}`);
-                    return true;
+                    executed = true;
+                    break;
 
                 case 'REMIND':
                 case 'ASK_UPDATE':
@@ -258,9 +323,9 @@ Be friendly and supportive. Max 2-3 sentences.`
                         event.lastReminderAt = new Date();
                         event.reminderCount = (event.reminderCount || 0) + 1;
                         await this.eventRepo.save(event);
-                        return true;
+                        executed = true;
                     }
-                    return false;
+                    break;
 
                 case 'AUTO_COMPLETE':
                     event.status = 'Completed';
@@ -272,7 +337,8 @@ Be friendly and supportive. Max 2-3 sentences.`
                         channel: slackChannel, 
                         text: `✅ This task has been automatically marked as *Completed* based on the thread activity. (${decision.reason})` 
                     }, threadTs);
-                    return true;
+                    executed = true;
+                    break;
 
                 case 'AUTO_IN_PROGRESS':
                     event.status = 'In Progress';
@@ -283,14 +349,42 @@ Be friendly and supportive. Max 2-3 sentences.`
                         channel: slackChannel, 
                         text: `📝 This task has been automatically moved to *In Progress*. (${decision.reason})` 
                     }, threadTs);
-                    return true;
-
-                default:
-                    return false;
+                    executed = true;
+                    break;
             }
+
+            // Mark the log as executed
+            await this.markLogExecuted(taskId, decision.action, executed);
+            
+            return executed;
         } catch (error) {
             logger.error(`[AIEscalationManager] Error executing decision for task ${taskId}:`, error);
+            
+            // Log the execution error
+            await this.markLogExecuted(taskId, decision.action, false, error instanceof Error ? error.message : String(error));
+            
             return false;
+        }
+    }
+
+    /**
+     * Mark the most recent log entry for a task as executed
+     */
+    private async markLogExecuted(taskId: number, action: string, executed: boolean, error?: string): Promise<void> {
+        try {
+            // Find the most recent log for this task and action
+            const log = await this.logRepo.findOne({
+                where: { taskId, decision: action },
+                order: { createdAt: 'DESC' }
+            });
+
+            if (log) {
+                log.executed = executed;
+                if (error) log.error = error;
+                await this.logRepo.save(log);
+            }
+        } catch (err) {
+            logger.warn('[AIEscalationManager] Failed to update log execution status:', err);
         }
     }
 
