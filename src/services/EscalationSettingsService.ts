@@ -44,11 +44,18 @@ export class EscalationSettingsService {
             await this.ensureColumns();
         } catch (error: any) {
             // Table doesn't exist, create it
-            if (error.message?.includes('does not exist') || error.code === '42P01') {
+            // Error code for "Table doesn't exist" in MySQL/MariaDB is usually 'ER_NO_SUCH_TABLE' or message contains 'doesn't exist'
+            const isTableMissing =
+                error.message?.toLowerCase().includes("doesn't exist") ||
+                error.message?.toLowerCase().includes("does not exist") ||
+                error.code === '42P01' || // PostgreSQL
+                error.code === 'ER_NO_SUCH_TABLE'; // MySQL
+
+            if (isTableMissing) {
                 logger.info('[EscalationSettingsService] Creating escalation_settings table...');
                 await appDatabase.query(`
-                    CREATE TABLE escalation_settings (
-                        id SERIAL PRIMARY KEY,
+                    CREATE TABLE IF NOT EXISTS escalation_settings (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
                         setting_key VARCHAR(100) NOT NULL UNIQUE,
                         display_name VARCHAR(255),
                         slack_channel VARCHAR(100),
@@ -60,9 +67,12 @@ export class EscalationSettingsService {
                         fallback_slack_group_id VARCHAR(50) NOT NULL DEFAULT 'S09AUHMA6HE',
                         check_shift_schedule BOOLEAN NOT NULL DEFAULT true,
                         is_active BOOLEAN NOT NULL DEFAULT true,
+                        ai_enabled BOOLEAN NOT NULL DEFAULT true,
+                        ai_instructions TEXT,
+                        ai_mode VARCHAR(20) DEFAULT 'standard',
                         updated_by INT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     )
                 `);
                 logger.info('[EscalationSettingsService] Table created successfully');
