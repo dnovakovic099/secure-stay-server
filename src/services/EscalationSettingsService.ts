@@ -166,46 +166,45 @@ export class EscalationSettingsService {
      * Get all escalation settings
      */
     async getAllSettings(): Promise<SettingsWithEmployeeInfo[]> {
-        try {
-            await this.ensureTable();
-        } catch (ensureError) {
-            logger.error('[EscalationSettingsService] Error ensuring table:', ensureError);
-        }
-        
+        // Always use raw query to avoid TypeORM column sync issues
         let settings: EscalationSettings[];
+        
         try {
-            settings = await this.settingsRepo.find({
-                order: { settingKey: 'ASC' }
-            });
+            // Ensure table and columns exist first
+            await this.ensureTable();
+        } catch (tableError) {
+            logger.error('[EscalationSettingsService] Error ensuring table:', tableError);
+        }
+
+        try {
+            // Use raw query - more robust than TypeORM when columns might be missing
+            const rawSettings = await appDatabase.query('SELECT * FROM escalation_settings ORDER BY setting_key ASC');
+            settings = rawSettings.map((row: any) => ({
+                id: row.id,
+                settingKey: row.setting_key,
+                displayName: row.display_name,
+                slackChannel: row.slack_channel,
+                eventType: row.event_type,
+                overdueThresholdHours: row.overdue_threshold_hours || 4,
+                reminderIntervalHours: row.reminder_interval_hours || 1,
+                dailyReminderTime: row.daily_reminder_time || '10:00',
+                primaryEmployeeId: row.primary_employee_id,
+                fallbackSlackGroupId: row.fallback_slack_group_id || 'S09AUHMA6HE',
+                checkShiftSchedule: row.check_shift_schedule ?? true,
+                isActive: row.is_active ?? true,
+                aiEnabled: row.ai_enabled ?? true,
+                aiInstructions: row.ai_instructions ?? null,
+                aiMode: row.ai_mode ?? 'standard',
+                updatedBy: row.updated_by,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+            } as EscalationSettings));
+            
+            logger.info(`[EscalationSettingsService] Loaded ${settings.length} settings`);
         } catch (queryError: any) {
-            logger.error('[EscalationSettingsService] Error querying settings:', queryError.message);
-            // If query fails due to missing columns, try raw query
-            if (queryError.message?.includes('column') || queryError.message?.includes('does not exist')) {
-                logger.info('[EscalationSettingsService] Falling back to raw query...');
-                const rawSettings = await appDatabase.query('SELECT * FROM escalation_settings ORDER BY setting_key ASC');
-                settings = rawSettings.map((row: any) => ({
-                    id: row.id,
-                    settingKey: row.setting_key,
-                    displayName: row.display_name,
-                    slackChannel: row.slack_channel,
-                    eventType: row.event_type,
-                    overdueThresholdHours: row.overdue_threshold_hours,
-                    reminderIntervalHours: row.reminder_interval_hours,
-                    dailyReminderTime: row.daily_reminder_time,
-                    primaryEmployeeId: row.primary_employee_id,
-                    fallbackSlackGroupId: row.fallback_slack_group_id,
-                    checkShiftSchedule: row.check_shift_schedule,
-                    isActive: row.is_active,
-                    aiEnabled: row.ai_enabled ?? true,
-                    aiInstructions: row.ai_instructions ?? null,
-                    aiMode: row.ai_mode ?? 'standard',
-                    updatedBy: row.updated_by,
-                    createdAt: row.created_at,
-                    updatedAt: row.updated_at,
-                } as EscalationSettings));
-            } else {
-                throw queryError;
-            }
+            logger.error('[EscalationSettingsService] Error querying settings:', queryError);
+            // Return empty array instead of throwing
+            settings = [];
         }
 
         // Enrich with employee info
