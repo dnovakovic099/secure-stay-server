@@ -207,6 +207,7 @@ export class ListingService {
       contactLanguage: data?.contactLanguage || "",
       propertyLicenseNumber: data?.propertyLicenseNumber || "",
       tags: data?.tags || null,
+      integration_id: data?.integration_id || data?.fs_integration_type || data?.target_id || data?.channel_account_id || null,
     };
   }
 
@@ -290,14 +291,36 @@ export class ListingService {
 
   async getListings(userId: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
-        .createQueryBuilder("listing")
+      .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.images", "listingImages");
 
     if (includeDeleted) {
       query.withDeleted();
     }
 
-    return await query.getMany();
+    const listings = await query.getMany();
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+
+    if (!hostifyApiKey) return listings;
+
+    try {
+      const integrations = await this.hostifyClient.getIntegrations(hostifyApiKey);
+
+      return listings.map((listing: any) => {
+        const integration = integrations.find((i: any) =>
+          String(i.id) === String(listing.integration_id)
+        );
+
+        return {
+          ...listing,
+          integration_name: integration ? (integration.nickname || integration.full_name || integration.user) : '-',
+          integration_picture: integration?.picture || null
+        };
+      });
+    } catch (error) {
+      logger.error("Error enriching listings with integrations:", error);
+      return listings;
+    }
   }
 
   async getListingNames(userId: string, includeDeleted: boolean = false) {

@@ -201,4 +201,7 @@ export class Listing {
   @Column({ type: 'date', nullable: true })
   startDate: Date;
 
+  @Column({ type: 'bigint', nullable: true })
+  integration_id: number;
+
 }

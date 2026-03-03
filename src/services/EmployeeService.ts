@@ -102,6 +102,9 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_recurrence', 'VARCHAR(20) NULL');
             await addColumnIfNotExists('payment_start_date', 'DATE NULL');
 
+            // Cleanup soft-deleted employee numbers to prevent conflicts with active ones
+            await appDatabase.query(`UPDATE employees SET employee_number = NULL, employee_number_seq = NULL WHERE deleted_at IS NOT NULL`);
+
             tablesInitialized = true;
         } catch (error: any) {
             // Table doesn't exist, create it
@@ -467,7 +470,6 @@ export class EmployeeService {
                 .setLock('pessimistic_write')
                 .update()
                 .set({ employeeNumber: null, employeeNumberSeq: null })
-                .where('deletedAt IS NULL')
                 .execute();
 
             const employees = await transactionalEntityManager
