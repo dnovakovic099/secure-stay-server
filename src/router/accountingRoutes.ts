@@ -13,6 +13,8 @@ import { validateContractorInfo } from "../middleware/validation/accounting/cont
 import { ResolutionController } from "../controllers/ResolutionController";
 import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
 import { PublishedStatementController } from "../controllers/PublishedStatementController";
+import verifyAdmin from "../middleware/verifyAdmin";
+
 
 const router = Router();
 const expenseController = new ExpenseController();
@@ -50,7 +52,7 @@ router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseB
 
 router.route('/deleteexpense/:id').delete(verifySession, expenseController.deleteExpense);
 
-router.route('/bulkdeleteexpenses').post(verifySession, expenseController.bulkDeleteExpenses);
+router.route('/bulkdeleteexpenses').post(verifySession, verifyAdmin, expenseController.bulkDeleteExpenses);
 
 router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
 
