@@ -35,6 +35,9 @@ export class EscalationSettingsService {
         try {
             // Check if table exists
             await appDatabase.query(`SELECT 1 FROM escalation_settings LIMIT 1`);
+            
+            // Ensure new columns exist (for migrations)
+            await this.ensureColumns();
         } catch (error: any) {
             // Table doesn't exist, create it
             if (error.message?.includes('does not exist') || error.code === '42P01') {
@@ -44,6 +47,8 @@ export class EscalationSettingsService {
                         id SERIAL PRIMARY KEY,
                         setting_key VARCHAR(100) NOT NULL UNIQUE,
                         display_name VARCHAR(255),
+                        slack_channel VARCHAR(100),
+                        event_type VARCHAR(100),
                         overdue_threshold_hours INT NOT NULL DEFAULT 4,
                         reminder_interval_hours INT NOT NULL DEFAULT 1,
                         daily_reminder_time VARCHAR(10) NOT NULL DEFAULT '10:00',
@@ -64,6 +69,27 @@ export class EscalationSettingsService {
 
         // Ensure default settings exist
         await this.ensureDefaultSettings();
+    }
+
+    /**
+     * Ensure new columns exist (for migrations)
+     */
+    private async ensureColumns(): Promise<void> {
+        try {
+            // Add slack_channel column if not exists
+            await appDatabase.query(`
+                ALTER TABLE escalation_settings 
+                ADD COLUMN IF NOT EXISTS slack_channel VARCHAR(100)
+            `);
+            // Add event_type column if not exists
+            await appDatabase.query(`
+                ALTER TABLE escalation_settings 
+                ADD COLUMN IF NOT EXISTS event_type VARCHAR(100)
+            `);
+        } catch (error) {
+            // Ignore errors (column might already exist in some DBs)
+            logger.debug('[EscalationSettingsService] Column migration check completed');
+        }
     }
 
     /**

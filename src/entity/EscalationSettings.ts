@@ -24,6 +24,18 @@ export class EscalationSettings {
     displayName: string | null;
 
     /**
+     * Slack channel name this setting applies to (nullable = applies to all)
+     */
+    @Column({ name: 'slack_channel', type: 'varchar', length: 100, nullable: true })
+    slackChannel: string | null;
+
+    /**
+     * Event type this setting applies to (nullable = applies to all events)
+     */
+    @Column({ name: 'event_type', type: 'varchar', length: 100, nullable: true })
+    eventType: string | null;
+
+    /**
      * Hours before a task is considered overdue (default: 4)
      */
     @Column({ name: 'overdue_threshold_hours', type: 'int', default: 4 })
