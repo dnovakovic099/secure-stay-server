@@ -975,4 +975,30 @@ export class ListingService {
     }
   }
 
+  async getChildListings(listingId: number) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    const [childListings, integrations] = await Promise.all([
+      this.hostifyClient.getChildListings(hostifyApiKey, String(listingId)),
+      this.hostifyClient.getIntegrations(hostifyApiKey)
+    ]);
+
+    // Map integration names to child listings
+    return childListings.map((listing: any) => {
+      const integration = integrations.find((i: any) =>
+        i.id === listing.integration_id ||
+        i.id === listing.fs_integration_type ||
+        i.id === listing.target_id ||
+        i.id === listing.channel_account_id
+      );
+
+      return {
+        ...listing,
+        integration_name: integration ? (integration.nickname || integration.full_name || integration.user) : '-',
+        integration_picture: integration?.picture || null
+      };
+    });
+  }
+
 }
