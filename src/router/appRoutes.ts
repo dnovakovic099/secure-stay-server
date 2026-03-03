@@ -51,6 +51,7 @@ import itemSupplyRequestRoutes from "./itemSupplyRequestRoutes";
 import allServiceRequestRoutes from "./allServiceRequestRoutes";
 import assignedTaskRoutes from "./assignedTaskRoutes";
 import employeeRoutes from "./employeeRoutes";
+import aiRoutes from "./aiRoutes";
 
 const router = Router();
 
@@ -108,6 +109,7 @@ router.use('/item-supply-request', itemSupplyRequestRoutes);
 router.use('/service-requests', allServiceRequestRoutes);
 router.use('/assigned-tasks', assignedTaskRoutes);
 router.use('/employees', employeeRoutes);
+router.use('/ai', aiRoutes);
 
 export default router;
 
