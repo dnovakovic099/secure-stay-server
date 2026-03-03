@@ -75,34 +75,26 @@ export class EscalationSettingsService {
      * Ensure new columns exist (for migrations)
      */
     private async ensureColumns(): Promise<void> {
-        try {
-            // Add slack_channel column if not exists
-            await appDatabase.query(`
-                ALTER TABLE escalation_settings 
-                ADD COLUMN IF NOT EXISTS slack_channel VARCHAR(100)
-            `);
-            // Add event_type column if not exists
-            await appDatabase.query(`
-                ALTER TABLE escalation_settings 
-                ADD COLUMN IF NOT EXISTS event_type VARCHAR(100)
-            `);
-            // Add AI-related columns
-            await appDatabase.query(`
-                ALTER TABLE escalation_settings 
-                ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT true
-            `);
-            await appDatabase.query(`
-                ALTER TABLE escalation_settings 
-                ADD COLUMN IF NOT EXISTS ai_instructions TEXT
-            `);
-            await appDatabase.query(`
-                ALTER TABLE escalation_settings 
-                ADD COLUMN IF NOT EXISTS ai_mode VARCHAR(20) DEFAULT 'standard'
-            `);
-        } catch (error) {
-            // Ignore errors (column might already exist in some DBs)
-            logger.debug('[EscalationSettingsService] Column migration check completed');
+        const columns = [
+            { name: 'slack_channel', sql: 'ADD COLUMN IF NOT EXISTS slack_channel VARCHAR(100)' },
+            { name: 'event_type', sql: 'ADD COLUMN IF NOT EXISTS event_type VARCHAR(100)' },
+            { name: 'ai_enabled', sql: 'ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT true' },
+            { name: 'ai_instructions', sql: 'ADD COLUMN IF NOT EXISTS ai_instructions TEXT' },
+            { name: 'ai_mode', sql: "ADD COLUMN IF NOT EXISTS ai_mode VARCHAR(20) DEFAULT 'standard'" },
+        ];
+
+        for (const col of columns) {
+            try {
+                await appDatabase.query(`ALTER TABLE escalation_settings ${col.sql}`);
+            } catch (error: any) {
+                // Column might already exist (for DBs that don't support IF NOT EXISTS)
+                if (!error.message?.includes('already exists') && !error.message?.includes('duplicate column')) {
+                    logger.warn(`[EscalationSettingsService] Failed to add column ${col.name}:`, error.message);
+                }
+            }
         }
+        
+        logger.debug('[EscalationSettingsService] Column migration check completed');
     }
 
     /**
