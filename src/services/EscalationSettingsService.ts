@@ -13,6 +13,10 @@ interface UpdateSettingsDto {
     checkShiftSchedule?: boolean;
     isActive?: boolean;
     displayName?: string | null;
+    // AI settings
+    aiEnabled?: boolean;
+    aiMode?: string;
+    aiInstructions?: string | null;
 }
 
 interface SettingsWithEmployeeInfo extends EscalationSettings {
