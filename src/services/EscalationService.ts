@@ -391,18 +391,27 @@ export class EscalationService {
                                 // Let AI analyze the task and decide what to do
                                 const decision = await this.aiManager.analyzeAndDecide(event.id);
                                 
-                                // Execute the AI's decision
-                                const executed = await this.aiManager.executeDecision(
-                                    event.id, 
-                                    decision, 
-                                    slackMsg.channel, 
-                                    slackMsg.messageTs
-                                );
+                                // Check if AI is disabled for this task (returns FALLBACK signal)
+                                const isFallback = decision.action === 'REMIND' && 
+                                    'message' in decision && 
+                                    decision.message === 'FALLBACK_TO_STANDARD';
+                                
+                                if (!isFallback) {
+                                    // Execute the AI's decision
+                                    const executed = await this.aiManager.executeDecision(
+                                        event.id, 
+                                        decision, 
+                                        slackMsg.channel, 
+                                        slackMsg.messageTs
+                                    );
 
-                                if (executed) {
-                                    logger.info(`[EscalationService] AI decision for event ${event.id}: ${decision.action}`);
+                                    if (executed) {
+                                        logger.info(`[EscalationService] AI decision for event ${event.id}: ${decision.action}`);
+                                    }
+                                    continue; // AI handled it, move to next task
                                 }
-                                continue; // AI handled it, move to next task
+                                // If fallback, continue to standard reminder below
+                                logger.info(`[EscalationService] AI disabled for event ${event.id}, using standard reminder`);
                             } catch (aiError) {
                                 logger.warn(`[EscalationService] AI escalation failed for event ${event.id}, falling back to standard reminder: ${aiError}`);
                                 // Fall through to standard reminder

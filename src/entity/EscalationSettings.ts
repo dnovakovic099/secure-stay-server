@@ -83,6 +83,28 @@ export class EscalationSettings {
     isActive: boolean;
 
     /**
+     * Whether AI-powered escalation is enabled for this setting
+     */
+    @Column({ name: 'ai_enabled', type: 'boolean', default: true })
+    aiEnabled: boolean;
+
+    /**
+     * Custom instructions for the AI manager (optional)
+     * E.g., "Be more lenient with first-time issues" or "Escalate immediately for VIP guests"
+     */
+    @Column({ name: 'ai_instructions', type: 'text', nullable: true })
+    aiInstructions: string | null;
+
+    /**
+     * AI behavior mode: 'standard' | 'strict' | 'lenient'
+     * - standard: balanced approach
+     * - strict: push back more, shorter deadlines
+     * - lenient: more understanding, longer grace periods
+     */
+    @Column({ name: 'ai_mode', type: 'varchar', length: 20, default: 'standard' })
+    aiMode: string;
+
+    /**
      * User who last updated this setting
      */
     @Column({ name: 'updated_by', nullable: true })
