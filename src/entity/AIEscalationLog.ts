@@ -95,6 +95,48 @@ export class AIEscalationLog {
     error: string | null;
 
     /**
+     * Slack message timestamp (for linking to the AI message)
+     */
+    @Column({ name: 'slack_message_ts', nullable: true })
+    slackMessageTs: string | null;
+
+    /**
+     * Slack channel ID for the message
+     */
+    @Column({ name: 'slack_channel_id', nullable: true })
+    slackChannelId: string | null;
+
+    /**
+     * Permalink to the Slack message (constructed or fetched)
+     */
+    @Column({ name: 'slack_permalink', nullable: true })
+    slackPermalink: string | null;
+
+    /**
+     * Manager feedback on the AI decision
+     */
+    @Column({ name: 'feedback', type: 'text', nullable: true })
+    feedback: string | null;
+
+    /**
+     * Feedback rating: positive, negative, or neutral
+     */
+    @Column({ name: 'feedback_rating', nullable: true })
+    feedbackRating: 'positive' | 'negative' | 'neutral' | null;
+
+    /**
+     * User ID who provided the feedback
+     */
+    @Column({ name: 'feedback_by', nullable: true })
+    feedbackBy: number | null;
+
+    /**
+     * When the feedback was provided
+     */
+    @Column({ name: 'feedback_at', nullable: true })
+    feedbackAt: Date | null;
+
+    /**
      * When the decision was made
      */
     @CreateDateColumn({ name: 'created_at' })

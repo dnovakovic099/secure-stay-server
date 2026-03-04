@@ -177,3 +177,108 @@ export const getLogsByTask = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to fetch task logs' });
     }
 };
+
+/**
+ * Submit feedback on an AI decision
+ */
+export const submitFeedback = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { feedback, rating } = req.body;
+        const userId = (req as any).user?.id || (req as any).userId;
+
+        if (!feedback) {
+            return res.status(400).json({ error: 'Feedback is required' });
+        }
+
+        if (rating && !['positive', 'negative', 'neutral'].includes(rating)) {
+            return res.status(400).json({ error: 'Invalid rating. Must be: positive, negative, or neutral' });
+        }
+
+        const log = await logRepo.findOne({ where: { id: Number(id) } });
+        
+        if (!log) {
+            return res.status(404).json({ error: 'AI log not found' });
+        }
+
+        // Update the log with feedback
+        log.feedback = feedback;
+        log.feedbackRating = rating || 'neutral';
+        log.feedbackBy = userId || null;
+        log.feedbackAt = new Date();
+
+        await logRepo.save(log);
+
+        logger.info(`[AILogController] Feedback submitted for log ${id}: ${rating} - ${feedback.substring(0, 100)}`);
+
+        res.json({ 
+            success: true, 
+            message: 'Feedback submitted successfully',
+            data: log
+        });
+    } catch (error) {
+        logger.error('[AILogController] Error submitting feedback:', error);
+        res.status(500).json({ error: 'Failed to submit feedback' });
+    }
+};
+
+/**
+ * Get feedback statistics for AI improvement
+ */
+export const getFeedbackStats = async (req: Request, res: Response) => {
+    try {
+        const { days = 30 } = req.query;
+        const since = new Date();
+        since.setDate(since.getDate() - Number(days));
+
+        // Get feedback breakdown by rating
+        const ratingStats = await logRepo
+            .createQueryBuilder('log')
+            .select('log.feedbackRating', 'rating')
+            .addSelect('COUNT(*)', 'count')
+            .where('log.feedbackAt >= :since', { since })
+            .andWhere('log.feedbackRating IS NOT NULL')
+            .groupBy('log.feedbackRating')
+            .getRawMany();
+
+        // Get feedback breakdown by decision type
+        const decisionFeedback = await logRepo
+            .createQueryBuilder('log')
+            .select('log.decision', 'decision')
+            .addSelect('log.feedbackRating', 'rating')
+            .addSelect('COUNT(*)', 'count')
+            .where('log.feedbackAt >= :since', { since })
+            .andWhere('log.feedbackRating IS NOT NULL')
+            .groupBy('log.decision')
+            .addGroupBy('log.feedbackRating')
+            .getRawMany();
+
+        // Get recent feedback messages for review
+        const recentFeedback = await logRepo.find({
+            where: {
+                feedbackAt: Between(since, new Date())
+            },
+            order: { feedbackAt: 'DESC' },
+            take: 20,
+            select: ['id', 'taskId', 'decision', 'message', 'feedback', 'feedbackRating', 'feedbackAt']
+        });
+
+        // Count total feedback received
+        const totalFeedback = await logRepo.count({
+            where: {
+                feedbackAt: Between(since, new Date())
+            }
+        });
+
+        res.json({
+            period: `Last ${days} days`,
+            totalFeedback,
+            byRating: ratingStats,
+            byDecision: decisionFeedback,
+            recentFeedback
+        });
+    } catch (error) {
+        logger.error('[AILogController] Error fetching feedback stats:', error);
+        res.status(500).json({ error: 'Failed to fetch feedback statistics' });
+    }
+};
