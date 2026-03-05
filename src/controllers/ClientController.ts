@@ -495,4 +495,40 @@ export class ClientController {
     }
   }
 
+  /**
+   * Sync owners from Hostify to Clients
+   */
+  async syncHostifyOwners(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const { HostifyOwnerSyncService } = await import('../services/HostifyOwnerSyncService');
+      const syncService = new HostifyOwnerSyncService();
+      const result = await syncService.syncOwners(request.user?.id || 'system');
+      return response.status(200).json({ 
+        success: true, 
+        message: 'Hostify owner sync completed',
+        ...result 
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get owners from Hostify (preview without sync)
+   */
+  async getHostifyOwners(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const { HostifyOwnerSyncService } = await import('../services/HostifyOwnerSyncService');
+      const syncService = new HostifyOwnerSyncService();
+      const owners = await syncService.getHostifyOwners();
+      return response.status(200).json({ 
+        success: true, 
+        data: owners,
+        total: owners.length
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
