@@ -221,7 +221,7 @@ export class HostifyOwnerSyncService {
             const existingProp = await this.clientPropertyRepo.findOne({
                 where: {
                     client: { id: client.id },
-                    listingId: listing.id
+                    listingId: String(listing.id)
                 }
             });
 
@@ -229,12 +229,9 @@ export class HostifyOwnerSyncService {
                 // Create new property association
                 const newProp = this.clientPropertyRepo.create({
                     client,
-                    listingId: listing.id,
-                    listingName: prop.nickname || listing.internalListingName,
+                    listingId: String(listing.id),
                     address: prop.address || listing.address,
-                    agreementSignedDate: new Date(),
-                    managementFee: 20, // Default
-                    paymentMethod: 'ACH'
+                    createdBy: 'system'
                 });
 
                 await this.clientPropertyRepo.save(newProp);
