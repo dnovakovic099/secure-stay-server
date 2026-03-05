@@ -204,10 +204,18 @@ export class ZapierWebhookService {
         // Filter by date range
         const dateField = filters.dateType === 'updatedAt' ? 'event.updatedAt' : 'event.createdAt';
         if (filters.fromDate) {
-            queryBuilder.andWhere(`${dateField} >= :fromDate`, { fromDate: filters.fromDate });
+            // If datetime format (includes space/T), use as-is; otherwise append 00:00:00
+            const fromDateTime = filters.fromDate.includes(' ') || filters.fromDate.includes('T') 
+                ? filters.fromDate 
+                : `${filters.fromDate} 00:00:00`;
+            queryBuilder.andWhere(`${dateField} >= :fromDate`, { fromDate: fromDateTime });
         }
         if (filters.toDate) {
-            queryBuilder.andWhere(`${dateField} <= :toDate`, { toDate: `${filters.toDate} 23:59:59` });
+            // If datetime format, use as-is; otherwise append 23:59:59
+            const toDateTime = filters.toDate.includes(' ') || filters.toDate.includes('T')
+                ? filters.toDate
+                : `${filters.toDate} 23:59:59`;
+            queryBuilder.andWhere(`${dateField} <= :toDate`, { toDate: toDateTime });
         }
 
         // Get total count
