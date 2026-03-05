@@ -67,4 +67,9 @@ router
         fileUpload("clients").single("file"),
         clientController.processCSVForClient.bind(clientController)
     );
+
+// Hostify owner sync
+router.route('/sync-hostify-owners').post(verifySession, clientController.syncHostifyOwners.bind(clientController));
+router.route('/hostify-owners').get(verifySession, clientController.getHostifyOwners.bind(clientController));
+
 export default router;
