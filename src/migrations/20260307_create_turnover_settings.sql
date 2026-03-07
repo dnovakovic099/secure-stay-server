@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS turnover_settings (
 );
 
 -- Add index on owner email for lookups
-CREATE INDEX IF NOT EXISTS idx_turnover_settings_owner_email ON turnover_settings(owner_email);
+CREATE INDEX idx_turnover_settings_owner_email ON turnover_settings(owner_email);
