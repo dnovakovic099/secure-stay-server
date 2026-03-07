@@ -21,10 +21,14 @@ interface TurnoverNotification {
     listingNickname: string;
     address: string;
     propertyType: 'own' | 'arb' | 'pm';
+    listingTimezone?: string;
+    listingTags?: string;
     
     guestName: string;
     checkInDate: string;
     checkOutDate: string;
+    checkInTime?: string;
+    checkOutTime?: string;
     reservationCode?: string;
     
     notificationType: 'pre-stay' | 'post-stay';
@@ -144,10 +148,14 @@ export class TurnoverService {
                         listingNickname: listing.internalListingName || listing.name,
                         address: listing.address || '',
                         propertyType,
+                        listingTimezone: listing.timezone || 'America/Chicago',
+                        listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
                         checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
                         checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
+                        checkInTime: listing.checkInTimeStart || '15:00',
+                        checkOutTime: listing.checkOutTime || '11:00',
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'pre-stay',
@@ -226,10 +234,14 @@ export class TurnoverService {
                         listingNickname: listing.internalListingName || listing.name,
                         address: listing.address || '',
                         propertyType,
+                        listingTimezone: listing.timezone || 'America/Chicago',
+                        listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
                         checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
                         checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
+                        checkInTime: listing.checkInTimeStart || '15:00',
+                        checkOutTime: listing.checkOutTime || '11:00',
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'post-stay',
@@ -282,13 +294,21 @@ export class TurnoverService {
     }
 
     /**
-     * Get property type from listing
+     * Get property type from listing tags (primary) or nickname (fallback)
+     * Tags: "Own" = own, "Arb" = arb, "pm"/"PM" = pm
      */
     private getPropertyType(listing: Listing): 'own' | 'arb' | 'pm' {
+        // First check tags
+        const tags = (listing.tags || '').toLowerCase();
+        if (tags.includes('own')) return 'own';
+        if (tags.includes('arb')) return 'arb';
+        if (tags.includes('pm')) return 'pm';
+        
+        // Fallback to nickname
         const nickname = (listing.internalListingName || listing.name || '').toLowerCase();
-        if (nickname.includes('own') || nickname.includes('arb')) {
-            return nickname.includes('arb') ? 'arb' : 'own';
-        }
+        if (nickname.includes('own')) return 'own';
+        if (nickname.includes('arb')) return 'arb';
+        
         return 'pm';
     }
 
