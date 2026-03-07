@@ -4,10 +4,11 @@ import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreSta
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
 import { Listing } from "../entity/Listing";
 import { Contact } from "../entity/Contact";
-import { ReservationDetail } from "../entity/ReservationDetail";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import logger from "../utils/logger.utils";
 import { Between, In, Like, MoreThanOrEqual, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
+import { Hostify } from "../client/Hostify";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
@@ -66,7 +67,7 @@ export class TurnoverService {
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
     private listingRepo = appDatabase.getRepository(Listing);
     private contactRepo = appDatabase.getRepository(Contact);
-    private reservationRepo = appDatabase.getRepository(ReservationDetail);
+    private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
 
     /**
      * Get turnover notifications (combined pre-stay and post-stay)
@@ -113,10 +114,9 @@ export class TurnoverService {
                 const preStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        checkInDate: Between(fromDate, toDate),
+                        arrivalDate: Between(fromDate, toDate),
                         status: In(['accepted', 'moved', 'extended'])
-                    },
-                    relations: ['listing']
+                    }
                 });
 
                 for (const res of preStayReservations) {
@@ -124,7 +124,7 @@ export class TurnoverService {
                         where: { reservationId: res.id }
                     });
 
-                    const listing = res.listing || await this.listingRepo.findOne({ where: { id: res.listingMapId } });
+                    const listing = await this.listingRepo.findOne({ where: { id: res.listingMapId } });
                     if (!listing) continue;
 
                     // Apply property type filter
@@ -144,19 +144,19 @@ export class TurnoverService {
                         id: res.id,
                         reservationId: res.id,
                         listingId: listing.id,
-                        listingName: listing.internalListingName || listing.listingName,
-                        listingNickname: listing.listingNickname || listing.internalListingName,
+                        listingName: listing.internalListingName || listing.name,
+                        listingNickname: listing.internalListingName || listing.name,
                         address: listing.address || '',
                         propertyType,
                         listingTimezone: listing.timezone || 'America/Chicago',
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.checkInDate?.toISOString() || '',
-                        checkOutDate: res.checkOutDate?.toISOString() || '',
+                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
+                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
                         checkInTime: listing.checkInTimeStart || '15:00',
                         checkOutTime: listing.checkOutTime || '11:00',
-                        reservationCode: res.reservationCode,
+                        reservationCode: res.reservationId || '',
                         
                         notificationType: 'pre-stay',
                         contactId: contact?.id,
@@ -172,8 +172,8 @@ export class TurnoverService {
                         ownerPhone: settings?.ownerPhone,
                         
                         upsells: preStayAudit?.approvedUpsells ? JSON.parse(preStayAudit.approvedUpsells) : [],
-                        createdAt: res.createdAt?.toISOString() || '',
-                        updatedAt: preStayAudit?.updatedAt?.toISOString() || res.updatedAt?.toISOString() || ''
+                        createdAt: res.reservationDate || '',
+                        updatedAt: preStayAudit?.updatedAt?.toISOString() || ''
                     };
 
                     // Apply search filter
@@ -198,10 +198,9 @@ export class TurnoverService {
                 const postStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        checkOutDate: Between(fromDate, toDate),
+                        departureDate: Between(fromDate, toDate),
                         status: In(['accepted', 'moved', 'extended'])
-                    },
-                    relations: ['listing']
+                    }
                 });
 
                 for (const res of postStayReservations) {
@@ -209,7 +208,7 @@ export class TurnoverService {
                         where: { reservationId: res.id }
                     });
 
-                    const listing = res.listing || await this.listingRepo.findOne({ where: { id: res.listingMapId } });
+                    const listing = await this.listingRepo.findOne({ where: { id: res.listingMapId } });
                     if (!listing) continue;
 
                     // Apply property type filter
@@ -231,19 +230,19 @@ export class TurnoverService {
                         id: res.id + 1000000, // Offset to avoid ID collision
                         reservationId: res.id,
                         listingId: listing.id,
-                        listingName: listing.internalListingName || listing.listingName,
-                        listingNickname: listing.listingNickname || listing.internalListingName,
+                        listingName: listing.internalListingName || listing.name,
+                        listingNickname: listing.internalListingName || listing.name,
                         address: listing.address || '',
                         propertyType,
                         listingTimezone: listing.timezone || 'America/Chicago',
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.checkInDate?.toISOString() || '',
-                        checkOutDate: res.checkOutDate?.toISOString() || '',
+                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
+                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
                         checkInTime: listing.checkInTimeStart || '15:00',
                         checkOutTime: listing.checkOutTime || '11:00',
-                        reservationCode: res.reservationCode,
+                        reservationCode: res.reservationId || '',
                         
                         notificationType: 'post-stay',
                         contactId: contact?.id,
@@ -259,8 +258,8 @@ export class TurnoverService {
                         ownerPhone: settings?.ownerPhone,
                         
                         upsells: postStayAudit?.approvedUpsells ? JSON.parse(postStayAudit.approvedUpsells) : [],
-                        createdAt: res.createdAt?.toISOString() || '',
-                        updatedAt: postStayAudit?.updatedAt?.toISOString() || res.updatedAt?.toISOString() || ''
+                        createdAt: res.reservationDate || '',
+                        updatedAt: postStayAudit?.updatedAt?.toISOString() || ''
                     };
 
                     // Apply search filter
@@ -306,7 +305,7 @@ export class TurnoverService {
         if (tags.includes('pm')) return 'pm';
         
         // Fallback to nickname
-        const nickname = (listing.listingNickname || listing.internalListingName || '').toLowerCase();
+        const nickname = (listing.internalListingName || listing.name || '').toLowerCase();
         if (nickname.includes('own')) return 'own';
         if (nickname.includes('arb')) return 'arb';
         
@@ -318,9 +317,7 @@ export class TurnoverService {
      */
     async getSettings(filters?: { propertyType?: string; search?: string }): Promise<any[]> {
         try {
-            const listings = await this.listingRepo.find({
-                where: { status: 'active' }
-            });
+            const listings = await this.listingRepo.find();
 
             const results = [];
             
@@ -333,7 +330,7 @@ export class TurnoverService {
                 // Apply search filter
                 if (filters?.search) {
                     const searchLower = filters.search.toLowerCase();
-                    const listingName = (listing.internalListingName || listing.listingName || '').toLowerCase();
+                    const listingName = (listing.internalListingName || listing.name || '').toLowerCase();
                     const address = (listing.address || '').toLowerCase();
                     if (!listingName.includes(searchLower) && !address.includes(searchLower)) continue;
                 }
@@ -354,8 +351,8 @@ export class TurnoverService {
                 results.push({
                     id: listing.id,
                     listingId: listing.id,
-                    listingName: listing.internalListingName || listing.listingName,
-                    listingNickname: listing.listingNickname,
+                    listingName: listing.internalListingName || listing.name,
+                    listingNickname: listing.internalListingName || listing.name,
                     propertyType,
                     address: listing.address,
                     
@@ -436,13 +433,10 @@ export class TurnoverService {
         try {
             logger.info(`[TurnoverService] Syncing owners from Hostify...`);
             
-            // Fetch all listings from Hostify
-            const response = await axios.get(`${HOSTIFY_BASE_URL}/listings`, {
-                headers: { 'X-API-Key': HOSTIFY_API_KEY },
-                params: { limit: 500 }
-            });
+            // Fetch all listings from Hostify using the central API client
+            const hostifyClient = new Hostify();
+            const hostifyListings = await hostifyClient.getListings(HOSTIFY_API_KEY);
 
-            const hostifyListings = response.data?.listings || [];
             let synced = 0;
 
             for (const hostifyListing of hostifyListings) {

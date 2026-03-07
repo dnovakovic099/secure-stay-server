@@ -1,7 +1,7 @@
 import logger from '../utils/logger.utils';
 import { appDatabase } from '../utils/database.util';
 import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
-import { In } from 'typeorm';
+import { In, Brackets } from 'typeorm';
 import { EmailProcessor } from '../utils/emailProcessor.util';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import updateSlackMessage from '../utils/updateSlackMsg';
@@ -168,11 +168,13 @@ export class ZapierWebhookService {
      */
     async getEvents(filters: {
         status?: string;
+        statuses?: string[];
         events?: string[];
         slackChannels?: string[];
         fromDate?: string;
         toDate?: string;
         dateType?: 'createdAt' | 'updatedAt';
+        search?: string;
         page?: number;
         limit?: number;
     }): Promise<{
@@ -186,8 +188,10 @@ export class ZapierWebhookService {
 
         const queryBuilder = eventRepo.createQueryBuilder('event');
 
-        // Filter by status
-        if (filters.status) {
+        // Filter by status (multi-select takes precedence over single)
+        if (filters.statuses && filters.statuses.length > 0) {
+            queryBuilder.andWhere('event.status IN (:...statuses)', { statuses: filters.statuses });
+        } else if (filters.status) {
             queryBuilder.andWhere('event.status = :status', { status: filters.status });
         }
 
@@ -216,6 +220,26 @@ export class ZapierWebhookService {
                 ? filters.toDate
                 : `${filters.toDate} 23:59:59`;
             queryBuilder.andWhere(`${dateField} <= :toDate`, { toDate: toDateTime });
+        }
+
+        // Search across task fields + thread messages (updates/discussions)
+        if (filters.search) {
+            const searchTerm = `%${filters.search}%`;
+            // Use LEFT JOIN to include thread_messages in the search
+            queryBuilder.leftJoin('thread_messages', 'tm', 'tm.gr_task_id = event.id');
+            queryBuilder.andWhere(
+                new Brackets(qb => {
+                    qb.where('event.title LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.message LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.event LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.slackChannel LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.emailSubject LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.emailBodyPlain LIKE :searchTerm', { searchTerm })
+                        .orWhere('tm.content LIKE :searchTerm', { searchTerm });
+                })
+            );
+            // Use DISTINCT to avoid duplicates from multiple thread message matches
+            queryBuilder.distinct(true);
         }
 
         // Get total count
