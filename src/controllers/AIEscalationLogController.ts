@@ -21,30 +21,58 @@ export const getLogs = async (req: Request, res: Response) => {
             executed,
             startDate,
             endDate,
-            taskId
+            taskId,
+            statuses
         } = req.query;
 
-        const where: any = {};
+        // Use query builder for complex filtering (status join)
+        const qb = logRepo.createQueryBuilder('log');
 
-        if (decision) where.decision = decision;
-        if (aiMode) where.aiMode = aiMode;
-        if (slackChannel) where.slackChannel = slackChannel;
-        if (eventType) where.eventType = eventType;
-        if (executed !== undefined) where.executed = executed === 'true';
-        if (taskId) where.taskId = Number(taskId);
+        // Decision filter (supports comma-separated multi-select)
+        if (decision) {
+            const decisions = (decision as string).split(',').filter(Boolean);
+            if (decisions.length > 1) {
+                qb.andWhere('log.decision IN (:...decisions)', { decisions });
+            } else {
+                qb.andWhere('log.decision = :decision', { decision: decisions[0] });
+            }
+        }
+        if (aiMode) qb.andWhere('log.aiMode = :aiMode', { aiMode });
+        // Slack channel filter (supports comma-separated multi-select)
+        if (slackChannel) {
+            const channels = (slackChannel as string).split(',').filter(Boolean);
+            if (channels.length > 1) {
+                qb.andWhere('log.slackChannel IN (:...channels)', { channels });
+            } else {
+                qb.andWhere('log.slackChannel = :slackChannel', { slackChannel: channels[0] });
+            }
+        }
+        if (eventType) qb.andWhere('log.eventType = :eventType', { eventType });
+        if (executed !== undefined) qb.andWhere('log.executed = :executed', { executed: executed === 'true' });
+        if (taskId) qb.andWhere('log.taskId = :taskId', { taskId: Number(taskId) });
 
         if (startDate || endDate) {
             const start = startDate ? new Date(startDate as string) : new Date('2020-01-01');
             const end = endDate ? new Date(endDate as string) : new Date();
-            where.createdAt = Between(start, end);
+            qb.andWhere('log.createdAt BETWEEN :start AND :end', { start, end });
         }
 
-        const [logs, total] = await logRepo.findAndCount({
-            where,
-            order: { createdAt: 'DESC' },
-            skip: (Number(page) - 1) * Number(limit),
-            take: Number(limit)
-        });
+        // Filter by associated task status (via subquery on zapier_trigger_events)
+        if (statuses) {
+            const statusList = (statuses as string).split(',').filter(Boolean);
+            if (statusList.length > 0) {
+                qb.andWhere(
+                    'log.taskId IN (SELECT id FROM zapier_trigger_events WHERE status IN (:...statusList))',
+                    { statusList }
+                );
+            }
+        }
+
+        qb.orderBy('log.createdAt', 'DESC')
+            .skip((Number(page) - 1) * Number(limit))
+            .take(Number(limit));
+
+        const [logs, total] = await qb.getManyAndCount();
 
         res.json({
             logs,
