@@ -153,7 +153,7 @@ export class TurnoverService {
                         notificationType: 'pre-stay',
                         contactId: contact?.id,
                         contactName: contact?.name,
-                        contactPhone: contact?.phone,
+                        contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         
                         status: preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending',
                         sentAt: undefined,
@@ -236,7 +236,7 @@ export class TurnoverService {
                         notificationType: 'post-stay',
                         contactId: contact?.id,
                         contactName: contact?.name,
-                        contactPhone: contact?.phone,
+                        contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         
                         status: postStayAudit?.cleanerNotificationStatus as any || 'pending',
                         sentAt: postStayAudit?.cleanerNotificationSentAt?.toISOString(),
