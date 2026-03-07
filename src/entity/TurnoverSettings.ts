@@ -2,39 +2,39 @@ import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn } fro
 
 @Entity('turnover_settings')
 export class TurnoverSettings {
-    @PrimaryColumn({ type: 'int' })
+    @PrimaryColumn({ type: 'int', name: 'listing_id' })
     listingId: number;
 
     // Pre-stay turnover settings
-    @Column({ nullable: true })
+    @Column({ name: 'pre_stay_contact_id', nullable: true })
     preStayContactId: number;
 
-    @Column({ default: true })
+    @Column({ name: 'pre_stay_enabled', default: true })
     preStayEnabled: boolean;
 
     // Post-stay turnover settings
-    @Column({ nullable: true })
+    @Column({ name: 'post_stay_contact_id', nullable: true })
     postStayContactId: number;
 
-    @Column({ default: true })
+    @Column({ name: 'post_stay_enabled', default: true })
     postStayEnabled: boolean;
 
     // Owner info (cached from Hostify for display)
-    @Column({ nullable: true })
+    @Column({ name: 'owner_name', nullable: true })
     ownerName: string;
 
-    @Column({ nullable: true })
+    @Column({ name: 'owner_email', nullable: true })
     ownerEmail: string;
 
-    @Column({ nullable: true })
+    @Column({ name: 'owner_phone', nullable: true })
     ownerPhone: string;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ name: 'updated_at' })
     updatedAt: Date;
 
-    @Column({ nullable: true })
+    @Column({ name: 'updated_by', nullable: true })
     updatedBy: string;
 }
