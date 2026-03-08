@@ -242,18 +242,47 @@ export class ZapierWebhookService {
             queryBuilder.distinct(true);
         }
 
+        // Add count logic for user vs system inputs
+        // User inputs: thread messages where source='slack' or (source='securestay' AND userName IS NULL/NOT 'AI Manager' etc if configured, normally source='securestay' could be either. We defined system inputs as Securestay internal/AI manager)
+        // Since we explicitly want system = AI/Securestay Activity excluding status updates.
+        // And user = messages from Slack or direct updates.
+        // We'll count thread_messages with source='slack' OR source='securestay' as userInputCount.
+        // We'll count ai_escalation_logs as systemInputCount.
+
+        queryBuilder.addSelect(
+            `(SELECT COUNT(*) FROM thread_messages tm WHERE tm.gr_task_id = event.id AND (tm.source = 'slack' OR tm.source = 'securestay'))`,
+            'userInputCount'
+        );
+
+        queryBuilder.addSelect(
+            `(SELECT COUNT(*) FROM ai_escalation_logs aiel WHERE aiel.task_id = event.id)`,
+            'systemInputCount'
+        );
+
         // Get total count
         const total = await queryBuilder.getCount();
 
-        // Get paginated results
-        const data = await queryBuilder
+        // Get paginated results along with the raw calculated counts
+        // Because getMany() doesn't include raw counts from addSelect directly to the entity unless properties exist,
+        // we use getRawAndEntities()
+        const { entities, raw } = await queryBuilder
             .orderBy('event.createdAt', 'DESC')
             .skip(skip)
             .take(limit)
-            .getMany();
+            .getRawAndEntities();
+
+        // Process raw counts back into the entities
+        const data = entities.map(entity => {
+            const rawItem = raw.find(r => r.event_id === entity.id);
+            return {
+                ...entity,
+                userInputCount: rawItem ? parseInt(rawItem.userInputCount || '0') : 0,
+                systemInputCount: rawItem ? parseInt(rawItem.systemInputCount || '0') : 0
+            };
+        });
 
         return {
-            data,
+            data: data as any,
             meta: { page, limit, total }
         };
     }
