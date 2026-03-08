@@ -1,6 +1,6 @@
 import { Router } from "express";
 import hostifyController from "../controllers/HostifyController";
-import { verifySession } from "../middlewares/verifySession";
+import verifySession from "../middleware/verifySession";
 
 const router = Router();
 
