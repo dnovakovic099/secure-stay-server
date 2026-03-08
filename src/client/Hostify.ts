@@ -522,40 +522,75 @@ export class Hostify {
     }
 
     /**
-     * Get team members/users from Hostify
+     * Get users/owners from Hostify
+     * Note: Hostify's /users endpoint returns property owners, not team members
      */
     async getUsers(apiKey: string): Promise<HostifyUser[]> {
         try {
-            const url = "https://api-rms.hostify.com/team";
-            
-            const response = await axios.get(url, {
-                headers: {
-                    "x-api-key": apiKey,
-                    "Cache-Control": "no-cache",
-                },
-            });
+            const url = "https://api-rms.hostify.com/users";
+            const per_page = 100;
+            let page = 1;
+            let hasMore = true;
+            const allUsers: HostifyUser[] = [];
 
-            const data = response.data;
-            
-            // Handle different response formats
-            if (Array.isArray(data)) {
-                return data;
-            }
-            if (data && Array.isArray(data.team)) {
-                return data.team;
-            }
-            if (data && Array.isArray(data.data)) {
-                return data.data;
-            }
-            if (data && Array.isArray(data.users)) {
-                return data.users;
+            while (hasMore) {
+                const response = await axios.get(url, {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Cache-Control": "no-cache",
+                    },
+                    params: {
+                        page,
+                        per_page,
+                    },
+                });
+
+                const data = response.data;
+                
+                // Hostify returns users as an array directly in the response
+                let users: any[] = [];
+                if (Array.isArray(data)) {
+                    users = data;
+                } else if (data && Array.isArray(data.data)) {
+                    users = data.data;
+                } else if (data && data.next_page !== undefined) {
+                    // Response has pagination info - users are the array entries
+                    users = Object.values(data).filter(Array.isArray).flat();
+                }
+                
+                // Transform raw Hostify user format to our interface
+                const transformedUsers = users.filter(u => u.id && u.username).map((u: any) => ({
+                    id: u.id,
+                    first_name: u.first_name || '',
+                    last_name: u.last_name || '',
+                    email: u.username || u.email || '',
+                    phone: u.phone || '',
+                    role: u.roles || 'owner',
+                    status: u.is_active === 1 ? 'active' : 'inactive',
+                    timezone: undefined,
+                    language: undefined,
+                    avatar: undefined,
+                    permissions: [],
+                    last_login_at: undefined,
+                    created_at: undefined,
+                    updated_at: undefined,
+                }));
+                
+                allUsers.push(...transformedUsers);
+
+                // Check for more pages
+                if (data.next_page) {
+                    page += 1;
+                } else {
+                    hasMore = false;
+                }
             }
 
-            logger.warn(`Unexpected users data format: ${JSON.stringify(data).substring(0, 100)}`);
-            return [];
+            logger.info(`Fetched ${allUsers.length} users from Hostify`);
+            return allUsers;
         } catch (error: any) {
             logger.error(`Error fetching Hostify users: ${error.message}`);
-            return [];
+            throw error;
         }
     }
 
