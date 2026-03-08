@@ -2,6 +2,8 @@ import { appDatabase } from "../utils/database.util";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
+import { ThreadMessageEntity } from "../entity/ThreadMessage";
+import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
@@ -33,6 +35,8 @@ export class SlackEventsService {
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
+    private threadMessageRepo = appDatabase.getRepository(ThreadMessageEntity);
+    private zapierEventRepo = appDatabase.getRepository(ZapierTriggerEvent);
 
     /**
      * Handle incoming message event from Slack Events API
@@ -61,22 +65,32 @@ export class SlackEventsService {
             const slackMessageRecord = await this.slackMessageRepo.findOne({
                 where: {
                     messageTs: event.thread_ts,
-                    entityType: 'client_ticket'
                 }
             });
 
             if (!slackMessageRecord) {
-                logger.info(`[SlackEventsService] No client ticket found for thread_ts: ${event.thread_ts}`);
+                logger.info(`[SlackEventsService] No tracking record found for thread_ts: ${event.thread_ts}`);
                 return;
             }
 
-            // Check for duplicate (already synced this message)
-            const existingUpdate = await this.clientTicketUpdateRepo.findOne({
+            // ----- Route according to entityType -----
+
+            if (slackMessageRecord.entityType === 'zapier_trigger_event') {
+                return await this.handleZapierEventMessage(event, slackMessageRecord.entityId);
+            }
+
+            if (slackMessageRecord.entityType !== 'client_ticket') {
+                logger.info(`[SlackEventsService] Unsupported entity type '${slackMessageRecord.entityType}' for thread_ts: ${event.thread_ts}`);
+                return;
+            }
+
+            // Check for duplicate (already synced this message for client_ticket)
+            const existingClientUpdate = await this.clientTicketUpdateRepo.findOne({
                 where: { slackMessageTs: event.ts }
             });
 
-            if (existingUpdate) {
-                logger.info(`[SlackEventsService] Duplicate detected, skipping: ${event.ts}`);
+            if (existingClientUpdate) {
+                logger.info(`[SlackEventsService] Duplicate detected for client ticket, skipping: ${event.ts}`);
                 return;
             }
 
@@ -140,6 +154,78 @@ export class SlackEventsService {
         } catch (error) {
             logger.error('[SlackEventsService] Error fetching user info:', error);
             return 'Unknown User';
+        }
+    }
+
+    /**
+     * Handle incoming thread replies for Zapier Trigger Events (GR Tasks)
+     */
+    private async handleZapierEventMessage(event: SlackMessageEvent, entityId: number): Promise<void> {
+        try {
+            // Check for duplicate (already synced this message)
+            const existingMessage = await this.threadMessageRepo.findOne({
+                where: { slackMessageTs: event.ts }
+            });
+
+            if (existingMessage) {
+                logger.info(`[SlackEventsService] Duplicate Zapier thread message detected, skipping: ${event.ts}`);
+                return;
+            }
+
+            // Find the GR Task
+            const grTask = await this.zapierEventRepo.findOne({
+                where: { id: entityId }
+            });
+
+            if (!grTask) {
+                logger.error(`[SlackEventsService] GR Task (Zapier event) not found: ${entityId}`);
+                return;
+            }
+
+            // Get Slack user display name
+            const slackUserName = await this.getSlackUserDisplayName(event.user);
+
+            // Process the message text to convert Slack user mentions
+            const slackUsers = await getSlackUsers();
+            const processedText = replaceSlackIdsWithMentions(event.text, slackUsers);
+
+            // Note: Since Slack replies don't have userAvatar readily available in message event,
+            // we will fetch it from user profile if possible, else null.
+            let userAvatar: string | null = null;
+            try {
+                if (event.user) {
+                    const response = await axios.get('https://slack.com/api/users.info', {
+                        headers: { 'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+                        params: { user: event.user }
+                    });
+                    if (response.data.ok && response.data.user?.profile?.image_48) {
+                        userAvatar = response.data.user.profile.image_48;
+                    }
+                }
+            } catch (avatarError) {
+                logger.warn(`[SlackEventsService] Could not fetch avatar for ${event.user}:`, avatarError);
+            }
+
+            // Convert Slack TS to Date
+            const unixSeconds = parseFloat(event.ts);
+            const messageDate = new Date(unixSeconds * 1000);
+
+            // Save to thread_messages with source='slack'
+            const newThreadMessage = this.threadMessageRepo.create({
+                grTaskId: entityId,
+                source: 'slack',
+                userName: slackUserName,
+                userAvatar: userAvatar,
+                content: processedText,
+                slackMessageTs: event.ts,
+                messageTimestamp: messageDate
+            });
+
+            await this.threadMessageRepo.save(newThreadMessage);
+            logger.info(`[SlackEventsService] Synced Slack reply to GR Task ${entityId}`);
+
+        } catch (error) {
+            logger.error('[SlackEventsService] Error handling Zapier event message:', error);
         }
     }
 
