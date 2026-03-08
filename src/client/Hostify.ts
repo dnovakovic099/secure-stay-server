@@ -521,6 +521,44 @@ export class Hostify {
         }
     }
 
+    /**
+     * Get team members/users from Hostify
+     */
+    async getUsers(apiKey: string): Promise<HostifyUser[]> {
+        try {
+            const url = "https://api-rms.hostify.com/team";
+            
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+
+            const data = response.data;
+            
+            // Handle different response formats
+            if (Array.isArray(data)) {
+                return data;
+            }
+            if (data && Array.isArray(data.team)) {
+                return data.team;
+            }
+            if (data && Array.isArray(data.data)) {
+                return data.data;
+            }
+            if (data && Array.isArray(data.users)) {
+                return data.users;
+            }
+
+            logger.warn(`Unexpected users data format: ${JSON.stringify(data).substring(0, 100)}`);
+            return [];
+        } catch (error: any) {
+            logger.error(`Error fetching Hostify users: ${error.message}`);
+            return [];
+        }
+    }
+
 }
 
 // --- Type Definitions ---
@@ -573,4 +611,21 @@ export interface HostifyListingFees {
     extraPerson: number;
     guestsIncluded: number;
     currency: string;
+}
+
+export interface HostifyUser {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone?: string;
+    role?: string;
+    status?: string;
+    timezone?: string;
+    language?: string;
+    avatar?: string;
+    permissions?: string[];
+    last_login_at?: string;
+    created_at?: string;
+    updated_at?: string;
 }

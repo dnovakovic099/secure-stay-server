@@ -53,6 +53,7 @@ import assignedTaskRoutes from "./assignedTaskRoutes";
 import employeeRoutes from "./employeeRoutes";
 import aiRoutes from "./aiRoutes";
 import turnoverRoutes from "./turnoverRoutes";
+import hostifyRoutes from "./hostifyRoutes";
 
 const router = Router();
 
@@ -112,6 +113,7 @@ router.use('/assigned-tasks', assignedTaskRoutes);
 router.use('/employees', employeeRoutes);
 router.use('/ai', aiRoutes);
 router.use('/turnovers', turnoverRoutes);
+router.use('/hostify', hostifyRoutes);
 
 export default router;
 
