@@ -26,6 +26,7 @@ import { NoBookingAlertService } from "../services/NoBookingAlertService";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { CleanerNotificationService } from "../services/CleanerNotificationService";
 import { EscalationService } from "../services/EscalationService";
+import { CheckInNotificationService } from "../services/CheckInNotificationService";
 
 
 export function scheduleGetReservation() {
@@ -503,6 +504,26 @@ export function scheduleGetReservation() {
         logger.info('[GRTasksEscalation] Daily reminder processing completed.');
       } catch (error) {
         logger.error("[GRTasksEscalation] Error processing daily reminders:", error);
+      }
+    }
+  );
+
+  // Check-In Notification SMS - Hourly check for 10 AM local timezone
+  schedule.scheduleJob(
+    "*/20 * * * *", // Top of every hour
+    async () => {
+      try {
+        // Check if feature is enabled
+        if (process.env.ENABLE_CHECKIN_NOTIFICATION_SMS !== 'true') {
+          return; // Silently skip if disabled
+        }
+
+        logger.info('[CheckInSMS] Hourly task started - processing 10 AM local time notifications...');
+        const checkInNotificationService = new CheckInNotificationService();
+        await checkInNotificationService.processAutomatedCheckInSMS();
+        logger.info('[CheckInSMS] Hourly task completed.');
+      } catch (error) {
+        logger.error("[CheckInSMS] Error in hourly scheduled task:", error);
       }
     }
   );

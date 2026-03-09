@@ -134,8 +134,19 @@ export class ReservationDetailPreStayAudit {
     @Column({ nullable: true, type: 'text' })
     approvedUpsells: string;
 
+    @Column({ nullable: true, type: 'int' })
+    notificationContactId: number;
 
+    @Column({
+        type: "enum",
+        enum: ['pending', 'sent', 'failed', 'skipped', 'paused'],
+        default: 'pending'
+    })
+    notificationStatus: string;
 
+    @Column({ nullable: true, type: 'timestamp' })
+    notificationSentAt: Date;
 
-
+    @Column({ nullable: true, type: 'text' })
+    notificationError: string;
 }

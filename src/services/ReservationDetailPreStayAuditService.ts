@@ -16,6 +16,7 @@ interface ReservationDetailPreStayAuditDTO {
     cleanerNotified?: CleanerNotified;
     damageCheck?: DamageCheck;
     inventoryCheckStatus?: InventoryCheckStatus;
+    notificationContactId?: number;
 }
 
 // prepare dto for update, and include newAttachments
@@ -85,6 +86,7 @@ export class ReservationDetailPreStayAuditService {
             completionStatus: this.determineCompletionStatus(dto),
             damageCheck: dto.damageCheck,
             inventoryCheckStatus: dto.inventoryCheckStatus,
+            notificationContactId: dto.notificationContactId,
             createdBy: userId
         });
 
@@ -129,6 +131,7 @@ export class ReservationDetailPreStayAuditService {
         audit.cleanlinessCheck = dto.cleanlinessCheck ?? audit.cleanlinessCheck;
         audit.cleanerCheck = dto.cleanerCheck ?? audit.cleanerCheck;
         audit.cleanerNotified = dto.cleanerNotified ?? audit.cleanerNotified;
+        audit.notificationContactId = dto.notificationContactId ?? audit.notificationContactId;
         audit.updatedBy = userId;
         audit.updatedAt = new Date();
 

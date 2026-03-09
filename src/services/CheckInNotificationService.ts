@@ -5,28 +5,19 @@ import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
-import { Between, LessThanOrEqual, MoreThanOrEqual } from "typeorm";
+import { Between, LessThanOrEqual, MoreThanOrEqual, In } from "typeorm";
 
-// Import or create a PreStayAudit entity if it doesn't exist
-// For now, we'll store notification status in a similar pattern
+import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreStayAudit";
+import { DoorCodeStatus, CompletionStatus, InventoryCheckStatus, CleanlinessCheck, CleanerCheck, CleanerNotified, DamageCheck } from "../entity/ReservationDetailPreStayAudit";
 
-interface PreStayNotificationStatus {
-    reservationId: number;
-    contactId?: number;
-    status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused';
-    sentAt?: Date;
-    error?: string;
-}
 
 export class CheckInNotificationService {
     private contactRepo = appDatabase.getRepository(Contact);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
     private listingRepo = appDatabase.getRepository(Listing);
+    private preStayAuditRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private openPhoneService = new OpenPhoneService();
-
-    // In-memory cache for notification status (should be moved to DB in production)
-    private notificationStatus: Map<number, PreStayNotificationStatus> = new Map();
 
     /**
      * Send check-in notification SMS to cleaner/property contact
@@ -54,17 +45,17 @@ export class CheckInNotificationService {
             }
 
             // Check if notification already sent
-            const existingStatus = this.notificationStatus.get(reservationId);
-            if (existingStatus?.status === 'sent') {
+            const existingAudit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
+            if (existingAudit?.notificationStatus === 'sent') {
                 logger.info(`[CheckInNotification] Notification already sent for reservation ${reservationId}`);
                 return;
             }
 
             // Determine which contact to notify
-            const contact = await this.getNotificationContact(reservation, existingStatus?.contactId);
+            const contact = await this.getNotificationContact(reservation, existingAudit?.notificationContactId ?? undefined);
 
             if (!contact) {
-                this.updateStatus(reservationId, 'skipped', 'No active contact found for this listing');
+                await this.updateStatus(reservationId, 'skipped', 'No active contact found for this listing');
                 throw new Error('No active contact found for this listing. Please add a cleaner contact first.');
             }
 
@@ -74,7 +65,7 @@ export class CheckInNotificationService {
             });
 
             if (!listing) {
-                this.updateStatus(reservationId, 'skipped', 'Listing information not found');
+                await this.updateStatus(reservationId, 'skipped', 'Listing information not found');
                 throw new Error('Listing information not found for this reservation');
             }
 
@@ -85,23 +76,23 @@ export class CheckInNotificationService {
             const message = this.composeCheckInMessage(reservation, listing, upsells);
 
             // Format contact phone number
-            const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', contact.contact);
+            const phoneNumber = this.openPhoneService.formatPhoneNumber('+977', contact.contact);
 
             if (!phoneNumber) {
-                this.updateStatus(reservationId, 'failed', `Invalid phone number for contact: ${contact.contact || 'not provided'}`);
+                await this.updateStatus(reservationId, 'failed', `Invalid phone number for contact: ${contact.contact || 'not provided'}`);
                 throw new Error(`Invalid phone number for contact ${contact.name}: ${contact.contact || 'not provided'}`);
             }
 
             // Check if OpenPhone is configured
             if (!process.env.OPEN_PHONE_API_KEY) {
-                this.updateStatus(reservationId, 'failed', 'OpenPhone is not configured');
+                await this.updateStatus(reservationId, 'failed', 'OpenPhone is not configured');
                 throw new Error('OpenPhone API is not configured. Please set OPEN_PHONE_API_KEY environment variable.');
             }
 
             // Use dedicated sender number (reuse checkout sender or create new env var)
             const senderNumber = process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
             if (!senderNumber) {
-                this.updateStatus(reservationId, 'failed', 'SMS sender number not configured');
+                await this.updateStatus(reservationId, 'failed', 'SMS sender number not configured');
                 throw new Error('SMS sender number not configured. Please set CHECKIN_SMS_SENDER_NUMBER or CLEANER_CHECKOUT_SMS_SENDER_NUMBER environment variable.');
             }
             
@@ -111,13 +102,13 @@ export class CheckInNotificationService {
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
-            this.updateStatus(reservationId, 'sent');
+            await this.updateStatus(reservationId, 'sent', undefined, contact.id);
 
             logger.info(`[CheckInNotification] SMS sent successfully to ${contact.name} for reservation ${reservationId}`);
 
         } catch (error: any) {
             logger.error(`[CheckInNotification] Error sending check-in notification for reservation ${reservationId}:`, error.message);
-            this.updateStatus(reservationId, 'failed', error.message || 'Unknown error');
+            await this.updateStatus(reservationId, 'failed', error.message || 'Unknown error');
         }
     }
 
@@ -254,39 +245,64 @@ export class CheckInNotificationService {
     }
 
     /**
-     * Update notification status
+     * Update notification status in database
      */
-    private updateStatus(
+    private async updateStatus(
         reservationId: number,
         status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused',
-        error?: string
-    ): void {
-        const existing = this.notificationStatus.get(reservationId) || { reservationId, status: 'pending' };
+        error?: string,
+        contactId?: number
+    ): Promise<void> {
+        let audit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
         
-        this.notificationStatus.set(reservationId, {
-            ...existing,
-            status,
-            error: error || undefined,
-            sentAt: status === 'sent' ? new Date() : existing.sentAt
-        });
+        if (!audit) {
+            audit = this.preStayAuditRepo.create({
+                reservationId,
+                doorCode: DoorCodeStatus.UNSET,
+                completionStatus: CompletionStatus.NOT_STARTED,
+                inventoryCheckStatus: InventoryCheckStatus.UNSET,
+                cleanlinessCheck: CleanlinessCheck.UNSET,
+                cleanerCheck: CleanerCheck.UNSET,
+                cleanerNotified: CleanerNotified.UNSET,
+                damageCheck: DamageCheck.UNSET
+            });
+        }
+
+        audit.notificationStatus = status;
+        if (contactId !== undefined) {
+             audit.notificationContactId = contactId;
+        }
+        if (status === 'sent') {
+            audit.notificationSentAt = new Date();
+        }
+        if (error !== undefined) {
+            audit.notificationError = error;
+        } else {
+            audit.notificationError = null;
+        }
+
+        await this.preStayAuditRepo.save(audit);
 
         logger.info(`[CheckInNotification] Updated status to '${status}' for reservation ${reservationId}`);
     }
 
     /**
-     * Get today's check-ins that need notifications
+     * Get reservations expiring exactly 1 day from now (tomorrow)
      */
-    async getTodaysCheckIns(): Promise<ReservationInfoEntity[]> {
+    async getTomorrowCheckIns(): Promise<ReservationInfoEntity[]> {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
+        const dayAfterTomorrow = new Date(tomorrow);
+        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
         const reservations = await this.reservationRepo.find({
             where: {
-                arrivalDate: Between(today, tomorrow),
-                status: 'accepted' // Or whatever status indicates active booking
+                arrivalDate: Between(tomorrow, dayAfterTomorrow),
+                status: In(["new", "accepted", "modified", "ownerStay", "moved"]) // valid bookings
             }
         });
 
@@ -294,30 +310,58 @@ export class CheckInNotificationService {
     }
 
     /**
-     * Process all check-in notifications for today
+     * Process automated Check-in notifications for 1 day before at exactly 10 AM local timezone.
      */
-    async processAllTodaysCheckIns(): Promise<{ sent: number; failed: number; skipped: number }> {
-        const reservations = await this.getTodaysCheckIns();
+    async processAutomatedCheckInSMS(): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
+        const reservations = await this.getTomorrowCheckIns();
         
         let sent = 0;
         let failed = 0;
         let skipped = 0;
+        let total = reservations.length;
+
+        logger.info(`[CheckInNotification] Found ${total} check-ins for tomorrow.`);
 
         for (const reservation of reservations) {
             try {
-                await this.sendCheckInNotification(reservation.id);
-                
-                const status = this.notificationStatus.get(reservation.id);
-                if (status?.status === 'sent') sent++;
-                else if (status?.status === 'failed') failed++;
-                else if (status?.status === 'skipped') skipped++;
+                const listing = await this.listingRepo.findOne({
+                     where: { id: reservation.listingMapId }
+                 });
+
+                if (!listing) {
+                    logger.warn(`[CheckInNotification] No listing found for reservation ${reservation.id}. Skipping.`);
+                    skipped++;
+                    continue;
+                }
+
+                const timezone = listing.timeZoneName || 'America/New_York';
+
+                // Evaluate the current hour in local time
+                const options = { timeZone: timezone, hour: 'numeric', hour12: false } as Intl.DateTimeFormatOptions;
+                const currentHourStr = new Intl.DateTimeFormat('en-US', options).format(new Date());
+                const currentHour = parseInt(currentHourStr, 10);
+
+                if (currentHour === 10) {
+                     logger.info(`[CheckInNotification] Triggering scheduled Check-In SMS for reserve: ${reservation.id} in TZ: ${timezone}`);
+                     await this.sendCheckInNotification(reservation.id, true); // True to force logic run instead of manual skip
+
+                     const statusAudit = await this.preStayAuditRepo.findOne({ where: { reservationId: reservation.id } });
+                     
+                     if (statusAudit?.notificationStatus === 'sent') sent++;
+                     else if (statusAudit?.notificationStatus === 'failed') failed++;
+                     else if (statusAudit?.notificationStatus === 'skipped') skipped++;
+                } else {
+                     skipped++; // Didn't match criteria (10 AM)
+                }
+
             } catch (error) {
+                logger.error(`[CheckInNotification] Failed automated processing for reservation ${reservation.id}:`, error);
                 failed++;
             }
         }
 
-        logger.info(`[CheckInNotification] Processed ${reservations.length} check-ins: ${sent} sent, ${failed} failed, ${skipped} skipped`);
+        logger.info(`[CheckInNotification] Automated job finished processing check-ins: ${sent} sent, ${failed} failed, ${skipped} skipped`);
         
-        return { sent, failed, skipped };
+        return { sent, failed, skipped, total };
     }
 }

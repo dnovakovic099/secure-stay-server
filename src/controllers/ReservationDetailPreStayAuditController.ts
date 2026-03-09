@@ -19,7 +19,7 @@ export class ReservationDetailPreStayAuditController {
 
     async createAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const { doorCode, amenitiesConfirmed, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells } = req.body;
+            const { doorCode, amenitiesConfirmed, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells, notificationContactId } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
 
@@ -46,7 +46,8 @@ export class ReservationDetailPreStayAuditController {
                 cleanerCheck: cleanerCheck as CleanerCheck,
                 cleanerNotified: cleanerNotified as CleanerNotified,
                 damageCheck: damageCheck as DamageCheck,
-                inventoryCheckStatus: inventoryCheckStatus as InventoryCheckStatus
+                inventoryCheckStatus: inventoryCheckStatus as InventoryCheckStatus,
+                notificationContactId: notificationContactId ? Number(notificationContactId) : undefined
             }, userId, fileInfo);
             return res.status(201).json(audit);
         } catch (error) {
@@ -56,7 +57,7 @@ export class ReservationDetailPreStayAuditController {
 
     async updateAudit(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const { doorCode, amenitiesConfirmed, deletedAttachments, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells } = req.body;
+            const { doorCode, amenitiesConfirmed, deletedAttachments, wifiConnectedAndActive, cleanlinessCheck, cleanerCheck, cleanerNotified, damageCheck, inventoryCheckStatus, approvedUpsells, notificationContactId } = req.body;
             const reservationId = Number(req.params.reservationId);
             const userId = req.user.id;
 
@@ -85,7 +86,8 @@ export class ReservationDetailPreStayAuditController {
                 cleanerCheck: cleanerCheck as CleanerCheck,
                 cleanerNotified: cleanerNotified as CleanerNotified,
                 damageCheck: damageCheck as DamageCheck,
-                inventoryCheckStatus: inventoryCheckStatus as InventoryCheckStatus
+                inventoryCheckStatus: inventoryCheckStatus as InventoryCheckStatus,
+                notificationContactId: notificationContactId ? Number(notificationContactId) : undefined
             }, userId, fileInfo);
             return res.status(200).json(audit);
         } catch (error) {
