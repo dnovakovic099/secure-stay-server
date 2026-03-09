@@ -30,13 +30,15 @@ export class CheckInNotificationService {
 
     /**
      * Send check-in notification SMS to cleaner/property contact
+     * @param reservationId - The reservation ID
+     * @param forceManual - If true, bypasses the feature toggle check (for manual retries)
      */
-    async sendCheckInNotification(reservationId: number): Promise<void> {
+    async sendCheckInNotification(reservationId: number, forceManual: boolean = false): Promise<void> {
         try {
-            // Check if feature is enabled
-            if (process.env.ENABLE_CHECKIN_NOTIFICATION_SMS !== 'true') {
+            // Check if feature is enabled (skip check for manual sends)
+            if (!forceManual && process.env.ENABLE_CHECKIN_NOTIFICATION_SMS !== 'true') {
                 logger.info(`[CheckInNotification] Feature disabled for reservation ${reservationId}`);
-                return;
+                throw new Error('Check-in notification feature is disabled. Set ENABLE_CHECKIN_NOTIFICATION_SMS=true to enable.');
             }
 
             logger.info(`[CheckInNotification] Processing check-in notification for reservation ${reservationId}`);
@@ -48,7 +50,7 @@ export class CheckInNotificationService {
 
             if (!reservation) {
                 logger.error(`[CheckInNotification] Reservation ${reservationId} not found`);
-                return;
+                throw new Error(`Reservation ${reservationId} not found`);
             }
 
             // Check if notification already sent
@@ -63,7 +65,7 @@ export class CheckInNotificationService {
 
             if (!contact) {
                 this.updateStatus(reservationId, 'skipped', 'No active contact found for this listing');
-                return;
+                throw new Error('No active contact found for this listing. Please add a cleaner contact first.');
             }
 
             // Fetch listing for address
@@ -73,7 +75,7 @@ export class CheckInNotificationService {
 
             if (!listing) {
                 this.updateStatus(reservationId, 'skipped', 'Listing information not found');
-                return;
+                throw new Error('Listing information not found for this reservation');
             }
 
             // Fetch early check-in upsells
@@ -87,21 +89,23 @@ export class CheckInNotificationService {
 
             if (!phoneNumber) {
                 this.updateStatus(reservationId, 'failed', `Invalid phone number for contact: ${contact.contact || 'not provided'}`);
-                return;
+                throw new Error(`Invalid phone number for contact ${contact.name}: ${contact.contact || 'not provided'}`);
             }
 
             // Check if OpenPhone is configured
             if (!process.env.OPEN_PHONE_API_KEY) {
                 this.updateStatus(reservationId, 'failed', 'OpenPhone is not configured');
-                return;
+                throw new Error('OpenPhone API is not configured. Please set OPEN_PHONE_API_KEY environment variable.');
             }
 
             // Use dedicated sender number (reuse checkout sender or create new env var)
             const senderNumber = process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
             if (!senderNumber) {
                 this.updateStatus(reservationId, 'failed', 'SMS sender number not configured');
-                return;
+                throw new Error('SMS sender number not configured. Please set CHECKIN_SMS_SENDER_NUMBER or CLEANER_CHECKOUT_SMS_SENDER_NUMBER environment variable.');
             }
+            
+            logger.info(`[CheckInNotification] Sending SMS to ${phoneNumber} via ${senderNumber}`);
 
             // Send SMS via OpenPhone
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);

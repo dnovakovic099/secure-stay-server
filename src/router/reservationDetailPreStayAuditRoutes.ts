@@ -16,4 +16,7 @@ router.put("/:reservationId",verifySession, fileUpload('pre-stay-audit').fields(
 ]), preStayAuditController.updateAudit.bind(preStayAuditController));
 router.get("/:reservationId", verifySession, preStayAuditController.getAuditByReservationId.bind(preStayAuditController));
 
+// Check-in notification SMS retry
+router.post("/:reservationId/retry-checkin-sms", verifySession, preStayAuditController.retryCheckInSMS.bind(preStayAuditController));
+
 export default router; 
