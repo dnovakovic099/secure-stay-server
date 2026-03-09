@@ -287,21 +287,18 @@ export class CheckInNotificationService {
     }
 
     /**
-     * Get reservations expiring exactly 1 day from now (tomorrow)
+     * Get reservations expiring in the next 2 days (today and tomorrow)
      */
-    async getTomorrowCheckIns(): Promise<ReservationInfoEntity[]> {
+    async getPendingCheckIns(): Promise<ReservationInfoEntity[]> {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        const dayAfterTomorrow = new Date(tomorrow);
-        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+        const dayAfterTomorrow = new Date(today);
+        dayAfterTomorrow.setDate(today.getDate() + 2);
 
         const reservations = await this.reservationRepo.find({
             where: {
-                arrivalDate: Between(tomorrow, dayAfterTomorrow),
+                arrivalDate: Between(today, dayAfterTomorrow),
                 status: In(["new", "accepted", "modified", "ownerStay", "moved"]) // valid bookings
             }
         });
@@ -310,20 +307,27 @@ export class CheckInNotificationService {
     }
 
     /**
-     * Process automated Check-in notifications for 1 day before at exactly 10 AM local timezone.
+     * Process automated Check-in notifications for 1 day before at exactly 10 AM local timezone,
+     * or ASAP for last-minute bookings.
      */
     async processAutomatedCheckInSMS(): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
-        const reservations = await this.getTomorrowCheckIns();
+        const reservations = await this.getPendingCheckIns();
         
         let sent = 0;
         let failed = 0;
         let skipped = 0;
         let total = reservations.length;
 
-        logger.info(`[CheckInNotification] Found ${total} check-ins for tomorrow.`);
+        logger.info(`[CheckInNotification] Found ${total} check-ins for today/tomorrow.`);
 
         for (const reservation of reservations) {
             try {
+                // Skip if already sent
+                const existingAudit = await this.preStayAuditRepo.findOne({ where: { reservationId: reservation.id } });
+                if (existingAudit?.notificationStatus === 'sent') {
+                    skipped++;
+                    continue;
+                }
                 const listing = await this.listingRepo.findOne({
                      where: { id: reservation.listingMapId }
                  });
@@ -335,13 +339,37 @@ export class CheckInNotificationService {
                 }
 
                 const timezone = listing.timeZoneName || 'America/New_York';
+                const now = new Date();
 
                 // Evaluate the current hour in local time
-                const options = { timeZone: timezone, hour: 'numeric', hour12: false } as Intl.DateTimeFormatOptions;
-                const currentHourStr = new Intl.DateTimeFormat('en-US', options).format(new Date());
-                const currentHour = parseInt(currentHourStr, 10);
+                const hourOptions = { timeZone: timezone, hour: 'numeric', hour12: false } as Intl.DateTimeFormatOptions;
+                const currentHourStr = new Intl.DateTimeFormat('en-US', hourOptions).format(now);
+                const currentHour = parseInt(currentHourStr, 10) % 24;
 
-                if (currentHour === 10) {
+                // Get local date strings (YYYY-MM-DD)
+                const dateOptions = { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' } as Intl.DateTimeFormatOptions;
+                
+                // Using 'en-CA' guarantees standard YYYY-MM-DD string representation
+                const currentDateStr = now.toLocaleDateString('en-CA', dateOptions);
+                const arrivalDateStr = new Date(reservation.arrivalDate).toLocaleDateString('en-CA', dateOptions);
+                
+                const tomorrow = new Date(now);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tomorrowDateStr = tomorrow.toLocaleDateString('en-CA', dateOptions);
+
+                let shouldSend = false;
+
+                if (currentDateStr >= arrivalDateStr) {
+                    // Check-in is today (or in the past). Send ASAP.
+                    shouldSend = true;
+                } else if (arrivalDateStr === tomorrowDateStr) {
+                    // Check-in is tomorrow. Send if 10 AM or later (catches late bookings).
+                    if (currentHour >= 10) {
+                        shouldSend = true;
+                    }
+                }
+
+                if (shouldSend) {
                      logger.info(`[CheckInNotification] Triggering scheduled Check-In SMS for reserve: ${reservation.id} in TZ: ${timezone}`);
                      await this.sendCheckInNotification(reservation.id, true); // True to force logic run instead of manual skip
 
@@ -351,7 +379,7 @@ export class CheckInNotificationService {
                      else if (statusAudit?.notificationStatus === 'failed') failed++;
                      else if (statusAudit?.notificationStatus === 'skipped') skipped++;
                 } else {
-                     skipped++; // Didn't match criteria (10 AM)
+                     skipped++; // Didn't match criteria
                 }
 
             } catch (error) {
