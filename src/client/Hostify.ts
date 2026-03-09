@@ -547,16 +547,17 @@ export class Hostify {
 
                 const data = response.data;
                 
-                // Hostify returns users as an array directly in the response
+                // Hostify returns users in the 'users' array
                 let users: any[] = [];
                 if (Array.isArray(data)) {
                     users = data;
+                } else if (data && Array.isArray(data.users)) {
+                    users = data.users;
                 } else if (data && Array.isArray(data.data)) {
                     users = data.data;
-                } else if (data && data.next_page !== undefined) {
-                    // Response has pagination info - users are the array entries
-                    users = Object.values(data).filter(Array.isArray).flat();
                 }
+                
+                logger.info(`[Hostify] Page ${page}: Found ${users.length} users`);
                 
                 // Transform raw Hostify user format to our interface
                 const transformedUsers = users.filter(u => u.id && u.username).map((u: any) => ({
