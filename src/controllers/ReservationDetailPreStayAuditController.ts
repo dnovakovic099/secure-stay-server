@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { ReservationDetailPreStayAuditService } from "../services/ReservationDetailPreStayAuditService";
+import { CheckInNotificationService } from "../services/CheckInNotificationService";
 import { CleanerCheck, CleanerNotified, CleanlinessCheck, DamageCheck, DoorCodeStatus, InventoryCheckStatus } from "../entity/ReservationDetailPreStayAudit";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -8,9 +10,11 @@ interface CustomRequest extends Request {
 
 export class ReservationDetailPreStayAuditController {
     private preStayAuditService: ReservationDetailPreStayAuditService;
+    private checkInNotificationService: CheckInNotificationService;
 
     constructor() {
         this.preStayAuditService = new ReservationDetailPreStayAuditService();
+        this.checkInNotificationService = new CheckInNotificationService();
     }
 
     async createAudit(req: CustomRequest, res: Response, next: NextFunction) {
@@ -105,6 +109,33 @@ export class ReservationDetailPreStayAuditController {
             return res.status(200).json({ message: "Migration completed", result });
         } catch (error) {
             next(error);
+        }
+    }
+
+    /**
+     * POST /:reservationId/retry-checkin-sms
+     * Retry sending check-in notification SMS
+     */
+    async retryCheckInSMS(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const reservationId = Number(req.params.reservationId);
+            const { contactId } = req.body;
+
+            logger.info(`[PreStayAudit] Manually sending check-in SMS for reservation ${reservationId}`);
+
+            // forceManual=true bypasses the feature toggle for manual sends
+            await this.checkInNotificationService.sendCheckInNotification(reservationId, true);
+
+            return res.status(200).json({
+                success: true,
+                message: "Check-in notification SMS sent successfully"
+            });
+        } catch (error: any) {
+            logger.error(`[PreStayAudit] Error sending check-in SMS:`, error.message);
+            return res.status(500).json({
+                success: false,
+                message: error.message || "Failed to send check-in notification SMS"
+            });
         }
     }
 }
