@@ -1,9 +1,16 @@
 import { Request, Response, NextFunction } from "express";
-import { Hostify, HostifyUser } from "../client/Hostify";
+import { Hostify, HostifyUser, HostifyUserListing } from "../client/Hostify";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     userId?: number;
+}
+
+interface HFListing {
+    id: number;
+    name: string;
+    nickname?: string;
+    address?: string;
 }
 
 interface HFUser {
@@ -22,6 +29,7 @@ interface HFUser {
     lastLogin: string | null;
     createdAt: string;
     updatedAt: string;
+    listings?: HFListing[];
 }
 
 class HostifyController {
@@ -86,7 +94,13 @@ class HostifyController {
                 permissions: user.permissions || [],
                 lastLogin: user.last_login_at || null,
                 createdAt: user.created_at || new Date().toISOString(),
-                updatedAt: user.updated_at || new Date().toISOString()
+                updatedAt: user.updated_at || new Date().toISOString(),
+                listings: user.listings?.map((l: HostifyUserListing) => ({
+                    id: l.id,
+                    name: l.name,
+                    nickname: l.nickname,
+                    address: l.address,
+                })) || []
             }));
 
             this.lastSync = new Date().toISOString();
