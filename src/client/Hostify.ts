@@ -577,7 +577,7 @@ export class Hostify {
                     updated_at: undefined,
                     // Only include parent/master listings (master_calendar: 1)
                     listings: Array.isArray(u.listings) ? u.listings
-                        .filter((l: any) => l.master_calendar === 1)
+                        .filter((l: any) => l.master_calendar == 1 || l.master_calendar === '1')
                         .map((l: any) => ({
                             id: l.id,
                             name: l.name || '',
