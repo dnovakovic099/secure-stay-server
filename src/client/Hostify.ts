@@ -564,7 +564,7 @@ export class Hostify {
                     first_name: u.first_name || '',
                     last_name: u.last_name || '',
                     email: u.username || u.email || '',
-                    phone: u.phone || '',
+                    phone: u.phone?.toString() || '',
                     role: u.roles || 'owner',
                     status: u.is_active === 1 ? 'active' : 'inactive',
                     timezone: undefined,
@@ -574,6 +574,12 @@ export class Hostify {
                     last_login_at: undefined,
                     created_at: undefined,
                     updated_at: undefined,
+                    listings: Array.isArray(u.listings) ? u.listings.map((l: any) => ({
+                        id: l.id,
+                        name: l.name || '',
+                        nickname: l.nickname || l.internalListingName || '',
+                        address: l.address || '',
+                    })) : [],
                 }));
                 
                 allUsers.push(...transformedUsers);
@@ -648,6 +654,13 @@ export interface HostifyListingFees {
     currency: string;
 }
 
+export interface HostifyUserListing {
+    id: number;
+    name: string;
+    nickname?: string;
+    address?: string;
+}
+
 export interface HostifyUser {
     id: number;
     first_name: string;
@@ -663,4 +676,5 @@ export interface HostifyUser {
     last_login_at?: string;
     created_at?: string;
     updated_at?: string;
+    listings?: HostifyUserListing[];
 }
