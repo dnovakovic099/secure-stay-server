@@ -575,12 +575,15 @@ export class Hostify {
                     last_login_at: undefined,
                     created_at: undefined,
                     updated_at: undefined,
-                    listings: Array.isArray(u.listings) ? u.listings.map((l: any) => ({
-                        id: l.id,
-                        name: l.name || '',
-                        nickname: l.nickname || l.internalListingName || '',
-                        address: l.address || '',
-                    })) : [],
+                    // Only include parent/master listings (master_calendar: 1)
+                    listings: Array.isArray(u.listings) ? u.listings
+                        .filter((l: any) => l.master_calendar === 1)
+                        .map((l: any) => ({
+                            id: l.id,
+                            name: l.name || '',
+                            nickname: l.nickname || l.internalListingName || '',
+                            address: l.address || '',
+                        })) : [],
                 }));
                 
                 allUsers.push(...transformedUsers);
