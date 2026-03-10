@@ -89,11 +89,11 @@ export class ReservationInfoService {
       runAsync(this.notifyMobileUser(reservation), "notifyMobileUser");
     }
 
-    if (reservation.status == "inquiry" && reservation.channelId == 2018 && source == "webhook") {
-      setTimeout(() => {
-        runAsync(this.notifyNewInquiryReservation(reservation), "notifyNewInquiryReservation");
-      }, 5 * 60 * 1000);  //delay the notification by 5 min 
-    }
+    // if (reservation.status == "inquiry" && reservation.channelId == 2018 && source == "webhook") {
+    //   setTimeout(() => {
+    //     runAsync(this.notifyNewInquiryReservation(reservation), "notifyNewInquiryReservation");
+    //   }, 5 * 60 * 1000);  //delay the notification by 5 min 
+    // }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
     const listing = reservation.listingMapId && await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
