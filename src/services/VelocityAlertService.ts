@@ -13,7 +13,7 @@ export class VelocityAlertService {
     private recipients = [
         "admin@luxurylodgingpm.com",
         "ferdinand@luxurylodgingpm.com",
-        "prasannakb440@gmail.com"
+        // "prasannakb440@gmail.com"
     ];
 
     private validStatuses = ["new", "accepted", "modified", "ownerStay", "moved"];
