@@ -12,12 +12,18 @@ export class TurnoverSettings {
     @Column({ name: 'pre_stay_enabled', default: true })
     preStayEnabled: boolean;
 
+    @Column({ name: 'pre_stay_message_template', type: 'text', nullable: true })
+    preStayMessageTemplate: string;
+
     // Post-stay turnover settings
     @Column({ name: 'post_stay_contact_id', nullable: true })
     postStayContactId: number;
 
     @Column({ name: 'post_stay_enabled', default: true })
     postStayEnabled: boolean;
+
+    @Column({ name: 'post_stay_message_template', type: 'text', nullable: true })
+    postStayMessageTemplate: string;
 
     // Owner info (cached from Hostify for display)
     @Column({ name: 'owner_name', nullable: true })
