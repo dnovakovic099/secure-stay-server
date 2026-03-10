@@ -38,7 +38,7 @@ export class NoBookingAlertService {
     private recipients = [
         "admin@luxurylodgingpm.com",
         "ferdinand@luxurylodgingpm.com",
-        "prasannakb440@gmail.com"
+        // "prasannakb440@gmail.com"
     ];
 
     // Valid booking statuses to count (confirmed bookings)
