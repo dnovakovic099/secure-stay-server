@@ -76,7 +76,7 @@ export class CheckInNotificationService {
             const message = this.composeCheckInMessage(reservation, listing, upsells);
 
             // Format contact phone number
-            const phoneNumber = this.openPhoneService.formatPhoneNumber('+977', contact.contact);
+            const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', contact.contact);
 
             if (!phoneNumber) {
                 await this.updateStatus(reservationId, 'failed', `Invalid phone number for contact: ${contact.contact || 'not provided'}`);
