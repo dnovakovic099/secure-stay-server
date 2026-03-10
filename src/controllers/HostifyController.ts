@@ -65,7 +65,7 @@ class HostifyController {
      */
     syncUsers = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const apiKey = process.env.HOSTIFY_API_KEY;
+            const apiKey = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
             
             if (!apiKey) {
                 return res.status(400).json({
