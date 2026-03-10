@@ -1,6 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { Hostify, HostifyUser as HFClientUser, HostifyUserListing } from "../client/Hostify";
 import { HostifyUser } from "../entity/HostifyUser";
+import { ClientEntity } from "../entity/Client";
 import logger from "../utils/logger.utils";
 
 interface HFListing {
@@ -27,6 +28,7 @@ export interface FormattedHostifyUser {
     createdAt: Date;
     updatedAt: Date;
     listings?: HFListing[];
+    client?: ClientEntity | null;
 }
 
 export class HostifyService {
@@ -42,6 +44,9 @@ export class HostifyService {
     async getUsers(): Promise<FormattedHostifyUser[]> {
         const repo = appDatabase.getRepository(HostifyUser);
         const usersRecords = await repo.find();
+        
+        const clientRepo = appDatabase.getRepository(ClientEntity);
+        const allClients = await clientRepo.find();
 
         // Find all unique listing IDs referenced by users
         const allListingIds = new Set<number>();
@@ -107,7 +112,8 @@ export class HostifyService {
                 lastLogin: user.last_login_at,
                 createdAt: user.created_at,
                 updatedAt: user.updated_at,
-                listings: userListings
+                listings: userListings,
+                client: allClients.find(c => c.email?.toLowerCase() === user.username?.toLowerCase()) || null
             };
         });
 
