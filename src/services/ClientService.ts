@@ -548,8 +548,29 @@ export class ClientService {
             //   await transactionalEntityManager.save(bedTypes);
             // }
 
-            // --- Update property with propertyInfo relation ---
+            // --- Create propertyServiceInfo from tags ---
+            let defaultServiceType = null;
+            let defaultManagementFee = null;
+            if (listingInfo.tags) {
+              const tagsArr = listingInfo.tags.split(',').map((t: string) => t.trim().toLowerCase());
+              if (tagsArr.includes('full')) defaultServiceType = 'FULL';
+              else if (tagsArr.includes('pro')) defaultServiceType = 'PRO';
+              else if (tagsArr.includes('launch')) defaultServiceType = 'LAUNCH';
+
+              const feeTag = tagsArr.find((t: string) => t.includes('%'));
+              if (feeTag) defaultManagementFee = feeTag.replace('%', '').trim();
+            }
+
+            const propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+              managementFee: defaultManagementFee,
+              serviceType: defaultServiceType,
+              createdBy: userId,
+            });
+            const savedPropertyServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
+
+            // --- Update property with propertyInfo & serviceInfo relation ---
             savedProperty.propertyInfo = savedPropertyInfo;
+            savedProperty.serviceInfo = savedPropertyServiceInfo;
             await transactionalEntityManager.save(savedProperty);
 
             logger.info(`✅ Successfully saved property for listingId: ${listingId}`);
@@ -763,18 +784,27 @@ export class ClientService {
                   await transactionalEntityManager.remove(propertyInfo.propertyBedTypes);
                 }
 
-                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                //     transactionalEntityManager.create(PropertyBedTypes, {
-                //       haId: bedType.id,
-                //       bedroomNumber: bedType.bedroomNumber,
-                //       bedTypeId: bedType.bedTypeId,
-                //       quantity: bedType.quantity,
-                //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-                //     })
-                //   );
-                //   await transactionalEntityManager.save(bedTypes);
-                // }
+                // Update serviceInfo based on recent tags if missing/new
+                let propertyServiceInfo = existingProperty.serviceInfo;
+                if (!propertyServiceInfo && listingInfo.tags) {
+                  let defaultServiceType = null;
+                  let defaultManagementFee = null;
+                  const tagsArr = listingInfo.tags.split(',').map((t: string) => t.trim().toLowerCase());
+                  if (tagsArr.includes('full')) defaultServiceType = 'FULL';
+                  else if (tagsArr.includes('pro')) defaultServiceType = 'PRO';
+                  else if (tagsArr.includes('launch')) defaultServiceType = 'LAUNCH';
+
+                  const feeTag = tagsArr.find((t: string) => t.includes('%'));
+                  if (feeTag) defaultManagementFee = feeTag.replace('%', '').trim();
+
+                  propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+                    managementFee: defaultManagementFee,
+                    serviceType: defaultServiceType,
+                    createdBy: userId,
+                  });
+                  propertyServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
+                  savedProperty.serviceInfo = propertyServiceInfo;
+                }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -823,19 +853,27 @@ export class ClientService {
                   await transactionalEntityManager.save(savedPropertyInfo);
                 }
 
-                // Create bed types
-                // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-                //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-                //     transactionalEntityManager.create(PropertyBedTypes, {
-                //       haId: bedType.id,
-                //       bedroomNumber: bedType.bedroomNumber,
-                //       bedTypeId: bedType.bedTypeId,
-                //       quantity: bedType.quantity,
-                //       propertyId: savedPropertyInfo,
-                //     })
-                //   );
-                //   await transactionalEntityManager.save(bedTypes);
-                // }
+                // Update serviceInfo based on recent tags if missing
+                let propertyServiceInfo = existingProperty.serviceInfo;
+                if (!propertyServiceInfo && listingInfo.tags) {
+                  let defaultServiceType = null;
+                  let defaultManagementFee = null;
+                  const tagsArr = listingInfo.tags.split(',').map((t: string) => t.trim().toLowerCase());
+                  if (tagsArr.includes('full')) defaultServiceType = 'FULL';
+                  else if (tagsArr.includes('pro')) defaultServiceType = 'PRO';
+                  else if (tagsArr.includes('launch')) defaultServiceType = 'LAUNCH';
+
+                  const feeTag = tagsArr.find((t: string) => t.includes('%'));
+                  if (feeTag) defaultManagementFee = feeTag.replace('%', '').trim();
+
+                  propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+                    managementFee: defaultManagementFee,
+                    serviceType: defaultServiceType,
+                    createdBy: userId,
+                  });
+                  propertyServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
+                  savedProperty.serviceInfo = propertyServiceInfo;
+                }
 
                 savedProperty.propertyInfo = savedPropertyInfo;
                 await transactionalEntityManager.save(savedProperty);
@@ -905,22 +943,29 @@ export class ClientService {
                 await transactionalEntityManager.save(savedPropertyInfo);
               }
 
-              // // --- Save property bed types ---
-              // if (listingInfo.listingBedTypes && listingInfo.listingBedTypes.length > 0) {
-              //   const bedTypes = listingInfo.listingBedTypes.map((bedType) =>
-              //     transactionalEntityManager.create(PropertyBedTypes, {
-              //       haId: bedType.id,
-              //       bedroomNumber: bedType.bedroomNumber,
-              //       bedTypeId: bedType.bedTypeId,
-              //       quantity: bedType.quantity,
-              //       propertyId: savedPropertyInfo, // 👈 link to propertyInfo entity
-              //     })
-              //   );
-              //   await transactionalEntityManager.save(bedTypes);
-              // }
+              // --- Create propertyServiceInfo from tags ---
+              let defaultServiceType = null;
+              let defaultManagementFee = null;
+              if (listingInfo.tags) {
+                const tagsArr = listingInfo.tags.split(',').map((t: string) => t.trim().toLowerCase());
+                if (tagsArr.includes('full')) defaultServiceType = 'FULL';
+                else if (tagsArr.includes('pro')) defaultServiceType = 'PRO';
+                else if (tagsArr.includes('launch')) defaultServiceType = 'LAUNCH';
+
+                const feeTag = tagsArr.find((t: string) => t.includes('%'));
+                if (feeTag) defaultManagementFee = feeTag.replace('%', '').trim();
+              }
+
+              const propertyServiceInfo = transactionalEntityManager.create(PropertyServiceInfo, {
+                managementFee: defaultManagementFee,
+                serviceType: defaultServiceType,
+                createdBy: userId,
+              });
+              const savedPropertyServiceInfo = await transactionalEntityManager.save(propertyServiceInfo);
 
               // --- Update property with propertyInfo relation ---
               savedProperty.propertyInfo = savedPropertyInfo;
+              savedProperty.serviceInfo = savedPropertyServiceInfo;
               await transactionalEntityManager.save(savedProperty);
 
               updatedProperties.push(savedProperty);
