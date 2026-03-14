@@ -208,6 +208,7 @@ export class ListingService {
       propertyLicenseNumber: data?.propertyLicenseNumber || "",
       tags: data?.tags || null,
       integration_id: data?.integration_id || data?.fs_integration_type || data?.target_id || data?.channel_account_id || null,
+      timeZoneName: data.timezone
     };
   }
 
