@@ -29,8 +29,8 @@ interface TurnoverNotification {
     guestName: string;
     checkInDate: string;
     checkOutDate: string;
-    checkInTime?: string;
-    checkOutTime?: string;
+    checkInTime?: string | number;
+    checkOutTime?: string | number;
     reservationCode?: string;
     
     notificationType: 'pre-stay' | 'post-stay';
@@ -64,6 +64,7 @@ interface TurnoverFilters {
     listingId?: number;
     date?: 'today' | 'tomorrow';
     dateField?: 'checkIn' | 'checkOut';
+    scopes?: string[];
 }
 
 export class TurnoverService {
@@ -299,35 +300,56 @@ export class TurnoverService {
      */
     async getNotifications(filters: TurnoverFilters = {}): Promise<TurnoverNotification[]> {
         try {
-            // Calculate date range
-            let fromDate: Date, toDate: Date;
+            // Calculate date range from scopes or filters
+            let fromDate: Date;
+            let toDate: Date;
             const now = new Date();
-            const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
+            const todayStart = new Date(now);
+            todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date(now);
+            todayEnd.setHours(23, 59, 59, 999);
+            const tomorrowStart = new Date(todayStart);
+            tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+            const tomorrowEnd = new Date(tomorrowStart);
+            tomorrowEnd.setHours(23, 59, 59, 999);
+
+            const scopes = filters.scopes || [];
+            const hasScopes = scopes.length > 0;
+            const includesToday = scopes.includes('today');
+            const includesTomorrow = scopes.includes('tomorrow');
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
-            
-            if (filters.date === 'today') {
-                fromDate = new Date(now.setHours(0, 0, 0, 0));
-                toDate = new Date(now.setHours(23, 59, 59, 999));
-            } else if (filters.date === 'tomorrow') {
-                const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                fromDate = new Date(tomorrow.setHours(0, 0, 0, 0));
-                toDate = new Date(tomorrow.setHours(23, 59, 59, 999));
+
+            if (includesToday || includesTomorrow) {
+                if (includesToday && includesTomorrow) {
+                    fromDate = todayStart;
+                    toDate = tomorrowEnd;
+                } else if (includesTomorrow) {
+                    fromDate = tomorrowStart;
+                    toDate = tomorrowEnd;
+                } else {
+                    fromDate = todayStart;
+                    toDate = todayEnd;
+                }
             } else if (filters.fromDate && filters.toDate) {
                 fromDate = new Date(filters.fromDate);
                 toDate = new Date(filters.toDate);
                 toDate.setHours(23, 59, 59, 999);
+            } else if (filters.date === 'tomorrow') {
+                fromDate = tomorrowStart;
+                toDate = tomorrowEnd;
             } else {
-                // Default: today and tomorrow
-                fromDate = new Date(now.setHours(0, 0, 0, 0));
-                const dayAfterTomorrow = new Date();
-                dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-                toDate = dayAfterTomorrow;
+                // Default: today only
+                fromDate = todayStart;
+                toDate = todayEnd;
             }
 
             const notifications: TurnoverNotification[] = [];
-            const includePreStay = !filters.notificationType || filters.notificationType.includes('pre-stay');
-            const includePostStay = !filters.notificationType || filters.notificationType.includes('post-stay');
+            const includePreStay = hasScopes
+                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow)
+                : (!filters.notificationType || filters.notificationType.includes('pre-stay'));
+            const includePostStay = hasScopes
+                ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
+                : (!filters.notificationType || filters.notificationType.includes('post-stay'));
 
             // Build reservation query
             const reservationWhere: any = {};
@@ -341,9 +363,7 @@ export class TurnoverService {
                 const preStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        ...(dateField === 'checkOut'
-                            ? { departureDate: Between(fromDate, toDate) }
-                            : { arrivalDate: Between(fromDate, toDate) }),
+                        arrivalDate: Between(fromDate, toDate),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -385,8 +405,8 @@ export class TurnoverService {
                         guestName: res.guestName || 'Unknown Guest',
                         checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
                         checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
-                        checkInTime: listing.checkInTimeStart ? listing.checkInTimeStart.toString() : '15:00',
-                        checkOutTime: listing.checkOutTime ? listing.checkOutTime.toString() : '11:00',
+                        checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
+                        checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'pre-stay',
@@ -430,9 +450,7 @@ export class TurnoverService {
                 const postStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        ...(dateField === 'checkOut'
-                            ? { departureDate: Between(fromDate, toDate) }
-                            : { arrivalDate: Between(fromDate, toDate) }),
+                        departureDate: Between(fromDate, toDate),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -474,8 +492,8 @@ export class TurnoverService {
                         guestName: res.guestName || 'Unknown Guest',
                         checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
                         checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
-                        checkInTime: listing.checkInTimeStart ? listing.checkInTimeStart.toString() : '15:00',
-                        checkOutTime: listing.checkOutTime ? listing.checkOutTime.toString() : '11:00',
+                        checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
+                        checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'post-stay',
@@ -564,11 +582,10 @@ export class TurnoverService {
      */
     async getNotificationSummary(filters: TurnoverFilters = {}) {
         const notifications = await this.getNotifications(filters);
-        const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
 
         const dateCounts: Record<string, { preStay: number; postStay: number; total: number; }> = {};
         notifications.forEach((n) => {
-            const dateKey = (dateField === 'checkOut' ? n.checkOutDate : n.checkInDate)?.slice(0, 10);
+            const dateKey = (n.notificationType === 'post-stay' ? n.checkOutDate : n.checkInDate)?.slice(0, 10);
             if (!dateKey) return;
             if (!dateCounts[dateKey]) {
                 dateCounts[dateKey] = { preStay: 0, postStay: 0, total: 0 };

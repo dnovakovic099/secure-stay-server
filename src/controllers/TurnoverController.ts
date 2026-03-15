@@ -33,7 +33,8 @@ export class TurnoverController {
                 toDate,
                 dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
                 listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined,
-                date: req.query.date as 'today' | 'tomorrow' | undefined
+                date: req.query.date as 'today' | 'tomorrow' | undefined,
+                scopes: parseList(req.query.scopes as string | string[])
             };
 
             const notifications = await this.turnoverService.getNotifications(filters);
@@ -66,7 +67,8 @@ export class TurnoverController {
                 fromDate,
                 toDate,
                 dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
-                listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined
+                listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined,
+                scopes: parseList(req.query.scopes as string | string[])
             };
 
             const summary = await this.turnoverService.getNotificationSummary(filters);
