@@ -191,13 +191,19 @@ export class TurnoverController {
             const reservationId = parseInt(req.params.reservationId);
             const type = req.params.type as 'pre-stay' | 'post-stay';
             const { action } = req.body;
+            const userId = req.user?.id;
 
-            // TODO: Implement status update logic
-            logger.info(`[TurnoverController] Update notification status: ${reservationId}, ${type}, ${action}`);
-            
-            return res.status(200).json({ 
-                success: true, 
-                message: `Notification ${action} successfully` 
+            const result = await this.turnoverService.updateNotificationStatus(
+                reservationId,
+                type,
+                action,
+                userId
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: `Notification ${action} successfully`,
+                data: result
             });
         } catch (error) {
             next(error);

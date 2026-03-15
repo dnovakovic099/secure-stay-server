@@ -10,6 +10,8 @@ import logger from "../utils/logger.utils";
 import { Between, In, Like, MoreThanOrEqual, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
 import { Hostify } from "../client/Hostify";
+import { format } from "date-fns";
+import { CleanerNotified } from "../entity/ReservationDetailPreStayAudit";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
@@ -130,6 +132,15 @@ export class TurnoverService {
         if (mountain.includes(state)) return "America/Denver";
         if (central.includes(state)) return "America/Chicago";
         return "America/New_York";
+    }
+
+    private formatDateOnly(value?: Date) {
+        if (!value) return "";
+        try {
+            return format(value, "yyyy-MM-dd");
+        } catch {
+            return "";
+        }
     }
 
     private resolveTimeZone(listing: any) {
@@ -344,12 +355,15 @@ export class TurnoverService {
             }
 
             const notifications: TurnoverNotification[] = [];
+            const seenKeys = new Set<string>();
             const includePreStay = hasScopes
                 ? (scopes.includes('pre-stay') || includesToday || includesTomorrow)
                 : (!filters.notificationType || filters.notificationType.includes('pre-stay'));
             const includePostStay = hasScopes
                 ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
                 : (!filters.notificationType || filters.notificationType.includes('post-stay'));
+            const useDateFieldFilter = !includesToday && !includesTomorrow && !!(filters.fromDate && filters.toDate && filters.dateField);
+            const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
 
             // Build reservation query
             const reservationWhere: any = {};
@@ -363,7 +377,9 @@ export class TurnoverService {
                 const preStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        arrivalDate: Between(fromDate, toDate),
+                        ...(useDateFieldFilter && dateField === 'checkOut'
+                            ? { departureDate: Between(fromDate, toDate) }
+                            : { arrivalDate: Between(fromDate, toDate) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -403,8 +419,8 @@ export class TurnoverService {
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
-                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
+                        checkInDate: this.formatDateOnly(res.arrivalDate),
+                        checkOutDate: this.formatDateOnly(res.departureDate),
                         checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
                         checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
@@ -415,8 +431,8 @@ export class TurnoverService {
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         messagePreview,
                         
-                        status: preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending',
-                        sentAt: undefined,
+                        status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
+                        sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
                         error: undefined,
                         
                         ownerName: settings?.ownerName,
@@ -441,7 +457,11 @@ export class TurnoverService {
                     // Apply status filter
                     if (filters.status && !filters.status.includes(notification.status)) continue;
 
-                    notifications.push(notification);
+                    const dedupeKey = `${notification.reservationId}-pre-${notification.checkInDate}`;
+                    if (!seenKeys.has(dedupeKey)) {
+                        seenKeys.add(dedupeKey);
+                        notifications.push(notification);
+                    }
                 }
             }
 
@@ -450,7 +470,9 @@ export class TurnoverService {
                 const postStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        departureDate: Between(fromDate, toDate),
+                        ...(useDateFieldFilter && dateField === 'checkIn'
+                            ? { arrivalDate: Between(fromDate, toDate) }
+                            : { departureDate: Between(fromDate, toDate) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -490,8 +512,8 @@ export class TurnoverService {
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
-                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
+                        checkInDate: this.formatDateOnly(res.arrivalDate),
+                        checkOutDate: this.formatDateOnly(res.departureDate),
                         checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
                         checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
@@ -528,7 +550,11 @@ export class TurnoverService {
                     // Apply status filter
                     if (filters.status && !filters.status.includes(notification.status)) continue;
 
-                    notifications.push(notification);
+                    const dedupeKey = `${notification.reservationId}-post-${notification.checkOutDate}`;
+                    if (!seenKeys.has(dedupeKey)) {
+                        seenKeys.add(dedupeKey);
+                        notifications.push(notification);
+                    }
                 }
             }
 
@@ -612,6 +638,60 @@ export class TurnoverService {
                 .map(([date, counts]) => ({ date, ...counts }))
                 .sort((a, b) => a.date.localeCompare(b.date)),
         };
+    }
+
+    /**
+     * Update notification status for a reservation/type
+     */
+    async updateNotificationStatus(
+        reservationId: number,
+        type: 'pre-stay' | 'post-stay',
+        action: 'send' | 'pause' | 'resume' | 'skip',
+        userId?: string
+    ) {
+        const now = new Date();
+        if (type === 'pre-stay') {
+            let audit = await this.preStayRepo.findOne({ where: { reservationId } });
+            if (!audit) {
+                audit = this.preStayRepo.create({ reservationId });
+            }
+            const statusMap: Record<string, string> = {
+                send: 'sent',
+                pause: 'paused',
+                resume: 'pending',
+                skip: 'skipped'
+            };
+            const status = statusMap[action] || 'pending';
+            audit.notificationStatus = status;
+            if (action === 'send') {
+                audit.notificationSentAt = now;
+                audit.cleanerNotified = CleanerNotified.YES;
+            }
+            if (userId) {
+                audit.updatedBy = userId;
+            }
+            return this.preStayRepo.save(audit);
+        }
+
+        let audit = await this.postStayRepo.findOne({ where: { reservationId } });
+        if (!audit) {
+            audit = this.postStayRepo.create({ reservationId });
+        }
+        const statusMap: Record<string, string> = {
+            send: 'sent',
+            pause: 'skipped',
+            resume: 'pending',
+            skip: 'skipped'
+        };
+        const status = statusMap[action] || 'pending';
+        audit.cleanerNotificationStatus = status;
+        if (action === 'send') {
+            audit.cleanerNotificationSentAt = now;
+        }
+        if (userId) {
+            audit.updatedBy = userId;
+        }
+        return this.postStayRepo.save(audit);
     }
 
     /**
