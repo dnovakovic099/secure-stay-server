@@ -182,6 +182,7 @@ export class ListingService {
       checkInTimeStart: (data.checkin_start && parseInt(data.checkin_start.split(":")[0], 10)) || 0,
       checkInTimeEnd: (data.checkin_end && parseInt(data.checkin_end.split(":")[0], 10)) || 0,
       checkOutTime: (data.checkout && parseInt(data.checkout.split(":")[0], 10)) || 0,
+      timeZoneName: data?.timezone || data?.time_zone || data?.timeZoneName || null,
       wifiUsername: data?.wifiUsername || "(NO WIFI)",
       wifiPassword: data?.wifiPassword || "(NO PASSWORD)",
       bookingcomPropertyRoomName: data?.bookingcomPropertyRoomName || "",
@@ -209,6 +210,286 @@ export class ListingService {
       tags: data?.tags || null,
       integration_id: data?.integration_id || data?.fs_integration_type || data?.target_id || data?.channel_account_id || null,
       timeZoneName: data.timezone
+    };
+  }
+
+  private isValidTimeZone(tz?: string) {
+    if (!tz) return false;
+    try {
+      Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private mapStateToTimeZone(stateCode?: string) {
+    const state = (stateCode || "").toUpperCase();
+    const pacific = ["CA", "OR", "WA", "NV"];
+    const mountain = ["AZ", "UT", "CO", "NM", "ID", "MT", "WY"];
+    const central = [
+      "TX",
+      "OK",
+      "KS",
+      "NE",
+      "SD",
+      "ND",
+      "MN",
+      "IA",
+      "MO",
+      "AR",
+      "LA",
+      "WI",
+      "IL",
+      "MS",
+      "AL",
+    ];
+
+    if (pacific.includes(state)) return "America/Los_Angeles";
+    if (mountain.includes(state)) return "America/Denver";
+    if (central.includes(state)) return "America/Chicago";
+    return "America/New_York";
+  }
+
+  private normalizeTimeZoneCandidate(candidate?: string) {
+    if (!candidate) return "";
+    const normalized = candidate.trim();
+    const lower = normalized.toLowerCase();
+    const aliases: Record<string, string> = {
+      "eastern time": "America/New_York",
+      "central time": "America/Chicago",
+      "mountain time": "America/Denver",
+      "pacific time": "America/Los_Angeles",
+      "us/eastern": "America/New_York",
+      "us/central": "America/Chicago",
+      "us/mountain": "America/Denver",
+      "us/pacific": "America/Los_Angeles",
+    };
+    if (aliases[lower]) return aliases[lower];
+    return normalized;
+  }
+
+  private resolveTimeZone(listing: any) {
+    const candidateRaw =
+      listing?.timeZoneName ||
+      listing?.timezone ||
+      listing?.time_zone ||
+      listing?.listingTimeZoneName ||
+      "";
+    const candidate = this.normalizeTimeZoneCandidate(candidateRaw);
+    if (this.isValidTimeZone(candidate)) return { timeZone: candidate, missing: false };
+    if (listing?.state) return { timeZone: this.mapStateToTimeZone(listing.state), missing: false };
+    if (listing?.address) {
+      const match = listing.address.match(/\b([A-Z]{2})\b/);
+      if (match?.[1]) return { timeZone: this.mapStateToTimeZone(match[1]), missing: false };
+    }
+    logger.warn(`Missing timezone for listing ${listing?.id || "unknown"}`);
+    return { timeZone: "", missing: true };
+  }
+
+  private formatTimeLabel(hour: number, minute: number) {
+    const period = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+    return minute === 0
+      ? `${hour12}${period}`
+      : `${hour12}:${minute.toString().padStart(2, "0")}${period}`;
+  }
+
+  private parseTime(value?: string | number | null) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") {
+      if (value === 0) return null;
+      return { hour: value, minute: 0 };
+    }
+    if (!value) return null;
+    const match = value.toString().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+    if (!match) return null;
+    let hour = parseInt(match[1], 10);
+    const minute = match[2] ? parseInt(match[2], 10) : 0;
+    const period = match[3]?.toUpperCase();
+    if (period === "PM" && hour < 12) hour += 12;
+    if (period === "AM" && hour === 12) hour = 0;
+    return { hour, minute };
+  }
+
+  private getOffsetMinutes(timeZone: string, date: Date) {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = dtf.formatToParts(date);
+    const values: Record<string, string> = {};
+    parts.forEach((p) => {
+      values[p.type] = p.value;
+    });
+    const asUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second)
+    );
+    return (asUtc - date.getTime()) / 60000;
+  }
+
+  private convertToEastern(timeValue: string | number | null, timeZone: string) {
+    const parsed = this.parseTime(timeValue);
+    if (!parsed) return null;
+    const now = new Date();
+    const dateParts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(now)
+      .reduce((acc: Record<string, string>, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+
+    const utcBase = Date.UTC(
+      Number(dateParts.year),
+      Number(dateParts.month) - 1,
+      Number(dateParts.day),
+      parsed.hour,
+      parsed.minute
+    );
+    const listingOffset = this.getOffsetMinutes(timeZone, new Date(utcBase));
+    const utcMillis = utcBase - listingOffset * 60000;
+    const easternDate = new Date(utcMillis);
+    const easternParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+      .formatToParts(easternDate)
+      .reduce((acc: Record<string, string>, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+
+    const hour = parseInt(easternParts.hour || "0", 10);
+    const minute = parseInt(easternParts.minute || "0", 10);
+    const period = (easternParts.dayPeriod || "AM").toUpperCase();
+    const adjustedHour = period === "PM" && hour < 12 ? hour + 12 : hour;
+    const finalHour = period === "AM" && hour === 12 ? 0 : adjustedHour;
+    return this.formatTimeLabel(finalHour, minute);
+  }
+
+  private getReadableTimeZone(timeZone: string) {
+    const labels: Record<string, string> = {
+      "America/New_York": "Eastern Time",
+      "America/Chicago": "Central Time",
+      "America/Denver": "Mountain Time",
+      "America/Phoenix": "Mountain Time",
+      "America/Los_Angeles": "Pacific Time",
+      "America/Anchorage": "Alaska Time",
+      "Pacific/Honolulu": "Hawaii Time",
+    };
+    return labels[timeZone] || timeZone;
+  }
+
+  private buildTimeValue(raw: any) {
+    const parsed = this.parseTime(raw);
+    if (!parsed) return null;
+    return this.formatTimeLabel(parsed.hour, parsed.minute);
+  }
+
+  private buildAddress(listing: any) {
+    const parts = [listing?.address, listing?.city, listing?.state, listing?.zipcode]
+      .filter((p) => !!p)
+      .map((p) => String(p).trim());
+    return parts.join(", ");
+  }
+
+  private normalizeListingOverview(listing: any) {
+    const resolvedTimeZone = this.resolveTimeZone(listing);
+    const timeZoneIdentifier = resolvedTimeZone.timeZone;
+    const checkInLocalRaw =
+      listing?.checkInLocal ||
+      listing?.checkin_start ||
+      listing?.checkInTimeStart ||
+      listing?.checkInTime ||
+      null;
+    const checkOutLocalRaw =
+      listing?.checkOutLocal ||
+      listing?.checkout ||
+      listing?.checkOutTime ||
+      null;
+
+    const checkInLocal = this.buildTimeValue(checkInLocalRaw);
+    const checkOutLocal = this.buildTimeValue(checkOutLocalRaw);
+
+    const checkInEastern =
+      !resolvedTimeZone.missing &&
+      timeZoneIdentifier !== "America/New_York" &&
+      checkInLocal
+        ? this.convertToEastern(checkInLocalRaw, timeZoneIdentifier)
+        : null;
+    const checkOutEastern =
+      !resolvedTimeZone.missing &&
+      timeZoneIdentifier !== "America/New_York" &&
+      checkOutLocal
+        ? this.convertToEastern(checkOutLocalRaw, timeZoneIdentifier)
+        : null;
+
+    const bathroomsNumber =
+      listing?.bathroomsNumber !== undefined
+        ? listing?.bathroomsNumber
+        : listing?.bathrooms;
+    const bedrooms =
+      listing?.bedroomsNumber !== undefined ? listing?.bedroomsNumber : listing?.bedrooms;
+    const fullBaths =
+      bathroomsNumber !== undefined && bathroomsNumber !== null
+        ? Math.floor(Number(bathroomsNumber))
+        : listing?.fullBathrooms ?? listing?.fullBath ?? null;
+    const halfBaths =
+      listing?.guestBathroomsNumber ??
+      (typeof bathroomsNumber === "number" && bathroomsNumber % 1 >= 0.5 ? 1 : null);
+
+    return {
+      ...listing,
+      listingNickname:
+        listing?.listingNickname ||
+        listing?.nickname ||
+        listing?.internalListingName ||
+        listing?.externalListingName ||
+        listing?.name ||
+        "",
+      listingTitle: listing?.listingTitle || listing?.name || listing?.externalListingName || "",
+      fullAddress: listing?.fullAddress || this.buildAddress(listing),
+      propertyType:
+        listing?.propertyType ||
+        listing?.propertyTypeName ||
+        listing?.property_type ||
+        listing?.roomType ||
+        "",
+      timezoneIdentifier: timeZoneIdentifier || null,
+      timezoneName: timeZoneIdentifier ? this.getReadableTimeZone(timeZoneIdentifier) : null,
+      checkInLocal,
+      checkOutLocal,
+      checkInEastern,
+      checkOutEastern,
+      bedrooms: bedrooms ?? null,
+      fullBaths: fullBaths ?? null,
+      halfBaths: halfBaths ?? null,
+      capacity:
+        listing?.capacity ??
+        listing?.guests ??
+        listing?.maxGuests ??
+        listing?.guests_included ??
+        listing?.personCapacity ??
+        null,
+      imageUrl: listing?.imageUrl || listing?.picture || listing?.images?.[0]?.url || null,
     };
   }
 
@@ -302,25 +583,29 @@ export class ListingService {
     const listings = await query.getMany();
     const hostifyApiKey = process.env.HOSTIFY_API_KEY;
 
-    if (!hostifyApiKey) return listings;
+    if (!hostifyApiKey) return listings.map((listing) => this.normalizeListingOverview(listing));
 
     try {
       const integrations = await this.hostifyClient.getIntegrations(hostifyApiKey);
 
-      return listings.map((listing: any) => {
+      const enriched = listings.map((listing: any) => {
         const integration = integrations.find((i: any) =>
           String(i.id) === String(listing.integration_id)
         );
 
         return {
           ...listing,
-          integration_name: integration ? (integration.nickname || integration.full_name || integration.user) : '-',
-          integration_picture: integration?.picture || null
+          integration_name: integration
+            ? integration.nickname || integration.full_name || integration.user
+            : "-",
+          integration_picture: integration?.picture || null,
         };
       });
+
+      return enriched.map((listing) => this.normalizeListingOverview(listing));
     } catch (error) {
       logger.error("Error enriching listings with integrations:", error);
-      return listings;
+      return listings.map((listing) => this.normalizeListingOverview(listing));
     }
   }
 
