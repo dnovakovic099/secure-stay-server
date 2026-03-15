@@ -15,8 +15,8 @@ export class TurnoverController {
     async getNotifications(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const dateRange = req.query.dateRange;
-            const fromDate = Array.isArray(dateRange) ? dateRange[0] : (req.query.fromDate as string);
-            const toDate = Array.isArray(dateRange) ? dateRange[1] : (req.query.toDate as string);
+            const fromDate = (Array.isArray(dateRange) ? dateRange[0] : req.query.fromDate) as string;
+            const toDate = (Array.isArray(dateRange) ? dateRange[1] : req.query.toDate) as string;
 
             const parseList = (value?: string | string[]) => {
                 if (!value) return undefined;
@@ -49,8 +49,8 @@ export class TurnoverController {
     async getNotificationSummary(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const dateRange = req.query.dateRange;
-            const fromDate = Array.isArray(dateRange) ? dateRange[0] : (req.query.fromDate as string);
-            const toDate = Array.isArray(dateRange) ? dateRange[1] : (req.query.toDate as string);
+            const fromDate = (Array.isArray(dateRange) ? dateRange[0] : req.query.fromDate) as string;
+            const toDate = (Array.isArray(dateRange) ? dateRange[1] : req.query.toDate) as string;
 
             const parseList = (value?: string | string[]) => {
                 if (!value) return undefined;
