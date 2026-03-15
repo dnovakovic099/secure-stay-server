@@ -14,13 +14,24 @@ export class TurnoverController {
      */
     async getNotifications(req: CustomRequest, res: Response, next: NextFunction) {
         try {
+            const dateRange = req.query.dateRange;
+            const fromDate = Array.isArray(dateRange) ? dateRange[0] : (req.query.fromDate as string);
+            const toDate = Array.isArray(dateRange) ? dateRange[1] : (req.query.toDate as string);
+
+            const parseList = (value?: string | string[]) => {
+                if (!value) return undefined;
+                if (Array.isArray(value)) return value;
+                return value.split(',').map((v) => v.trim()).filter(Boolean);
+            };
+
             const filters = {
                 search: req.query.search as string,
-                notificationType: req.query.notificationType as string,
-                status: req.query.status as string,
-                propertyType: req.query.propertyType as string,
-                fromDate: req.query.fromDate as string,
-                toDate: req.query.toDate as string,
+                notificationType: parseList(req.query.notificationType as string | string[]),
+                status: parseList(req.query.status as string | string[]),
+                propertyType: parseList(req.query.propertyType as string | string[]),
+                fromDate,
+                toDate,
+                dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
                 listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined,
                 date: req.query.date as 'today' | 'tomorrow' | undefined
             };
@@ -33,12 +44,50 @@ export class TurnoverController {
     }
 
     /**
+     * Get turnover summary counts
+     */
+    async getNotificationSummary(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const dateRange = req.query.dateRange;
+            const fromDate = Array.isArray(dateRange) ? dateRange[0] : (req.query.fromDate as string);
+            const toDate = Array.isArray(dateRange) ? dateRange[1] : (req.query.toDate as string);
+
+            const parseList = (value?: string | string[]) => {
+                if (!value) return undefined;
+                if (Array.isArray(value)) return value;
+                return value.split(',').map((v) => v.trim()).filter(Boolean);
+            };
+
+            const filters = {
+                search: req.query.search as string,
+                notificationType: parseList(req.query.notificationType as string | string[]),
+                status: parseList(req.query.status as string | string[]),
+                propertyType: parseList(req.query.propertyType as string | string[]),
+                fromDate,
+                toDate,
+                dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
+                listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined
+            };
+
+            const summary = await this.turnoverService.getNotificationSummary(filters);
+            return res.status(200).json({ data: summary });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Get turnover settings
      */
     async getSettings(req: CustomRequest, res: Response, next: NextFunction) {
         try {
+            const parseList = (value?: string | string[]) => {
+                if (!value) return undefined;
+                if (Array.isArray(value)) return value;
+                return value.split(',').map((v) => v.trim()).filter(Boolean);
+            };
             const filters = {
-                propertyType: req.query.propertyType as string,
+                propertyType: parseList(req.query.propertyType as string | string[]),
                 search: req.query.search as string
             };
 
@@ -66,12 +115,50 @@ export class TurnoverController {
     }
 
     /**
+     * Get global turnover settings (defaults)
+     */
+    async getGlobalSettings(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const settings = await this.turnoverService.getGlobalSettings();
+            return res.status(200).json({ data: settings });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Update global turnover settings (defaults)
+     */
+    async updateGlobalSettings(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const data = req.body;
+            const userId = req.user?.id;
+            const settings = await this.turnoverService.updateGlobalSettings(data, userId);
+            return res.status(200).json({ data: settings, message: 'Global settings updated successfully' });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Get contacts for a listing
      */
     async getContactsForListing(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const listingId = parseInt(req.params.listingId);
             const contacts = await this.turnoverService.getContactsForListing(listingId);
+            return res.status(200).json({ data: contacts });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Get global contacts list (active cleaners)
+     */
+    async getGlobalContacts(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const contacts = await this.turnoverService.getGlobalContacts();
             return res.status(200).json({ data: contacts });
         } catch (error) {
             next(error);
