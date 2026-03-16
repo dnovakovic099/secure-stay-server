@@ -668,7 +668,17 @@ export class TurnoverService {
                 return new Date(dateA).getTime() - new Date(dateB).getTime();
             });
 
-            return scopedNotifications;
+            // Final de-dupe: one reservation + one type + one date = one row
+            const unique = new Map<string, TurnoverNotification>();
+            scopedNotifications.forEach((n) => {
+                const dateKey = n.notificationType === 'pre-stay' ? n.checkInDate : n.checkOutDate;
+                const key = `${n.reservationId}-${n.notificationType}-${dateKey || ''}`;
+                if (!unique.has(key)) {
+                    unique.set(key, n);
+                }
+            });
+
+            return Array.from(unique.values());
         } catch (error: any) {
             logger.error(`[TurnoverService] Error getting notifications:`, error.message);
             throw error;
