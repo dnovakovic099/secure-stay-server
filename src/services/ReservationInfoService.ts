@@ -185,6 +185,7 @@ export class ReservationInfoService {
     reservation.airbnbTransientOccupancyTaxPaidAmount = updateData.airbnbTransientOccupancyTaxPaidAmount;
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
+    reservation.confirmation_code = updateData.confirmation_code;
 
     const savedReservation = await this.reservationInfoRepository.save(reservation);
     runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
@@ -1734,6 +1735,7 @@ export class ReservationInfoService {
       airbnbTransientOccupancyTaxPaidAmount: null,
       airbnbCancellationPolicy: null,
       paymentStatus: null,
+      confirmation_code: reservation.confirmation_code,
     };
   }
 

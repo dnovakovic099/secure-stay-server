@@ -175,6 +175,9 @@ export class ReservationInfoEntity {
     @Column({ default: false })
     atRisk: boolean;
 
+    @Column({ length: 255, nullable: true })
+    confirmation_code: string;
+
     @OneToOne(() => ReviewCheckout, (reviewCheckout) => reviewCheckout.reservationInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
     reviewCheckout: ReviewCheckout;
 
