@@ -386,10 +386,10 @@ export class TurnoverService {
      */
     async getNotifications(filters: TurnoverFilters = {}): Promise<TurnoverNotification[]> {
         try {
-            // Calculate date range from scopes or filters
-            let fromDate: Date;
-            let toDate: Date;
-            const { todayStart, todayEnd, tomorrowStart, tomorrowEnd } = this.getEasternDayRanges();
+            // Calculate date range from scopes or filters (Eastern date keys)
+            let fromDateStr: string;
+            let toDateStr: string;
+            const { todayKey, tomorrowKey } = this.getEasternDayRanges();
 
             const scopes = filters.scopes || [];
             const hasScopes = scopes.length > 0;
@@ -399,28 +399,25 @@ export class TurnoverService {
 
             if (includesToday || includesTomorrow) {
                 if (includesToday && includesTomorrow) {
-                    fromDate = todayStart;
-                    toDate = tomorrowEnd;
+                    fromDateStr = todayKey;
+                    toDateStr = tomorrowKey;
                 } else if (includesTomorrow) {
-                    fromDate = tomorrowStart;
-                    toDate = tomorrowEnd;
+                    fromDateStr = tomorrowKey;
+                    toDateStr = tomorrowKey;
                 } else {
-                    fromDate = todayStart;
-                    toDate = todayEnd;
+                    fromDateStr = todayKey;
+                    toDateStr = todayKey;
                 }
             } else if (filters.fromDate && filters.toDate) {
-                const timeZone = "America/New_York";
-                const [fromYear, fromMonth, fromDay] = filters.fromDate.split("-").map((v) => Number(v));
-                const [toYear, toMonth, toDay] = filters.toDate.split("-").map((v) => Number(v));
-                fromDate = this.zoneLocalToUtcDate(fromYear, fromMonth, fromDay, 0, 0, 0, 0, timeZone);
-                toDate = this.zoneLocalToUtcDate(toYear, toMonth, toDay, 23, 59, 59, 999, timeZone);
+                fromDateStr = filters.fromDate;
+                toDateStr = filters.toDate;
             } else if (filters.date === 'tomorrow') {
-                fromDate = tomorrowStart;
-                toDate = tomorrowEnd;
+                fromDateStr = tomorrowKey;
+                toDateStr = tomorrowKey;
             } else {
                 // Default: today only
-                fromDate = todayStart;
-                toDate = todayEnd;
+                fromDateStr = todayKey;
+                toDateStr = todayKey;
             }
 
             const notifications: TurnoverNotification[] = [];
@@ -448,8 +445,8 @@ export class TurnoverService {
                     where: {
                         ...reservationWhere,
                         ...(useDateFieldFilter && dateField === 'checkOut'
-                            ? { departureDate: Between(fromDate, toDate) }
-                            : { arrivalDate: Between(fromDate, toDate) }),
+                            ? { departureDate: Between(fromDateStr, toDateStr) }
+                            : { arrivalDate: Between(fromDateStr, toDateStr) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -541,8 +538,8 @@ export class TurnoverService {
                     where: {
                         ...reservationWhere,
                         ...(useDateFieldFilter && dateField === 'checkIn'
-                            ? { arrivalDate: Between(fromDate, toDate) }
-                            : { departureDate: Between(fromDate, toDate) }),
+                            ? { arrivalDate: Between(fromDateStr, toDateStr) }
+                            : { departureDate: Between(fromDateStr, toDateStr) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
