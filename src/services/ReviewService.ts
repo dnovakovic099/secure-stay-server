@@ -206,6 +206,13 @@ export class ReviewService {
             const users = await this.usersRepo.find();
             const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
+            // Batch-fetch listings to extract property type from tags
+            const uniqueListingIds = [...new Set(reviews.map(r => r.listingMapId).filter(Boolean))];
+            const listings = uniqueListingIds.length > 0
+                ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags'] })
+                : [];
+            const listingTagMap = new Map(listings.map(l => [Number(l.id), l.tags]));
+
             const reviewList = [];
 
             for (const review of reviews) {
@@ -223,6 +230,7 @@ export class ReviewService {
                     guestEmail: reservationInfo?.guestEmail || null,
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))),
                 };
                 reviewList.push(reviewPlain);
             }
@@ -234,6 +242,16 @@ export class ReviewService {
         }
     }
 
+
+    private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
+        if (!tags) return null;
+        const tagList = tags.split(',').map(t => t.trim());
+        const propertyTypes = ['Own', 'Arb', 'pm'];
+        for (const pt of propertyTypes) {
+            if (tagList.includes(pt)) return pt;
+        }
+        return null;
+    }
 
     private async getListingIdsByOwnerName(ownerName: string) {
         const listingIds = await this.ownerInfoRepository
@@ -397,6 +415,7 @@ export class ReviewService {
                         channelName: reservationInfo.channelName,
                         isHidden: reviewData?.isHidden || 0,
                         reservationId: reviewData?.reservation_id || null,
+                        privateReview: reviewData?.feedback || null,
                     });
                     await this.reviewRepository.save(newReview);
 

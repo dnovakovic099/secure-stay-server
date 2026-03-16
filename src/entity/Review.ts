@@ -27,6 +27,9 @@ export class ReviewEntity {
     @Column({ type: 'text', nullable: true })
     publicReview: string;
 
+    @Column({name: 'private_review', type: 'text', nullable: true })
+    privateReview: string;
+
     @Column({ nullable: true })
     submittedAt: string;
 
