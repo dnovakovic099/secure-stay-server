@@ -186,6 +186,8 @@ export class ReservationInfoService {
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
     reservation.confirmation_code = updateData.confirmation_code;
+    reservation.owner_revenue = updateData.owner_revenue;
+    reservation.integration_nickname = updateData.integration_nickname;
 
     const savedReservation = await this.reservationInfoRepository.save(reservation);
     runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
@@ -1667,7 +1669,7 @@ export class ReservationInfoService {
       return;
     }
 
-    const reservationInfo = hostifyReservationObj.reservation;
+    const reservationInfo = { ...hostifyReservationObj.reservation, integration_nickname: hostifyReservationObj?.listing?.integration_nickname ? hostifyReservationObj.listing.integration_nickname : null };
     const guestInfo = hostifyReservationObj.guest;
     const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
     await this.saveReservationInfo(reservationObj, "webhook");
@@ -1736,6 +1738,8 @@ export class ReservationInfoService {
       airbnbCancellationPolicy: null,
       paymentStatus: null,
       confirmation_code: reservation.confirmation_code,
+      owner_revenue: reservation.owner_revenue,
+      integration_nickname: reservation.integration_nickname,
     };
   }
 
