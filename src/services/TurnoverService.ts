@@ -70,6 +70,80 @@ interface TurnoverFilters {
 }
 
 export class TurnoverService {
+    private getZoneDateParts(date: Date, timeZone: string) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
+        return {
+            year: Number(get("year")),
+            month: Number(get("month")),
+            day: Number(get("day")),
+            hour: Number(get("hour")),
+            minute: Number(get("minute")),
+            second: Number(get("second"))
+        };
+    }
+
+    private getZoneOffsetMinutes(date: Date, timeZone: string): number {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            timeZoneName: "shortOffset",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const tz = parts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+        const match = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tz);
+        if (!match) return 0;
+        const sign = match[1].startsWith("-") ? -1 : 1;
+        const hours = Math.abs(parseInt(match[1], 10));
+        const minutes = match[2] ? parseInt(match[2], 10) : 0;
+        return sign * (hours * 60 + minutes);
+    }
+
+    private zoneLocalToUtcDate(
+        year: number,
+        month: number,
+        day: number,
+        hour: number,
+        minute: number,
+        second: number,
+        millisecond: number,
+        timeZone: string
+    ) {
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+        const offsetMinutes = this.getZoneOffsetMinutes(utcDate, timeZone);
+        return new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
+    }
+
+    private getEasternDayRanges() {
+        const timeZone = "America/New_York";
+        const now = new Date();
+        const todayParts = this.getZoneDateParts(now, timeZone);
+        const tomorrowParts = this.getZoneDateParts(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone);
+
+        const todayStart = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 0, 0, 0, 0, timeZone);
+        const todayEnd = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 23, 59, 59, 999, timeZone);
+        const tomorrowStart = this.zoneLocalToUtcDate(tomorrowParts.year, tomorrowParts.month, tomorrowParts.day, 0, 0, 0, 0, timeZone);
+        const tomorrowEnd = this.zoneLocalToUtcDate(tomorrowParts.year, tomorrowParts.month, tomorrowParts.day, 23, 59, 59, 999, timeZone);
+
+        const todayKey = `${todayParts.year}-${String(todayParts.month).padStart(2, "0")}-${String(todayParts.day).padStart(2, "0")}`;
+        const tomorrowKey = `${tomorrowParts.year}-${String(tomorrowParts.month).padStart(2, "0")}-${String(tomorrowParts.day).padStart(2, "0")}`;
+
+        return { todayStart, todayEnd, tomorrowStart, tomorrowEnd, todayKey, tomorrowKey };
+    }
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private preStayRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
@@ -314,15 +388,7 @@ export class TurnoverService {
             // Calculate date range from scopes or filters
             let fromDate: Date;
             let toDate: Date;
-            const now = new Date();
-            const todayStart = new Date(now);
-            todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date(now);
-            todayEnd.setHours(23, 59, 59, 999);
-            const tomorrowStart = new Date(todayStart);
-            tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-            const tomorrowEnd = new Date(tomorrowStart);
-            tomorrowEnd.setHours(23, 59, 59, 999);
+            const { todayStart, todayEnd, tomorrowStart, tomorrowEnd } = this.getEasternDayRanges();
 
             const scopes = filters.scopes || [];
             const hasScopes = scopes.length > 0;
@@ -342,9 +408,11 @@ export class TurnoverService {
                     toDate = todayEnd;
                 }
             } else if (filters.fromDate && filters.toDate) {
-                fromDate = new Date(filters.fromDate);
-                toDate = new Date(filters.toDate);
-                toDate.setHours(23, 59, 59, 999);
+                const timeZone = "America/New_York";
+                const [fromYear, fromMonth, fromDay] = filters.fromDate.split("-").map((v) => Number(v));
+                const [toYear, toMonth, toDay] = filters.toDate.split("-").map((v) => Number(v));
+                fromDate = this.zoneLocalToUtcDate(fromYear, fromMonth, fromDay, 0, 0, 0, 0, timeZone);
+                toDate = this.zoneLocalToUtcDate(toYear, toMonth, toDay, 23, 59, 59, 999, timeZone);
             } else if (filters.date === 'tomorrow') {
                 fromDate = tomorrowStart;
                 toDate = tomorrowEnd;
@@ -639,10 +707,7 @@ export class TurnoverService {
             dateCounts[dateKey].total += 1;
         });
 
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const tomorrowDate = new Date();
-        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-        const tomorrowKey = tomorrowDate.toISOString().slice(0, 10);
+        const { todayKey, tomorrowKey } = this.getEasternDayRanges();
 
         const sameDayCounts: Record<string, number> = {};
         checkInByListingDate.forEach((checkInDates, listingId) => {
