@@ -362,6 +362,7 @@ export class TurnoverService {
             const includePostStay = hasScopes
                 ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
                 : (!filters.notificationType || filters.notificationType.includes('post-stay'));
+            const includesSameDay = hasScopes && scopes.includes('sameday');
             const useDateFieldFilter = !includesToday && !includesTomorrow && !!(filters.fromDate && filters.toDate && filters.dateField);
             const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
 
@@ -589,14 +590,18 @@ export class TurnoverService {
                 }
             });
 
+            const scopedNotifications = includesSameDay
+                ? notifications.filter((n) => n.isSameDayTurnover)
+                : notifications;
+
             // Sort by date
-            notifications.sort((a, b) => {
+            scopedNotifications.sort((a, b) => {
                 const dateA = a.notificationType === 'pre-stay' ? a.checkInDate : a.checkOutDate;
                 const dateB = b.notificationType === 'pre-stay' ? b.checkInDate : b.checkOutDate;
                 return new Date(dateA).getTime() - new Date(dateB).getTime();
             });
 
-            return notifications;
+            return scopedNotifications;
         } catch (error: any) {
             logger.error(`[TurnoverService] Error getting notifications:`, error.message);
             throw error;
@@ -610,6 +615,8 @@ export class TurnoverService {
         const notifications = await this.getNotifications(filters);
 
         const dateCounts: Record<string, { preStay: number; postStay: number; total: number; }> = {};
+        const checkInByListingDate = new Map<string, Set<string>>();
+        const checkOutByListingDate = new Map<string, Set<string>>();
         notifications.forEach((n) => {
             const dateKey = (n.notificationType === 'post-stay' ? n.checkOutDate : n.checkInDate)?.slice(0, 10);
             if (!dateKey) return;
@@ -618,8 +625,16 @@ export class TurnoverService {
             }
             if (n.notificationType === 'pre-stay') {
                 dateCounts[dateKey].preStay += 1;
+                const listingKey = String(n.listingId);
+                const set = checkInByListingDate.get(listingKey) || new Set<string>();
+                set.add(dateKey);
+                checkInByListingDate.set(listingKey, set);
             } else {
                 dateCounts[dateKey].postStay += 1;
+                const listingKey = String(n.listingId);
+                const set = checkOutByListingDate.get(listingKey) || new Set<string>();
+                set.add(dateKey);
+                checkOutByListingDate.set(listingKey, set);
             }
             dateCounts[dateKey].total += 1;
         });
@@ -629,11 +644,34 @@ export class TurnoverService {
         tomorrowDate.setDate(tomorrowDate.getDate() + 1);
         const tomorrowKey = tomorrowDate.toISOString().slice(0, 10);
 
+        const sameDayCounts: Record<string, number> = {};
+        checkInByListingDate.forEach((checkInDates, listingId) => {
+            const checkOutDates = checkOutByListingDate.get(listingId);
+            if (!checkOutDates) return;
+            checkInDates.forEach((dateKey) => {
+                if (checkOutDates.has(dateKey)) {
+                    sameDayCounts[dateKey] = (sameDayCounts[dateKey] || 0) + 1;
+                }
+            });
+        });
+
         return {
             preStay: notifications.filter((n) => n.notificationType === 'pre-stay').length,
             postStay: notifications.filter((n) => n.notificationType === 'post-stay').length,
             today: dateCounts[todayKey]?.total || 0,
             tomorrow: dateCounts[tomorrowKey]?.total || 0,
+            todaySummary: {
+                total_turnovers: dateCounts[todayKey]?.total || 0,
+                prestay_total: dateCounts[todayKey]?.preStay || 0,
+                poststay_total: dateCounts[todayKey]?.postStay || 0,
+                same_day_turnovers: sameDayCounts[todayKey] || 0
+            },
+            tomorrowSummary: {
+                total_turnovers: dateCounts[tomorrowKey]?.total || 0,
+                prestay_total: dateCounts[tomorrowKey]?.preStay || 0,
+                poststay_total: dateCounts[tomorrowKey]?.postStay || 0,
+                same_day_turnovers: sameDayCounts[tomorrowKey] || 0
+            },
             dateCounts: Object.entries(dateCounts)
                 .map(([date, counts]) => ({ date, ...counts }))
                 .sort((a, b) => a.date.localeCompare(b.date)),
