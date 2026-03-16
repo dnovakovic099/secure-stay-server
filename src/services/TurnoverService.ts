@@ -661,16 +661,26 @@ export class TurnoverService {
             today: dateCounts[todayKey]?.total || 0,
             tomorrow: dateCounts[tomorrowKey]?.total || 0,
             todaySummary: {
-                total_turnovers: dateCounts[todayKey]?.total || 0,
+                total_turnovers: (dateCounts[todayKey]?.preStay || 0) + (dateCounts[todayKey]?.postStay || 0),
                 prestay_total: dateCounts[todayKey]?.preStay || 0,
                 poststay_total: dateCounts[todayKey]?.postStay || 0,
-                same_day_turnovers: sameDayCounts[todayKey] || 0
+                prestay_same_day: sameDayCounts[todayKey] || 0,
+                poststay_same_day: sameDayCounts[todayKey] || 0,
+                prestay_standard: Math.max((dateCounts[todayKey]?.preStay || 0) - (sameDayCounts[todayKey] || 0), 0),
+                poststay_standard: Math.max((dateCounts[todayKey]?.postStay || 0) - (sameDayCounts[todayKey] || 0), 0),
+                same_day_turnovers: sameDayCounts[todayKey] || 0,
+                date: todayKey
             },
             tomorrowSummary: {
-                total_turnovers: dateCounts[tomorrowKey]?.total || 0,
+                total_turnovers: (dateCounts[tomorrowKey]?.preStay || 0) + (dateCounts[tomorrowKey]?.postStay || 0),
                 prestay_total: dateCounts[tomorrowKey]?.preStay || 0,
                 poststay_total: dateCounts[tomorrowKey]?.postStay || 0,
-                same_day_turnovers: sameDayCounts[tomorrowKey] || 0
+                prestay_same_day: sameDayCounts[tomorrowKey] || 0,
+                poststay_same_day: sameDayCounts[tomorrowKey] || 0,
+                prestay_standard: Math.max((dateCounts[tomorrowKey]?.preStay || 0) - (sameDayCounts[tomorrowKey] || 0), 0),
+                poststay_standard: Math.max((dateCounts[tomorrowKey]?.postStay || 0) - (sameDayCounts[tomorrowKey] || 0), 0),
+                same_day_turnovers: sameDayCounts[tomorrowKey] || 0,
+                date: tomorrowKey
             },
             dateCounts: Object.entries(dateCounts)
                 .map(([date, counts]) => ({ date, ...counts }))
