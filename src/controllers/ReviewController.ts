@@ -290,4 +290,15 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async getDashboardStats(_request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.getReviewsDashboardStats();
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            logger.error("Error fetching review dashboard stats:", error);
+            return next(error);
+        }
+    }
 }

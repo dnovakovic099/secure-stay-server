@@ -14,7 +14,7 @@ import { Claim } from "../entity/Claim";
 import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
-import { addDays, endOfDay, format, getDay, startOfDay } from "date-fns";
+import { addDays, endOfDay, format, getDay, startOfDay, subMonths } from "date-fns";
 import { ActionItemsService } from "./ActionItemsService";
 import { IssuesService } from "./IssuesService";
 import { UsersEntity } from "../entity/Users";
@@ -56,6 +56,7 @@ interface Filter {
     status?: string[] | null | undefined;
     isActive?: boolean | null | undefined;
     tab?: string | null | undefined;
+    propertyType?: string[] | null | undefined;
 }
 
 
@@ -642,6 +643,7 @@ export class ReviewService {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
             todayDate, status, isActive, tab, keyword,
+            propertyType,
         } = filters;
 
         //fetch reviewCheckoutList
@@ -719,8 +721,24 @@ export class ReviewService {
             }
         }
 
-        // Listing filter
-        if (listingMapId && listingMapId.length > 0) {
+        // Property type filter — resolve to listing IDs first, then apply listing filter
+        if (propertyType && propertyType.length > 0) {
+            const listingService = new ListingService();
+            const propertyTypeListings = await listingService.getListingsByPropertyTypes(propertyType as any);
+            const propertyTypeListingIds = propertyTypeListings.map((l: any) => Number(l.id));
+            if (listingMapId && listingMapId.length > 0) {
+                const requestedIds = listingMapId.map(id => Number(id));
+                const intersected = requestedIds.filter(id => propertyTypeListingIds.includes(id));
+                query.andWhere("reservationInfo.listingMapId IN (:...ptListingIds)", { ptListingIds: intersected.length > 0 ? intersected : [-1] });
+            } else {
+                query.andWhere(
+                    propertyTypeListingIds.length > 0
+                        ? "reservationInfo.listingMapId IN (:...ptListingIds)"
+                        : "1 = 0",
+                    propertyTypeListingIds.length > 0 ? { ptListingIds: propertyTypeListingIds } : {}
+                );
+            }
+        } else if (listingMapId && listingMapId.length > 0) {
             query.andWhere("reservationInfo.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId.map(id => Number(id)) });
         }
 
@@ -807,7 +825,24 @@ export class ReviewService {
         const issues = issuesResult.issues;
         const actionItems = actionItemsResult.actionItems;
 
+        // Build listing tag map to resolve propertyType — include IDs from both reviews and reservations
+        const uniqueListingIds = [...new Set([
+            ...reviews.map(r => Number(r.listingMapId)),
+            ...reviewCheckoutList.map(rc => Number(rc.reservationInfo?.listingMapId)),
+        ].filter(Boolean))];
+        const listingTagRecords = uniqueListingIds.length > 0
+            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags'] })
+            : [];
+        const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l.tags]));
+
         const transformedData = reviewCheckoutList.map(rc => {
+            const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
+            const enrichedReview = matchedReview
+                ? { ...matchedReview, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))) }
+                : null;
+            const enrichedReviews = reviews
+                .filter(r => r.reservationId == rc.reservationInfo?.id)
+                .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
             return {
                 ...rc,
                 assignee: userMap.get(rc.assignee) || rc.assignee,
@@ -816,7 +851,8 @@ export class ReviewService {
                 deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
                 reservationInfo: {
                     ...rc.reservationInfo,
-                    review: reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null,
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))),
+                    review: enrichedReview,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
                     aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
@@ -828,7 +864,7 @@ export class ReviewService {
                         updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
                     };
                 }),
-                reviews: reviews.filter(r => r.reservationId == rc.reservationInfo?.id) || [],
+                reviews: enrichedReviews,
             };
         });
 
@@ -1516,6 +1552,131 @@ export class ReviewService {
 
         const liveIssueUpdate = this.liveIssueUpdatesRepo.create(newUpdate);
         return await this.liveIssueUpdatesRepo.save(liveIssueUpdate);
+    }
+
+    async getReviewsDashboardStats() {
+        const sixMonthsAgo = subMonths(new Date(), 6);
+
+        const [ratingDistribution, channelBreakdown, reviewMonthlyTrend, visibilityStats] = await Promise.all([
+            this.reviewRepository
+                .createQueryBuilder('r')
+                .select('r.rating', 'rating')
+                .addSelect('COUNT(*)', 'count')
+                .where('r.rating IS NOT NULL')
+                .groupBy('r.rating')
+                .orderBy('r.rating', 'ASC')
+                .getRawMany(),
+            this.reviewRepository
+                .createQueryBuilder('r')
+                .select('r.channelName', 'channelName')
+                .addSelect('COUNT(*)', 'count')
+                .addSelect('ROUND(AVG(r.rating), 2)', 'avgRating')
+                .where('r.rating IS NOT NULL')
+                .groupBy('r.channelName')
+                .orderBy('count', 'DESC')
+                .limit(8)
+                .getRawMany(),
+            this.reviewRepository
+                .createQueryBuilder('r')
+                .select("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'month')
+                .addSelect('COUNT(*)', 'count')
+                .addSelect('ROUND(AVG(r.rating), 2)', 'avgRating')
+                .where('r.submittedAt >= :sixMonthsAgo', { sixMonthsAgo })
+                .andWhere('r.submittedAt IS NOT NULL')
+                .groupBy("DATE_FORMAT(r.submittedAt, '%Y-%m')")
+                .orderBy("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'ASC')
+                .getRawMany(),
+            this.reviewRepository
+                .createQueryBuilder('r')
+                .select('r.isHidden', 'isHidden')
+                .addSelect('COUNT(*)', 'count')
+                .groupBy('r.isHidden')
+                .getRawMany(),
+        ]);
+
+        const [mitigationByStatus, mitigationMonthlyTrend, checkoutCountsByListing] = await Promise.all([
+            this.reviewCheckoutRepo
+                .createQueryBuilder('rc')
+                .select('rc.status', 'status')
+                .addSelect('COUNT(*)', 'count')
+                .groupBy('rc.status')
+                .getRawMany(),
+            this.reviewCheckoutRepo
+                .createQueryBuilder('rc')
+                .select("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'month')
+                .addSelect('COUNT(*)', 'count')
+                .where('rc.createdAt >= :sixMonthsAgo', { sixMonthsAgo })
+                .groupBy("DATE_FORMAT(rc.createdAt, '%Y-%m')")
+                .orderBy("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'ASC')
+                .getRawMany(),
+            this.reviewCheckoutRepo
+                .createQueryBuilder('rc')
+                .leftJoin('rc.reservationInfo', 'ri')
+                .select('ri.listingMapId', 'listingMapId')
+                .addSelect('COUNT(rc.id)', 'count')
+                .groupBy('ri.listingMapId')
+                .getRawMany(),
+        ]);
+
+        // Property type distribution
+        const listingIds = checkoutCountsByListing.map(c => Number(c.listingMapId)).filter(Boolean);
+        const listings = listingIds.length > 0
+            ? await this.listingRepo.find({ where: { id: In(listingIds) }, select: ['id', 'tags'] })
+            : [];
+        const listingTagMap = new Map(listings.map(l => [Number(l.id), l.tags]));
+        const propertyTypeCounts: Record<string, number> = {};
+        for (const item of checkoutCountsByListing) {
+            const pt = this.extractPropertyTypeFromTags(listingTagMap.get(Number(item.listingMapId))) || 'Unknown';
+            propertyTypeCounts[pt] = (propertyTypeCounts[pt] || 0) + Number(item.count);
+        }
+
+        // Compute summary stats
+        const totalVisible = Number(visibilityStats.find(v => String(v.isHidden) === '0')?.count || 0);
+        const totalHidden = Number(visibilityStats.find(v => String(v.isHidden) === '1')?.count || 0);
+        const ratingDist = ratingDistribution.map(r => ({ rating: Number(r.rating), count: Number(r.count) }));
+        const totalRated = ratingDist.reduce((sum, r) => sum + r.count, 0);
+        const fiveStarCount = ratingDist.find(r => r.rating === 5)?.count || 0;
+        const lowRatingCount = ratingDist.filter(r => r.rating <= 3).reduce((sum, r) => sum + r.count, 0);
+        const avgRating = totalRated > 0
+            ? ratingDist.reduce((sum, r) => sum + r.rating * r.count, 0) / totalRated
+            : 0;
+
+        const mitigationStatusData = mitigationByStatus.map(s => ({ status: s.status, count: Number(s.count) }));
+        const totalMitigation = mitigationStatusData.reduce((sum, s) => sum + s.count, 0);
+        const closedMitigation = mitigationStatusData
+            .filter(s => s.status?.includes('Closed'))
+            .reduce((sum, s) => sum + s.count, 0);
+        const openMitigation = totalMitigation - closedMitigation;
+
+        return {
+            reviews: {
+                total: totalVisible + totalHidden,
+                visible: totalVisible,
+                hidden: totalHidden,
+                avgRating: parseFloat(avgRating.toFixed(2)),
+                fiveStarCount,
+                lowRatingCount,
+                ratingDistribution: ratingDist,
+                channelBreakdown: channelBreakdown.map(c => ({
+                    channelName: c.channelName || 'Unknown',
+                    count: Number(c.count),
+                    avgRating: parseFloat(Number(c.avgRating).toFixed(2)),
+                })),
+                monthlyTrend: reviewMonthlyTrend.map(m => ({
+                    month: m.month,
+                    count: Number(m.count),
+                    avgRating: parseFloat(Number(m.avgRating).toFixed(2)),
+                })),
+            },
+            mitigation: {
+                total: totalMitigation,
+                open: openMitigation,
+                closed: closedMitigation,
+                byStatus: mitigationStatusData,
+                monthlyTrend: mitigationMonthlyTrend.map(m => ({ month: m.month, count: Number(m.count) })),
+                propertyTypeDistribution: Object.entries(propertyTypeCounts).map(([type, count]) => ({ type, count })),
+            },
+        };
     }
 
 
