@@ -1333,9 +1333,23 @@ export class ListingService {
     return value;
   }
 
+  private toComparableString(value: any) {
+    const normalized = this.normalizeDiffValue(value);
+    if (normalized === null) return "";
+    if (typeof normalized === "object") {
+      try {
+        return JSON.stringify(normalized);
+      } catch {
+        return String(normalized);
+      }
+    }
+    return String(normalized);
+  }
+
   private buildListingDiff(existing: Listing, next: Partial<Listing>) {
     const fields = [
       { key: "name", label: "Name" },
+      { key: "description", label: "Description" },
       { key: "internalListingName", label: "Nickname" },
       { key: "address", label: "Address" },
       { key: "city", label: "City" },
@@ -1359,7 +1373,9 @@ export class ListingService {
     fields.forEach(({ key, label }) => {
       const prevVal = this.normalizeDiffValue((existing as any)[key]);
       const nextVal = this.normalizeDiffValue((next as any)[key]);
-      if (prevVal !== nextVal) {
+      const prevStr = this.toComparableString(prevVal);
+      const nextStr = this.toComparableString(nextVal);
+      if (prevStr !== nextStr) {
         diffs.push({ field: label, old: prevVal, new: nextVal });
       }
     });
