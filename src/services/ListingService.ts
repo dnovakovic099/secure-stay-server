@@ -1,6 +1,7 @@
 import { Brackets, EntityManager, In, Not } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { Listing } from "../entity/Listing";
+import { ListingChangeLog } from "../entity/ListingChangeLog";
 import { ListingImage } from "../entity/ListingImage";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
@@ -34,6 +35,7 @@ export class ListingService {
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
 
   private hostifyClient = new Hostify();
+  private listingChangeLogRepo = appDatabase.getRepository(ListingChangeLog);
 
   // Fetch listings from hostaway client and save in our database if not present
   // async syncHostawayListing(userId: string) {
@@ -830,6 +832,54 @@ export class ListingService {
     return updates;
   }
 
+  public async getListingChangeLogsByListingId(listingId: number, page = 1, limit = 10, dateFrom?: string, dateTo?: string) {
+    const qb = this.listingChangeLogRepo.createQueryBuilder("log")
+      .leftJoinAndSelect("log.listing", "listing")
+      .where("log.listingId = :listingId", { listingId })
+      .orderBy("log.changedAt", "DESC")
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (dateFrom) {
+      qb.andWhere("log.changedAt >= :dateFrom", { dateFrom });
+    }
+    if (dateTo) {
+      qb.andWhere("log.changedAt <= :dateTo", { dateTo });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, page, limit };
+  }
+
+  public async getListingChangeLogs(filters: { listingId?: number; dateFrom?: string; dateTo?: string; changedBy?: string; field?: string; page?: number; limit?: number; }) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const qb = this.listingChangeLogRepo.createQueryBuilder("log")
+      .leftJoinAndSelect("log.listing", "listing")
+      .orderBy("log.changedAt", "DESC")
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (filters.listingId) {
+      qb.andWhere("log.listingId = :listingId", { listingId: filters.listingId });
+    }
+    if (filters.changedBy) {
+      qb.andWhere("log.changedBy = :changedBy", { changedBy: filters.changedBy });
+    }
+    if (filters.dateFrom) {
+      qb.andWhere("log.changedAt >= :dateFrom", { dateFrom: filters.dateFrom });
+    }
+    if (filters.dateTo) {
+      qb.andWhere("log.changedAt <= :dateTo", { dateTo: filters.dateTo });
+    }
+    if (filters.field) {
+      qb.andWhere("JSON_SEARCH(log.diff, 'one', :field) IS NOT NULL", { field: filters.field });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, page, limit };
+  }
+
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
     const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount } = body;
     const listingDetail = new ListingDetail();
@@ -1143,6 +1193,7 @@ export class ListingService {
         // 3. Fetch existing listings once (including soft-deleted to prevent duplicate key errors)
         const existingListings = await tx.find(Listing, { withDeleted: true });
         const existingListingIds = existingListings.map((l) => String(l.id));
+        const existingListingMap = new Map(existingListings.map((l) => [String(l.id), l]));
 
         // Track which listings are soft-deleted for reactivation
         const softDeletedListingIds = existingListings
@@ -1190,6 +1241,19 @@ export class ListingService {
           if (!listing || !info) continue;
 
           const listingObj = this.buildListingObject(listing, info);
+          const existing = existingListingMap.get(listingId);
+          if (existing) {
+            const diffs = this.buildListingDiff(existing, listingObj);
+            if (diffs.length > 0) {
+              await tx.insert(ListingChangeLog, {
+                listingId: existing.id,
+                hostifyListingId: existing.id,
+                changedBy: "Hostify Sync",
+                diff: diffs,
+                source: "hostify_hourly_sync"
+              });
+            }
+          }
 
           // Check if this listing was soft-deleted and needs reactivation
           const isReactivation = softDeletedListingIds.includes(listingId);
@@ -1258,6 +1322,64 @@ export class ListingService {
       sortOrder: photo.sort_order,
       listing: listingId
     };
+  }
+
+  private normalizeDiffValue(value: any) {
+    if (value === undefined || value === null) return null;
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "number") return Number(value);
+    if (typeof value === "boolean") return value;
+    if (value instanceof Date) return value.toISOString();
+    return value;
+  }
+
+  private toComparableString(value: any) {
+    const normalized = this.normalizeDiffValue(value);
+    if (normalized === null) return "";
+    if (typeof normalized === "object") {
+      try {
+        return JSON.stringify(normalized);
+      } catch {
+        return String(normalized);
+      }
+    }
+    return String(normalized);
+  }
+
+  private buildListingDiff(existing: Listing, next: Partial<Listing>) {
+    const fields = [
+      { key: "name", label: "Name" },
+      { key: "description", label: "Description" },
+      { key: "internalListingName", label: "Nickname" },
+      { key: "address", label: "Address" },
+      { key: "city", label: "City" },
+      { key: "state", label: "State" },
+      { key: "zipcode", label: "Zip" },
+      { key: "country", label: "Country" },
+      { key: "timeZoneName", label: "Timezone" },
+      { key: "propertyType", label: "Property Type" },
+      { key: "roomType", label: "Room Type" },
+      { key: "bedroomsNumber", label: "Bedrooms" },
+      { key: "bathroomsNumber", label: "Bathrooms" },
+      { key: "personCapacity", label: "Capacity" },
+      { key: "guests", label: "Guests" },
+      { key: "checkInTimeStart", label: "Check-In Start" },
+      { key: "checkInTimeEnd", label: "Check-In End" },
+      { key: "checkOutTime", label: "Check-Out" },
+      { key: "tags", label: "Tags" }
+    ];
+
+    const diffs: Array<{ field: string; old: any; new: any }> = [];
+    fields.forEach(({ key, label }) => {
+      const prevVal = this.normalizeDiffValue((existing as any)[key]);
+      const nextVal = this.normalizeDiffValue((next as any)[key]);
+      const prevStr = this.toComparableString(prevVal);
+      const nextStr = this.toComparableString(nextVal);
+      if (prevStr !== nextStr) {
+        diffs.push({ field: label, old: prevVal, new: nextVal });
+      }
+    });
+    return diffs;
   }
 
 

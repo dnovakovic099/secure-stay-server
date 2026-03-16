@@ -33,7 +33,8 @@ export class TurnoverController {
                 toDate,
                 dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
                 listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined,
-                date: req.query.date as 'today' | 'tomorrow' | undefined
+                date: req.query.date as 'today' | 'tomorrow' | undefined,
+                scopes: parseList(req.query.scopes as string | string[])
             };
 
             const notifications = await this.turnoverService.getNotifications(filters);
@@ -66,7 +67,8 @@ export class TurnoverController {
                 fromDate,
                 toDate,
                 dateField: req.query.dateField as 'checkIn' | 'checkOut' | undefined,
-                listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined
+                listingId: req.query.listingId ? parseInt(req.query.listingId as string) : undefined,
+                scopes: parseList(req.query.scopes as string | string[])
             };
 
             const summary = await this.turnoverService.getNotificationSummary(filters);
@@ -189,13 +191,19 @@ export class TurnoverController {
             const reservationId = parseInt(req.params.reservationId);
             const type = req.params.type as 'pre-stay' | 'post-stay';
             const { action } = req.body;
+            const userId = req.user?.id;
 
-            // TODO: Implement status update logic
-            logger.info(`[TurnoverController] Update notification status: ${reservationId}, ${type}, ${action}`);
-            
-            return res.status(200).json({ 
-                success: true, 
-                message: `Notification ${action} successfully` 
+            const result = await this.turnoverService.updateNotificationStatus(
+                reservationId,
+                type,
+                action,
+                userId
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: `Notification ${action} successfully`,
+                data: result
             });
         } catch (error) {
             next(error);

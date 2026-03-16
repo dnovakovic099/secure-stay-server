@@ -10,6 +10,8 @@ import logger from "../utils/logger.utils";
 import { Between, In, Like, MoreThanOrEqual, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
 import { Hostify } from "../client/Hostify";
+import { format } from "date-fns";
+import { CleanerNotified } from "../entity/ReservationDetailPreStayAudit";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
@@ -29,8 +31,8 @@ interface TurnoverNotification {
     guestName: string;
     checkInDate: string;
     checkOutDate: string;
-    checkInTime?: string;
-    checkOutTime?: string;
+    checkInTime?: string | number;
+    checkOutTime?: string | number;
     reservationCode?: string;
     
     notificationType: 'pre-stay' | 'post-stay';
@@ -64,9 +66,84 @@ interface TurnoverFilters {
     listingId?: number;
     date?: 'today' | 'tomorrow';
     dateField?: 'checkIn' | 'checkOut';
+    scopes?: string[];
 }
 
 export class TurnoverService {
+    private getZoneDateParts(date: Date, timeZone: string) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
+        return {
+            year: Number(get("year")),
+            month: Number(get("month")),
+            day: Number(get("day")),
+            hour: Number(get("hour")),
+            minute: Number(get("minute")),
+            second: Number(get("second"))
+        };
+    }
+
+    private getZoneOffsetMinutes(date: Date, timeZone: string): number {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            timeZoneName: "shortOffset",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const tz = parts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+        const match = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tz);
+        if (!match) return 0;
+        const sign = match[1].startsWith("-") ? -1 : 1;
+        const hours = Math.abs(parseInt(match[1], 10));
+        const minutes = match[2] ? parseInt(match[2], 10) : 0;
+        return sign * (hours * 60 + minutes);
+    }
+
+    private zoneLocalToUtcDate(
+        year: number,
+        month: number,
+        day: number,
+        hour: number,
+        minute: number,
+        second: number,
+        millisecond: number,
+        timeZone: string
+    ) {
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+        const offsetMinutes = this.getZoneOffsetMinutes(utcDate, timeZone);
+        return new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
+    }
+
+    private getEasternDayRanges() {
+        const timeZone = "America/New_York";
+        const now = new Date();
+        const todayParts = this.getZoneDateParts(now, timeZone);
+        const tomorrowParts = this.getZoneDateParts(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone);
+
+        const todayStart = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 0, 0, 0, 0, timeZone);
+        const todayEnd = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 23, 59, 59, 999, timeZone);
+        const tomorrowStart = this.zoneLocalToUtcDate(tomorrowParts.year, tomorrowParts.month, tomorrowParts.day, 0, 0, 0, 0, timeZone);
+        const tomorrowEnd = this.zoneLocalToUtcDate(tomorrowParts.year, tomorrowParts.month, tomorrowParts.day, 23, 59, 59, 999, timeZone);
+
+        const todayKey = `${todayParts.year}-${String(todayParts.month).padStart(2, "0")}-${String(todayParts.day).padStart(2, "0")}`;
+        const tomorrowKey = `${tomorrowParts.year}-${String(tomorrowParts.month).padStart(2, "0")}-${String(tomorrowParts.day).padStart(2, "0")}`;
+
+        return { todayStart, todayEnd, tomorrowStart, tomorrowEnd, todayKey, tomorrowKey };
+    }
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private preStayRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
@@ -129,6 +206,17 @@ export class TurnoverService {
         if (mountain.includes(state)) return "America/Denver";
         if (central.includes(state)) return "America/Chicago";
         return "America/New_York";
+    }
+
+    private formatDateOnly(value?: Date | string | null) {
+        if (!value) return "";
+        if (typeof value === "string") {
+            return value.length >= 10 ? value.slice(0, 10) : value;
+        }
+        if (!(value instanceof Date)) return "";
+        const time = value.getTime();
+        if (Number.isNaN(time)) return "";
+        return value.toISOString().slice(0, 10);
     }
 
     private resolveTimeZone(listing: any) {
@@ -299,35 +387,51 @@ export class TurnoverService {
      */
     async getNotifications(filters: TurnoverFilters = {}): Promise<TurnoverNotification[]> {
         try {
-            // Calculate date range
-            let fromDate: Date, toDate: Date;
-            const now = new Date();
-            const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
+            // Calculate date range from scopes or filters (Eastern date keys)
+            let fromDateStr: string;
+            let toDateStr: string;
+            const { todayKey, tomorrowKey } = this.getEasternDayRanges();
+
+            const scopes = filters.scopes || [];
+            const hasScopes = scopes.length > 0;
+            const includesToday = scopes.includes('today');
+            const includesTomorrow = scopes.includes('tomorrow');
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
-            
-            if (filters.date === 'today') {
-                fromDate = new Date(now.setHours(0, 0, 0, 0));
-                toDate = new Date(now.setHours(23, 59, 59, 999));
-            } else if (filters.date === 'tomorrow') {
-                const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                fromDate = new Date(tomorrow.setHours(0, 0, 0, 0));
-                toDate = new Date(tomorrow.setHours(23, 59, 59, 999));
+
+            if (includesToday || includesTomorrow) {
+                if (includesToday && includesTomorrow) {
+                    fromDateStr = todayKey;
+                    toDateStr = tomorrowKey;
+                } else if (includesTomorrow) {
+                    fromDateStr = tomorrowKey;
+                    toDateStr = tomorrowKey;
+                } else {
+                    fromDateStr = todayKey;
+                    toDateStr = todayKey;
+                }
             } else if (filters.fromDate && filters.toDate) {
-                fromDate = new Date(filters.fromDate);
-                toDate = new Date(filters.toDate);
-                toDate.setHours(23, 59, 59, 999);
+                fromDateStr = filters.fromDate;
+                toDateStr = filters.toDate;
+            } else if (filters.date === 'tomorrow') {
+                fromDateStr = tomorrowKey;
+                toDateStr = tomorrowKey;
             } else {
-                // Default: today and tomorrow
-                fromDate = new Date(now.setHours(0, 0, 0, 0));
-                const dayAfterTomorrow = new Date();
-                dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-                toDate = dayAfterTomorrow;
+                // Default: today only
+                fromDateStr = todayKey;
+                toDateStr = todayKey;
             }
 
             const notifications: TurnoverNotification[] = [];
-            const includePreStay = !filters.notificationType || filters.notificationType.includes('pre-stay');
-            const includePostStay = !filters.notificationType || filters.notificationType.includes('post-stay');
+            const seenKeys = new Set<string>();
+            const includePreStay = hasScopes
+                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow)
+                : (!filters.notificationType || filters.notificationType.includes('pre-stay'));
+            const includePostStay = hasScopes
+                ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
+                : (!filters.notificationType || filters.notificationType.includes('post-stay'));
+            const includesSameDay = hasScopes && scopes.includes('sameday');
+            const useDateFieldFilter = !includesToday && !includesTomorrow && !!(filters.fromDate && filters.toDate && filters.dateField);
+            const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
 
             // Build reservation query
             const reservationWhere: any = {};
@@ -341,9 +445,9 @@ export class TurnoverService {
                 const preStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        ...(dateField === 'checkOut'
-                            ? { departureDate: Between(fromDate, toDate) }
-                            : { arrivalDate: Between(fromDate, toDate) }),
+                        ...(useDateFieldFilter && dateField === 'checkOut'
+                            ? { departureDate: Between(fromDateStr, toDateStr) }
+                            : { arrivalDate: Between(fromDateStr, toDateStr) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -383,10 +487,10 @@ export class TurnoverService {
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
-                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
-                        checkInTime: listing.checkInTimeStart ? listing.checkInTimeStart.toString() : '15:00',
-                        checkOutTime: listing.checkOutTime ? listing.checkOutTime.toString() : '11:00',
+                        checkInDate: this.formatDateOnly(res.arrivalDate),
+                        checkOutDate: this.formatDateOnly(res.departureDate),
+                        checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
+                        checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'pre-stay',
@@ -395,8 +499,8 @@ export class TurnoverService {
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         messagePreview,
                         
-                        status: preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending',
-                        sentAt: undefined,
+                        status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
+                        sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
                         error: undefined,
                         
                         ownerName: settings?.ownerName,
@@ -421,7 +525,11 @@ export class TurnoverService {
                     // Apply status filter
                     if (filters.status && !filters.status.includes(notification.status)) continue;
 
-                    notifications.push(notification);
+                    const dedupeKey = `${notification.reservationId}-pre-${notification.checkInDate}`;
+                    if (!seenKeys.has(dedupeKey)) {
+                        seenKeys.add(dedupeKey);
+                        notifications.push(notification);
+                    }
                 }
             }
 
@@ -430,9 +538,9 @@ export class TurnoverService {
                 const postStayReservations = await this.reservationRepo.find({
                     where: {
                         ...reservationWhere,
-                        ...(dateField === 'checkOut'
-                            ? { departureDate: Between(fromDate, toDate) }
-                            : { arrivalDate: Between(fromDate, toDate) }),
+                        ...(useDateFieldFilter && dateField === 'checkIn'
+                            ? { arrivalDate: Between(fromDateStr, toDateStr) }
+                            : { departureDate: Between(fromDateStr, toDateStr) }),
                         status: In(['accepted', 'moved', 'extended'])
                     }
                 });
@@ -472,10 +580,10 @@ export class TurnoverService {
                         listingTags: listing.tags || '',
                         
                         guestName: res.guestName || 'Unknown Guest',
-                        checkInDate: res.arrivalDate ? new Date(res.arrivalDate).toISOString() : '',
-                        checkOutDate: res.departureDate ? new Date(res.departureDate).toISOString() : '',
-                        checkInTime: listing.checkInTimeStart ? listing.checkInTimeStart.toString() : '15:00',
-                        checkOutTime: listing.checkOutTime ? listing.checkOutTime.toString() : '11:00',
+                        checkInDate: this.formatDateOnly(res.arrivalDate),
+                        checkOutDate: this.formatDateOnly(res.departureDate),
+                        checkInTime: res.checkInTime ?? (listing.checkInTimeStart ?? 15),
+                        checkOutTime: res.checkOutTime ?? (listing.checkOutTime ?? 11),
                         reservationCode: res.reservationId || '',
                         
                         notificationType: 'post-stay',
@@ -510,7 +618,11 @@ export class TurnoverService {
                     // Apply status filter
                     if (filters.status && !filters.status.includes(notification.status)) continue;
 
-                    notifications.push(notification);
+                    const dedupeKey = `${notification.reservationId}-post-${notification.checkOutDate}`;
+                    if (!seenKeys.has(dedupeKey)) {
+                        seenKeys.add(dedupeKey);
+                        notifications.push(notification);
+                    }
                 }
             }
 
@@ -545,14 +657,28 @@ export class TurnoverService {
                 }
             });
 
+            const scopedNotifications = includesSameDay
+                ? notifications.filter((n) => n.isSameDayTurnover)
+                : notifications;
+
             // Sort by date
-            notifications.sort((a, b) => {
+            scopedNotifications.sort((a, b) => {
                 const dateA = a.notificationType === 'pre-stay' ? a.checkInDate : a.checkOutDate;
                 const dateB = b.notificationType === 'pre-stay' ? b.checkInDate : b.checkOutDate;
                 return new Date(dateA).getTime() - new Date(dateB).getTime();
             });
 
-            return notifications;
+            // Final de-dupe: one reservation + one type + one date = one row
+            const unique = new Map<string, TurnoverNotification>();
+            scopedNotifications.forEach((n) => {
+                const dateKey = n.notificationType === 'pre-stay' ? n.checkInDate : n.checkOutDate;
+                const key = `${n.reservationId}-${n.notificationType}-${dateKey || ''}`;
+                if (!unique.has(key)) {
+                    unique.set(key, n);
+                }
+            });
+
+            return Array.from(unique.values());
         } catch (error: any) {
             logger.error(`[TurnoverService] Error getting notifications:`, error.message);
             throw error;
@@ -564,37 +690,130 @@ export class TurnoverService {
      */
     async getNotificationSummary(filters: TurnoverFilters = {}) {
         const notifications = await this.getNotifications(filters);
-        const dateField = filters.dateField === 'checkOut' ? 'checkOut' : 'checkIn';
 
         const dateCounts: Record<string, { preStay: number; postStay: number; total: number; }> = {};
+        const checkInByListingDate = new Map<string, Set<string>>();
+        const checkOutByListingDate = new Map<string, Set<string>>();
         notifications.forEach((n) => {
-            const dateKey = (dateField === 'checkOut' ? n.checkOutDate : n.checkInDate)?.slice(0, 10);
+            const dateKey = (n.notificationType === 'post-stay' ? n.checkOutDate : n.checkInDate)?.slice(0, 10);
             if (!dateKey) return;
             if (!dateCounts[dateKey]) {
                 dateCounts[dateKey] = { preStay: 0, postStay: 0, total: 0 };
             }
             if (n.notificationType === 'pre-stay') {
                 dateCounts[dateKey].preStay += 1;
+                const listingKey = String(n.listingId);
+                const set = checkInByListingDate.get(listingKey) || new Set<string>();
+                set.add(dateKey);
+                checkInByListingDate.set(listingKey, set);
             } else {
                 dateCounts[dateKey].postStay += 1;
+                const listingKey = String(n.listingId);
+                const set = checkOutByListingDate.get(listingKey) || new Set<string>();
+                set.add(dateKey);
+                checkOutByListingDate.set(listingKey, set);
             }
             dateCounts[dateKey].total += 1;
         });
 
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const tomorrowDate = new Date();
-        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-        const tomorrowKey = tomorrowDate.toISOString().slice(0, 10);
+        const { todayKey, tomorrowKey } = this.getEasternDayRanges();
+
+        const sameDayCounts: Record<string, number> = {};
+        checkInByListingDate.forEach((checkInDates, listingId) => {
+            const checkOutDates = checkOutByListingDate.get(listingId);
+            if (!checkOutDates) return;
+            checkInDates.forEach((dateKey) => {
+                if (checkOutDates.has(dateKey)) {
+                    sameDayCounts[dateKey] = (sameDayCounts[dateKey] || 0) + 1;
+                }
+            });
+        });
 
         return {
             preStay: notifications.filter((n) => n.notificationType === 'pre-stay').length,
             postStay: notifications.filter((n) => n.notificationType === 'post-stay').length,
             today: dateCounts[todayKey]?.total || 0,
             tomorrow: dateCounts[tomorrowKey]?.total || 0,
+            todaySummary: {
+                total_turnovers: (dateCounts[todayKey]?.preStay || 0) + (dateCounts[todayKey]?.postStay || 0),
+                prestay_total: dateCounts[todayKey]?.preStay || 0,
+                poststay_total: dateCounts[todayKey]?.postStay || 0,
+                prestay_same_day: sameDayCounts[todayKey] || 0,
+                poststay_same_day: sameDayCounts[todayKey] || 0,
+                prestay_standard: Math.max((dateCounts[todayKey]?.preStay || 0) - (sameDayCounts[todayKey] || 0), 0),
+                poststay_standard: Math.max((dateCounts[todayKey]?.postStay || 0) - (sameDayCounts[todayKey] || 0), 0),
+                same_day_turnovers: sameDayCounts[todayKey] || 0,
+                date: todayKey
+            },
+            tomorrowSummary: {
+                total_turnovers: (dateCounts[tomorrowKey]?.preStay || 0) + (dateCounts[tomorrowKey]?.postStay || 0),
+                prestay_total: dateCounts[tomorrowKey]?.preStay || 0,
+                poststay_total: dateCounts[tomorrowKey]?.postStay || 0,
+                prestay_same_day: sameDayCounts[tomorrowKey] || 0,
+                poststay_same_day: sameDayCounts[tomorrowKey] || 0,
+                prestay_standard: Math.max((dateCounts[tomorrowKey]?.preStay || 0) - (sameDayCounts[tomorrowKey] || 0), 0),
+                poststay_standard: Math.max((dateCounts[tomorrowKey]?.postStay || 0) - (sameDayCounts[tomorrowKey] || 0), 0),
+                same_day_turnovers: sameDayCounts[tomorrowKey] || 0,
+                date: tomorrowKey
+            },
             dateCounts: Object.entries(dateCounts)
                 .map(([date, counts]) => ({ date, ...counts }))
                 .sort((a, b) => a.date.localeCompare(b.date)),
         };
+    }
+
+    /**
+     * Update notification status for a reservation/type
+     */
+    async updateNotificationStatus(
+        reservationId: number,
+        type: 'pre-stay' | 'post-stay',
+        action: 'send' | 'pause' | 'resume' | 'skip',
+        userId?: string
+    ) {
+        const now = new Date();
+        if (type === 'pre-stay') {
+            let audit = await this.preStayRepo.findOne({ where: { reservationId } });
+            if (!audit) {
+                audit = this.preStayRepo.create({ reservationId });
+            }
+            const statusMap: Record<string, string> = {
+                send: 'sent',
+                pause: 'paused',
+                resume: 'pending',
+                skip: 'skipped'
+            };
+            const status = statusMap[action] || 'pending';
+            audit.notificationStatus = status;
+            if (action === 'send') {
+                audit.notificationSentAt = now;
+                audit.cleanerNotified = CleanerNotified.YES;
+            }
+            if (userId) {
+                audit.updatedBy = userId;
+            }
+            return this.preStayRepo.save(audit);
+        }
+
+        let audit = await this.postStayRepo.findOne({ where: { reservationId } });
+        if (!audit) {
+            audit = this.postStayRepo.create({ reservationId });
+        }
+        const statusMap: Record<string, string> = {
+            send: 'sent',
+            pause: 'skipped',
+            resume: 'pending',
+            skip: 'skipped'
+        };
+        const status = statusMap[action] || 'pending';
+        audit.cleanerNotificationStatus = status;
+        if (action === 'send') {
+            audit.cleanerNotificationSentAt = now;
+        }
+        if (userId) {
+            audit.updatedBy = userId;
+        }
+        return this.postStayRepo.save(audit);
     }
 
     /**
