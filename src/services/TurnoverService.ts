@@ -211,7 +211,8 @@ export class TurnoverService {
     private formatDateOnly(value?: Date) {
         if (!value) return "";
         try {
-            return format(value, "yyyy-MM-dd");
+            const parts = this.getZoneDateParts(value, "America/New_York");
+            return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
         } catch {
             return "";
         }
