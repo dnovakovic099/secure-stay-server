@@ -1,4 +1,4 @@
-import { Between, Brackets, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual } from "typeorm";
+import { Between, Brackets, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual, Equal } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -132,7 +132,9 @@ export class ReviewService {
         keyword,
         propertyType,
         dateType,
-        channel
+        channel,
+        sortField,
+        sortDir,
     }) {
         try {
             let listingIds: number[] = [];
@@ -157,8 +159,7 @@ export class ReviewService {
 
             const condition: Record<string, any> = {
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
-                ...(rating !== undefined ? { rating: LessThanOrEqual(rating) } : { rating: Not(IsNull()) }),
-                ...(keyword && { publicReview: ILike(`%${keyword}%`) }),
+                ...(rating !== undefined && rating !== null ? { rating: Equal(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
 
@@ -183,19 +184,27 @@ export class ReviewService {
                 reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
+            const allowedSortFields = ['rating', 'submittedAt', 'arrivalDate', 'departureDate', 'guestName', 'channelName', 'listingName'];
             const order: Record<string, 'ASC' | 'DESC'> = {};
 
-            if (Object.keys(order).length === 0) {
+            if (sortField && allowedSortFields.includes(sortField)) {
+                order[sortField] = (sortDir === 'DESC' ? 'DESC' : 'ASC');
+            } else {
                 order.rating = 'ASC';
                 const dateColumn = (dateType && allowedDateTypes.includes(dateType)) ? dateType : "submittedAt";
                 order[dateColumn] = 'DESC';
             }
 
+            // Build where clause — keyword searches both publicReview and privateReview
+            const whereClause = keyword
+                ? [
+                    { ...condition, publicReview: ILike(`%${keyword}%`), reviewDetail: reviewDetailCondition },
+                    { ...condition, privateReview: ILike(`%${keyword}%`), reviewDetail: reviewDetailCondition },
+                ]
+                : { ...condition, reviewDetail: reviewDetailCondition };
+
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
-                where: {
-                    ...condition,
-                    reviewDetail: reviewDetailCondition,
-                },
+                where: whereClause,
                 relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
                 skip: (page - 1) * limit,
                 take: limit,
