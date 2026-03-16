@@ -132,6 +132,48 @@ export class ListingController {
     }
   }
 
+  async getListingChangeLogsByListingId(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = Number(request.params.listingId);
+      const page = Number(request.query.page) || 1;
+      const limit = Number(request.query.limit) || 10;
+      const dateFrom = request.query.dateFrom as string | undefined;
+      const dateTo = request.query.dateTo as string | undefined;
+
+      const logs = await listingService.getListingChangeLogsByListingId(listingId, page, limit, dateFrom, dateTo);
+      return response.status(200).json(successDataFetch(logs));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getListingChangeLogs(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = request.query.listingId ? Number(request.query.listingId) : undefined;
+      const dateFrom = request.query.dateFrom as string | undefined;
+      const dateTo = request.query.dateTo as string | undefined;
+      const changedBy = request.query.changedBy as string | undefined;
+      const field = request.query.field as string | undefined;
+      const page = Number(request.query.page) || 1;
+      const limit = Number(request.query.limit) || 20;
+
+      const logs = await listingService.getListingChangeLogs({
+        listingId,
+        dateFrom,
+        dateTo,
+        changedBy,
+        field,
+        page,
+        limit
+      });
+      return response.status(200).json(successDataFetch(logs));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 
   async saveListingDetails(request: CustomRequest, response: Response, next: NextFunction) {
     try {
