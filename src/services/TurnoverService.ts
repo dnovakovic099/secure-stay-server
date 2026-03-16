@@ -210,14 +210,13 @@ export class TurnoverService {
 
     private formatDateOnly(value?: Date | string | null) {
         if (!value) return "";
-        const date = value instanceof Date ? value : new Date(value);
-        if (Number.isNaN(date.getTime())) return "";
-        try {
-            const parts = this.getZoneDateParts(date, "America/New_York");
-            return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-        } catch {
-            return "";
+        if (typeof value === "string") {
+            return value.length >= 10 ? value.slice(0, 10) : value;
         }
+        if (!(value instanceof Date)) return "";
+        const time = value.getTime();
+        if (Number.isNaN(time)) return "";
+        return value.toISOString().slice(0, 10);
     }
 
     private resolveTimeZone(listing: any) {
