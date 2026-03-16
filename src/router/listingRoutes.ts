@@ -48,6 +48,18 @@ router.route('/getlistingupdates/:listingId')
     listingController.getListingUpdates
   )
 
+router.route('/updates')
+  .get(
+    verifySession,
+    listingController.getListingChangeLogs
+  )
+
+router.route('/updates/:listingId')
+  .get(
+    verifySession,
+    listingController.getListingChangeLogsByListingId
+  )
+
 router.route('/savelistingdetails')
   .post(
     verifySession,
