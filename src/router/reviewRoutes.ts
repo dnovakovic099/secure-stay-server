@@ -47,4 +47,6 @@ router.route('/bad-review/latest-update/create').post(verifySession, validateBad
 router.route('/bad-review')
     .get(verifySession, validateGetBadReview, reviewController.getBadReview)
 
+router.route('/dashboard').get(verifySession, reviewController.getDashboardStats);
+
 export default router;
