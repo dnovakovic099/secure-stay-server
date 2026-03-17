@@ -134,7 +134,11 @@ export class TurnoverService {
         const timeZone = "America/New_York";
         const now = new Date();
         const todayParts = this.getZoneDateParts(now, timeZone);
-        const tomorrowParts = this.getZoneDateParts(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone);
+        // Derive tomorrow by incrementing the Eastern calendar day to avoid DST
+        // boundary errors (adding 24 h can land on the same calendar day during
+        // the spring-forward transition).
+        const tomorrowUtc = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day + 1, 12, 0, 0));
+        const tomorrowParts = this.getZoneDateParts(tomorrowUtc, timeZone);
 
         const todayStart = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 0, 0, 0, 0, timeZone);
         const todayEnd = this.zoneLocalToUtcDate(todayParts.year, todayParts.month, todayParts.day, 23, 59, 59, 999, timeZone);
@@ -218,7 +222,13 @@ export class TurnoverService {
         if (!(value instanceof Date)) return "";
         const time = value.getTime();
         if (Number.isNaN(time)) return "";
-        return value.toISOString().slice(0, 10);
+        // Use local date parts to avoid UTC off-by-one when the server timezone
+        // differs from UTC (e.g. a Date representing midnight local time would
+        // shift to the previous day if serialised via toISOString/UTC).
+        const y = value.getFullYear();
+        const m = String(value.getMonth() + 1).padStart(2, "0");
+        const d = String(value.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
     }
 
     private resolveTimeZone(listing: any) {
@@ -317,35 +327,15 @@ export class TurnoverService {
         return activeContacts[0] || null;
     }
 
-    private async getEarlyCheckInUpsells(reservation: ReservationInfoEntity): Promise<UpsellOrder[]> {
+    // Fetch all approved upsells for a reservation, matching how the reservations
+    // page looks them up: by the DB reservation id (as a string) with status "Approved".
+    private async getApprovedUpsellsForReservation(reservation: ReservationInfoEntity): Promise<UpsellOrder[]> {
         try {
-            const bookingId = reservation.hostawayReservationId || reservation.reservationId;
-            if (!bookingId) return [];
-            const upsells = await this.upsellRepo.find({
-                where: { booking_id: bookingId }
+            return await this.upsellRepo.find({
+                where: { booking_id: String(reservation.id), status: 'Approved' }
             });
-            return upsells.filter(u =>
-                u.type?.toLowerCase().includes('early') ||
-                u.type?.toLowerCase().includes('check-in') ||
-                u.type?.toLowerCase().includes('checkin')
-            );
         } catch (error: any) {
             logger.error(`[TurnoverService] Error fetching upsells:`, error.message);
-            return [];
-        }
-    }
-
-    private async getApprovedUpsells(reservation: ReservationInfoEntity): Promise<UpsellOrder[]> {
-        try {
-            const bookingId = reservation.hostawayReservationId || reservation.reservationId;
-            if (!bookingId) return [];
-            const postStay = await this.postStayRepo.findOne({ where: { reservationId: reservation.id } });
-            if (!postStay?.approvedUpsells) return [];
-            const approvedUpsellIds = JSON.parse(postStay.approvedUpsells || '[]');
-            if (!Array.isArray(approvedUpsellIds) || approvedUpsellIds.length === 0) return [];
-            return await this.upsellRepo.find({ where: { id: In(approvedUpsellIds) } });
-        } catch (error: any) {
-            logger.error(`[TurnoverService] Error fetching approved upsells:`, error.message);
             return [];
         }
     }
@@ -476,7 +466,7 @@ export class TurnoverService {
                     const contact = await this.resolvePreStayContact(res, preStayAudit, settings, globalSettings);
                     const listingTimezone = this.resolveTimeZone(listing);
                     const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
-                    const upsells = await this.getEarlyCheckInUpsells(res);
+                    const upsells = await this.getApprovedUpsellsForReservation(res);
                     const messagePreview = this.buildCheckInMessage(res, listing, upsells);
 
                     const notification: TurnoverNotification = {
@@ -574,7 +564,7 @@ export class TurnoverService {
                     const contact = await this.resolvePostStayContact(res, postStayAudit, settings, globalSettings);
                     const listingTimezone = this.resolveTimeZone(listing);
                     const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
-                    const upsells = await this.getApprovedUpsells(res);
+                    const upsells = await this.getApprovedUpsellsForReservation(res);
                     const messagePreview = this.buildCheckoutMessage(res, listing, upsells);
 
                     const notification: TurnoverNotification = {
