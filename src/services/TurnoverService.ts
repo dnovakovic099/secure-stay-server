@@ -45,6 +45,8 @@ interface TurnoverNotification {
     sentAt?: string;
     error?: string;
     isSameDayTurnover?: boolean;
+    preStayAuditStatus?: string | null;
+    postStayAuditStatus?: string | null;
     
     // Owner info
     ownerName?: string;
@@ -456,6 +458,9 @@ export class TurnoverService {
                     const preStayAudit = await this.preStayRepo.findOne({
                         where: { reservationId: res.id }
                     });
+                    const postStayAudit = await this.postStayRepo.findOne({
+                        where: { reservationId: res.id }
+                    });
 
                     const listing = await this.listingRepo.findOne({ where: { id: res.listingMapId } });
                     if (!listing) continue;
@@ -502,6 +507,8 @@ export class TurnoverService {
                         status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
                         sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
                         error: undefined,
+                        preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
+                        postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
                         
                         ownerName: settings?.ownerName,
                         ownerEmail: settings?.ownerEmail,
@@ -547,6 +554,9 @@ export class TurnoverService {
 
                 for (const res of postStayReservations) {
                     const postStayAudit = await this.postStayRepo.findOne({
+                        where: { reservationId: res.id }
+                    });
+                    const preStayAudit = await this.preStayRepo.findOne({
                         where: { reservationId: res.id }
                     });
 
@@ -595,6 +605,8 @@ export class TurnoverService {
                         status: postStayAudit?.cleanerNotificationStatus as any || 'pending',
                         sentAt: postStayAudit?.cleanerNotificationSentAt?.toISOString(),
                         error: postStayAudit?.cleanerNotificationError || undefined,
+                        preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
+                        postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
                         
                         ownerName: settings?.ownerName,
                         ownerEmail: settings?.ownerEmail,
