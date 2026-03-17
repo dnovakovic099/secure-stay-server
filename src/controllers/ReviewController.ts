@@ -11,9 +11,9 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel, sortField, sortDir } = request.query;
 
-            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel });
+            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel, sortField, sortDir });
 
             return response.status(200).json({
                 success: true,
@@ -287,6 +287,17 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error creating live issue update:", error);
+            return next(error);
+        }
+    }
+
+    async getDashboardStats(_request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.getReviewsDashboardStats();
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            logger.error("Error fetching review dashboard stats:", error);
             return next(error);
         }
     }
