@@ -216,34 +216,44 @@ export class ReviewService {
             const users = await this.usersRepo.find();
             const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
 
-            // Batch-fetch listings to extract property type from tags
-            const uniqueListingIds = [...new Set(reviews.map(r => r.listingMapId).filter(Boolean))];
-            const listings = uniqueListingIds.length > 0
-                ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags'] })
+            const reservationInfoService = new ReservationInfoService();
+            const reservationInfoList = await Promise.all(
+                reviews.map((review) => reservationInfoService.getReservationById(review.reservationId))
+            );
+
+            const reviewListingIds = [...new Set(reviews.map((review) => review.listingMapId).filter(Boolean))];
+            const listings = reviewListingIds.length > 0
+                ? await this.listingRepo.find({ where: { id: In(reviewListingIds) } })
                 : [];
-            const listingTagMap = new Map(listings.map(l => [Number(l.id), l.tags]));
+            const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
-            const reviewList = [];
-
-            for (const review of reviews) {
-                const reservationInfoService = new ReservationInfoService();
-                const reservationInfo = await reservationInfoService.getReservationById(review.reservationId);
-
+            const reviewList = reviews.map((review, index) => {
+                const reservationInfo = reservationInfoList[index];
                 if (!reservationInfo) {
                     logger.warn(`Reservation not found for review with ID: ${review.id}`);
                 }
 
-                const reviewPlain = {
+                const listing = listingMap.get(Number(review.listingMapId));
+                const propertyType = this.getReviewPropertyType(listing, review as any, reservationInfo as any);
+                const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
+                const integration = this.getReviewIntegration(review as any, reservationInfo as any);
+                const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
+                const departureDate = this.normalizeReviewDate(reservationInfo?.departureDate || review.departureDate);
+
+                return {
                     ...review,
+                    arrivalDate,
+                    departureDate,
+                    propertyType,
+                    confirmationCode,
+                    integration,
                     guestPhone: reservationInfo?.phone || null,
                     bookingAmount: reservationInfo?.totalPrice || null,
                     guestEmail: reservationInfo?.guestEmail || null,
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
-                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))),
                 };
-                reviewList.push(reviewPlain);
-            }
+            });
 
             return { reviewList, totalCount };
         } catch (error) {
@@ -251,6 +261,45 @@ export class ReviewService {
             throw error;
         }
     }
+
+    private normalizeReviewDate(value?: string | Date | null) {
+        if (!value) return null;
+        try {
+            if (typeof value === 'string') {
+                const dateOnlyMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+                if (dateOnlyMatch) return dateOnlyMatch[1];
+            }
+            return format(new Date(value), 'yyyy-MM-dd');
+        } catch {
+            return typeof value === 'string' ? value : null;
+        }
+    }
+
+    private getReviewPropertyType(listing?: Listing | null, review?: any, reservationInfo?: any) {
+        const candidates = [listing?.tags, review?.propertyType, reservationInfo?.propertyType, listing?.propertyType];
+
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'string') continue;
+            const parts = candidate.split(',').map((part) => part.trim());
+            if (parts.includes('Own')) return 'Own';
+            if (parts.includes('Arb')) return 'Arb';
+            if (parts.includes('pm') || parts.includes('PM')) return 'PM';
+            if (candidate.trim().toLowerCase() === 'pm') return 'PM';
+            if (candidate.trim().toLowerCase() === 'own') return 'Own';
+            if (candidate.trim().toLowerCase() === 'arb') return 'Arb';
+        }
+
+        return null;
+    }
+
+    private getReviewIntegration(review?: any, reservationInfo?: any) {
+        return reservationInfo?.source || reservationInfo?.channelName || review?.channelName || null;
+    }
+
+    private getReviewConfirmationCode(review?: any, reservationInfo?: any) {
+        return review?.externalReservationId || reservationInfo?.channelReservationId || reservationInfo?.hostawayReservationId || null;
+    }
+
 
 
     private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
