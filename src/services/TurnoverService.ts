@@ -440,7 +440,7 @@ export class TurnoverService {
                         ...(useDateFieldFilter && dateField === 'checkOut'
                             ? { departureDate: Between(fromDateStr, toDateStr) }
                             : { arrivalDate: Between(fromDateStr, toDateStr) }),
-                        status: In(['accepted', 'moved', 'extended'])
+                        status: In(["new", "accepted", "modified", "ownerStay", "moved"])
                     }
                 });
 
@@ -538,7 +538,7 @@ export class TurnoverService {
                         ...(useDateFieldFilter && dateField === 'checkIn'
                             ? { arrivalDate: Between(fromDateStr, toDateStr) }
                             : { departureDate: Between(fromDateStr, toDateStr) }),
-                        status: In(['accepted', 'moved', 'extended'])
+                        status: In(["new", "accepted", "modified", "ownerStay", "moved"])
                     }
                 });
 
@@ -702,15 +702,14 @@ export class TurnoverService {
             if (!dateCounts[dateKey]) {
                 dateCounts[dateKey] = { preStay: 0, postStay: 0, total: 0 };
             }
+            const listingKey = String(n.listingId);
             if (n.notificationType === 'pre-stay') {
                 dateCounts[dateKey].preStay += 1;
-                const listingKey = String(n.listingId);
                 const set = checkInByListingDate.get(listingKey) || new Set<string>();
                 set.add(dateKey);
                 checkInByListingDate.set(listingKey, set);
             } else {
                 dateCounts[dateKey].postStay += 1;
-                const listingKey = String(n.listingId);
                 const set = checkOutByListingDate.get(listingKey) || new Set<string>();
                 set.add(dateKey);
                 checkOutByListingDate.set(listingKey, set);
@@ -720,6 +719,7 @@ export class TurnoverService {
 
         const { todayKey, tomorrowKey } = this.getEasternDayRanges();
 
+        // Count 1 per property per date where BOTH a check-in AND check-out exist (same-day turnover)
         const sameDayCounts: Record<string, number> = {};
         checkInByListingDate.forEach((checkInDates, listingId) => {
             const checkOutDates = checkOutByListingDate.get(listingId);
