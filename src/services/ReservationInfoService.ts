@@ -598,6 +598,34 @@ export class ReservationInfoService {
       actionItemsByReservation.get(resId).push(item);
     }
 
+    // Build a map of all already-loaded reservations (current + next) for tooltip data
+    const loadedReservationsMap = new Map<number, any>();
+    for (const r of reservations) {
+      loadedReservationsMap.set(r.id, r);
+    }
+    for (const r of nextReservationsMap.values()) {
+      if (r) loadedReservationsMap.set(r.id, r);
+    }
+
+    // Batch-fetch reservation info for listing issues whose reservation isn't already loaded
+    const missingReservationIds = [...new Set(
+      listingIssues
+        .map((i: any) => Number(i.reservation_id))
+        .filter((id: number) => !isNaN(id) && !loadedReservationsMap.has(id))
+    )];
+    if (missingReservationIds.length > 0) {
+      const missingReservations = await this.reservationInfoRepository.find({ where: { id: In(missingReservationIds) } });
+      for (const r of missingReservations) {
+        loadedReservationsMap.set(r.id, r);
+      }
+    }
+
+    // Attach reservationInfo to all listing-level issues
+    for (const issue of listingIssues) {
+      const resId = Number(issue.reservation_id);
+      (issue as any).reservationInfo = loadedReservationsMap.get(resId) || null;
+    }
+
     // Enrich each reservation with the fetched data
     for (const reservation of reservations) {
       const preStayStatus = preStayStatuses.get(reservation.id) || null;
