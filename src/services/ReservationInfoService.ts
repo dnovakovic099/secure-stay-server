@@ -549,8 +549,11 @@ export class ReservationInfoService {
       .map(r => r.id);
     const allReservationIdsForIssues = [...reservationIds, ...allNextReservationIds];
 
-    // Batch fetch issues and action items
-    const [issuesResult, actionItemsResult] = await Promise.all([
+    // Collect unique listing IDs for fetching non-completed listing-level issues
+    const uniqueListingIds = [...new Set(reservations.map(r => String(r.listingMapId)))];
+
+    // Batch fetch issues, action items, and non-completed listing-level issues in parallel
+    const [issuesResult, actionItemsResult, listingIssues] = await Promise.all([
       issueServices.getGuestIssues({
         page: 1,
         limit: 500,
@@ -562,7 +565,8 @@ export class ReservationInfoService {
         limit: 500,
         reservationId: reservationIds,
         status: actionItemsStatus
-      })
+      }),
+      issueServices.getIssuesByListingIds(uniqueListingIds)
     ]);
 
     // Create maps for quick lookup
@@ -573,6 +577,16 @@ export class ReservationInfoService {
         issuesByReservation.set(resId, []);
       }
       issuesByReservation.get(resId).push(issue);
+    }
+
+    // Map non-completed listing issues by listing ID
+    const nonCompletedIssuesByListing = new Map<string, any[]>();
+    for (const issue of listingIssues) {
+      const lid = String(issue.listing_id);
+      if (!nonCompletedIssuesByListing.has(lid)) {
+        nonCompletedIssuesByListing.set(lid, []);
+      }
+      nonCompletedIssuesByListing.get(lid).push(issue);
     }
 
     const actionItemsByReservation = new Map<number, any[]>();
@@ -596,9 +610,19 @@ export class ReservationInfoService {
         : [];
       const actionItems = actionItemsByReservation.get(reservation.id) || [];
 
+      // Non-completed issues for this listing from other (e.g. previous) reservations
+      const reservationAndNextIds = new Set([
+        ...issues.map((i: any) => i.id),
+        ...nextReservationIssues.map((i: any) => i.id)
+      ]);
+      const otherListingIssues = (nonCompletedIssuesByListing.get(String(reservation.listingMapId)) || [])
+        .filter((i: any) => !reservationAndNextIds.has(i.id));
+
+      const allIssues = [...issues, ...nextReservationIssues, ...otherListingIssues];
+
       // Calculate adjusted postStayStatus (same logic as before)
       const adjustedPostStayStatus = postStayStatus === "Completed"
-        ? ([...issues, ...nextReservationIssues].filter(issue => issue.status !== "Completed").length > 0
+        ? (allIssues.filter(issue => issue.status !== "Completed").length > 0
           ? "In Progress"
           : postStayStatus)
         : postStayStatus;
@@ -609,7 +633,7 @@ export class ReservationInfoService {
         upsells,
         issues,
         nextReservationIssues,
-        allIssues: [...issues, ...nextReservationIssues],
+        allIssues,
         actionItems
       });
     }
