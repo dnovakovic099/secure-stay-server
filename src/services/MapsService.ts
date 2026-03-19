@@ -263,9 +263,17 @@ export class MapsService {
       }
     }
 
+    const hasAmenityFilters = !!(filters.amenities && filters.amenities.length > 0);
+
+    if (hasAmenityFilters) {
+      // Only join amenities when we actually need to filter by them.
+      // Joining another one-to-many relation into the paginated explorer query can
+      // make the search path brittle and much heavier than necessary.
+      queryBuilder.leftJoinAndSelect("listing.listingAmenities", "listingAmenities");
+    }
+
     // Limit results to prevent slow queries - get max 100 listings
     queryBuilder.take(100);
-    queryBuilder.leftJoinAndSelect("listing.listingAmenities", "listingAmenities");
 
     let listings = await queryBuilder.getMany();
 
@@ -394,9 +402,11 @@ export class MapsService {
         isPetFriendly,
         pricing: pricing || { priceAvailable: false },
         propertyType: this.getListingPropertyType(listing.tags),
-        amenities: (listing.listingAmenities || [])
-          .map((item) => item.amenityName)
-          .filter((item): item is string => !!item),
+        amenities: hasAmenityFilters
+          ? (listing.listingAmenities || [])
+              .map((item) => item.amenityName)
+              .filter((item): item is string => !!item)
+          : undefined,
       };
     });
 
