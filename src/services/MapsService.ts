@@ -361,19 +361,12 @@ export class MapsService {
       // No dates - skip availability check and pricing
     }
 
-    // Get pet-friendly status for all remaining listings (for badge display)
+    // Avoid expensive Hostify pet-policy lookups unless the user is actively filtering by pets.
+    // The explorer search can already be heavy when a reference property is selected because it
+    // calculates distance for the whole result set.
     const petFriendlyMap = new Map<number, boolean>();
-    if (!filters.petsIncluded || !metadata.petFilterApplied) {
-      // Check pet-friendly status for badge display
-      try {
-        const petFriendlyIds = await this.quoteService.filterPetFriendlyListings(
-          availableListings.map(l => l.id)
-        );
-        petFriendlyIds.forEach(id => petFriendlyMap.set(id, true));
-      } catch (error) {
-        logger.warn('Failed to get pet-friendly status for badges:', error);
-        // Continue without pet badges
-      }
+    if (filters.petsIncluded && metadata.petFilterApplied) {
+      availableListings.forEach((listing) => petFriendlyMap.set(listing.id, true));
     }
 
     // Transform to response format
@@ -462,7 +455,7 @@ export class MapsService {
             refPricing = { priceAvailable: false };
             refPetFriendly = false;
           }
-        } else {
+        } else if (filters.petsIncluded) {
           try {
             refPetFriendly = await this.quoteService.isPetFriendly(referenceProperty.id);
           } catch (error) {
