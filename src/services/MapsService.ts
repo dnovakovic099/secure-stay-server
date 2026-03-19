@@ -22,6 +22,8 @@ interface SearchFilters {
   maxTotalPrice?: number;  // Filter by computed total (incl. fees & tax)
   petsIncluded?: boolean;  // Filter for pet-friendly properties
   numberOfPets?: number;   // Number of pets for fee calculation
+  propertyType?: string[];
+  amenities?: string[];
 }
 
 interface PricingInfo {
@@ -50,6 +52,8 @@ interface PropertyWithDistance {
   currencyCode?: string;
   isPetFriendly?: boolean;
   pricing?: PricingInfo;  // Full computed pricing when dates provided
+  propertyType?: string | null;
+  amenities?: string[];
   distance?: {
     text: string;
     value: number;
@@ -74,6 +78,33 @@ export class MapsService {
   private listingRepository = appDatabase.getRepository(Listing);
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
   private quoteService = new QuoteService();
+
+  private normalizeAmenityName(value?: string | null): string {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  private normalizeAmenityFilter(value?: string | null): string | null {
+    const normalized = this.normalizeAmenityName(value);
+    if (!normalized) return null;
+    if (normalized === "homeaway") return "vrbo";
+    if (normalized.includes("hot tub")) return "hot tub";
+    if (normalized.includes("pool")) return "pool";
+    return normalized;
+  }
+
+  private getListingPropertyType(tags?: string | null): string | null {
+    const tokens = String(tags || "")
+      .split(",")
+      .map((token) => token.trim());
+
+    if (tokens.includes("Own")) return "Own";
+    if (tokens.includes("Arb")) return "Arb";
+    if (tokens.includes("pm") || tokens.includes("PM")) return "PM";
+    return null;
+  }
 
   /**
    * Get all unique states from city_state_info table
@@ -107,14 +138,34 @@ export class MapsService {
   /**
    * Get all listings that can serve as reference properties
    */
-  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; city: string; state: string; }[]> {
+  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; city: string; state: string; propertyType: string | null; amenities: string[]; tags: string | null; }[]> {
     const queryBuilder = this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.internalListingName", "listing.city", "listing.state"])
+      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
+      .select([
+        "listing.id",
+        "listing.internalListingName",
+        "listing.city",
+        "listing.state",
+        "listing.tags",
+        "listingAmenities.listing_amenity_id",
+        "listingAmenities.amenityName",
+      ])
       .where("listing.deletedAt IS NULL")
       .orderBy("listing.internalListingName", "ASC");
 
-    return queryBuilder.getMany();
+    const listings = await queryBuilder.getMany();
+    return listings.map((listing) => ({
+      id: listing.id,
+      internalListingName: listing.internalListingName,
+      city: listing.city,
+      state: listing.state,
+      tags: listing.tags || null,
+      propertyType: this.getListingPropertyType(listing.tags),
+      amenities: (listing.listingAmenities || [])
+        .map((item) => item.amenityName)
+        .filter((item): item is string => !!item),
+    }));
   }
 
   /**
@@ -150,9 +201,11 @@ export class MapsService {
     };
 
     // If no filters are provided, return an empty array (enforce strict search)
-    const hasFilters = filters.state || filters.city || filters.propertyId || 
-      (filters.startDate && filters.endDate) || filters.guests || 
-      filters.maxTotalPrice || filters.petsIncluded;
+    const hasFilters = filters.state || filters.city || filters.propertyId ||
+      (filters.startDate && filters.endDate) || filters.guests ||
+      filters.maxTotalPrice || filters.petsIncluded ||
+      (filters.propertyType && filters.propertyType.length > 0) ||
+      (filters.amenities && filters.amenities.length > 0);
     if (!hasFilters) {
       return { properties: [], metadata };
     }
@@ -187,10 +240,52 @@ export class MapsService {
       queryBuilder.andWhere("(COALESCE(listing.bathroomsNumber, 0) + COALESCE(listing.guestBathroomsNumber, 0) * 0.5) >= :bathrooms", { bathrooms: filters.bathrooms });
     }
 
+    if (filters.propertyType && filters.propertyType.length > 0) {
+      const propertyTypeClauses: string[] = [];
+      const propertyTypeParams: Record<string, string> = {};
+
+      filters.propertyType.forEach((type, index) => {
+        const normalizedType = String(type);
+        const key = `propertyType${index}`;
+
+        if (normalizedType === "PM") {
+          propertyTypeClauses.push(`(listing.tags LIKE :${key} OR listing.tags LIKE :${key}Lower)`);
+          propertyTypeParams[key] = "%PM%";
+          propertyTypeParams[`${key}Lower`] = "%pm%";
+        } else {
+          propertyTypeClauses.push(`listing.tags LIKE :${key}`);
+          propertyTypeParams[key] = `%${normalizedType}%`;
+        }
+      });
+
+      if (propertyTypeClauses.length > 0) {
+        queryBuilder.andWhere(`(${propertyTypeClauses.join(" OR ")})`, propertyTypeParams);
+      }
+    }
+
     // Limit results to prevent slow queries - get max 100 listings
     queryBuilder.take(100);
+    queryBuilder.leftJoinAndSelect("listing.listingAmenities", "listingAmenities");
 
-    const listings = await queryBuilder.getMany();
+    let listings = await queryBuilder.getMany();
+
+    if (filters.amenities && filters.amenities.length > 0) {
+      const requiredAmenities = filters.amenities
+        .map((item) => this.normalizeAmenityFilter(item))
+        .filter((item): item is string => !!item);
+
+      if (requiredAmenities.length > 0) {
+        listings = listings.filter((listing) => {
+          const listingAmenities = new Set(
+            (listing.listingAmenities || [])
+              .map((item) => this.normalizeAmenityFilter(item.amenityName))
+              .filter((item): item is string => !!item)
+          );
+
+          return requiredAmenities.every((amenity) => listingAmenities.has(amenity));
+        });
+      }
+    }
 
     // If pets filter is ON, filter to only pet-friendly listings (gracefully)
     let filteredListings = listings;
@@ -198,7 +293,7 @@ export class MapsService {
       const petFilterResult = await this.quoteService.filterPetFriendlyListingsSafe(
         listings.map(l => l.id)
       );
-      
+
       if (petFilterResult.success) {
         filteredListings = listings.filter(l => petFilterResult.ids.includes(l.id));
         metadata.petFilterApplied = true;
@@ -277,7 +372,7 @@ export class MapsService {
     const properties: PropertyWithDistance[] = availableListings.map((listing) => {
       const pricing = quotesMap.get(listing.id);
       const isPetFriendly = filters.petsIncluded ? true : petFriendlyMap.get(listing.id) || false;
-      
+
       // Calculate total bathrooms (full + half baths)
       const totalBathrooms = (listing.bathroomsNumber || 0) + (listing.guestBathroomsNumber || 0) * 0.5;
 
@@ -298,6 +393,10 @@ export class MapsService {
         currencyCode: listing.currencyCode || "USD",
         isPetFriendly,
         pricing: pricing || { priceAvailable: false },
+        propertyType: this.getListingPropertyType(listing.tags),
+        amenities: (listing.listingAmenities || [])
+          .map((item) => item.amenityName)
+          .filter((item): item is string => !!item),
       };
     });
 
@@ -309,7 +408,7 @@ export class MapsService {
       if (!referenceProperty) {
         referenceProperty = await this.listingRepository.findOne({
           where: { id: filters.propertyId },
-          relations: ["images"]
+          relations: ["images", "listingAmenities"]
         }) || undefined;
       }
 
@@ -352,7 +451,7 @@ export class MapsService {
         }
 
         // Calculate total bathrooms for reference property
-        const refTotalBathrooms = (referenceProperty.bathroomsNumber || 0) + 
+        const refTotalBathrooms = (referenceProperty.bathroomsNumber || 0) +
           (referenceProperty.guestBathroomsNumber || 0) * 0.5;
 
         // Prepare the reference property in response format
@@ -373,6 +472,10 @@ export class MapsService {
           currencyCode: referenceProperty.currencyCode || "USD",
           isPetFriendly: refPetFriendly,
           pricing: refPricing || { priceAvailable: false },
+          propertyType: this.getListingPropertyType(referenceProperty.tags),
+          amenities: (referenceProperty.listingAmenities || [])
+            .map((item) => item.amenityName)
+            .filter((item): item is string => !!item),
         };
 
         // If the reference property itself matches the search criteria, put it at the top
@@ -384,7 +487,7 @@ export class MapsService {
           uniquePIDs.add(p.id);
           return true;
         });
-        
+
         metadata.totalFound = dedupedResults.length;
         return { properties: dedupedResults, metadata };
       }
