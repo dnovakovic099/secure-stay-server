@@ -25,10 +25,17 @@ export const validateMapsSearch = (
         "string.pattern.base": 'endDate must be in the format "yyyy-mm-dd"',
       })
       .optional(),
+    referencePropertyId: Joi.number().optional(),
     guests: Joi.number().min(1).optional(),
+    bedrooms: Joi.number().optional(),
+    bathrooms: Joi.number().optional(),
+    bedroomsCustom: Joi.number().optional(),
+    bathroomsCustom: Joi.number().optional(),
     petsIncluded: Joi.boolean().optional(),
     numberOfPets: Joi.number().optional(),
     maxTotalPrice: Joi.number().optional(),
+    propertyType: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
+    amenities: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
   }).custom((value, helpers) => {
     // If one date is provided, the other must be too
     if ((value.startDate && !value.endDate) || (!value.startDate && value.endDate)) {
