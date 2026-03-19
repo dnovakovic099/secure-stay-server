@@ -409,6 +409,16 @@ export class IssuesService {
     });
   }
 
+  async getIssuesByListingIds(listingIds: string[]) {
+    if (listingIds.length === 0) return [];
+    return await this.issueRepo.find({
+      where: {
+        listing_id: In(listingIds),
+        status: Not("Completed"),
+      },
+    });
+  }
+
   async migrateIssueToActionItems(body: any, userId: string) {
     const { id, category, status } = body;
     const issue = await this.issueRepo.findOne({
