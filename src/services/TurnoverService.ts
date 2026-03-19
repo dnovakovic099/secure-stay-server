@@ -40,6 +40,7 @@ interface TurnoverNotification {
     contactName?: string;
     contactPhone?: string;
     messagePreview?: string;
+    turnoverNotes?: string;
     
     status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused';
     sentAt?: string;
@@ -493,6 +494,7 @@ export class TurnoverService {
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         messagePreview,
+                        turnoverNotes: res.hostNote || undefined,
                         
                         status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
                         sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
@@ -591,6 +593,7 @@ export class TurnoverService {
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         messagePreview,
+                        turnoverNotes: res.hostNote || undefined,
                         
                         status: postStayAudit?.cleanerNotificationStatus as any || 'pending',
                         sentAt: postStayAudit?.cleanerNotificationSentAt?.toISOString(),
