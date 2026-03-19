@@ -82,6 +82,7 @@ export class MapsController {
         state, 
         city, 
         propertyId, 
+        referencePropertyId,
         startDate, 
         endDate, 
         guests,
@@ -89,7 +90,9 @@ export class MapsController {
         bathrooms,
         maxTotalPrice,
         petsIncluded,
-        numberOfPets 
+        numberOfPets,
+        propertyType,
+        amenities,
       } = req.body;
 
       // Validate numberOfPets if provided
@@ -108,7 +111,7 @@ export class MapsController {
         {
           state,
           city,
-          propertyId: propertyId ? Number(propertyId) : undefined,
+          propertyId: (referencePropertyId || propertyId) ? Number(referencePropertyId || propertyId) : undefined,
           startDate,
           endDate,
           guests: guests ? Number(guests) : undefined,
@@ -117,6 +120,16 @@ export class MapsController {
           maxTotalPrice: maxTotalPrice ? Number(maxTotalPrice) : undefined,
           petsIncluded: petsIncluded === true,
           numberOfPets: validatedNumberOfPets || 1,
+          propertyType: Array.isArray(propertyType)
+            ? propertyType
+            : propertyType
+              ? [propertyType]
+              : undefined,
+          amenities: Array.isArray(amenities)
+            ? amenities
+            : amenities
+              ? [amenities]
+              : undefined,
         },
         userId
       );
