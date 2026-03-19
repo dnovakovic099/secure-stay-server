@@ -436,28 +436,39 @@ export class MapsService {
         let refPetFriendly = false;
 
         if (filters.startDate && filters.endDate) {
-          const refQuote = await this.quoteService.getQuote({
-            listingId: referenceProperty.id,
-            startDate: filters.startDate,
-            endDate: filters.endDate,
-            guests: filters.guests,
-            includePets: filters.petsIncluded,
-            numberOfPets: filters.numberOfPets || 1,
-          });
+          try {
+            const refQuote = await this.quoteService.getQuote({
+              listingId: referenceProperty.id,
+              startDate: filters.startDate,
+              endDate: filters.endDate,
+              guests: filters.guests,
+              includePets: filters.petsIncluded,
+              numberOfPets: filters.numberOfPets || 1,
+            });
 
-          if (refQuote.quote) {
-            refPricing = {
-              totalPrice: refQuote.quote.totalPrice,
-              nightlySubtotal: refQuote.quote.nightlySubtotal,
-              cleaningFee: refQuote.quote.cleaningFee,
-              petFee: refQuote.quote.petFee,
-              taxAmount: refQuote.quote.taxAmount,
-              priceAvailable: refQuote.quote.priceAvailable,
-            };
+            if (refQuote.quote) {
+              refPricing = {
+                totalPrice: refQuote.quote.totalPrice,
+                nightlySubtotal: refQuote.quote.nightlySubtotal,
+                cleaningFee: refQuote.quote.cleaningFee,
+                petFee: refQuote.quote.petFee,
+                taxAmount: refQuote.quote.taxAmount,
+                priceAvailable: refQuote.quote.priceAvailable,
+              };
+            }
+            refPetFriendly = refQuote.isPetFriendly;
+          } catch (error) {
+            logger.warn("Failed to fetch quote for reference property, continuing without quote", error);
+            refPricing = { priceAvailable: false };
+            refPetFriendly = false;
           }
-          refPetFriendly = refQuote.isPetFriendly;
         } else {
-          refPetFriendly = await this.quoteService.isPetFriendly(referenceProperty.id);
+          try {
+            refPetFriendly = await this.quoteService.isPetFriendly(referenceProperty.id);
+          } catch (error) {
+            logger.warn("Failed to fetch pet-friendly status for reference property", error);
+            refPetFriendly = false;
+          }
         }
 
         // Calculate total bathrooms for reference property
