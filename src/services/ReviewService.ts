@@ -293,7 +293,7 @@ export class ReviewService {
     }
 
     private getReviewIntegration(review?: any, reservationInfo?: any) {
-        return reservationInfo?.source || reservationInfo?.channelName || review?.channelName || null;
+        return reservationInfo?.integration_nickname || reservationInfo?.source || reservationInfo?.channelName || review?.channelName || null;
     }
 
     private getReviewConfirmationCode(review?: any, reservationInfo?: any) {
