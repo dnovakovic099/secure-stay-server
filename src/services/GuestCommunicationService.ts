@@ -30,7 +30,13 @@ export class GuestCommunicationService {
             where: { id: reservationId }
         });
 
-        if (!reservation || !reservation.phone) {
+        if (!reservation) {
+            logger.warn(`[GuestCommunicationService] No reservation found for ${reservationId}`);
+            return [];
+        }
+
+        const guestPhones = await this.collectGuestPhoneCandidates(reservationId, reservation);
+        if (guestPhones.length === 0) {
             logger.warn(`[GuestCommunicationService] No phone found for reservation ${reservationId}`);
             return [];
         }
@@ -40,7 +46,6 @@ export class GuestCommunicationService {
             return [];
         }
 
-        const guestPhone = this.normalizePhoneNumber(reservation.phone);
         const storedCommunications: GuestCommunicationEntity[] = [];
 
         try {
@@ -53,92 +58,97 @@ export class GuestCommunicationService {
                 return [];
             }
 
-            // Fetch all SMS messages with guest - Iterate through phone numbers since API expects singular ID
-            for (const pnId of phoneNumberIds) {
-                try {
-                    const messages = await this.openPhoneClient.getMessages({
-                        participants: [guestPhone],
-                        phoneNumberId: pnId
-                    });
-
-                    for (const msg of messages.data || []) {
-                        const existing = await this.communicationRepo.findOne({
-                            where: { externalId: msg.id, source: "openphone_sms" }
+            // Fetch all SMS messages with guest - Iterate through guest numbers and account numbers
+            for (const guestPhone of guestPhones) {
+                for (const pnId of phoneNumberIds) {
+                    try {
+                        const messages = await this.openPhoneClient.getMessages({
+                            participants: [guestPhone],
+                            phoneNumberId: pnId
                         });
-                        if (!existing) {
-                            const comm = await this.storeCommunication({
-                                reservationId,
-                                source: "openphone_sms",
-                                externalId: msg.id,
-                                content: msg.text || "",
-                                direction: msg.direction === "incoming" ? "inbound" : "outbound",
-                                senderName: msg.direction === "incoming" ? reservation.guestName : "Representative",
-                                senderPhone: msg.from,
-                                communicatedAt: new Date(msg.createdAt),
-                                metadata: { conversationId: msg.conversationId, phoneNumberId: pnId }
+
+                        for (const msg of messages.data || []) {
+                            const existing = await this.communicationRepo.findOne({
+                                where: { externalId: msg.id, source: "openphone_sms" }
                             });
-                            storedCommunications.push(comm);
+                            if (!existing) {
+                                const comm = await this.storeCommunication({
+                                    reservationId,
+                                    source: "openphone_sms",
+                                    externalId: msg.id,
+                                    content: msg.text || "",
+                                    direction: msg.direction === "incoming" ? "inbound" : "outbound",
+                                    senderName: msg.direction === "incoming" ? reservation.guestName : "Representative",
+                                    senderPhone: msg.from,
+                                    communicatedAt: new Date(msg.createdAt),
+                                    metadata: { conversationId: msg.conversationId, phoneNumberId: pnId, matchedGuestPhone: guestPhone }
+                                });
+                                storedCommunications.push(comm);
+                            }
                         }
+                    } catch (error) {
+                        // Log but continue with other phone numbers
+                        logger.error(`[GuestCommunicationService] Error fetching messages for PN ${pnId} / guest ${guestPhone}:`, error.message);
                     }
-                } catch (error) {
-                    // Log but continue with other phone numbers
-                    logger.error(`[GuestCommunicationService] Error fetching messages for PN ${pnId}:`, error.message);
                 }
             }
 
-            // Fetch calls with guest - Iterate through phone numbers
-            for (const pnId of phoneNumberIds) {
-                try {
-                    const calls = await this.openPhoneClient.getCalls({
-                        participants: [guestPhone],
-                        phoneNumberId: pnId
-                    });
-
-                    for (const call of calls.data || []) {
-                        const existing = await this.communicationRepo.findOne({
-                            where: { externalId: call.id, source: "openphone_call" }
+            // Fetch calls with guest - Iterate through guest numbers and account numbers
+            for (const guestPhone of guestPhones) {
+                for (const pnId of phoneNumberIds) {
+                    try {
+                        const calls = await this.openPhoneClient.getCalls({
+                            participants: [guestPhone],
+                            phoneNumberId: pnId
                         });
-                        if (!existing) {
-                            // Try to get call summary or transcript
-                            let content = `Call ${call.direction} - Duration: ${call.duration || 0}s`;
-                            try {
-                                const summary = await this.openPhoneClient.getCallSummary(call.id);
-                                if (summary?.data?.summary) {
-                                    content = summary.data.summary;
-                                }
-                            } catch {
-                                // Summary not available, try transcript
+
+                        for (const call of calls.data || []) {
+                            const existing = await this.communicationRepo.findOne({
+                                where: { externalId: call.id, source: "openphone_call" }
+                            });
+                            if (!existing) {
+                                // Try to get call summary or transcript
+                                let content = `Call ${call.direction} - Duration: ${call.duration || 0}s`;
                                 try {
-                                    const transcript = await this.openPhoneClient.getCallTranscript(call.id);
-                                    if (transcript?.data?.text) {
-                                        content = transcript.data.text;
+                                    const summary = await this.openPhoneClient.getCallSummary(call.id);
+                                    if (summary?.data?.summary) {
+                                        content = summary.data.summary;
                                     }
                                 } catch {
-                                    // Use default content
+                                    // Summary not available, try transcript
+                                    try {
+                                        const transcript = await this.openPhoneClient.getCallTranscript(call.id);
+                                        if (transcript?.data?.text) {
+                                            content = transcript.data.text;
+                                        }
+                                    } catch {
+                                        // Use default content
+                                    }
                                 }
-                            }
 
-                            const comm = await this.storeCommunication({
-                                reservationId,
-                                source: "openphone_call",
-                                externalId: call.id,
-                                content,
-                                direction: call.direction === "incoming" ? "inbound" : "outbound",
-                                senderName: call.direction === "incoming" ? reservation.guestName : "Representative",
-                                senderPhone: call.from,
-                                communicatedAt: new Date(call.createdAt),
-                                metadata: {
-                                    duration: call.duration,
-                                    status: call.status,
-                                    hasVoicemail: !!call.voicemail,
-                                    phoneNumberId: pnId
-                                }
-                            });
-                            storedCommunications.push(comm);
+                                const comm = await this.storeCommunication({
+                                    reservationId,
+                                    source: "openphone_call",
+                                    externalId: call.id,
+                                    content,
+                                    direction: call.direction === "incoming" ? "inbound" : "outbound",
+                                    senderName: call.direction === "incoming" ? reservation.guestName : "Representative",
+                                    senderPhone: call.from,
+                                    communicatedAt: new Date(call.createdAt),
+                                    metadata: {
+                                        duration: call.duration,
+                                        status: call.status,
+                                        hasVoicemail: !!call.voicemail,
+                                        phoneNumberId: pnId,
+                                        matchedGuestPhone: guestPhone
+                                    }
+                                });
+                                storedCommunications.push(comm);
+                            }
                         }
+                    } catch (error) {
+                        logger.error(`[GuestCommunicationService] Error fetching calls for PN ${pnId} / guest ${guestPhone}:`, error.message);
                     }
-                } catch (error) {
-                    logger.error(`[GuestCommunicationService] Error fetching calls for PN ${pnId}:`, error.message);
                 }
             }
 
@@ -311,12 +321,80 @@ export class GuestCommunicationService {
         return this.communicationRepo.save(comm);
     }
 
+    private async collectGuestPhoneCandidates(
+        reservationId: number,
+        reservation: ReservationInfoEntity
+    ): Promise<string[]> {
+        const phoneSet = new Set<string>();
+        const addPhones = (value: unknown) => {
+            this.extractPhoneCandidates(value).forEach((phone) => phoneSet.add(phone));
+        };
+
+        addPhones(reservation.phone);
+
+        const apiKey = process.env.HOSTIFY_API_KEY;
+        if (apiKey) {
+            try {
+                const hostifyRes = await this.hostifyClient.getReservationInfo(apiKey, reservationId);
+                addPhones(hostifyRes?.reservation?.guest_phone);
+                addPhones(hostifyRes?.reservation?.guest?.phones);
+                addPhones(hostifyRes?.guest?.phone);
+                addPhones(hostifyRes?.guest?.phones);
+            } catch (error: any) {
+                logger.warn(`[GuestCommunicationService] Unable to fetch Hostify reservation phones for ${reservationId}: ${error.message}`);
+            }
+        }
+
+        if (reservation.guestEmail || reservation.guestName) {
+            const qb = this.reservationRepo.createQueryBuilder("reservation")
+                .select(["reservation.phone", "reservation.id"])
+                .where("reservation.id != :reservationId", { reservationId })
+                .andWhere("reservation.phone IS NOT NULL")
+                .andWhere("reservation.phone != ''");
+
+            if (reservation.guestEmail && reservation.guestName) {
+                qb.andWhere("(LOWER(reservation.guestEmail) = LOWER(:guestEmail) OR LOWER(reservation.guestName) = LOWER(:guestName))", {
+                    guestEmail: reservation.guestEmail,
+                    guestName: reservation.guestName,
+                });
+            } else if (reservation.guestEmail) {
+                qb.andWhere("LOWER(reservation.guestEmail) = LOWER(:guestEmail)", { guestEmail: reservation.guestEmail });
+            } else if (reservation.guestName) {
+                qb.andWhere("LOWER(reservation.guestName) = LOWER(:guestName)", { guestName: reservation.guestName });
+            }
+
+            const historicalReservations = await qb.take(25).getMany();
+            historicalReservations.forEach((item) => addPhones(item.phone));
+        }
+
+        return Array.from(phoneSet);
+    }
+
+    private extractPhoneCandidates(value: unknown): string[] {
+        if (!value) return [];
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => this.extractPhoneCandidates(item));
+        }
+        if (typeof value === "object") {
+            return Object.values(value as Record<string, unknown>).flatMap((item) => this.extractPhoneCandidates(item));
+        }
+
+        const raw = String(value).trim();
+        if (!raw) return [];
+
+        return raw
+            .split(/[,;/\n]|(?:\s+or\s+)|(?:\s+\|\s+)/i)
+            .map((item) => this.normalizePhoneNumber(item))
+            .filter((item): item is string => !!item);
+    }
+
     /**
      * Normalize phone number to E.164 format
      */
-    private normalizePhoneNumber(phone: string): string {
+    private normalizePhoneNumber(phone: string): string | null {
         // Remove non-digit characters
         let cleaned = phone.replace(/\D/g, "");
+        if (cleaned.length < 10) return null;
 
         // Add + prefix if not present and starts with 1 (US/Canada)
         if (cleaned.length === 10) {

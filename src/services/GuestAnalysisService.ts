@@ -17,11 +17,41 @@ export type SentimentType = "Positive" | "Neutral" | "Negative" | "Mixed";
  * Flag types for operational issues
  */
 export const FLAG_TYPES = [
-    "Delayed Response",
-    "Missed or Incomplete Response",
-    "Incorrect or Conflicting Information",
-    "Poor or Unclear Communication Tone",
-    "Escalation Needed"
+    "Responsiveness",
+    "Execution Failure",
+    "Property / Unit Issue",
+    "Information Problem",
+    "Service Quality",
+    "Process Problem",
+    "Escalation / Risk"
+] as const;
+
+export const FLAG_ROOT_CAUSES = [
+    "Staffing problem",
+    "Training problem",
+    "Bad process / SOP",
+    "Vendor didn't show up",
+    "System/tool issue",
+    "Too much workload",
+    "Not enough maintenance",
+    "Unknown"
+] as const;
+
+export const FLAG_OWNERS = [
+    "Guest Relations",
+    "Maintenance",
+    "Housekeeping",
+    "Operations",
+    "Training / QA",
+    "Leadership",
+    "Vendor"
+] as const;
+
+export const FLAG_SEVERITIES = [
+    "Low",
+    "Medium",
+    "High",
+    "Critical"
 ] as const;
 
 export type FlagType = typeof FLAG_TYPES[number];
@@ -226,6 +256,17 @@ export class GuestAnalysisService {
             if (!Array.isArray(parsed.flags)) {
                 parsed.flags = [];
             }
+            parsed.flags = parsed.flags
+                .filter((flag: any) => flag && typeof flag === "object")
+                .map((flag: any) => ({
+                    flag: FLAG_TYPES.includes(flag.flag) ? flag.flag : "Process Problem",
+                    explanation: String(flag.explanation || "").trim(),
+                    owner: FLAG_OWNERS.includes(flag.owner) ? flag.owner : "Operations",
+                    rootCause: FLAG_ROOT_CAUSES.includes(flag.rootCause) ? flag.rootCause : "Unknown",
+                    severity: FLAG_SEVERITIES.includes(flag.severity) ? flag.severity : "Medium",
+                    evidence: String(flag.evidence || "").trim(),
+                }))
+                .filter((flag: any) => flag.explanation);
 
             return parsed;
         } catch (error) {
@@ -253,7 +294,14 @@ Respond in valid JSON with this structure:
     "sentiment": "Positive" | "Neutral" | "Negative" | "Mixed",
     "sentimentReason": "1-2 line explanation of sentiment classification",
     "flags": [
-        {"flag": "Flag Type", "explanation": "Brief explanation"}
+        {
+            "flag": "Responsiveness | Execution Failure | Property / Unit Issue | Information Problem | Service Quality | Process Problem | Escalation / Risk",
+            "explanation": "One sentence explaining exactly what went wrong",
+            "owner": "Guest Relations | Maintenance | Housekeeping | Operations | Training / QA | Leadership | Vendor",
+            "rootCause": "Staffing problem | Training problem | Bad process / SOP | Vendor didn't show up | System/tool issue | Too much workload | Not enough maintenance | Unknown",
+            "severity": "Low | Medium | High | Critical",
+            "evidence": "Short quote or paraphrase from the communication/review"
+        }
     ]
 }
 
@@ -270,12 +318,49 @@ Respond in valid JSON with this structure:
 - Negative: Guest expressed frustration, complaints, or dissatisfaction
 - Mixed: Communication contains both positive and negative elements
 
+## WHAT TO DO
+- Decide if there is a real operational issue or not
+- If no issue is present, return empty flags array: []
+- If multiple issues exist, list them all, most important first
+- Prioritize "Property / Unit Issue" whenever there is a real property problem
+- If something was supposed to be done but wasn't, prefer "Execution Failure"
+- If information was wrong or conflicting, use "Information Problem"
+- Focus on the operational problem, not just emotion
+- Do not guess or invent facts
+
 ## FLAG TYPES (use only these)
-- Delayed Response: Representative took too long to respond
-- Missed or Incomplete Response: Guest question/request not addressed
-- Incorrect or Conflicting Information: Rep provided wrong or contradictory info
-- Poor or Unclear Communication Tone: Rep's tone was unprofessional or confusing
-- Escalation Needed: Situation requires management attention
+- Responsiveness: Slow, delayed, or missing replies / follow-up
+- Execution Failure: Something should have been done but was not done or not completed
+- Property / Unit Issue: Problem with the actual unit/property such as AC, plumbing, cleanliness, broken items, noise, smell, pests
+- Information Problem: Wrong, missing, or conflicting instructions/info
+- Service Quality: Tone, empathy, professionalism, helpfulness
+- Process Problem: Internal confusion, handoff failure, no clear owner
+- Escalation / Risk: Refund demand, safety concern, bad review threat, manager request, urgent access issue
+
+## ROOT CAUSE (pick the best fit)
+- Staffing problem
+- Training problem
+- Bad process / SOP
+- Vendor didn't show up
+- System/tool issue
+- Too much workload
+- Not enough maintenance
+- Unknown
+
+## OWNER (pick the best fit)
+- Guest Relations
+- Maintenance
+- Housekeeping
+- Operations
+- Training / QA
+- Leadership
+- Vendor
+
+## SEVERITY
+- Low: small inconvenience
+- Medium: noticeable issue
+- High: major problem, likely bad review
+- Critical: safety, no access, no AC, urgent issue
 
 If no issues found, return empty flags array: []`;
     }
@@ -296,7 +381,7 @@ If no issues found, return empty flags array: []`;
         }
 
         prompt += timeline;
-        prompt += "\n\n## INSTRUCTIONS\nAnalyze the above communication timeline and provide the JSON analysis.";
+        prompt += "\n\n## INSTRUCTIONS\nAnalyze the above communication timeline and provide the JSON analysis. Include only issues that are supported by the actual communication data.";
 
         return prompt;
     }

@@ -6,6 +6,10 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 export interface GuestAnalysisFlag {
     flag: string;
     explanation: string;
+    owner?: string;
+    rootCause?: string;
+    severity?: string;
+    evidence?: string;
 }
 
 /**
