@@ -245,14 +245,18 @@ export class GuestAnalysisService {
         }
 
         try {
-            const parsed = JSON.parse(content) as GuestAnalysisResult;
+            const parsed = this.parseAnalysisResponse(content);
 
-            // Validate sentiment
             if (!["Positive", "Neutral", "Negative", "Mixed"].includes(parsed.sentiment)) {
                 parsed.sentiment = "Neutral";
             }
+            if (!parsed.summary?.trim()) {
+                parsed.summary = "No clear guest communication summary was generated.";
+            }
+            if (!parsed.sentimentReason?.trim()) {
+                parsed.sentimentReason = "Sentiment defaulted because the AI response did not include a valid reason.";
+            }
 
-            // Validate flags
             if (!Array.isArray(parsed.flags)) {
                 parsed.flags = [];
             }
@@ -269,10 +273,35 @@ export class GuestAnalysisService {
                 .filter((flag: any) => flag.explanation);
 
             return parsed;
-        } catch (error) {
-            logger.error("[GuestAnalysisService] Error parsing AI response:", error);
-            throw new Error("Failed to parse AI analysis response");
+        } catch (error: any) {
+            logger.error("[GuestAnalysisService] Error parsing AI response:", error?.message || error, { content });
+            throw new Error("AI returned an invalid analysis payload");
         }
+    }
+
+
+    private parseAnalysisResponse(content: string): GuestAnalysisResult {
+        const candidates = [content];
+        const trimmed = content.trim();
+
+        const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (fenced?.[1]) candidates.push(fenced[1]);
+
+        const firstBrace = trimmed.indexOf('{');
+        const lastBrace = trimmed.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+        }
+
+        for (const candidate of candidates) {
+            try {
+                return JSON.parse(candidate) as GuestAnalysisResult;
+            } catch {
+                // try next candidate
+            }
+        }
+
+        throw new Error('Unable to parse AI JSON response');
     }
 
     /**
