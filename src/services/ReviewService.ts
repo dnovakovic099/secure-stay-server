@@ -27,6 +27,8 @@ import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
 import { Listing } from "../entity/Listing";
 import { Hostify } from "../client/Hostify";
 import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { Issue } from "../entity/Issue";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -57,6 +59,7 @@ interface Filter {
     isActive?: boolean | null | undefined;
     tab?: string | null | undefined;
     propertyType?: string[] | null | undefined;
+    integration?: string[] | null | undefined;
 }
 
 
@@ -118,6 +121,8 @@ export class ReviewService {
     private hostifyClient = new Hostify();
     private listingRepo = appDatabase.getRepository(Listing);
     private guestAnalysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
+    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
+    private issueRepo = appDatabase.getRepository(Issue);
 
     public async getReviews({
         fromDate,
@@ -134,6 +139,7 @@ export class ReviewService {
         propertyType,
         dateType,
         channel,
+        integration,
         sortField,
         sortDir,
     }) {
@@ -163,6 +169,21 @@ export class ReviewService {
                 ...(rating !== undefined && rating !== null ? { rating: Equal(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
+
+            if (integration && integration.length > 0) {
+                const integrationReservations = await this.reservationInfoRepo
+                    .createQueryBuilder("reservation")
+                    .select("reservation.id", "id")
+                    .where(new Brackets((qb) => {
+                        qb.where("reservation.integration_nickname IN (:...integration)", { integration })
+                            .orWhere("reservation.source IN (:...integration)", { integration })
+                            .orWhere("reservation.channelName IN (:...integration)", { integration });
+                    }))
+                    .getRawMany();
+
+                const reservationIds = integrationReservations.map((item: any) => Number(item.id)).filter(Boolean);
+                condition.reservationId = reservationIds.length > 0 ? In(reservationIds) : In([-1]);
+            }
 
             const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
 
@@ -221,6 +242,16 @@ export class ReviewService {
                 reviews.map((review) => reservationInfoService.getReservationById(review.reservationId))
             );
 
+            const reservationIds = reviews.map((review) => Number(review.reservationId)).filter(Boolean);
+            const [issues, guestAnalyses] = await Promise.all([
+                reservationIds.length > 0
+                    ? this.issueRepo.find({ where: { reservation_id: In(reservationIds) } })
+                    : Promise.resolve([]),
+                reservationIds.length > 0
+                    ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) } })
+                    : Promise.resolve([]),
+            ]);
+
             const reviewListingIds = [...new Set(reviews.map((review) => review.listingMapId).filter(Boolean))];
             const listings = reviewListingIds.length > 0
                 ? await this.listingRepo.find({ where: { id: In(reviewListingIds) } })
@@ -247,6 +278,8 @@ export class ReviewService {
                     propertyType,
                     confirmationCode,
                     integration,
+                    issues: issues.filter((issue) => Number(issue.reservation_id) === Number(review.reservationId)) || [],
+                    aiAnalysis: guestAnalyses.find((analysis) => Number(analysis.reservationId) === Number(review.reservationId)) || null,
                     guestPhone: reservationInfo?.phone || null,
                     bookingAmount: reservationInfo?.totalPrice || null,
                     guestEmail: reservationInfo?.guestEmail || null,
