@@ -98,7 +98,7 @@ export class GuestAnalysisController {
             });
         } catch (error: any) {
             logger.error("[GuestAnalysisController] generateAnalysis error:", error.message);
-            res.status(500).json({ error: "Failed to generate analysis" });
+            res.status(500).json({ error: error?.message || "Failed to generate analysis" });
         }
     };
 
@@ -125,7 +125,7 @@ export class GuestAnalysisController {
             });
         } catch (error: any) {
             logger.error("[GuestAnalysisController] regenerateAnalysis error:", error.message);
-            res.status(500).json({ error: "Failed to regenerate analysis" });
+            res.status(500).json({ error: error?.message || "Failed to regenerate analysis" });
         }
     };
 
