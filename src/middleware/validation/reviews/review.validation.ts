@@ -42,7 +42,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         listingId: arrayOrSingle(Joi.number().required()).required(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        rating: Joi.number().max(10).min(0).optional(),
+        rating: arrayOrSingle(Joi.number().max(10).min(0).required()),
         owner: arrayOrSingle(Joi.string().required()).required(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),

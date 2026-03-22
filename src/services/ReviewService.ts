@@ -166,7 +166,7 @@ export class ReviewService {
 
             const condition: Record<string, any> = {
                 ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
-                ...(rating !== undefined && rating !== null ? { rating: Equal(rating) } : { rating: Not(IsNull()) }),
+                ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
 
