@@ -19,6 +19,12 @@ enum ReviewCheckoutStatus {
 
 
 export const validateGetReviewRequest = (request: Request, response: Response, next: NextFunction) => {
+    const arrayOrSingle = (schema: Joi.Schema) =>
+        Joi.alternatives().try(
+            Joi.array().items(schema).min(1),
+            schema
+        ).optional().allow(null, "");
+
     const schema = Joi.object({
         dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt"),
         fromDate: Joi.string()
@@ -33,20 +39,18 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         endDate: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'endDate must be in the format "yyyy-mm-dd"' }).optional().allow(null, ""),
-        listingId: Joi.array().items(
-            Joi.number().required()
-        ).min(1).required().allow(null, ""),
+        listingId: arrayOrSingle(Joi.number().required()).required(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
         rating: Joi.number().max(10).min(0).optional(),
-        owner: Joi.array().items(Joi.string().required()).min(1).required().allow(null, ""),
+        owner: arrayOrSingle(Joi.string().required()).required(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
         status: Joi.string().required().valid("active", "hidden").allow(null, ""),
         keyword: Joi.string().optional(),
-        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
-        channel: Joi.array().items(Joi.number()).optional(),
-        integration: Joi.array().items(Joi.string().required()).min(1).optional(),
+        propertyType: arrayOrSingle(Joi.string().required()),
+        channel: arrayOrSingle(Joi.number()),
+        integration: arrayOrSingle(Joi.string().required()),
         sortField: Joi.string().optional().valid(
             'rating',
             'submittedAt',
