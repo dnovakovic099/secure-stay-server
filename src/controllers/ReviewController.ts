@@ -16,6 +16,10 @@ export class ReviewController {
         return [];
     }
 
+    private normalizeNumberArrayParam(value: unknown) {
+        return this.normalizeArrayParam(value).map((item) => Number(item)).filter((item) => !Number.isNaN(item));
+    }
+
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
@@ -27,7 +31,7 @@ export class ReviewController {
                 listingId: this.normalizeArrayParam(listingId),
                 page,
                 limit,
-                rating,
+                rating: this.normalizeNumberArrayParam(rating),
                 owner: this.normalizeArrayParam(owner),
                 claimResolutionStatus,
                 status,
