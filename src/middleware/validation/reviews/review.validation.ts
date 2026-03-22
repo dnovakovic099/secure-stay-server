@@ -27,6 +27,12 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         toDate: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'toDate must be in the format "yyyy-mm-dd"' }).optional(),
+        startDate: Joi.string()
+            .pattern(/^\d{4}-\d{2}-\d{2}$/)
+            .messages({ 'string.pattern.base': 'startDate must be in the format "yyyy-mm-dd"' }).optional().allow(null, ""),
+        endDate: Joi.string()
+            .pattern(/^\d{4}-\d{2}-\d{2}$/)
+            .messages({ 'string.pattern.base': 'endDate must be in the format "yyyy-mm-dd"' }).optional().allow(null, ""),
         listingId: Joi.array().items(
             Joi.number().required()
         ).min(1).required().allow(null, ""),
@@ -41,7 +47,19 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         channel: Joi.array().items(Joi.number()).optional(),
         integration: Joi.array().items(Joi.string().required()).min(1).optional(),
-        sortField: Joi.string().optional().valid('rating', 'submittedAt', 'arrivalDate', 'departureDate', 'guestName', 'channelName', 'listingName'),
+        sortField: Joi.string().optional().valid(
+            'rating',
+            'submittedAt',
+            'arrivalDate',
+            'departureDate',
+            'guestName',
+            'channelName',
+            'listingName',
+            'integration',
+            'propertyType',
+            'createdAt',
+            'updatedAt'
+        ),
         sortDir: Joi.string().optional().valid('ASC', 'DESC'),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
