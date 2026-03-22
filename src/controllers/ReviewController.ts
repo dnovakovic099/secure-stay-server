@@ -7,13 +7,39 @@ interface CustomRequest extends Request {
 }
 
 export class ReviewController {
+    private normalizeArrayParam(value: unknown) {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            if (!value.trim()) return [];
+            return value.split(',').map((item) => item.trim()).filter(Boolean);
+        }
+        return [];
+    }
 
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
             const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel, integration, sortField, sortDir } = request.query;
 
-            const { reviewList, totalCount } = await reviewService.getReviews({ fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, dateType, channel, integration, sortField, sortDir });
+            const { reviewList, totalCount } = await reviewService.getReviews({
+                fromDate,
+                toDate,
+                listingId: this.normalizeArrayParam(listingId),
+                page,
+                limit,
+                rating,
+                owner: this.normalizeArrayParam(owner),
+                claimResolutionStatus,
+                status,
+                isClaimOnly,
+                keyword,
+                propertyType: this.normalizeArrayParam(propertyType),
+                dateType,
+                channel: this.normalizeArrayParam(channel),
+                integration: this.normalizeArrayParam(integration),
+                sortField,
+                sortDir,
+            });
 
             return response.status(200).json({
                 success: true,
