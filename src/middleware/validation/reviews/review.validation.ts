@@ -40,6 +40,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         keyword: Joi.string().optional(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         channel: Joi.array().items(Joi.number()).optional(),
+        integration: Joi.array().items(Joi.string().required()).min(1).optional(),
         sortField: Joi.string().optional().valid('rating', 'submittedAt', 'arrivalDate', 'departureDate', 'guestName', 'channelName', 'listingName'),
         sortDir: Joi.string().optional().valid('ASC', 'DESC'),
     }).custom((value, helpers) => {
