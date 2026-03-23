@@ -206,7 +206,7 @@ export class ReviewService {
                 reviewDetailCondition.claimResolutionStatus = Not("N/A");
             }
 
-            const allowedSortFields = ['rating', 'submittedAt', 'arrivalDate', 'departureDate', 'guestName', 'channelName', 'listingName'];
+            const allowedSortFields = ['rating', 'submittedAt', 'arrivalDate', 'departureDate', 'guestName', 'channelName', 'listingName', 'createdAt', 'updatedAt'];
             const order: Record<string, 'ASC' | 'DESC'> = {};
 
             if (sortField && allowedSortFields.includes(sortField)) {
