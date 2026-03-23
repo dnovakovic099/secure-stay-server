@@ -130,6 +130,30 @@ export class GuestAnalysisController {
     };
 
     /**
+     * GET /api/guest-analysis/:reservationId/history
+     * Get all analyses for a reservation, newest first
+     */
+    getAnalysisHistory = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+
+            const analyses = await this.analysisService.getAllAnalysesByReservation(reservationId);
+
+            res.json({
+                success: true,
+                data: analyses
+            });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getAnalysisHistory error:", error.message);
+            res.status(500).json({ error: "Failed to get analysis history" });
+        }
+    };
+
+    /**
      * GET /api/guest-analysis/:reservationId/communications
      * Get raw communication data for a reservation
      */

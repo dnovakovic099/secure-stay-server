@@ -91,7 +91,8 @@ export class GuestAnalysisService {
      */
     async analyzeGuestCommunication(
         reservationId: number,
-        inboxId?: string
+        inboxId?: string,
+        triggeredBy: string = "manual"
     ): Promise<GuestAnalysisEntity> {
         logger.info(`[GuestAnalysisService] Starting analysis for reservation ${reservationId}`);
 
@@ -116,34 +117,18 @@ export class GuestAnalysisService {
         // Generate AI analysis
         const result = await this.generateAnalysis(timeline, reservation);
 
-        // Check for existing analysis
-        let analysis = await this.analysisRepo.findOne({
-            where: { reservationId }
+        // Always create a new record to preserve full history
+        const analysis = this.analysisRepo.create({
+            id: uuidv4(),
+            reservationId,
+            summary: result.summary,
+            sentiment: result.sentiment,
+            sentimentReason: result.sentimentReason,
+            flags: result.flags,
+            analyzedAt: new Date(),
+            analyzedBy: triggeredBy,
+            communicationIds
         });
-
-        if (analysis) {
-            // Update existing
-            analysis.summary = result.summary;
-            analysis.sentiment = result.sentiment;
-            analysis.sentimentReason = result.sentimentReason;
-            analysis.flags = result.flags;
-            analysis.analyzedAt = new Date();
-            analysis.analyzedBy = "manual";
-            analysis.communicationIds = communicationIds;
-        } else {
-            // Create new
-            analysis = this.analysisRepo.create({
-                id: uuidv4(),
-                reservationId,
-                summary: result.summary,
-                sentiment: result.sentiment,
-                sentimentReason: result.sentimentReason,
-                flags: result.flags,
-                analyzedAt: new Date(),
-                analyzedBy: "manual",
-                communicationIds
-            });
-        }
 
         const saved = await this.analysisRepo.save(analysis);
         logger.info(`[GuestAnalysisService] Analysis saved for reservation ${reservationId}`);
@@ -151,21 +136,40 @@ export class GuestAnalysisService {
     }
 
     /**
-     * Get existing analysis for a reservation
+     * Get the latest analysis for a reservation
      */
     async getAnalysisByReservation(reservationId: number): Promise<GuestAnalysisEntity | null> {
         return this.analysisRepo.findOne({
-            where: { reservationId }
+            where: { reservationId },
+            order: { analyzedAt: 'DESC' }
         });
     }
 
     /**
-     * Get existing analyses for a list of reservations
+     * Get all analyses for a reservation, newest first (full history)
+     */
+    async getAllAnalysesByReservation(reservationId: number): Promise<GuestAnalysisEntity[]> {
+        return this.analysisRepo.find({
+            where: { reservationId },
+            order: { analyzedAt: 'DESC' }
+        });
+    }
+
+    /**
+     * Get latest analysis per reservation for a list of reservation IDs
      */
     async getAnalysesByReservations(reservationIds: number[]): Promise<GuestAnalysisEntity[]> {
         if (reservationIds.length === 0) return [];
-        return this.analysisRepo.find({
-            where: { reservationId: In(reservationIds) }
+        const all = await this.analysisRepo.find({
+            where: { reservationId: In(reservationIds) },
+            order: { analyzedAt: 'DESC' }
+        });
+        // Deduplicate: keep latest per reservationId
+        const seen = new Set<number>();
+        return all.filter(a => {
+            if (seen.has(a.reservationId)) return false;
+            seen.add(a.reservationId);
+            return true;
         });
     }
 
@@ -207,7 +211,7 @@ export class GuestAnalysisService {
                 }
 
                 logger.info(`[GuestAnalysisService] Processing reservation ${reservation.id} (${reservation.guestName})`);
-                await this.analyzeGuestCommunication(reservation.id);
+                await this.analyzeGuestCommunication(reservation.id, undefined, "auto");
                 processed++;
             } catch (error: any) {
                 logger.error(`[GuestAnalysisService] Failed to analyze reservation ${reservation.id}: ${error.message}`);

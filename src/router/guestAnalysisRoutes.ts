@@ -20,6 +20,9 @@ router.post("/:reservationId/generate", controller.generateAnalysis);
 // POST /api/guest-analysis/:reservationId/regenerate - Regenerate analysis
 router.post("/:reservationId/regenerate", controller.regenerateAnalysis);
 
+// GET /api/guest-analysis/:reservationId/history - Get all analyses (newest first)
+router.get("/:reservationId/history", controller.getAnalysisHistory);
+
 // GET /api/guest-analysis/:reservationId/communications - Get raw communications
 router.get("/:reservationId/communications", controller.getCommunications);
 
