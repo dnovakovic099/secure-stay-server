@@ -4,6 +4,8 @@ import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreSta
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
 import { Listing } from "../entity/Listing";
 import { Contact } from "../entity/Contact";
+import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import logger from "../utils/logger.utils";
@@ -72,7 +74,17 @@ interface TurnoverFilters {
     scopes?: string[];
 }
 
+interface TurnoverRecipientOption {
+    value: string;
+    label: string;
+    role: string;
+    phone?: string;
+    kind: 'contact' | 'owner' | 'client';
+}
+
 export class TurnoverService {
+    private clientRepo = appDatabase.getRepository(ClientEntity);
+    private clientPropertyRepo = appDatabase.getRepository(ClientPropertyEntity);
     private getZoneDateParts(date: Date, timeZone: string) {
         const parts = new Intl.DateTimeFormat("en-US", {
             timeZone,
@@ -268,6 +280,88 @@ export class TurnoverService {
         if (tags.includes('own')) return 'Own';
         if (tags.includes('arb')) return 'Arb';
         return 'PM';
+    }
+
+    private normalizeRecipientIds(values?: unknown, fallbackId?: number | null): string[] {
+        if (Array.isArray(values)) {
+            const normalized = values
+                .map((value) => String(value || '').trim())
+                .filter(Boolean);
+            if (normalized.length > 0) return normalized;
+        }
+        if (fallbackId) return [`contact:${fallbackId}`];
+        return [];
+    }
+
+    private getRecipientNames(recipientIds: string[], options: TurnoverRecipientOption[]) {
+        if (!recipientIds.length) return [];
+        const optionMap = new Map(options.map((option) => [option.value, option.label]));
+        return recipientIds.map((id) => optionMap.get(id)).filter(Boolean);
+    }
+
+    private async getRecipientOptionsForListing(listing: Listing): Promise<TurnoverRecipientOption[]> {
+        const options: TurnoverRecipientOption[] = [];
+        const seen = new Set<string>();
+
+        const addOption = (option: TurnoverRecipientOption | null) => {
+            if (!option || seen.has(option.value)) return;
+            seen.add(option.value);
+            options.push(option);
+        };
+
+        const contacts = await this.contactRepo.find({
+            where: {
+                listingId: String(listing.id),
+                status: In(['active', 'active-backup']),
+                deletedAt: null as any
+            },
+            order: { isPrimary: 'DESC', name: 'ASC' as any }
+        });
+
+        contacts.forEach((contact) => {
+            addOption({
+                value: `contact:${contact.id}`,
+                label: `${contact.name} (${contact.role || 'Contact'})`,
+                role: contact.role || 'Contact',
+                phone: contact.contact || undefined,
+                kind: 'contact'
+            });
+        });
+
+        if (listing.ownerName || listing.ownerPhone || listing.ownerEmail) {
+            addOption({
+                value: `owner:${listing.id}`,
+                label: `${listing.ownerName || 'Owner'} (Owner)`,
+                role: 'Owner',
+                phone: listing.ownerPhone || undefined,
+                kind: 'owner'
+            });
+        }
+
+        const clientProperties = await this.clientPropertyRepo.find({
+            where: [
+                { listingId: String(listing.id) },
+                { hostifyListingId: String(listing.id) }
+            ],
+            relations: ['client']
+        });
+
+        clientProperties.forEach((property) => {
+            const client = property.client;
+            if (!client) return;
+            const displayName = [client.preferredName || '', `${client.firstName || ''} ${client.lastName || ''}`.trim()]
+                .map((value) => value.trim())
+                .filter(Boolean)[0] || 'Client';
+            addOption({
+                value: `client:${client.id}`,
+                label: `${displayName} (Client)`,
+                role: 'Client',
+                phone: client.phone || undefined,
+                kind: 'client'
+            });
+        });
+
+        return options;
     }
 
     private async resolvePreStayContact(
@@ -848,18 +942,26 @@ export class TurnoverService {
                 let settings = await this.settingsRepo.findOne({ where: { listingId: listing.id } });
                 
                 // Get contacts
-                let preStayContact = null;
-                let postStayContact = null;
-                
-                const preStayContactId = settings?.preStayContactId || globalSettings?.preStayContactId;
-                const postStayContactId = settings?.postStayContactId || globalSettings?.postStayContactId;
+                const recipientOptions = await this.getRecipientOptionsForListing(listing);
+                const preStayRecipientIds = this.normalizeRecipientIds(
+                    settings?.preStayRecipientIds || globalSettings?.preStayRecipientIds,
+                    settings?.preStayContactId || globalSettings?.preStayContactId
+                );
+                const postStayRecipientIds = this.normalizeRecipientIds(
+                    settings?.postStayRecipientIds || globalSettings?.postStayRecipientIds,
+                    settings?.postStayContactId || globalSettings?.postStayContactId
+                );
+                const sameDayCombinedRecipientIds = this.normalizeRecipientIds(
+                    settings?.sameDayCombinedRecipientIds || globalSettings?.sameDayCombinedRecipientIds,
+                    null
+                );
 
-                if (preStayContactId) {
-                    preStayContact = await this.contactRepo.findOne({ where: { id: preStayContactId } });
-                }
-                if (postStayContactId) {
-                    postStayContact = await this.contactRepo.findOne({ where: { id: postStayContactId } });
-                }
+                const preStayContactId = preStayRecipientIds[0]?.startsWith('contact:')
+                    ? Number(preStayRecipientIds[0].split(':')[1])
+                    : (settings?.preStayContactId || globalSettings?.preStayContactId);
+                const postStayContactId = postStayRecipientIds[0]?.startsWith('contact:')
+                    ? Number(postStayRecipientIds[0].split(':')[1])
+                    : (settings?.postStayContactId || globalSettings?.postStayContactId);
 
                 results.push({
                     id: listing.id,
@@ -870,14 +972,30 @@ export class TurnoverService {
                     address: listing.address,
                     
                     preStayContactId: preStayContactId,
-                    preStayContactName: preStayContact?.name,
+                    preStayContactName: this.getRecipientNames(preStayRecipientIds, recipientOptions).join(', '),
+                    preStayRecipientIds,
+                    preStayRecipientNames: this.getRecipientNames(preStayRecipientIds, recipientOptions),
                     preStayEnabled: settings?.preStayEnabled ?? true,
                     preStayMessageTemplate: settings?.preStayMessageTemplate || globalSettings?.preStayMessageTemplate,
+                    preStayScheduleMode: settings?.preStayScheduleMode || globalSettings?.preStayScheduleMode || 'auto',
+                    preStayOffsetMinutes: settings?.preStayOffsetMinutes ?? globalSettings?.preStayOffsetMinutes ?? 0,
                     
                     postStayContactId: postStayContactId,
-                    postStayContactName: postStayContact?.name,
+                    postStayContactName: this.getRecipientNames(postStayRecipientIds, recipientOptions).join(', '),
+                    postStayRecipientIds,
+                    postStayRecipientNames: this.getRecipientNames(postStayRecipientIds, recipientOptions),
                     postStayEnabled: settings?.postStayEnabled ?? true,
                     postStayMessageTemplate: settings?.postStayMessageTemplate || globalSettings?.postStayMessageTemplate,
+                    postStayScheduleMode: settings?.postStayScheduleMode || globalSettings?.postStayScheduleMode || 'auto',
+                    postStayOffsetMinutes: settings?.postStayOffsetMinutes ?? globalSettings?.postStayOffsetMinutes ?? 0,
+
+                    sameDayCombinedEnabled: settings?.sameDayCombinedEnabled ?? globalSettings?.sameDayCombinedEnabled ?? false,
+                    sameDayCombinedRecipientIds,
+                    sameDayCombinedRecipientNames: this.getRecipientNames(sameDayCombinedRecipientIds, recipientOptions),
+                    sameDayCombinedMessageTemplate: settings?.sameDayCombinedMessageTemplate || globalSettings?.sameDayCombinedMessageTemplate,
+                    sameDayScheduleMode: settings?.sameDayScheduleMode || globalSettings?.sameDayScheduleMode || 'post-stay',
+                    sameDayOffsetMinutes: settings?.sameDayOffsetMinutes ?? globalSettings?.sameDayOffsetMinutes ?? 0,
+                    recipientOptions,
                     
                     ownerName: settings?.ownerName,
                     ownerEmail: settings?.ownerEmail,
@@ -905,6 +1023,13 @@ export class TurnoverService {
                 listingId: 0,
                 preStayEnabled: true,
                 postStayEnabled: true,
+                sameDayCombinedEnabled: false,
+                preStayScheduleMode: 'auto',
+                postStayScheduleMode: 'auto',
+                sameDayScheduleMode: 'post-stay',
+                preStayOffsetMinutes: 0,
+                postStayOffsetMinutes: 0,
+                sameDayOffsetMinutes: 0
             } as TurnoverSettings);
             settings = await this.settingsRepo.save(settings);
         }
@@ -919,22 +1044,37 @@ export class TurnoverService {
         if (!settings) {
             settings = this.settingsRepo.create({ listingId: 0 } as TurnoverSettings);
         }
-        Object.assign(settings, { ...data, updatedBy: userId });
+        const normalized = { ...data } as any;
+        const prePrimary = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0];
+        const postPrimary = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0];
+        normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
+        normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
+        normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
+        normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
+        normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+        Object.assign(settings, { ...normalized, updatedBy: userId });
         return await this.settingsRepo.save(settings);
     }
 
     /**
      * Get global contacts list (active cleaners)
      */
-    async getGlobalContacts(): Promise<Contact[]> {
+    async getGlobalContacts(): Promise<TurnoverRecipientOption[]> {
         const contacts = await this.contactRepo.find({
             where: {
                 role: 'Cleaner',
                 status: 'active',
                 deletedAt: null as any
-            }
+            },
+            order: { isPrimary: 'DESC', name: 'ASC' as any }
         });
-        return contacts;
+        return contacts.map((contact) => ({
+            value: `contact:${contact.id}`,
+            label: `${contact.name} (${contact.role || 'Cleaner'})`,
+            role: contact.role || 'Cleaner',
+            phone: contact.contact || undefined,
+            kind: 'contact' as const
+        }));
     }
 
     /**
@@ -948,8 +1088,17 @@ export class TurnoverService {
                 settings = this.settingsRepo.create({ listingId });
             }
 
+            const normalized = { ...data } as any;
+            const prePrimary = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0];
+            const postPrimary = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0];
+            normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
+            normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
+            normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
+            normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
+            normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+
             Object.assign(settings, {
-                ...data,
+                ...normalized,
                 updatedBy: userId
             });
 
@@ -963,20 +1112,11 @@ export class TurnoverService {
     /**
      * Get contacts for a listing (cleaners)
      */
-    async getContactsForListing(listingId: number): Promise<Contact[]> {
+    async getContactsForListing(listingId: number): Promise<TurnoverRecipientOption[]> {
         try {
-            const contacts = await this.contactRepo.find({
-                where: {
-                    listingId: listingId.toString(),
-                    status: In(['active', 'active-backup'])
-                }
-            });
-
-            // Filter to cleaners
-            return contacts.filter(c => 
-                c.role?.toLowerCase().includes('cleaner') || 
-                c.role?.toLowerCase().includes('housekeeper')
-            );
+            const listing = await this.listingRepo.findOne({ where: { id: listingId } });
+            if (!listing) return [];
+            return this.getRecipientOptionsForListing(listing);
         } catch (error: any) {
             logger.error(`[TurnoverService] Error getting contacts:`, error.message);
             throw error;
