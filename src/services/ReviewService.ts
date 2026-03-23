@@ -247,7 +247,7 @@ export class ReviewService {
                     ? this.issueRepo.find({ where: { reservation_id: In(reservationIds) } })
                     : Promise.resolve([]),
                 reservationIds.length > 0
-                    ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) } })
+                    ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) }, order: { analyzedAt: 'DESC' } })
                     : Promise.resolve([]),
             ]);
 
@@ -894,11 +894,12 @@ export class ReviewService {
             issueServices.getGuestIssues({ page: 1, limit: 500, reservationId: reservationIds, status: issuesStatus }, userId),
             // Fetch action items
             actionItemServices.getActionItems({ page: 1, limit: 500, reservationId: reservationIds, status: actionItemsStatus }),
-            // Fetch guest analyses
+            // Fetch guest analyses (latest per reservation)
             this.guestAnalysisRepo.find({
                 where: {
                     reservationId: In(reservationIds),
                 },
+                order: { analyzedAt: 'DESC' },
             })
         ]);
 
@@ -1344,6 +1345,7 @@ export class ReviewService {
             where: {
                 reservationId: In(reservationIds),
             },
+            order: { analyzedAt: 'DESC' },
         });
 
         const transformedData = badReviewList.map(rc => {
@@ -1525,6 +1527,7 @@ export class ReviewService {
             where: {
                 reservationId: In(reservationIds as number[]),
             },
+            order: { analyzedAt: 'DESC' },
         });
 
         const transformedData = liveIssueList.map(li => {
