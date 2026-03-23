@@ -614,7 +614,7 @@ export class ListingService {
   async getListingNames(userId: string, includeDeleted: boolean = false) {
     const query = this.listingRepository
       .createQueryBuilder("listing")
-      .select(["listing.id", "listing.name", "listing.internalListingName", "listing.deletedAt"]);
+      .select(["listing.id", "listing.name", "listing.internalListingName", "listing.propertyType", "listing.tags", "listing.deletedAt"]);
 
     if (includeDeleted) {
       query.withDeleted();
