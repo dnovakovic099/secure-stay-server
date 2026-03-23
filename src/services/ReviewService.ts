@@ -216,13 +216,65 @@ export class ReviewService {
                 order[dateColumn] = 'DESC';
             }
 
-            // Build where clause — keyword searches both publicReview and privateReview
-            const whereClause = keyword
-                ? [
-                    { ...condition, publicReview: ILike(`%${keyword}%`), reviewDetail: reviewDetailCondition },
-                    { ...condition, privateReview: ILike(`%${keyword}%`), reviewDetail: reviewDetailCondition },
-                ]
-                : { ...condition, reviewDetail: reviewDetailCondition };
+            let whereClause: any = { ...condition, reviewDetail: reviewDetailCondition };
+
+            if (keyword) {
+                const keywordPattern = `%${keyword}%`;
+
+                const [matchingReservations, matchingAnalyses, matchingIssues] = await Promise.all([
+                    this.reservationInfoRepo
+                        .createQueryBuilder('reservation')
+                        .select('reservation.id', 'id')
+                        .where(new Brackets((qb) => {
+                            qb.where('reservation.guestName ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.listingName ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.confirmation_code ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.integration_nickname ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.channelName ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.source ILIKE :keyword', { keyword: keywordPattern });
+                        }))
+                        .getRawMany(),
+                    this.guestAnalysisRepo
+                        .createQueryBuilder('analysis')
+                        .select('analysis.reservationId', 'reservationId')
+                        .where('analysis.summary ILIKE :keyword OR analysis.sentimentReason ILIKE :keyword', { keyword: keywordPattern })
+                        .getRawMany(),
+                    this.issueRepo
+                        .createQueryBuilder('issue')
+                        .select('issue.reservation_id', 'reservationId')
+                        .where(new Brackets((qb) => {
+                            qb.where('issue.issue_description ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('issue.owner_notes ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('issue.next_steps ILIKE :keyword', { keyword: keywordPattern });
+                        }))
+                        .getRawMany(),
+                ]);
+
+                const keywordReservationIds = Array.from(new Set([
+                    ...matchingReservations.map((item: any) => Number(item.id)),
+                    ...matchingAnalyses.map((item: any) => Number(item.reservationId)),
+                    ...matchingIssues.map((item: any) => Number(item.reservationId)),
+                ].filter(Boolean)));
+
+                const keywordConditions: any[] = [
+                    { ...condition, publicReview: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, privateReview: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, guestName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, reviewerName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, listingName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, channelName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                ];
+
+                if (keywordReservationIds.length > 0) {
+                    keywordConditions.push({
+                        ...condition,
+                        reservationId: In(keywordReservationIds),
+                        reviewDetail: reviewDetailCondition,
+                    });
+                }
+
+                whereClause = keywordConditions;
+            }
 
             const [reviews, totalCount] = await this.reviewRepository.findAndCount({
                 where: whereClause,
