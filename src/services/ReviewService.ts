@@ -212,7 +212,6 @@ export class ReviewService {
             if (sortField && allowedSortFields.includes(sortField)) {
                 order[sortField] = (sortDir === 'DESC' ? 'DESC' : 'ASC');
             } else {
-                order.rating = 'ASC';
                 const dateColumn = (dateType && allowedDateTypes.includes(dateType)) ? dateType : "submittedAt";
                 order[dateColumn] = 'DESC';
             }
