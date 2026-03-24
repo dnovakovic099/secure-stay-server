@@ -237,7 +237,11 @@ export class ReviewService {
                     this.guestAnalysisRepo
                         .createQueryBuilder('analysis')
                         .select('analysis.reservationId', 'reservationId')
-                        .where('analysis.summary ILIKE :keyword OR analysis.sentimentReason ILIKE :keyword', { keyword: keywordPattern })
+                        .where(new Brackets((qb) => {
+                            qb.where('analysis.summary ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('analysis.sentimentReason ILIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('CAST(analysis.flags AS TEXT) ILIKE :keyword', { keyword: keywordPattern });
+                        }))
                         .getRawMany(),
                     this.issueRepo
                         .createQueryBuilder('issue')
