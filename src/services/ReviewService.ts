@@ -1,4 +1,4 @@
-import { Between, Brackets, In, IsNull, ILike, LessThan, LessThanOrEqual, Not, MoreThanOrEqual, Equal } from "typeorm";
+import { Between, Brackets, In, IsNull, Like, LessThan, LessThanOrEqual, Not, MoreThanOrEqual, Equal } from "typeorm";
 import { HostAwayClient } from "../client/HostAwayClient";
 import { ReviewEntity } from "../entity/Review";
 import { appDatabase } from "../utils/database.util";
@@ -226,30 +226,30 @@ export class ReviewService {
                         .createQueryBuilder('reservation')
                         .select('reservation.id', 'id')
                         .where(new Brackets((qb) => {
-                            qb.where('reservation.guestName ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('reservation.listingName ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('reservation.confirmation_code ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('reservation.integration_nickname ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('reservation.channelName ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('reservation.source ILIKE :keyword', { keyword: keywordPattern });
+                            qb.where('reservation.guestName LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.listingName LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.confirmation_code LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.integration_nickname LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.channelName LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('reservation.source LIKE :keyword', { keyword: keywordPattern });
                         }))
                         .getRawMany(),
                     this.guestAnalysisRepo
                         .createQueryBuilder('analysis')
                         .select('analysis.reservationId', 'reservationId')
                         .where(new Brackets((qb) => {
-                            qb.where('analysis.summary ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('analysis.sentimentReason ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('CAST(analysis.flags AS TEXT) ILIKE :keyword', { keyword: keywordPattern });
+                            qb.where('analysis.summary LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('analysis.sentimentReason LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('CAST(analysis.flags AS CHAR) LIKE :keyword', { keyword: keywordPattern });
                         }))
                         .getRawMany(),
                     this.issueRepo
                         .createQueryBuilder('issue')
                         .select('issue.reservation_id', 'reservationId')
                         .where(new Brackets((qb) => {
-                            qb.where('issue.issue_description ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('issue.owner_notes ILIKE :keyword', { keyword: keywordPattern })
-                                .orWhere('issue.next_steps ILIKE :keyword', { keyword: keywordPattern });
+                            qb.where('issue.issue_description LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('issue.owner_notes LIKE :keyword', { keyword: keywordPattern })
+                                .orWhere('issue.next_steps LIKE :keyword', { keyword: keywordPattern });
                         }))
                         .getRawMany(),
                 ]);
@@ -261,12 +261,12 @@ export class ReviewService {
                 ].filter(Boolean)));
 
                 const keywordConditions: any[] = [
-                    { ...condition, publicReview: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, privateReview: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, guestName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, reviewerName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, listingName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, channelName: ILike(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, publicReview: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, privateReview: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, guestName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, reviewerName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, listingName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, channelName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
                 ];
 
                 if (keywordReservationIds.length > 0) {
@@ -884,7 +884,7 @@ export class ReviewService {
 
         // Guest name filter
         if (guestName) {
-            query.andWhere("reservationInfo.guestName ILIKE :guestName", { guestName: `${guestName}%` });
+            query.andWhere("reservationInfo.guestName LIKE :guestName", { guestName: `${guestName}%` });
         }
 
         // Channel filter
