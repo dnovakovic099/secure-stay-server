@@ -273,6 +273,7 @@ export class GuestAnalysisService {
                     rootCause: FLAG_ROOT_CAUSES.includes(flag.rootCause) ? flag.rootCause : "Unknown",
                     severity: FLAG_SEVERITIES.includes(flag.severity) ? flag.severity : "Medium",
                     evidence: String(flag.evidence || "").trim(),
+                    evidenceAt: String(flag.evidenceAt || "").trim() || undefined,
                 }))
                 .filter((flag: any) => flag.explanation);
 
@@ -333,7 +334,8 @@ Respond in valid JSON with this structure:
             "owner": "Guest Relations | Maintenance | Housekeeping | Operations | Training / QA | Leadership | Vendor",
             "rootCause": "Staffing problem | Training problem | Bad process / SOP | Vendor didn't show up | System/tool issue | Too much workload | Not enough maintenance | Unknown",
             "severity": "Low | Medium | High | Critical",
-            "evidence": "Short quote or paraphrase from the communication/review"
+            "evidence": "Short quote or paraphrase from the communication/review",
+            "evidenceAt": "Exact timestamp from the communication timeline when the guest said this, if available"
         }
     ]
 }
@@ -360,6 +362,7 @@ Respond in valid JSON with this structure:
 - If information was wrong or conflicting, use "Information Problem"
 - Focus on the operational problem, not just emotion
 - Do not guess or invent facts
+- When you cite evidence from a guest message, include the guest message timestamp in evidenceAt when it is available in the timeline
 
 ## FLAG TYPES (use only these)
 - Responsiveness: Slow, delayed, or missing replies / follow-up
