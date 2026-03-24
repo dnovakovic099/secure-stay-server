@@ -10,6 +10,7 @@ export interface GuestAnalysisFlag {
     rootCause?: string;
     severity?: string;
     evidence?: string;
+    evidenceAt?: string;
 }
 
 /**
