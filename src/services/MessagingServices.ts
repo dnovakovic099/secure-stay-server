@@ -545,4 +545,34 @@ export class MessagingService {
             return false;
         }
     }
+
+    async listHostifyThreads(page = 1, per_page = 20) {
+        try {
+            const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, page, per_page);
+            return result;
+        } catch (error) {
+            logger.error(`[Hostify] Error listing inbox threads: ${error.message}`);
+            throw error;
+        }
+    }
+
+    async getHostifyThread(threadId: string) {
+        try {
+            const thread = await this.hostifyClient.getInboxThread(process.env.HOSTIFY_API_KEY, threadId);
+            return thread;
+        } catch (error) {
+            logger.error(`[Hostify] Error fetching thread ${threadId}: ${error.message}`);
+            throw error;
+        }
+    }
+
+    async postHostifyReply(threadId: string, message: string) {
+        try {
+            const result = await this.hostifyClient.postInboxReply(process.env.HOSTIFY_API_KEY, threadId, message);
+            return result;
+        } catch (error) {
+            logger.error(`[Hostify] Error posting reply to thread ${threadId}: ${error.message}`);
+            throw error;
+        }
+    }
 }

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { validateSaveEmailInfoRequest, validateSavePhoneNoInfoRequest, validateSupportMessageRequest, validateUpdatePhoneNoInfoRequest } from '../middleware/validation/messaging.validation';
 import { MessagingController } from '../controllers/MessagingController';
 import verifyMobileSession from '../middleware/verifyMobileSession';
+import verifySession from '../middleware/verifySession';
 
 const router = Router();
 const messagingController = new MessagingController();
@@ -22,6 +23,14 @@ router.route('/conversation-webhook').post(messagingController.handleConversatio
 router.route('/unanswered-messages').get(messagingController.getUnansweredMessages);
 
 router.route('/unanswered-messages/:id').put(messagingController.updateMessageStatus);
+
+router.get('/hostify/threads', verifySession, messagingController.listHostifyThreads);
+router.get('/hostify/thread/:threadId', verifySession, messagingController.getHostifyThread);
+router.post('/hostify/thread/:threadId/reply', verifySession, messagingController.postHostifyReply);
+
+router.get('/openphone/conversations', verifySession, messagingController.listOpenPhoneConversations);
+router.get('/openphone/conversation/:conversationId/messages', verifySession, messagingController.getOpenPhoneMessages);
+router.post('/openphone/conversation/:conversationId/reply', verifySession, messagingController.sendOpenPhoneReply);
 
 export default router
 

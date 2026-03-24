@@ -276,4 +276,34 @@ export class OpenPhoneService {
 
     return customFields;
   }
+
+  async listInboxConversations(maxResults = 20, pageToken?: string) {
+    try {
+      const result = await this.client.getConversations({ maxResults, pageToken: pageToken || undefined });
+      return result;
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error listing conversations: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getConversationMessages(conversationId: string, phoneNumberId: string, participants: string[], maxResults = 50) {
+    try {
+      const result = await this.client.getMessages({ conversationId, phoneNumberId, participants, maxResults });
+      return result;
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error fetching messages for conversation ${conversationId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async sendConversationReply(phoneNumberId: string, participants: string[], content: string) {
+    try {
+      const result = await this.client.sendSMS({ from: phoneNumberId, to: participants, content });
+      return result;
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error sending reply: ${error.message}`);
+      throw error;
+    }
+  }
 }

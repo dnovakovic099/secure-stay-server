@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { MessagingService } from "../services/MessagingServices";
 import { dataDeleted, dataNotFound, dataSaved, dataUpdated, successDataFetch } from "../helpers/response";
 import sendEmail from "../utils/sendEmai";
+import { OpenPhoneService } from '../services/OpenPhoneService';
 
 interface CustomRequest extends Request {
     user?: any;
@@ -171,6 +172,87 @@ export class MessagingController {
             await messagingService.handleConversation(request.body);
 
             return response.status(200).json(dataSaved('Conversation handled successfully'));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async listHostifyThreads(request: Request, response: Response, next: NextFunction) {
+        try {
+            const page = parseInt(request.query.page as string) || 1;
+            const per_page = parseInt(request.query.per_page as string) || 20;
+            const messagingService = new MessagingService();
+            const result = await messagingService.listHostifyThreads(page, per_page);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getHostifyThread(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { threadId } = request.params;
+            const messagingService = new MessagingService();
+            const thread = await messagingService.getHostifyThread(threadId);
+            return response.status(200).json({ status: true, data: thread });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async postHostifyReply(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { threadId } = request.params;
+            const { message } = request.body;
+            if (!message?.trim()) {
+                return response.status(400).json({ status: false, message: 'Message is required' });
+            }
+            const messagingService = new MessagingService();
+            const result = await messagingService.postHostifyReply(threadId, message.trim());
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async listOpenPhoneConversations(request: Request, response: Response, next: NextFunction) {
+        try {
+            const maxResults = parseInt(request.query.maxResults as string) || 20;
+            const pageToken = request.query.pageToken as string | undefined;
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.listInboxConversations(maxResults, pageToken);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getOpenPhoneMessages(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { conversationId } = request.params;
+            const phoneNumberId = request.query.phoneNumberId as string;
+            const participants = ([] as string[]).concat(request.query.participants as any || []);
+            if (!phoneNumberId || !participants.length) {
+                return response.status(400).json({ status: false, message: 'phoneNumberId and participants are required' });
+            }
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.getConversationMessages(conversationId, phoneNumberId, participants);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async sendOpenPhoneReply(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { conversationId } = request.params;
+            const { phoneNumberId, participants, content } = request.body;
+            if (!content?.trim() || !phoneNumberId || !participants?.length) {
+                return response.status(400).json({ status: false, message: 'phoneNumberId, participants and content are required' });
+            }
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.sendConversationReply(phoneNumberId, participants, content.trim());
+            return response.status(200).json({ status: true, data: result });
         } catch (error) {
             return next(error);
         }
