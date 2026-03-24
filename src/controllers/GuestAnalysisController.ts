@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import logger from "../utils/logger.utils";
+import type { GuestAnalysisRecordFilters } from "../services/GuestAnalysisService";
 
 /**
  * GuestAnalysisController
@@ -71,6 +72,28 @@ export class GuestAnalysisController {
         } catch (error: any) {
             logger.error("[GuestAnalysisController] getBulkAnalyses error:", error.message);
             res.status(500).json({ error: "Failed to get bulk analyses" });
+        }
+    };
+
+    getSummary = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const filters = this.buildRecordFilters(req);
+            const summary = await this.analysisService.getAnalysisSummary(filters);
+            res.json({ success: true, data: summary });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getSummary error:", error.message);
+            res.status(500).json({ error: "Failed to get analysis summary" });
+        }
+    };
+
+    getRecords = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const filters = this.buildRecordFilters(req);
+            const records = await this.analysisService.getAnalysisRecords(filters);
+            res.json({ success: true, data: records });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getRecords error:", error.message);
+            res.status(500).json({ error: "Failed to get analysis records" });
         }
     };
 
@@ -216,4 +239,28 @@ export class GuestAnalysisController {
             res.status(500).json({ error: "Failed to fetch communications" });
         }
     };
+
+    private buildRecordFilters(req: Request): GuestAnalysisRecordFilters {
+        const parseList = (value: unknown): string[] => {
+            if (!value) return [];
+            if (Array.isArray(value)) {
+                return value.flatMap((item) => String(item).split(",")).map((item) => item.trim()).filter(Boolean);
+            }
+            return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+        };
+
+        return {
+            search: typeof req.query.search === "string" ? req.query.search : "",
+            bookingPhase: parseList(req.query.bookingPhase) as GuestAnalysisRecordFilters["bookingPhase"],
+            sentiment: parseList(req.query.sentiment),
+            category: parseList(req.query.category),
+            department: parseList(req.query.department),
+            status: parseList(req.query.status),
+            priority: parseList(req.query.priority),
+            sortField: typeof req.query.sortField === "string" ? req.query.sortField : "analyzedAt",
+            sortDir: req.query.sortDir === "ASC" ? "ASC" : "DESC",
+            page: Number(req.query.page || 1),
+            limit: Number(req.query.limit || 25),
+        };
+    }
 }
