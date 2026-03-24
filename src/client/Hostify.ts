@@ -425,6 +425,28 @@ export class Hostify {
     }
 
     /**
+     * List all inbox threads from Hostify
+     * @param apiKey The Hostify API key
+     * @returns Array of thread summary objects
+     */
+    async listInboxThreads(apiKey: string, page = 1, per_page = 20): Promise<{ threads: any[]; per_page: number }> {
+        try {
+            const url = "https://api-rms.hostify.com/inbox";
+            const response = await axios.get(url, {
+                headers: { "x-api-key": apiKey, "Cache-Control": "no-cache" },
+                params: { page, per_page },
+            });
+            return {
+                threads: response.data?.threads || [],
+                per_page,
+            };
+        } catch (error) {
+            logger.error("Error fetching inbox threads:", error.message);
+            return { threads: [], per_page };
+        }
+    }
+
+    /**
      * Get inbox message thread from Hostify
      * @param apiKey The Hostify API key
      * @param inboxId The inbox/conversation ID
@@ -445,6 +467,22 @@ export class Hostify {
         } catch (error) {
             logger.error(`Error fetching inbox thread ${inboxId}:`, error.message);
             return null;
+        }
+    }
+
+    /**
+     * Post a reply to an inbox thread
+     */
+    async postInboxReply(apiKey: string, threadId: number | string, message: string): Promise<any> {
+        try {
+            const url = "https://api-rms.hostify.com/inbox/reply";
+            const response = await axios.post(url, { thread_id: threadId, message }, {
+                headers: { "x-api-key": apiKey },
+            });
+            return response.data || null;
+        } catch (error) {
+            logger.error(`Error posting reply to thread ${threadId}:`, error.message);
+            throw error;
         }
     }
 

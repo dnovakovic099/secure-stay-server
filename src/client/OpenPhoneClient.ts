@@ -105,12 +105,16 @@ export class OpenPhoneClient {
     phoneNumberId?: string | string[];
     participants?: string[];
     createdAfter?: string;
+    maxResults?: number;
+    pageToken?: string;
   }): Promise<GetConversationsResponse> {
     try {
       const params: Record<string, any> = {};
       if (filters?.phoneNumberId) params.phoneNumberId = filters.phoneNumberId;
       if (filters?.participants) params.participants = filters.participants;
       if (filters?.createdAfter) params.createdAfter = filters.createdAfter;
+      if (filters?.maxResults) params.maxResults = filters.maxResults;
+      if (filters?.pageToken) params.pageToken = filters.pageToken;
 
       const response = await this.client.get<GetConversationsResponse>("/conversations", { params });
       return response.data;
@@ -131,12 +135,16 @@ export class OpenPhoneClient {
     participants?: string[];
     conversationId?: string;
     createdAfter?: string;
+    maxResults?: number;
+    pageToken?: string;
   }): Promise<GetMessagesResponse> {
     const params: Record<string, any> = {};
     if (filters?.phoneNumberId) params.phoneNumberId = filters.phoneNumberId;
     if (filters?.participants) params.participants = filters.participants;
     if (filters?.conversationId) params.conversationId = filters.conversationId;
     if (filters?.createdAfter) params.createdAfter = filters.createdAfter;
+    if (filters?.maxResults) params.maxResults = filters.maxResults;
+    if (filters?.pageToken) params.pageToken = filters.pageToken;
 
     try {
       logger.info(`OpenPhone getMessages params: ${JSON.stringify(params)}`);
@@ -327,6 +335,8 @@ export interface Conversation {
 
 export interface GetConversationsResponse {
   data: Conversation[];
+  nextPageToken?: string;
+  totalItems?: number;
 }
 
 export interface Message {
@@ -348,6 +358,7 @@ export interface Message {
 
 export interface GetMessagesResponse {
   data: Message[];
+  nextPageToken?: string;
 }
 
 // --- Call Types ---
