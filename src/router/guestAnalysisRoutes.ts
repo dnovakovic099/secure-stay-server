@@ -11,6 +11,12 @@ router.use(verifySession);
 // GET /api/guest-analysis/bulk - Get existing analyses for multiple reservations
 router.get("/bulk", controller.getBulkAnalyses);
 
+// GET /api/guest-analysis/summary - Get summary grouped by booking phase
+router.get("/summary", controller.getSummary);
+
+// GET /api/guest-analysis/records - Get AI analysis records table data
+router.get("/records", controller.getRecords);
+
 // GET /api/guest-analysis/:reservationId - Get existing analysis
 router.get("/:reservationId", controller.getAnalysis);
 

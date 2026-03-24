@@ -1,5 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
+export type BookingPhase = 'inquiry' | 'during_stay' | 'after_stay';
+
 /**
  * Flag type for operational issues identified in guest communication
  */
@@ -43,6 +45,9 @@ export class GuestAnalysisEntity {
 
     @Column({ length: 50, nullable: true })
     analyzedBy: string;  // 'auto' | 'manual' | user ID
+
+    @Column({ length: 32, default: 'during_stay' })
+    bookingPhase: BookingPhase;
 
     @Column('json', { nullable: true })
     communicationIds: string[];  // IDs of communications analyzed

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
-import { GuestAnalysisEntity, GuestAnalysisFlag } from "../entity/GuestAnalysis";
+import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag } from "../entity/GuestAnalysis";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { GuestCommunicationService } from "./GuestCommunicationService";
@@ -55,6 +55,56 @@ export const FLAG_SEVERITIES = [
 ] as const;
 
 export type FlagType = typeof FLAG_TYPES[number];
+export type AnalysisStatus = "No issue" | "Monitor" | "Action needed";
+
+export interface GuestAnalysisRecord {
+    id: string;
+    reservationId: number;
+    guestName: string | null;
+    listingName: string | null;
+    channelName: string | null;
+    integration: string | null;
+    confirmationCode: string | null;
+    arrivalDate: Date | string | null;
+    departureDate: Date | string | null;
+    bookingPhase: BookingPhase;
+    summary: string;
+    sentiment: SentimentType;
+    sentimentReason: string;
+    flags: GuestAnalysisFlag[];
+    analyzedAt: Date;
+    analyzedBy: string | null;
+    categories: string[];
+    departments: string[];
+    flagCount: number;
+    priority: string;
+    status: AnalysisStatus;
+}
+
+export interface GuestAnalysisRecordFilters {
+    search?: string;
+    bookingPhase?: BookingPhase[];
+    sentiment?: string[];
+    category?: string[];
+    department?: string[];
+    status?: string[];
+    priority?: string[];
+    sortField?: string;
+    sortDir?: "ASC" | "DESC";
+    page?: number;
+    limit?: number;
+}
+
+export interface GuestAnalysisPhaseSummary {
+    bookingPhase: BookingPhase;
+    total: number;
+    topCategory: { label: string; count: number } | null;
+    topDepartment: { label: string; count: number } | null;
+    byCategory: Array<{ label: string; count: number }>;
+    byDepartment: Array<{ label: string; count: number }>;
+    byStatus: Array<{ label: string; count: number }>;
+    byPriority: Array<{ label: string; count: number }>;
+}
 
 /**
  * AI analysis result interface
@@ -65,6 +115,14 @@ export interface GuestAnalysisResult {
     sentimentReason: string;
     flags: GuestAnalysisFlag[];
 }
+
+const PHASE_ORDER: BookingPhase[] = ["inquiry", "during_stay", "after_stay"];
+const SEVERITY_RANK: Record<string, number> = {
+    Low: 1,
+    Medium: 2,
+    High: 3,
+    Critical: 4,
+};
 
 /**
  * GuestAnalysisService
@@ -113,6 +171,7 @@ export class GuestAnalysisService {
         // Get communication IDs
         const communications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
         const communicationIds = communications.map(c => c.id);
+        const bookingPhase = this.resolveBookingPhase(reservation, communications);
 
         // Generate AI analysis
         const result = await this.generateAnalysis(timeline, reservation);
@@ -127,6 +186,7 @@ export class GuestAnalysisService {
             flags: result.flags,
             analyzedAt: new Date(),
             analyzedBy: triggeredBy,
+            bookingPhase,
             communicationIds
         });
 
@@ -180,6 +240,53 @@ export class GuestAnalysisService {
         return this.analyzeGuestCommunication(reservationId, inboxId);
     }
 
+    async getAnalysisRecords(filters: GuestAnalysisRecordFilters = {}): Promise<{
+        result: GuestAnalysisRecord[];
+        total: number;
+        page: number;
+        limit: number;
+    }> {
+        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation));
+        const filtered = this.applyRecordFilters(mapped, filters);
+        const sorted = this.sortRecords(filtered, filters.sortField, filters.sortDir || "DESC");
+        const page = Math.max(1, Number(filters.page || 1));
+        const limit = Math.max(1, Number(filters.limit || 25));
+        const start = (page - 1) * limit;
+
+        return {
+            result: sorted.slice(start, start + limit),
+            total: sorted.length,
+            page,
+            limit,
+        };
+    }
+
+    async getAnalysisSummary(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisPhaseSummary[]> {
+        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation));
+        const filtered = this.applyRecordFilters(mapped, filters);
+
+        return PHASE_ORDER.map((phase) => {
+            const phaseRecords = filtered.filter((record) => record.bookingPhase === phase);
+            const byCategory = this.buildCountList(phaseRecords.flatMap((record) => record.categories));
+            const byDepartment = this.buildCountList(phaseRecords.flatMap((record) => record.departments));
+            const byStatus = this.buildCountList(phaseRecords.map((record) => record.status));
+            const byPriority = this.buildCountList(phaseRecords.map((record) => record.priority));
+
+            return {
+                bookingPhase: phase,
+                total: phaseRecords.length,
+                topCategory: byCategory[0] || null,
+                topDepartment: byDepartment[0] || null,
+                byCategory,
+                byDepartment,
+                byStatus,
+                byPriority,
+            };
+        });
+    }
+
     /**
      * Process scheduled AI analysis for today's checkout reservations
      * This is called by the daily scheduler at 6:15 AM EST
@@ -221,6 +328,184 @@ export class GuestAnalysisService {
 
         logger.info(`[GuestAnalysisService] Scheduled analysis complete - Processed: ${processed}, Failed: ${failed}, Skipped: ${skipped}`);
         return { processed, failed, skipped };
+    }
+
+    private async getLatestAnalysesWithReservations(): Promise<Array<{ analysis: GuestAnalysisEntity; reservation: ReservationInfoEntity | null }>> {
+        const all = await this.analysisRepo.find({ order: { analyzedAt: "DESC" } });
+        const latestByReservation = new Map<number, GuestAnalysisEntity>();
+
+        all.forEach((analysis) => {
+            if (!latestByReservation.has(analysis.reservationId)) {
+                latestByReservation.set(analysis.reservationId, analysis);
+            }
+        });
+
+        const reservationIds = Array.from(latestByReservation.keys());
+        const reservations = reservationIds.length
+            ? await this.reservationRepo.find({ where: { id: In(reservationIds) } })
+            : [];
+        const reservationMap = new Map<number, ReservationInfoEntity>(
+            reservations.map((reservation) => [Number(reservation.id), reservation])
+        );
+
+        return Array.from(latestByReservation.values()).map((analysis) => ({
+            analysis,
+            reservation: reservationMap.get(Number(analysis.reservationId)) || null,
+        }));
+    }
+
+    private resolveBookingPhase(
+        reservation: ReservationInfoEntity | null,
+        communications: GuestCommunicationEntity[] = [],
+        fallbackDate?: Date | null,
+    ): BookingPhase {
+        if (!reservation) return "during_stay";
+
+        const guestInbound = [...communications]
+            .filter((communication) => communication.direction === "inbound")
+            .sort((a, b) => new Date(b.communicatedAt).getTime() - new Date(a.communicatedAt).getTime());
+        const referenceDate = guestInbound[0]?.communicatedAt || communications[communications.length - 1]?.communicatedAt || fallbackDate || new Date();
+        const reference = new Date(referenceDate);
+        const arrival = reservation.arrivalDate ? new Date(reservation.arrivalDate) : null;
+        const departure = reservation.departureDate ? new Date(reservation.departureDate) : null;
+
+        if (arrival && reference < new Date(arrival.toISOString().slice(0, 10))) {
+            return "inquiry";
+        }
+
+        if (departure) {
+            const departureEnd = new Date(departure.toISOString().slice(0, 10));
+            departureEnd.setDate(departureEnd.getDate() + 1);
+            if (reference >= departureEnd) {
+                return "after_stay";
+            }
+        }
+
+        return "during_stay";
+    }
+
+    private mapAnalysisRecord(analysis: GuestAnalysisEntity, reservation: ReservationInfoEntity | null): GuestAnalysisRecord {
+        const categories = Array.from(new Set((analysis.flags || []).map((flag) => flag.flag).filter(Boolean)));
+        const departments = Array.from(new Set((analysis.flags || []).map((flag) => flag.owner).filter(Boolean) as string[]));
+        const priority = this.getPriorityFromFlags(analysis.flags || []);
+        const status = this.getStatusFromFlags(analysis.flags || []);
+
+        return {
+            id: analysis.id,
+            reservationId: Number(analysis.reservationId),
+            guestName: reservation?.guestName || null,
+            listingName: reservation?.listingName || null,
+            channelName: reservation?.channelName || reservation?.source || null,
+            integration: reservation?.integration_nickname || null,
+            confirmationCode: reservation?.confirmation_code || null,
+            arrivalDate: reservation?.arrivalDate || null,
+            departureDate: reservation?.departureDate || null,
+            bookingPhase: analysis.bookingPhase || this.resolveBookingPhase(reservation, [], analysis.analyzedAt),
+            summary: analysis.summary,
+            sentiment: analysis.sentiment as SentimentType,
+            sentimentReason: analysis.sentimentReason,
+            flags: analysis.flags || [],
+            analyzedAt: analysis.analyzedAt,
+            analyzedBy: analysis.analyzedBy || null,
+            categories,
+            departments,
+            flagCount: analysis.flags?.length || 0,
+            priority,
+            status,
+        };
+    }
+
+    private getPriorityFromFlags(flags: GuestAnalysisFlag[]): string {
+        if (!flags.length) return "None";
+        return [...flags]
+            .sort((left, right) => (SEVERITY_RANK[right.severity || "Low"] || 0) - (SEVERITY_RANK[left.severity || "Low"] || 0))[0]
+            ?.severity || "Medium";
+    }
+
+    private getStatusFromFlags(flags: GuestAnalysisFlag[]): AnalysisStatus {
+        if (!flags.length) return "No issue";
+        const highest = this.getPriorityFromFlags(flags);
+        if (highest === "Critical" || highest === "High") return "Action needed";
+        return "Monitor";
+    }
+
+    private applyRecordFilters(records: GuestAnalysisRecord[], filters: GuestAnalysisRecordFilters): GuestAnalysisRecord[] {
+        const keyword = String(filters.search || "").trim().toLowerCase();
+
+        return records.filter((record) => {
+            if (filters.bookingPhase?.length && !filters.bookingPhase.includes(record.bookingPhase)) return false;
+            if (filters.sentiment?.length && !filters.sentiment.includes(record.sentiment)) return false;
+            if (filters.category?.length && !record.categories.some((category) => filters.category?.includes(category))) return false;
+            if (filters.department?.length && !record.departments.some((department) => filters.department?.includes(department))) return false;
+            if (filters.status?.length && !filters.status.includes(record.status)) return false;
+            if (filters.priority?.length && !filters.priority.includes(record.priority)) return false;
+            if (!keyword) return true;
+
+            const haystack = [
+                record.summary,
+                record.sentiment,
+                record.sentimentReason,
+                record.guestName,
+                record.listingName,
+                record.channelName,
+                record.integration,
+                record.confirmationCode,
+                record.bookingPhase,
+                record.priority,
+                record.status,
+                ...record.categories,
+                ...record.departments,
+                ...(record.flags || []).flatMap((flag) => [flag.flag, flag.explanation, flag.owner, flag.rootCause, flag.evidence]),
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+            return haystack.includes(keyword);
+        });
+    }
+
+    private sortRecords(records: GuestAnalysisRecord[], sortField?: string, sortDir: "ASC" | "DESC" = "DESC"): GuestAnalysisRecord[] {
+        const direction = sortDir === "ASC" ? 1 : -1;
+        const field = sortField || "analyzedAt";
+
+        return [...records].sort((left, right) => {
+            const leftValue = this.getSortValue(left, field);
+            const rightValue = this.getSortValue(right, field);
+            if (leftValue === rightValue) return 0;
+            if (leftValue > rightValue) return direction;
+            return -1 * direction;
+        });
+    }
+
+    private getSortValue(record: GuestAnalysisRecord, field: string): string | number {
+        switch (field) {
+            case "guestName":
+                return (record.guestName || "").toLowerCase();
+            case "listingName":
+                return (record.listingName || "").toLowerCase();
+            case "bookingPhase":
+                return PHASE_ORDER.indexOf(record.bookingPhase);
+            case "priority":
+                return SEVERITY_RANK[record.priority] || 0;
+            case "status":
+                return record.status;
+            case "flagCount":
+                return record.flagCount;
+            default:
+                return new Date(record.analyzedAt).getTime();
+        }
+    }
+
+    private buildCountList(values: Array<string | null | undefined>): Array<{ label: string; count: number }> {
+        const counts = new Map<string, number>();
+        values.filter(Boolean).forEach((value) => {
+            const label = String(value);
+            counts.set(label, (counts.get(label) || 0) + 1);
+        });
+        return Array.from(counts.entries())
+            .map(([label, count]) => ({ label, count }))
+            .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
     }
 
     /**
