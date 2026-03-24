@@ -307,7 +307,10 @@ export class ReviewService {
                     : Promise.resolve([]),
             ]);
 
-            const reviewListingIds = [...new Set(reviews.map((review) => review.listingMapId).filter(Boolean))];
+            const reviewListingIds = [...new Set([
+                ...reviews.map((review) => review.listingMapId),
+                ...reservationInfoList.map((r) => r?.listingMapId),
+            ].filter(Boolean))];
             const listings = reviewListingIds.length > 0
                 ? await this.listingRepo.find({ where: { id: In(reviewListingIds) } })
                 : [];
@@ -319,7 +322,8 @@ export class ReviewService {
                     logger.warn(`Reservation not found for review with ID: ${review.id}`);
                 }
 
-                const listing = listingMap.get(Number(review.listingMapId));
+                const listing = listingMap.get(Number(review.listingMapId))
+                    || listingMap.get(Number(reservationInfo?.listingMapId));
                 const propertyType = this.getReviewPropertyType(listing, review as any, reservationInfo as any);
                 const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
@@ -392,11 +396,10 @@ export class ReviewService {
 
     private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
         if (!tags) return null;
-        const tagList = tags.split(',').map(t => t.trim());
-        const propertyTypes = ['Own', 'Arb', 'pm'];
-        for (const pt of propertyTypes) {
-            if (tagList.includes(pt)) return pt;
-        }
+        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
+        if (tagList.includes('own')) return 'Own';
+        if (tagList.includes('arb')) return 'Arb';
+        if (tagList.includes('pm')) return 'PM';
         return null;
     }
 
