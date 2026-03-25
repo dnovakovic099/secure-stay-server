@@ -221,6 +221,63 @@ export class Hostify {
         }
     }
 
+    async getExtras(apiKey: string) {
+        const endpoints = [
+            "https://api-rms.hostify.com/fees",
+            "https://api-rms.hostify.com/extras",
+        ];
+
+        for (const url of endpoints) {
+            try {
+                const per_page = 100;
+                let page = 1;
+                let hasMore = true;
+                const allExtras: any[] = [];
+
+                while (hasMore) {
+                    const response = await axios.get(url, {
+                        headers: {
+                            "x-api-key": apiKey,
+                            "Cache-Control": "no-cache",
+                        },
+                        params: {
+                            page,
+                            per_page,
+                        },
+                    });
+
+                    const payload = response.data;
+                    const extras =
+                        payload?.fees ||
+                        payload?.extras ||
+                        payload?.data ||
+                        payload?.items ||
+                        [];
+
+                    if (!Array.isArray(extras)) {
+                        break;
+                    }
+
+                    allExtras.push(...extras);
+
+                    if (extras.length < per_page) {
+                        hasMore = false;
+                    } else {
+                        page += 1;
+                    }
+                }
+
+                if (allExtras.length > 0) {
+                    return allExtras;
+                }
+            } catch (error: any) {
+                logger.warn(`Hostify extras endpoint failed for ${url}: ${error?.message || "unknown error"}`);
+            }
+        }
+
+        return [];
+    }
+
 
 
     /*
