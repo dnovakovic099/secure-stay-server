@@ -1,10 +1,27 @@
 import { Request, Response } from "express";
 import { UpsellOrderService } from "../services/UpsellOrderService";
+import hostifyExtrasService from "../services/HostifyExtrasService";
 
 interface CustomRequest extends Request {
     user?: any;
 }
 export class UpsellOrderController {
+    async getHostifyExtras(request: Request, response: Response) {
+        try {
+            const extras = await hostifyExtrasService.getHostifyExtras();
+            return response.status(200).json({
+                status: true,
+                data: extras,
+                total: extras.length,
+            });
+        } catch (error: any) {
+            return response.status(500).json({
+                status: false,
+                message: error?.message || "Failed to fetch Hostify extras",
+            });
+        }
+    }
+
     async getOrders(request: Request, response: Response) {
         const upsellOrderService = new UpsellOrderService();
         try {
@@ -162,4 +179,4 @@ export class UpsellOrderController {
     //         });
     //     }
     // }
-} 
+}

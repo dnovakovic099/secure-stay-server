@@ -5,6 +5,12 @@ import verifySession from "../middleware/verifySession";
 const router = Router();
 const upsellOrderController = new UpsellOrderController();
 
+router.route('/hostify-extras')
+    .get(
+        verifySession,
+        upsellOrderController.getHostifyExtras
+    );
+
 router.route('/orders')
     .get(
         verifySession,
