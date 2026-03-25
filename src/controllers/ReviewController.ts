@@ -121,10 +121,10 @@ export class ReviewController {
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { id, status, comments, isActive } = request.body;
+            const { id, status, comments, assignee, isActive } = request.body;
             const userId = request.user.id;
 
-            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, status, comments, userId, isActive);
+            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, { status, comments, assignee, isActive }, userId);
 
             return response.status(200).json({
                 success: true,
