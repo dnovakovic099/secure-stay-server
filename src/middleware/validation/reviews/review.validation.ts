@@ -142,10 +142,11 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
 export const validateUpdateReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid(...Object.values(ReviewCheckoutStatus)),
+        status: Joi.string().optional().valid(...Object.values(ReviewCheckoutStatus)),
         comments: Joi.string().allow('', null),
+        assignee: Joi.string().allow('', null).optional(),
         isActive: Joi.boolean().optional(),
-    });
+    }).or('status', 'comments', 'assignee', 'isActive');
 
     const { error } = schema.validate(request.body);
     if (error) {

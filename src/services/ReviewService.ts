@@ -306,6 +306,13 @@ export class ReviewService {
                     ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) }, order: { analyzedAt: 'DESC' } })
                     : Promise.resolve([]),
             ]);
+            const reviewCheckouts = reservationIds.length > 0
+                ? await this.reviewCheckoutRepo.find({
+                    where: { reservationInfo: { id: In(reservationIds) } } as any,
+                    relations: ['reservationInfo'],
+                })
+                : [];
+            const reviewCheckoutMap = new Map(reviewCheckouts.map((checkout) => [Number(checkout.reservationInfo?.id), checkout]));
 
             const reviewListingIds = [...new Set([
                 ...reviews.map((review) => review.listingMapId),
@@ -318,6 +325,7 @@ export class ReviewService {
 
             const reviewList = reviews.map((review, index) => {
                 const reservationInfo = reservationInfoList[index];
+                const reviewCheckout = reviewCheckoutMap.get(Number(review.reservationId));
                 if (!reservationInfo) {
                     logger.warn(`Reservation not found for review with ID: ${review.id}`);
                 }
@@ -344,6 +352,9 @@ export class ReviewService {
                     guestEmail: reservationInfo?.guestEmail || null,
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
+                    reviewCheckoutId: reviewCheckout?.id || null,
+                    assignee: reviewCheckout?.assignee || null,
+                    assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
                 };
             });
 
@@ -986,7 +997,8 @@ export class ReviewService {
                 .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
             return {
                 ...rc,
-                assignee: userMap.get(rc.assignee) || rc.assignee,
+                assignee: rc.assignee || null,
+                assigneeName: rc.assignee ? (userMap.get(rc.assignee) || rc.assignee) : null,
                 createdBy: userMap.get(rc.createdBy) || rc.createdBy,
                 updatedBy: userMap.get(rc.updatedBy) || rc.updatedBy,
                 deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
@@ -1139,25 +1151,33 @@ export class ReviewService {
 
     }
 
-    async updateReviewCheckout(id: number, status: ReviewCheckoutStatus, comments: string, userId: string, isActive?: boolean) {
+    async updateReviewCheckout(id: number, data: { status?: ReviewCheckoutStatus; comments?: string; assignee?: string | null; isActive?: boolean }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
         }
 
-        reviewCheckout.status = status;
-        reviewCheckout.comments = comments;
+        const nextStatus = data.status ?? reviewCheckout.status;
+        if (data.status !== undefined) {
+            reviewCheckout.status = data.status;
+        }
+        if (data.comments !== undefined) {
+            reviewCheckout.comments = data.comments;
+        }
+        if (data.assignee !== undefined) {
+            reviewCheckout.assignee = data.assignee || null;
+        }
         reviewCheckout.updatedAt = new Date();
         reviewCheckout.updatedBy = userId;
-        if (isActive !== undefined) {
-            reviewCheckout.isActive = isActive;
+        if (data.isActive !== undefined) {
+            reviewCheckout.isActive = data.isActive;
         }
         // Set calledOnceDate when status changes to "Called Once"
-        if (status === ReviewCheckoutStatus.CALLED_ONCE) {
+        if (nextStatus === ReviewCheckoutStatus.CALLED_ONCE) {
             reviewCheckout.calledOnceDate = format(new Date(), 'yyyy-MM-dd');
         }
         // Create live issue when status changes to "Issue"
-        if (status === ReviewCheckoutStatus.ISSUE) {
+        if (nextStatus === ReviewCheckoutStatus.ISSUE) {
             // Check if live issue already exists for this reservation
             const existingLiveIssue = await this.liveIssueRepo.findOne({
                 where: {
@@ -1177,7 +1197,7 @@ export class ReviewService {
                 logger.info(`Live issue already exists for reservation id: ${reviewCheckout.reservationInfo.id}, skipping creation`);
             }
         }
-        if (reviewCheckout.status == ReviewCheckoutStatus.CLOSED_BAD_REVIEW) {
+        if (nextStatus == ReviewCheckoutStatus.CLOSED_BAD_REVIEW) {
             logger.info(`Bad review created for review checkout id: ${id}`);
             await this.createBadReview({
                 reservationInfo: reviewCheckout.reservationInfo,
