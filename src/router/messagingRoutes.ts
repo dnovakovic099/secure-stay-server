@@ -29,8 +29,11 @@ router.get('/hostify/thread/:threadId', verifySession, messagingController.getHo
 router.post('/hostify/thread/:threadId/reply', verifySession, messagingController.postHostifyReply);
 
 router.get('/openphone/conversations', verifySession, messagingController.listOpenPhoneConversations);
+router.get('/openphone/messages/by-participant', verifySession, messagingController.findOpenPhoneMessagesByParticipant);
 router.get('/openphone/conversation/:conversationId/messages', verifySession, messagingController.getOpenPhoneMessages);
 router.post('/openphone/conversation/:conversationId/reply', verifySession, messagingController.sendOpenPhoneReply);
+
+router.get('/reservation/:reservationId/details', verifySession, messagingController.getGuestReservationDetails);
 
 export default router
 

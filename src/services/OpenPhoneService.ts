@@ -277,9 +277,13 @@ export class OpenPhoneService {
     return customFields;
   }
 
-  async listInboxConversations(maxResults = 20, pageToken?: string) {
+  async listInboxConversations(maxResults = 20, pageToken?: string, participants?: string[]) {
     try {
-      const result = await this.client.getConversations({ maxResults, pageToken: pageToken || undefined });
+      const result = await this.client.getConversations({
+        maxResults,
+        pageToken: pageToken || undefined,
+        participants: participants?.length ? participants : undefined,
+      });
       return result;
     } catch (error: any) {
       logger.error(`[OpenPhone] Error listing conversations: ${error.message}`);
@@ -293,6 +297,47 @@ export class OpenPhoneService {
       return result;
     } catch (error: any) {
       logger.error(`[OpenPhone] Error fetching messages for conversation ${conversationId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Find messages by external participant phone number.
+   * The /v1/messages endpoint requires a phoneNumberId — fetch account phone numbers first,
+   * then query messages filtered by both phoneNumberId and participant.
+   */
+  async findMessagesByParticipant(phone: string, maxResults = 50) {
+    try {
+      const phoneNumbersRes = await this.client.getPhoneNumbers();
+      const phoneNumbers = phoneNumbersRes.data ?? [];
+      logger.info(`[OpenPhone] findMessagesByParticipant phone=${phone}, found ${phoneNumbers.length} account phone numbers: ${JSON.stringify(phoneNumbers.map((p: any) => ({ id: p.id, number: p.number })))}`);
+
+      if (!phoneNumbers.length) {
+        return { data: [], nextPageToken: null };
+      }
+
+      // Try each phoneNumberId until we find messages — OpenPhone /messages requires a single phoneNumberId
+      for (const pn of phoneNumbers) {
+        try {
+          const result = await this.client.getMessages({
+            phoneNumberId: pn.id,
+            participants: [phone],
+            maxResults,
+          });
+          logger.info(`[OpenPhone] Messages found for phoneNumberId=${pn.id}: ${result.data?.length ?? 0}`);
+          if (result.data?.length) {
+            return result;
+          }
+        } catch (innerErr: any) {
+          const detail = innerErr.response?.data ? JSON.stringify(innerErr.response.data) : innerErr.message;
+          logger.warn(`[OpenPhone] getMessages failed for phoneNumberId=${pn.id}: ${detail}`);
+        }
+      }
+
+      return { data: [], nextPageToken: null };
+    } catch (error: any) {
+      const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      logger.error(`[OpenPhone] Error finding messages by participant ${phone}: ${detail}`);
       throw error;
     }
   }

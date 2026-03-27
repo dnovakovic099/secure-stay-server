@@ -575,4 +575,9 @@ export class MessagingService {
             throw error;
         }
     }
+
+    async getGuestReservationDetails(reservationId: number) {
+        const repo = appDatabase.getRepository(ReservationInfoEntity);
+        return await repo.findOne({ where: { id: reservationId } });
+    }
 }
