@@ -127,9 +127,13 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         ).optional(),
         channel: Joi.array().items(Joi.string()).optional(),
         keyword: Joi.string().optional(),
-        status: Joi.array().items(Joi.string().required().valid(...Object.values(ReviewCheckoutStatus))).min(1).allow("", null),
+        status: Joi.array().items(Joi.string().required()).min(1).allow("", null),
         isActive: Joi.boolean().optional(),
         tab: Joi.string().optional().valid("today", "active", "closed", "all"),
+        integration: Joi.array().items(Joi.string()).optional(),
+        fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        dateType: Joi.string().optional().valid("submittedAt", "updatedAt"),
     });
 
     const { error } = schema.validate(request.query);
@@ -142,7 +146,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
 export const validateUpdateReviewForCheckout = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().optional().valid(...Object.values(ReviewCheckoutStatus)),
+        status: Joi.string().optional(),
         comments: Joi.string().allow('', null),
         assignee: Joi.string().allow('', null).optional(),
         isActive: Joi.boolean().optional(),

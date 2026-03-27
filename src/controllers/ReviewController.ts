@@ -118,6 +118,83 @@ export class ReviewController {
         }
     }
 
+    async getReviewUiSettings(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const pageKey = request.params.pageKey as 'reviews' | 'mitigation';
+            if (!['reviews', 'mitigation'].includes(pageKey)) {
+                return response.status(400).json({ success: false, message: 'Invalid pageKey' });
+            }
+            const data = await reviewService.getReviewUiSettings(pageKey);
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateReviewUiSettings(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const pageKey = request.params.pageKey as 'reviews' | 'mitigation';
+            if (!['reviews', 'mitigation'].includes(pageKey)) {
+                return response.status(400).json({ success: false, message: 'Invalid pageKey' });
+            }
+            const data = await reviewService.updateReviewUiSettings(pageKey, request.body || {}, request.user.id);
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getMitigationStatusOptions(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.getMitigationStatusOptions();
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createMitigationStatusOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.addMitigationStatusOption(request.body?.status, request.user.id);
+            return response.status(201).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateMitigationStatusOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.renameMitigationStatusOption(
+                request.body?.currentStatus,
+                request.body?.nextStatus,
+                Boolean(request.body?.replaceExisting),
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async deleteMitigationStatusOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.deleteMitigationStatusOption(
+                request.body?.status,
+                request.body?.replacementStatus,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();

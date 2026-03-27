@@ -9,6 +9,16 @@ const router = Router();
 const reviewController = new ReviewController();
 const reviewDetailController = new ReviewDetailController();
 
+router.route('/ui-settings/:pageKey')
+    .get(verifySession, reviewController.getReviewUiSettings.bind(reviewController))
+    .put(verifySession, reviewController.updateReviewUiSettings.bind(reviewController));
+
+router.route('/mitigation-statuses')
+    .get(verifySession, reviewController.getMitigationStatusOptions.bind(reviewController))
+    .post(verifySession, reviewController.createMitigationStatusOption.bind(reviewController))
+    .put(verifySession, reviewController.updateMitigationStatusOption.bind(reviewController))
+    .delete(verifySession, reviewController.deleteMitigationStatusOption.bind(reviewController));
+
 router.route('/')
     .get(verifySession, validateGetReviewRequest, reviewController.getReviews.bind(reviewController))
     .post(verifySession, validateSaveReview, reviewController.saveReview.bind(reviewController))
