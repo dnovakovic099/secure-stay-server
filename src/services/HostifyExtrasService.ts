@@ -106,7 +106,15 @@ export class HostifyExtrasService {
     const source = item.charge_type ?? item.chargeType ?? item.type ?? item.feeType ?? item.timePeriod;
 
     if (Array.isArray(source)) {
-      return source.map((entry) => this.toText(entry)).filter(Boolean);
+      return source
+        .map((entry) => {
+          if (typeof entry === "object" && entry && !Array.isArray(entry)) {
+            const record = entry as Record<string, unknown>;
+            return this.toText(record.name ?? record.label ?? record.title ?? record.value);
+          }
+          return this.toText(entry);
+        })
+        .filter(Boolean);
     }
 
     const text = this.toText(source);
@@ -125,12 +133,24 @@ export class HostifyExtrasService {
       return item.status.trim();
     }
 
+    if (typeof item.status === "number") {
+      return item.status === 1 ? "Active" : "Inactive";
+    }
+
     if (typeof item.active === "boolean") {
       return item.active ? "Active" : "Inactive";
     }
 
     if (typeof item.is_active === "boolean") {
       return item.is_active ? "Active" : "Inactive";
+    }
+
+    if (typeof item.active === "number") {
+      return item.active === 1 ? "Active" : "Inactive";
+    }
+
+    if (typeof item.is_active === "number") {
+      return item.is_active === 1 ? "Active" : "Inactive";
     }
 
     return null;
@@ -148,6 +168,24 @@ export class HostifyExtrasService {
     }
     if (typeof item.is_system === "number") {
       return item.is_system === 1;
+    }
+    if (typeof item.system === "string") {
+      const normalized = item.system.trim().toLowerCase();
+      if (["yes", "true", "1", "system"].includes(normalized)) {
+        return true;
+      }
+      if (["no", "false", "0", "custom"].includes(normalized)) {
+        return false;
+      }
+    }
+    if (typeof item.is_system === "string") {
+      const normalized = item.is_system.trim().toLowerCase();
+      if (["yes", "true", "1", "system"].includes(normalized)) {
+        return true;
+      }
+      if (["no", "false", "0", "custom"].includes(normalized)) {
+        return false;
+      }
     }
     return null;
   }
@@ -340,8 +378,18 @@ export class HostifyExtrasService {
           id,
           feeId: this.toText(entry.fee_id ?? entry.feeId ?? entry.id ?? id),
           name,
-          amount: this.toNumber(entry.amount ?? entry.price ?? entry.fee),
-          currency: this.toText(entry.currency) || null,
+          amount: this.toNumber(
+            entry.amount ??
+            entry.price ??
+            entry.fee ??
+            (typeof entry.amount === "object" && entry.amount ? (entry.amount as Record<string, unknown>).amount : undefined) ??
+            (typeof entry.price === "object" && entry.price ? (entry.price as Record<string, unknown>).amount : undefined)
+          ),
+          currency: this.toText(
+            entry.currency ??
+            (typeof entry.price === "object" && entry.price ? (entry.price as Record<string, unknown>).currency : undefined) ??
+            (typeof entry.amount === "object" && entry.amount ? (entry.amount as Record<string, unknown>).currency : undefined)
+          ) || null,
           chargeTypes: this.normalizeChargeTypes(entry),
           system: this.normalizeSystem(entry),
           status: this.normalizeStatus(entry),
