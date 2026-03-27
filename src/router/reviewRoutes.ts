@@ -19,6 +19,13 @@ router.route('/mitigation-statuses')
     .put(verifySession, reviewController.updateMitigationStatusOption.bind(reviewController))
     .delete(verifySession, reviewController.deleteMitigationStatusOption.bind(reviewController));
 
+router.route('/reviewdiscussion/:reviewId')
+    .get(verifySession, reviewController.getReviewDiscussion.bind(reviewController))
+    .post(verifySession, reviewController.createReviewDiscussionMessage.bind(reviewController));
+
+router.route('/reviewdiscussion/:reviewId/reactions')
+    .post(verifySession, reviewController.toggleReviewDiscussionReaction.bind(reviewController));
+
 router.route('/')
     .get(verifySession, validateGetReviewRequest, reviewController.getReviews.bind(reviewController))
     .post(verifySession, validateSaveReview, reviewController.saveReview.bind(reviewController))

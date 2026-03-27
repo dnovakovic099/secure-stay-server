@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { ReviewService } from "../services/ReviewService";
+import { ReviewDiscussionService } from "../services/ReviewDiscussionService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
@@ -72,11 +73,16 @@ export class ReviewController {
     async updateReviewVisibility(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
+            const discussionService = new ReviewDiscussionService();
             const { reviewVisibility } = request.body;
             const { id } = request.params;
             const userId = request.user.id;
 
             const updatedReview = await reviewService.updateReviewVisibility(reviewVisibility, id, userId);
+            await discussionService.createSystemMessage(id, `Visibility changed to ${reviewVisibility}.`, {
+                eventType: "visibility",
+                visibility: reviewVisibility,
+            });
 
             return response.status(200).json({
                 success: true,
@@ -187,6 +193,51 @@ export class ReviewController {
             const data = await reviewService.deleteMitigationStatusOption(
                 request.body?.status,
                 request.body?.replacementStatus,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getReviewDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.getDiscussionFeed(
+                request.params.reviewId,
+                request.query.filter as string | undefined,
+                request.query.sort as string | undefined,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createReviewDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.createMessage(
+                request.params.reviewId,
+                request.body?.content,
+                request.body?.parentMessageId ? Number(request.body.parentMessageId) : null,
+                request.user.id
+            );
+            return response.status(201).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async toggleReviewDiscussionReaction(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.toggleReaction(
+                request.params.reviewId,
+                Number(request.body?.messageId),
+                request.body?.reaction,
                 request.user.id
             );
             return response.status(200).json({ success: true, data });
