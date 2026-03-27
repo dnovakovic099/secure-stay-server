@@ -4,6 +4,61 @@ import logger from "../utils/logger.utils";
 export class Hostify {
     private apiKey: string = process.env.HOSTIFY_API_KEY || '';
 
+    private isExtraLikeRecord(value: unknown): value is Record<string, unknown> {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return false;
+        }
+
+        const record = value as Record<string, unknown>;
+        const hasName =
+            typeof record.name === "string" ||
+            typeof record.title === "string" ||
+            typeof record.label === "string";
+        const hasFeeSignal =
+            record.fee_id !== undefined ||
+            record.feeId !== undefined ||
+            record.charge_type !== undefined ||
+            record.chargeType !== undefined ||
+            record.system !== undefined ||
+            record.status !== undefined ||
+            record.active !== undefined ||
+            record.is_active !== undefined;
+
+        return hasName && hasFeeSignal;
+    }
+
+    private extractExtraItems(payload: unknown): Record<string, unknown>[] {
+        const seenArrays = new Set<unknown[]>();
+
+        const visit = (value: unknown): Record<string, unknown>[] => {
+            if (Array.isArray(value)) {
+                if (seenArrays.has(value)) {
+                    return [];
+                }
+                seenArrays.add(value);
+
+                const objectItems = value.filter(
+                    (entry): entry is Record<string, unknown> =>
+                        !!entry && typeof entry === "object" && !Array.isArray(entry)
+                );
+
+                if (objectItems.length > 0 && objectItems.every((entry) => this.isExtraLikeRecord(entry))) {
+                    return objectItems;
+                }
+
+                return objectItems.flatMap((entry) => visit(entry));
+            }
+
+            if (!value || typeof value !== "object") {
+                return [];
+            }
+
+            return Object.values(value as Record<string, unknown>).flatMap((entry) => visit(entry));
+        };
+
+        return visit(payload);
+    }
+
 
     async getListings(apiKey: string) {
         try {
@@ -225,6 +280,8 @@ export class Hostify {
         const endpoints = [
             "https://api-rms.hostify.com/fees",
             "https://api-rms.hostify.com/extras",
+            "https://api-rms.hostify.com/owners/extras",
+            "https://api-rms.hostify.com/owners/fees",
         ];
 
         for (const url of endpoints) {
@@ -247,12 +304,25 @@ export class Hostify {
                     });
 
                     const payload = response.data;
-                    const extras =
-                        payload?.fees ||
-                        payload?.extras ||
-                        payload?.data ||
-                        payload?.items ||
-                        [];
+                    const extras = [
+                        ...(Array.isArray(payload?.fees) ? payload.fees : []),
+                        ...(Array.isArray(payload?.extras) ? payload.extras : []),
+                        ...(Array.isArray(payload?.data) ? payload.data : []),
+                        ...(Array.isArray(payload?.items) ? payload.items : []),
+                        ...this.extractExtraItems(payload),
+                    ].filter(
+                        (entry, index, collection) =>
+                            collection.findIndex((candidate) => {
+                                const candidateRecord = candidate as Record<string, unknown>;
+                                const entryRecord = entry as Record<string, unknown>;
+                                const candidateId = candidateRecord?.fee_id ?? candidateRecord?.feeId ?? candidateRecord?.id;
+                                const entryId = entryRecord?.fee_id ?? entryRecord?.feeId ?? entryRecord?.id;
+                                const candidateName = candidateRecord?.name ?? candidateRecord?.title ?? candidateRecord?.label;
+                                const entryName = entryRecord?.name ?? entryRecord?.title ?? entryRecord?.label;
+
+                                return candidateId === entryId && candidateName === entryName;
+                            }) === index
+                    );
 
                     if (!Array.isArray(extras)) {
                         break;
