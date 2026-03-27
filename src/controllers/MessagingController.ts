@@ -219,8 +219,13 @@ export class MessagingController {
         try {
             const maxResults = parseInt(request.query.maxResults as string) || 20;
             const pageToken = request.query.pageToken as string | undefined;
+            const participants = ([] as string[]).concat((request.query.participants as any) || []);
             const openPhoneService = new OpenPhoneService();
-            const result = await openPhoneService.listInboxConversations(maxResults, pageToken);
+            const result = await openPhoneService.listInboxConversations(
+                maxResults,
+                pageToken,
+                participants.length ? participants : undefined,
+            );
             return response.status(200).json({ status: true, data: result });
         } catch (error) {
             return next(error);
@@ -253,6 +258,35 @@ export class MessagingController {
             const openPhoneService = new OpenPhoneService();
             const result = await openPhoneService.sendConversationReply(phoneNumberId, participants, content.trim());
             return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async findOpenPhoneMessagesByParticipant(request: Request, response: Response, next: NextFunction) {
+        try {
+            const phone = request.query.phone as string;
+            if (!phone) {
+                return response.status(400).json({ status: false, message: 'phone query param is required' });
+            }
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.findMessagesByParticipant(phone);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
+    async getGuestReservationDetails(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { reservationId } = request.params;
+            const messagingService = new MessagingService();
+            const details = await messagingService.getGuestReservationDetails(Number(reservationId));
+            return response.status(200).json({ status: true, data: details });
         } catch (error) {
             return next(error);
         }
