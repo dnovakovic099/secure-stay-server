@@ -60,6 +60,9 @@ interface Filter {
     tab?: string | null | undefined;
     propertyType?: string[] | null | undefined;
     integration?: string[] | null | undefined;
+    fromDate?: string | undefined;
+    toDate?: string | undefined;
+    dateType?: string | undefined;
 }
 
 
@@ -794,7 +797,7 @@ export class ReviewService {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
             todayDate, status, isActive, tab, keyword,
-            propertyType,
+            propertyType, integration, fromDate, toDate, dateType,
         } = filters;
 
         //fetch reviewCheckoutList
@@ -901,6 +904,33 @@ export class ReviewService {
         // Channel filter
         if (channel && channel.length > 0) {
             query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
+        }
+
+        if (integration && integration.length > 0) {
+            query.andWhere(new Brackets(qb => {
+                qb.where("reservationInfo.integration_nickname IN (:...integration)", { integration })
+                    .orWhere("reservationInfo.source IN (:...integration)", { integration })
+                    .orWhere("reservationInfo.channelName IN (:...integration)", { integration });
+            }));
+        }
+
+        if (fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
+            const matchingReviewRows = await this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId')
+                .where('review.isHidden = :isHidden', { isHidden: 0 })
+                .andWhere(`DATE(review.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
+                .getRawMany();
+
+            const matchingReservationIds = matchingReviewRows
+                .map((row: { reservationId: string | number | null }) => Number(row.reservationId))
+                .filter((id) => !Number.isNaN(id));
+
+            if (!matchingReservationIds.length) {
+                query.andWhere('1 = 0');
+            } else {
+                query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
+            }
         }
 
         // Keyword search filter (searches guest name)
