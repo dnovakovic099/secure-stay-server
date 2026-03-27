@@ -29,6 +29,7 @@ import { Hostify } from "../client/Hostify";
 import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Issue } from "../entity/Issue";
+import { EscalationSettings } from "../entity/EscalationSettings";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -121,6 +122,205 @@ export class ReviewService {
     private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
+    private settingsRepo = appDatabase.getRepository(EscalationSettings);
+    private readonly reviewUiSettingsKeys = {
+        reviews: 'ui-settings:reviews',
+        mitigation: 'ui-settings:mitigation',
+        mitigationStatuses: 'ui-settings:mitigation-statuses',
+    } as const;
+
+    private getDefaultMitigationStatuses() {
+        return ['New', 'In Progress', 'Completed'];
+    }
+
+    private async ensureSecureStayAdmin(userId: string) {
+        const user = await this.usersRepo.findOne({ where: { uid: userId, deletedAt: null as any } });
+        if (!user || (user.userType !== 'admin' && !user.isSuperAdmin)) {
+            throw CustomErrorHandler.forbidden('Only SecureStay admin users can update shared review settings.');
+        }
+        return user;
+    }
+
+    private parseSettingPayload<T>(setting?: EscalationSettings | null, fallback: T | null = null): T | null {
+        if (!setting?.aiInstructions) return fallback;
+        try {
+            return JSON.parse(setting.aiInstructions) as T;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private async upsertJsonSetting(settingKey: string, displayName: string, payload: unknown) {
+        let setting = await this.settingsRepo.findOne({ where: { settingKey } });
+        if (!setting) {
+            setting = this.settingsRepo.create({
+                settingKey,
+                displayName,
+                slackChannel: null,
+                eventType: null,
+                aiInstructions: JSON.stringify(payload),
+                aiEnabled: false,
+                isActive: true,
+            });
+        } else {
+            setting.displayName = displayName;
+            setting.aiInstructions = JSON.stringify(payload);
+            setting.aiEnabled = false;
+            setting.isActive = true;
+        }
+        return this.settingsRepo.save(setting);
+    }
+
+    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation') {
+        const settingKey = this.reviewUiSettingsKeys[pageKey];
+        const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any }>(
+            await this.settingsRepo.findOne({ where: { settingKey } }),
+            {}
+        ) || {};
+
+        return {
+            defaultView: payload.defaultView ?? null,
+            defaultFilter: payload.defaultFilter ?? null,
+        };
+    }
+
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation', payload: { defaultView?: any; defaultFilter?: any }, userId: string) {
+        await this.ensureSecureStayAdmin(userId);
+        await this.upsertJsonSetting(
+            this.reviewUiSettingsKeys[pageKey],
+            pageKey === 'reviews' ? 'Shared Reviews UI Settings' : 'Shared Mitigation UI Settings',
+            {
+                defaultView: payload.defaultView ?? null,
+                defaultFilter: payload.defaultFilter ?? null,
+            }
+        );
+        return this.getReviewUiSettings(pageKey);
+    }
+
+    async getMitigationStatusOptions() {
+        const payload = this.parseSettingPayload<{ options?: string[] }>(
+            await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys.mitigationStatuses } }),
+            {}
+        ) || {};
+        const options = Array.from(new Set((payload.options || this.getDefaultMitigationStatuses()).map((status) => String(status).trim()).filter(Boolean)));
+        const usageRows = await this.reviewCheckoutRepo
+            .createQueryBuilder('reviewCheckout')
+            .select('reviewCheckout.status', 'status')
+            .addSelect('COUNT(*)', 'count')
+            .where('reviewCheckout.deletedAt IS NULL')
+            .groupBy('reviewCheckout.status')
+            .getRawMany();
+
+        const usageCounts = usageRows.reduce<Record<string, number>>((accumulator, row: { status: string; count: string }) => {
+            accumulator[String(row.status || '')] = Number(row.count || 0);
+            return accumulator;
+        }, {});
+
+        return {
+            options,
+            usageCounts,
+        };
+    }
+
+    async addMitigationStatusOption(status: string, userId: string) {
+        await this.ensureSecureStayAdmin(userId);
+        const trimmedStatus = String(status || '').trim();
+        if (!trimmedStatus) {
+            throw CustomErrorHandler.validationError('Status is required.');
+        }
+
+        const current = await this.getMitigationStatusOptions();
+        if (current.options.some((entry) => entry.toLowerCase() === trimmedStatus.toLowerCase())) {
+            throw CustomErrorHandler.alreadyExists('That mitigation status already exists.');
+        }
+
+        await this.upsertJsonSetting(
+            this.reviewUiSettingsKeys.mitigationStatuses,
+            'Shared Mitigation Statuses',
+            { options: [...current.options, trimmedStatus] }
+        );
+        return this.getMitigationStatusOptions();
+    }
+
+    async renameMitigationStatusOption(currentStatus: string, nextStatus: string, replaceExisting: boolean, userId: string) {
+        await this.ensureSecureStayAdmin(userId);
+        const currentName = String(currentStatus || '').trim();
+        const nextName = String(nextStatus || '').trim();
+        if (!currentName || !nextName) {
+            throw CustomErrorHandler.validationError('Both currentStatus and nextStatus are required.');
+        }
+
+        const current = await this.getMitigationStatusOptions();
+        if (!current.options.includes(currentName)) {
+            throw CustomErrorHandler.notFound('Mitigation status not found.');
+        }
+        if (current.options.some((entry) => entry !== currentName && entry.toLowerCase() === nextName.toLowerCase())) {
+            throw CustomErrorHandler.alreadyExists('That mitigation status already exists.');
+        }
+
+        const usageCount = current.usageCounts[currentName] || 0;
+        if (usageCount > 0 && !replaceExisting) {
+            throw CustomErrorHandler.validationError('Existing mitigation entries use this status. Confirm replacing them before editing it.');
+        }
+
+        if (usageCount > 0) {
+            await this.reviewCheckoutRepo
+                .createQueryBuilder()
+                .update(ReviewCheckout)
+                .set({ status: nextName })
+                .where('status = :currentStatus', { currentStatus: currentName })
+                .execute();
+        }
+
+        await this.upsertJsonSetting(
+            this.reviewUiSettingsKeys.mitigationStatuses,
+            'Shared Mitigation Statuses',
+            {
+                options: current.options.map((entry) => (entry === currentName ? nextName : entry)),
+            }
+        );
+        return this.getMitigationStatusOptions();
+    }
+
+    async deleteMitigationStatusOption(status: string, replacementStatus: string | undefined, userId: string) {
+        await this.ensureSecureStayAdmin(userId);
+        const statusName = String(status || '').trim();
+        const replacementName = String(replacementStatus || '').trim();
+        if (!statusName) {
+            throw CustomErrorHandler.validationError('Status is required.');
+        }
+
+        const current = await this.getMitigationStatusOptions();
+        if (!current.options.includes(statusName)) {
+            throw CustomErrorHandler.notFound('Mitigation status not found.');
+        }
+        if (current.options.length === 1) {
+            throw CustomErrorHandler.validationError('At least one mitigation status must remain.');
+        }
+
+        const usageCount = current.usageCounts[statusName] || 0;
+        if (usageCount > 0) {
+            if (!replacementName || !current.options.includes(replacementName) || replacementName === statusName) {
+                throw CustomErrorHandler.validationError('A valid replacementStatus is required before deleting a status that is in use.');
+            }
+
+            await this.reviewCheckoutRepo
+                .createQueryBuilder()
+                .update(ReviewCheckout)
+                .set({ status: replacementName })
+                .where('status = :statusName', { statusName })
+                .execute();
+        }
+
+        await this.upsertJsonSetting(
+            this.reviewUiSettingsKeys.mitigationStatuses,
+            'Shared Mitigation Statuses',
+            {
+                options: current.options.filter((entry) => entry !== statusName),
+            }
+        );
+        return this.getMitigationStatusOptions();
+    }
     private hostifyClient = new Hostify();
     private listingRepo = appDatabase.getRepository(Listing);
     private guestAnalysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
@@ -1181,7 +1381,7 @@ export class ReviewService {
 
     }
 
-    async updateReviewCheckout(id: number, data: { status?: ReviewCheckoutStatus; comments?: string; assignee?: string | null; isActive?: boolean }, userId: string) {
+    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; isActive?: boolean }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
