@@ -182,7 +182,7 @@ export class MessagingController {
             const page = parseInt(request.query.page as string) || 1;
             const per_page = parseInt(request.query.per_page as string) || 20;
             const messagingService = new MessagingService();
-            const result = await messagingService.listHostifyThreads(page, per_page);
+            const result = await messagingService.listHostifyThreads(page, per_page, request.query);
             return response.status(200).json({ status: true, data: result });
         } catch (error) {
             return next(error);
@@ -286,6 +286,21 @@ export class MessagingController {
             const { reservationId } = request.params;
             const messagingService = new MessagingService();
             const details = await messagingService.getGuestReservationDetails(Number(reservationId));
+            return response.status(200).json({ status: true, data: details });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateGuestReservationNotes(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { reservationId } = request.params;
+            const { hostNote, cleaningNote } = request.body;
+            const messagingService = new MessagingService();
+            const details = await messagingService.updateGuestReservationNotes(Number(reservationId), {
+                hostNote,
+                cleaningNote,
+            });
             return response.status(200).json({ status: true, data: details });
         } catch (error) {
             return next(error);
