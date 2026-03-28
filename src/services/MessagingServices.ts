@@ -102,6 +102,94 @@ export class MessagingService {
         return null;
     }
 
+    private isValidTimeZone(timeZone?: string | null) {
+        if (!timeZone) return false;
+        try {
+            Intl.DateTimeFormat("en-US", { timeZone });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private getTimeZoneParts(date: Date, timeZone: string) {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        }).formatToParts(date);
+
+        const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
+
+        return {
+            year: Number(getPart("year")),
+            month: Number(getPart("month")),
+            day: Number(getPart("day")),
+            hour: Number(getPart("hour")),
+            minute: Number(getPart("minute")),
+            second: Number(getPart("second")),
+            dateKey: `${getPart("year")}-${getPart("month")}-${getPart("day")}`,
+        };
+    }
+
+    private normalizeDateKey(value: any): string | null {
+        if (!value) return null;
+        if (value instanceof Date) return value.toISOString().slice(0, 10);
+        const raw = String(value).trim();
+        const directMatch = raw.match(/\d{4}-\d{2}-\d{2}/);
+        if (directMatch?.[0]) return directMatch[0];
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+    }
+
+    private parseHourValue(value: any, fallback: number | null = null): number | null {
+        if (value === null || value === undefined || value === "") return fallback;
+        if (typeof value === "number" && !Number.isNaN(value)) return value;
+        const raw = String(value).trim();
+        const match = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+        if (!match) return fallback;
+        let hour = Number(match[1]);
+        const minute = Number(match[2] || 0);
+        const period = String(match[3] || "").toUpperCase();
+        if (period === "PM" && hour < 12) hour += 12;
+        if (period === "AM" && hour === 12) hour = 0;
+        return hour + (minute / 60);
+    }
+
+    private isCurrentlyHosting(input: {
+        arrivalDate?: any;
+        departureDate?: any;
+        timeZone?: string | null;
+        checkInTime?: any;
+        checkOutTime?: any;
+    }) {
+        const arrivalDate = this.normalizeDateKey(input.arrivalDate);
+        const departureDate = this.normalizeDateKey(input.departureDate);
+        if (!arrivalDate || !departureDate) return false;
+
+        const timeZone = this.isValidTimeZone(input.timeZone) ? String(input.timeZone) : "America/New_York";
+        const nowParts = this.getTimeZoneParts(new Date(), timeZone);
+        const currentHour = nowParts.hour + (nowParts.minute / 60);
+        const checkInHour = this.parseHourValue(input.checkInTime, 15);
+        const checkOutHour = this.parseHourValue(input.checkOutTime, 11);
+
+        if (nowParts.dateKey === arrivalDate) {
+            return currentHour >= (checkInHour ?? 15);
+        }
+
+        if (nowParts.dateKey === departureDate) {
+            return currentHour < (checkOutHour ?? 11);
+        }
+
+        return nowParts.dateKey > arrivalDate && nowParts.dateKey < departureDate;
+    }
+
     private parseMultiValueFilter(value: any) {
         if (!value) return [];
         return String(value)
@@ -133,6 +221,25 @@ export class MessagingService {
         return threads.map((thread) => {
             const reservation = reservationMap.get(Number(thread?.reservation_id));
             const listing = listingMap.get(Number(thread?.listing_id || reservation?.listingMapId));
+            const normalizedListing = listing
+                ? (this.listingService as any).normalizeListingOverview?.(listing) || null
+                : null;
+            const timeZoneIdentifier =
+                normalizedListing?.timezoneIdentifier ||
+                listing?.timeZoneName ||
+                "America/New_York";
+            const checkInTimeLocal =
+                normalizedListing?.checkInLocal ||
+                (reservation?.checkInTime !== null && reservation?.checkInTime !== undefined
+                    ? `${String(reservation?.checkInTime).padStart(2, "0")}:00`
+                    : null);
+            const checkOutTimeLocal =
+                normalizedListing?.checkOutLocal ||
+                (reservation?.checkOutTime !== null && reservation?.checkOutTime !== undefined
+                    ? `${String(reservation?.checkOutTime).padStart(2, "0")}:00`
+                    : null);
+            const arrivalDate = reservation?.arrivalDate || thread?.start_date || null;
+            const departureDate = reservation?.departureDate || thread?.departure_date || null;
 
             return {
                 ...thread,
@@ -143,27 +250,40 @@ export class MessagingService {
                 reservation_note: reservation?.hostNote || null,
                 guest_picture: reservation?.guestPicture || thread?.guest_thumb || null,
                 guest_phone: reservation?.phone || null,
-                arrival_date: reservation?.arrivalDate || null,
-                departure_date: reservation?.departureDate || null,
+                arrival_date: arrivalDate,
+                departure_date: departureDate,
                 confirmed_at: reservation?.reservationDate || null,
                 updated_at: reservation ? (reservation as any).updatedAt || null : null,
+                timezone_identifier: timeZoneIdentifier,
+                timezone_name: normalizedListing?.timezoneName || timeZoneIdentifier,
+                check_in_time_local: checkInTimeLocal,
+                check_out_time_local: checkOutTimeLocal,
+                currently_hosting: this.isCurrentlyHosting({
+                    arrivalDate,
+                    departureDate,
+                    timeZone: timeZoneIdentifier,
+                    checkInTime: reservation?.checkInTime ?? listing?.checkInTimeStart ?? checkInTimeLocal,
+                    checkOutTime: reservation?.checkOutTime ?? listing?.checkOutTime ?? checkOutTimeLocal,
+                }),
             };
         });
     }
 
     private filterEnrichedThreads(threads: any[], query: any) {
         const keyword = this.normalizeText(query.keyword);
-        const requestedFields = String(query.searchFields || "all")
+        const requestedFields = String(query.searchFields || "guest,confirmation")
             .split(",")
             .map((item) => this.normalizeText(item))
             .filter(Boolean);
-        const searchFields = requestedFields.length ? requestedFields : ["all"];
+        const searchFields = requestedFields.length ? requestedFields : ["guest", "confirmation"];
         const properties = this.parseMultiValueFilter(query.property);
         const propertyTypes = this.parseMultiValueFilter(query.propertyType);
         const reservationStatuses = this.parseMultiValueFilter(query.reservationStatus);
         const dateType = this.normalizeText(query.dateType || "updated");
         const dateFrom = typeof query.dateFrom === "string" ? query.dateFrom : undefined;
         const dateTo = typeof query.dateTo === "string" ? query.dateTo : undefined;
+        const includesCurrentlyHosting = reservationStatuses.includes("currently hosting");
+        const explicitStatuses = reservationStatuses.filter((status) => status !== "currently hosting");
 
         return threads.filter((thread) => {
             if (properties.length && !properties.includes(this.normalizeText(thread.listing_name))) {
@@ -174,8 +294,14 @@ export class MessagingService {
                 return false;
             }
 
-            if (reservationStatuses.length && !reservationStatuses.includes(this.normalizeText(thread.reservation_status))) {
-                return false;
+            if (reservationStatuses.length) {
+                const statusMatch = explicitStatuses.length
+                    ? explicitStatuses.includes(this.normalizeText(thread.reservation_status))
+                    : false;
+                const hostingMatch = includesCurrentlyHosting && Boolean(thread.currently_hosting);
+                if (!statusMatch && !hostingMatch) {
+                    return false;
+                }
             }
 
             if (dateFrom || dateTo) {
