@@ -34,7 +34,7 @@ router.get('/openphone/conversation/:conversationId/messages', verifySession, me
 router.post('/openphone/conversation/:conversationId/reply', verifySession, messagingController.sendOpenPhoneReply);
 
 router.get('/reservation/:reservationId/details', verifySession, messagingController.getGuestReservationDetails);
+router.put('/reservation/:reservationId/notes', verifySession, messagingController.updateGuestReservationNotes);
 
 export default router
-
 

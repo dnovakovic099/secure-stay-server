@@ -12,6 +12,8 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { buildUnansweredMessageAlert } from "../utils/slackMessageBuilder";
 import { Listing } from "../entity/Listing";
+import { ListingService } from "./ListingService";
+import { In } from "typeorm";
 
 // Hostify message webhook payload interface
 export interface HostifyMessagePayload {
@@ -56,6 +58,135 @@ export class MessagingService {
     private hostawayClient = new HostAwayClient();
     private hostifyClient = new Hostify();
     private listingRepository = appDatabase.getRepository(Listing);
+    private reservationRepository = appDatabase.getRepository(ReservationInfoEntity);
+    private listingService = new ListingService();
+
+    private normalizeText(value: any) {
+        return String(value || "").trim().toLowerCase();
+    }
+
+    private parseDate(value: any): Date | null {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    private isDateInRange(date: Date | null, from?: string, to?: string) {
+        if (!date) return false;
+        const start = from ? this.parseDate(from) : null;
+        const end = to ? this.parseDate(to) : null;
+        if (start && date < start) return false;
+        if (end) {
+            const inclusiveEnd = new Date(end);
+            inclusiveEnd.setHours(23, 59, 59, 999);
+            if (date > inclusiveEnd) return false;
+        }
+        return true;
+    }
+
+    private extractHostifyNoteValue(reservation: any, keys: string[]) {
+        for (const key of keys) {
+            const value = reservation?.[key];
+            if (value !== undefined && value !== null && String(value).trim() !== "") {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private async enrichHostifyThreads(threads: any[]) {
+        const reservationIds = threads
+            .map((thread) => Number(thread?.reservation_id))
+            .filter((id) => Number.isFinite(id) && id > 0);
+        const listingIds = threads
+            .map((thread) => Number(thread?.listing_id))
+            .filter((id) => Number.isFinite(id) && id > 0);
+
+        const [reservations, listings] = await Promise.all([
+            reservationIds.length
+                ? this.reservationRepository.find({ where: { id: In(reservationIds) } })
+                : Promise.resolve([]),
+            listingIds.length
+                ? this.listingRepository.find({ where: { id: In(listingIds) } })
+                : Promise.resolve([]),
+        ]);
+
+        const reservationMap = new Map(reservations.map((reservation) => [Number(reservation.id), reservation]));
+        const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+
+        return threads.map((thread) => {
+            const reservation = reservationMap.get(Number(thread?.reservation_id));
+            const listing = listingMap.get(Number(thread?.listing_id || reservation?.listingMapId));
+
+            return {
+                ...thread,
+                reservation_status: reservation?.status || null,
+                listing_name: reservation?.listingName || listing?.name || listing?.internalListingName || null,
+                property_type: listing?.propertyType || null,
+                confirmation_code: reservation?.confirmation_code || null,
+                reservation_note: reservation?.hostNote || null,
+                guest_picture: reservation?.guestPicture || null,
+                guest_phone: reservation?.phone || null,
+                arrival_date: reservation?.arrivalDate || null,
+                departure_date: reservation?.departureDate || null,
+                updated_at: reservation ? (reservation as any).updatedAt || null : null,
+            };
+        });
+    }
+
+    private filterEnrichedThreads(threads: any[], query: any) {
+        const keyword = this.normalizeText(query.keyword);
+        const requestedFields = String(query.searchFields || "all")
+            .split(",")
+            .map((item) => this.normalizeText(item))
+            .filter(Boolean);
+        const searchFields = requestedFields.length ? requestedFields : ["all"];
+        const property = this.normalizeText(query.property);
+        const propertyType = this.normalizeText(query.propertyType);
+        const reservationStatus = this.normalizeText(query.reservationStatus);
+        const dateType = this.normalizeText(query.dateType || "updated");
+        const dateFrom = typeof query.dateFrom === "string" ? query.dateFrom : undefined;
+        const dateTo = typeof query.dateTo === "string" ? query.dateTo : undefined;
+
+        return threads.filter((thread) => {
+            if (property && !this.normalizeText(thread.listing_name).includes(property)) {
+                return false;
+            }
+
+            if (propertyType && this.normalizeText(thread.property_type) !== propertyType) {
+                return false;
+            }
+
+            if (reservationStatus && this.normalizeText(thread.reservation_status) !== reservationStatus) {
+                return false;
+            }
+
+            if (dateFrom || dateTo) {
+                const dateValue = dateType === "checkin"
+                    ? this.parseDate(thread.arrival_date || thread.start_date)
+                    : dateType === "checkout"
+                        ? this.parseDate(thread.departure_date)
+                        : this.parseDate(thread.last_message || thread.updated_at);
+                if (!this.isDateInRange(dateValue, dateFrom, dateTo)) {
+                    return false;
+                }
+            }
+
+            if (!keyword) return true;
+
+            const candidates: Record<string, string> = {
+                guest: `${thread.guest_name || ""} ${thread.guest_phone || ""}`,
+                message: `${thread.preview || ""}`,
+                confirmation: `${thread.confirmation_code || ""}`,
+                notes: `${thread.reservation_note || ""}`,
+                property: `${thread.listing_name || ""} ${thread.property_type || ""}`,
+                status: `${thread.reservation_status || ""}`,
+                all: `${thread.guest_name || ""} ${thread.preview || ""} ${thread.confirmation_code || ""} ${thread.reservation_note || ""} ${thread.listing_name || ""} ${thread.property_type || ""} ${thread.reservation_status || ""} ${thread.guest_phone || ""}`,
+            };
+
+            return searchFields.some((field) => this.normalizeText(candidates[field] || candidates.all).includes(keyword));
+        });
+    }
 
     async saveEmailInfo(email: string) {
         const isExist = await this.messagingEmailInfoRepository.findOne({ where: { email } });
@@ -546,10 +677,46 @@ export class MessagingService {
         }
     }
 
-    async listHostifyThreads(page = 1, per_page = 20) {
+    async listHostifyThreads(page = 1, per_page = 20, query: any = {}) {
         try {
-            const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, page, per_page);
-            return result;
+            const requiresExtendedSearch = Boolean(
+                query?.keyword ||
+                query?.property ||
+                query?.propertyType ||
+                query?.reservationStatus ||
+                query?.dateFrom ||
+                query?.dateTo
+            );
+
+            if (!requiresExtendedSearch) {
+                const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, page, per_page);
+                const enriched = await this.enrichHostifyThreads(result.threads || []);
+                return {
+                    threads: enriched,
+                    per_page,
+                    total: enriched.length,
+                };
+            }
+
+            const maxPages = 10;
+            const collected: any[] = [];
+            for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
+                const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, currentPage, per_page);
+                const batch = result.threads || [];
+                collected.push(...batch);
+                if (batch.length < per_page) break;
+            }
+
+            const enriched = await this.enrichHostifyThreads(collected);
+            const filtered = this.filterEnrichedThreads(enriched, query);
+            const startIndex = Math.max(page - 1, 0) * per_page;
+            const paged = filtered.slice(startIndex, startIndex + per_page);
+
+            return {
+                threads: paged,
+                per_page,
+                total: filtered.length,
+            };
         } catch (error) {
             logger.error(`[Hostify] Error listing inbox threads: ${error.message}`);
             throw error;
@@ -577,7 +744,112 @@ export class MessagingService {
     }
 
     async getGuestReservationDetails(reservationId: number) {
-        const repo = appDatabase.getRepository(ReservationInfoEntity);
-        return await repo.findOne({ where: { id: reservationId } });
+        const reservation = await this.reservationRepository.findOne({ where: { id: reservationId } });
+        if (!reservation) return null;
+
+        const listing = reservation.listingMapId
+            ? await this.listingRepository.findOne({ where: { id: reservation.listingMapId } })
+            : null;
+
+        let hostifyReservation: any = null;
+        try {
+            hostifyReservation = await this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY, reservationId);
+        } catch (error: any) {
+            logger.warn(`[Hostify] Unable to enrich reservation details for ${reservationId}: ${error.message}`);
+        }
+
+        const liveReservation = hostifyReservation?.reservation || {};
+        const liveListing = hostifyReservation?.listing || {};
+        const normalizedListing = listing
+            ? (this.listingService as any).normalizeListingOverview?.(listing) || null
+            : null;
+
+        const hostNote = this.extractHostifyNoteValue(liveReservation, [
+            "host_note",
+            "hostNote",
+            "reservation_note",
+            "reservationNote",
+            "notes",
+        ]) ?? reservation.hostNote ?? null;
+
+        const cleaningNote = this.extractHostifyNoteValue(liveReservation, [
+            "cleaning_note",
+            "cleaningNote",
+            "housekeeping_note",
+            "housekeepingNote",
+            "turnover_notes",
+            "turnoverNotes",
+        ]);
+
+        const timeZoneIdentifier =
+            normalizedListing?.timezoneIdentifier ||
+            listing?.timeZoneName ||
+            liveListing?.timezone ||
+            "America/New_York";
+
+        const checkInLocal =
+            normalizedListing?.checkInLocal ||
+            (reservation.checkInTime !== null && reservation.checkInTime !== undefined
+                ? `${String(reservation.checkInTime).padStart(2, "0")}:00`
+                : null);
+        const checkOutLocal =
+            normalizedListing?.checkOutLocal ||
+            (reservation.checkOutTime !== null && reservation.checkOutTime !== undefined
+                ? `${String(reservation.checkOutTime).padStart(2, "0")}:00`
+                : null);
+
+        return {
+            ...reservation,
+            listingName: reservation.listingName || listing?.name || listing?.internalListingName || null,
+            propertyType: listing?.propertyType || null,
+            guestPicture: reservation.guestPicture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
+            hostNote,
+            cleaningNote: cleaningNote ?? null,
+            timezoneIdentifier: timeZoneIdentifier,
+            timezoneName: normalizedListing?.timezoneName || timeZoneIdentifier,
+            checkInTimeLocal: checkInLocal,
+            checkOutTimeLocal: checkOutLocal,
+            checkInTimeEastern: normalizedListing?.checkInEastern || null,
+            checkOutTimeEastern: normalizedListing?.checkOutEastern || null,
+        };
+    }
+
+    async updateGuestReservationNotes(reservationId: number, payload: { hostNote?: string | null; cleaningNote?: string | null }) {
+        const reservation = await this.reservationRepository.findOne({ where: { id: reservationId } });
+        if (!reservation) {
+            throw CustomErrorHandler.notFound("Reservation not found");
+        }
+
+        if (payload.hostNote !== undefined) {
+            reservation.hostNote = payload.hostNote || null;
+            await this.reservationRepository.save(reservation);
+        }
+
+        const hostifyPayload: Record<string, any> = {};
+        if (payload.hostNote !== undefined) {
+            hostifyPayload.host_note = payload.hostNote || "";
+        }
+        if (payload.cleaningNote !== undefined) {
+            hostifyPayload.cleaning_note = payload.cleaningNote || "";
+        }
+
+        let syncStatus: "synced" | "local_only" = "local_only";
+        let syncMessage: string | null = null;
+
+        if (Object.keys(hostifyPayload).length) {
+            try {
+                await this.hostifyClient.updateReservationInfo(process.env.HOSTIFY_API_KEY, reservationId, hostifyPayload);
+                syncStatus = "synced";
+            } catch (error: any) {
+                syncMessage = error?.response?.data?.message || error?.message || "Hostify sync failed";
+                logger.warn(`[Hostify] Reservation notes sync failed for ${reservationId}: ${syncMessage}`);
+            }
+        }
+
+        return {
+            ...(await this.getGuestReservationDetails(reservationId)),
+            syncStatus,
+            syncMessage,
+        };
     }
 }

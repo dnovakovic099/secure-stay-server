@@ -220,6 +220,24 @@ export class Hostify {
         }
     }
 
+    async updateReservationInfo(apiKey: string, reservationId: number, payload: Record<string, any>) {
+        try {
+            const url = `https://api-rms.hostify.com/reservations/${reservationId}`;
+
+            const response = await axios.put(url, payload, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+
+            return response.data || null;
+        } catch (error) {
+            logger.error(`Error updating reservation ${reservationId}:`, error.message);
+            throw error;
+        }
+    }
+
     async getListingImages(apiKey: string, listingId: string) {
         try {
             const url = `https://api-rms.hostify.com/listings/photos/${listingId}`;
