@@ -54,6 +54,7 @@ import employeeRoutes from "./employeeRoutes";
 import aiRoutes from "./aiRoutes";
 import turnoverRoutes from "./turnoverRoutes";
 import hostifyRoutes from "./hostifyRoutes";
+import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
 
 const router = Router();
 
@@ -89,6 +90,7 @@ router.use('/refund-request', refundRequestRoutes)
 router.use('/owner-portal', ownerPortalRoutes)
 router.use('/client-ticket', clientTicketRoutes);
 router.use('/action-items', actionItemsRoutes);
+router.use('/action-items-beta', actionItemsBetaRoutes);
 router.use('/contact', contactRoutes);
 router.use('/schedule', listingScheduleRoutes);
 router.use('/maintenance', maintenaceRoutes);
@@ -116,4 +118,3 @@ router.use('/turnovers', turnoverRoutes);
 router.use('/hostify', hostifyRoutes);
 
 export default router;
-
