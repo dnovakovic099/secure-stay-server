@@ -94,6 +94,22 @@ export class MessagingService {
         return null;
     }
 
+    private normalizePropertyTypeValue(listing: Listing | null | undefined) {
+        const raw = `${listing?.tags || ""} ${listing?.propertyType || ""}`.toLowerCase();
+        if (raw.includes("own")) return "Own";
+        if (raw.includes("arb")) return "Arb";
+        if (raw.includes("pm")) return "PM";
+        return null;
+    }
+
+    private parseMultiValueFilter(value: any) {
+        if (!value) return [];
+        return String(value)
+            .split(",")
+            .map((item) => this.normalizeText(item))
+            .filter(Boolean);
+    }
+
     private async enrichHostifyThreads(threads: any[]) {
         const reservationIds = threads
             .map((thread) => Number(thread?.reservation_id))
@@ -122,13 +138,14 @@ export class MessagingService {
                 ...thread,
                 reservation_status: reservation?.status || null,
                 listing_name: reservation?.listingName || listing?.name || listing?.internalListingName || null,
-                property_type: listing?.propertyType || null,
+                property_type: this.normalizePropertyTypeValue(listing),
                 confirmation_code: reservation?.confirmation_code || null,
                 reservation_note: reservation?.hostNote || null,
-                guest_picture: reservation?.guestPicture || null,
+                guest_picture: reservation?.guestPicture || thread?.guest_thumb || null,
                 guest_phone: reservation?.phone || null,
                 arrival_date: reservation?.arrivalDate || null,
                 departure_date: reservation?.departureDate || null,
+                confirmed_at: reservation?.reservationDate || null,
                 updated_at: reservation ? (reservation as any).updatedAt || null : null,
             };
         });
@@ -141,23 +158,23 @@ export class MessagingService {
             .map((item) => this.normalizeText(item))
             .filter(Boolean);
         const searchFields = requestedFields.length ? requestedFields : ["all"];
-        const property = this.normalizeText(query.property);
-        const propertyType = this.normalizeText(query.propertyType);
-        const reservationStatus = this.normalizeText(query.reservationStatus);
+        const properties = this.parseMultiValueFilter(query.property);
+        const propertyTypes = this.parseMultiValueFilter(query.propertyType);
+        const reservationStatuses = this.parseMultiValueFilter(query.reservationStatus);
         const dateType = this.normalizeText(query.dateType || "updated");
         const dateFrom = typeof query.dateFrom === "string" ? query.dateFrom : undefined;
         const dateTo = typeof query.dateTo === "string" ? query.dateTo : undefined;
 
         return threads.filter((thread) => {
-            if (property && !this.normalizeText(thread.listing_name).includes(property)) {
+            if (properties.length && !properties.includes(this.normalizeText(thread.listing_name))) {
                 return false;
             }
 
-            if (propertyType && this.normalizeText(thread.property_type) !== propertyType) {
+            if (propertyTypes.length && !propertyTypes.includes(this.normalizeText(thread.property_type))) {
                 return false;
             }
 
-            if (reservationStatus && this.normalizeText(thread.reservation_status) !== reservationStatus) {
+            if (reservationStatuses.length && !reservationStatuses.includes(this.normalizeText(thread.reservation_status))) {
                 return false;
             }
 
@@ -166,6 +183,10 @@ export class MessagingService {
                     ? this.parseDate(thread.arrival_date || thread.start_date)
                     : dateType === "checkout"
                         ? this.parseDate(thread.departure_date)
+                        : dateType === "confirmed"
+                            ? this.parseDate(thread.confirmed_at)
+                            : dateType === "cancelled"
+                                ? this.parseDate(this.normalizeText(thread.reservation_status) === "cancelled" ? thread.updated_at : null)
                         : this.parseDate(thread.last_message || thread.updated_at);
                 if (!this.isDateInRange(dateValue, dateFrom, dateTo)) {
                     return false;
@@ -801,8 +822,8 @@ export class MessagingService {
         return {
             ...reservation,
             listingName: reservation.listingName || listing?.name || listing?.internalListingName || null,
-            propertyType: listing?.propertyType || null,
-            guestPicture: reservation.guestPicture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
+            propertyType: this.normalizePropertyTypeValue(listing),
+            guestPicture: reservation.guestPicture || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
             hostNote,
             cleaningNote: cleaningNote ?? null,
             timezoneIdentifier: timeZoneIdentifier,
