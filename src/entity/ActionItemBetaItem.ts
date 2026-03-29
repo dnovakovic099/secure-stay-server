@@ -31,9 +31,6 @@ export class ActionItemBetaItemEntity {
     @Column("text")
     description: string;
 
-    @Column("text", { nullable: true })
-    proposedResolution: string | null;
-
     @Index()
     @Column({ length: 36, nullable: true })
     categoryId: string | null;
