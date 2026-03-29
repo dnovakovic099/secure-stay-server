@@ -190,6 +190,7 @@ export class ActionItemsBetaService {
     private readonly openPhoneService = new OpenPhoneService();
     private readonly hostifyClient = new Hostify();
     private readonly openai: OpenAI | null;
+    private defaultsEnsured = false;
 
     constructor() {
         const apiKey = process.env.OPENAI_API_KEY;
@@ -197,6 +198,7 @@ export class ActionItemsBetaService {
     }
 
     async ensureDefaults(userId?: string): Promise<void> {
+        if (this.defaultsEnsured) return;
         const categoryCount = await this.categoryRepo.count();
         if (categoryCount === 0) {
             const categories = DEFAULT_CATEGORIES.map((category, index) => this.categoryRepo.create({
@@ -235,6 +237,7 @@ export class ActionItemsBetaService {
                 updatedBy: userId || "system",
             }));
         }
+        this.defaultsEnsured = true;
     }
 
     async getOverview(filters: ActionItemsBetaFilters = {}) {
@@ -243,12 +246,15 @@ export class ActionItemsBetaService {
             const settings = await this.getSettings();
             const existingCount = await this.itemRepo.count();
             if (!settings.historicalBackfillCompletedAt) {
-                await this.backfillHistoricalItems({
+                // Run in background — do not block the overview response
+                this.backfillHistoricalItems({
                     fromDate: "2026-01-01",
                     triggeredBy: "system",
-                });
+                }).catch((err) => logger.error("[ActionItemsBetaService] Background backfill failed:", err));
             } else if (existingCount === 0) {
-                await this.analyzeRecentReservations({ triggeredBy: "system" });
+                // Run in background — do not block the overview response
+                this.analyzeRecentReservations({ triggeredBy: "system" })
+                    .catch((err) => logger.error("[ActionItemsBetaService] Background analysis failed:", err));
             }
         }
         const categories = await this.getCategories();
