@@ -101,6 +101,34 @@ export class ActionItemsBetaController {
         }
     };
 
+    backfillItems = async (req: RequestWithUser, res: Response) => {
+        try {
+            const fromDate = typeof req.body?.fromDate === "string" ? req.body.fromDate : "2026-01-01";
+            const data = await this.service.backfillHistoricalItems({
+                fromDate,
+                triggeredBy: this.getUserId(req),
+            });
+            res.json({ success: true, data });
+        } catch (error: any) {
+            logger.error("[ActionItemsBetaController] backfillItems error:", error.message);
+            res.status(500).json({ success: false, error: error.message || "Failed to run historical backfill" });
+        }
+    };
+
+    replyToItem = async (req: RequestWithUser, res: Response) => {
+        try {
+            if (!req.body?.content || !String(req.body.content).trim()) {
+                res.status(400).json({ success: false, error: "Message content is required" });
+                return;
+            }
+            const data = await this.service.replyToItem(req.params.id, String(req.body.content), this.getUserId(req));
+            res.json({ success: true, data });
+        } catch (error: any) {
+            logger.error("[ActionItemsBetaController] replyToItem error:", error.message);
+            res.status(400).json({ success: false, error: error.message || "Failed to send action item reply" });
+        }
+    };
+
     testDetection = async (req: Request, res: Response) => {
         try {
             if (!req.body?.message) {
