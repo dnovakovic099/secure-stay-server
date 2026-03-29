@@ -17,6 +17,9 @@ export class ActionItemBetaCategoryEntity {
     @Column({ length: 60, nullable: true })
     icon: string | null;
 
+    @Column("text", { nullable: true })
+    iconImage: string | null;
+
     @Column("json", { nullable: true })
     notificationTargets: string[] | null;
 
