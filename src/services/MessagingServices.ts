@@ -244,7 +244,7 @@ export class MessagingService {
             return {
                 ...thread,
                 reservation_status: reservation?.status || null,
-                listing_name: reservation?.listingName || listing?.name || listing?.internalListingName || null,
+                listing_name: listing?.internalListingName || reservation?.listingName || listing?.name || null,
                 property_type: this.normalizePropertyTypeValue(listing),
                 confirmation_code: reservation?.confirmation_code || null,
                 reservation_note: reservation?.hostNote || null,
@@ -331,7 +331,7 @@ export class MessagingService {
                 all: `${thread.guest_name || ""} ${thread.preview || ""} ${thread.confirmation_code || ""} ${thread.reservation_note || ""} ${thread.listing_name || ""} ${thread.property_type || ""} ${thread.reservation_status || ""} ${thread.guest_phone || ""}`,
             };
 
-            return searchFields.some((field) => this.normalizeText(candidates[field] || candidates.all).includes(keyword));
+            return searchFields.some((field) => this.normalizeText(field in candidates ? candidates[field] : candidates.all).includes(keyword));
         });
     }
 
@@ -947,7 +947,7 @@ export class MessagingService {
 
         return {
             ...reservation,
-            listingName: reservation.listingName || listing?.name || listing?.internalListingName || null,
+            listingName: listing?.internalListingName || reservation.listingName || listing?.name || null,
             propertyType: this.normalizePropertyTypeValue(listing),
             guestPicture: reservation.guestPicture || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
             hostNote,
