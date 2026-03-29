@@ -295,7 +295,7 @@ export class ActionItemsBetaService {
         const messageMap = new Map(linkedMessages.map((message) => [message.id, message]));
 
         return normalized.map((item) => ({
-            ...item,
+            ...this.serializeItem(item),
             linkedMessages: (item.messageIds || []).map((id) => messageMap.get(id)).filter(Boolean),
         }));
     }
@@ -306,7 +306,7 @@ export class ActionItemsBetaService {
         const linkedMessages = item.messageIds?.length
             ? await this.communicationRepo.find({ where: { id: In(item.messageIds) }, order: { communicatedAt: "ASC" } })
             : [];
-        return { ...item, linkedMessages };
+        return { ...this.serializeItem(item), linkedMessages };
     }
 
     async updateItem(id: string, data: Partial<ActionItemBetaItemEntity>, userId?: string) {
@@ -314,8 +314,16 @@ export class ActionItemsBetaService {
         if (!item) {
             throw new Error("Action item not found");
         }
+        const nextData = { ...data } as Record<string, any>;
+        if (nextData.proposedResolution !== undefined) {
+            item.sourceMeta = {
+                ...(item.sourceMeta || {}),
+                proposedResolution: nextData.proposedResolution,
+            };
+            delete nextData.proposedResolution;
+        }
         Object.assign(item, {
-            ...data,
+            ...nextData,
             updatedBy: userId || item.updatedBy || "system",
         });
         if ((data.status === "Resolved" || data.status === "Completed") && !item.resolvedAt) {
@@ -341,7 +349,12 @@ export class ActionItemsBetaService {
         if (updates.priority) item.priority = updates.priority;
         if (updates.title) item.title = updates.title;
         if (updates.description) item.description = updates.description;
-        if (updates.proposedResolution !== undefined) item.proposedResolution = updates.proposedResolution;
+        if ((updates as any).proposedResolution !== undefined) {
+            item.sourceMeta = {
+                ...(item.sourceMeta || {}),
+                proposedResolution: (updates as any).proposedResolution,
+            };
+        }
         if (updates.assignedTo !== undefined) item.assignedTo = updates.assignedTo;
         if ((item.status === "Resolved" || item.status === "Completed") && !item.resolvedAt) {
             item.resolvedAt = new Date();
@@ -797,7 +810,6 @@ export class ActionItemsBetaService {
 
             if (existing) {
                 existing.description = detection.description;
-                existing.proposedResolution = detection.proposedResolution || existing.proposedResolution;
                 existing.confidence = Math.max(existing.confidence || 0, detection.confidence);
                 existing.flagReason = detection.reason;
                 existing.messageIds = Array.from(new Set([...(existing.messageIds || []), ...detection.messageIds]));
@@ -812,6 +824,7 @@ export class ActionItemsBetaService {
                     ...(existing.sourceMeta || {}),
                     generatedBy: "action-items-beta",
                     generatedAt: now.toISOString(),
+                    proposedResolution: detection.proposedResolution || existing.sourceMeta?.proposedResolution || null,
                     highlightTerms: Array.from(new Set([...(existing.sourceMeta?.highlightTerms || []), ...(detection.highlightTerms || [])])),
                 };
                 if ((existing.status === "Completed" || existing.status === "Resolved") && !existing.resolvedAt) {
@@ -830,7 +843,6 @@ export class ActionItemsBetaService {
                 source: detection.source,
                 title: detection.title,
                 description: detection.description,
-                proposedResolution: detection.proposedResolution || null,
                 categoryId: category?.id || null,
                 categoryName: category?.name || detection.categoryName || "Other",
                 priority: detection.priority,
@@ -845,6 +857,7 @@ export class ActionItemsBetaService {
                 sourceMeta: {
                     generatedBy: "action-items-beta",
                     generatedAt: now.toISOString(),
+                    proposedResolution: detection.proposedResolution || null,
                     highlightTerms: detection.highlightTerms || [],
                 },
                 notificationTargets: category?.notificationTargets || [],
@@ -1063,9 +1076,11 @@ export class ActionItemsBetaService {
             if (candidate.description.length > existing.description.length) {
                 existing.description = candidate.description;
             }
-            existing.proposedResolution = existing.proposedResolution.length >= candidate.proposedResolution.length
-                ? existing.proposedResolution
+            const existingResolution = String(existing.proposedResolution || "").trim();
+            const nextResolution = existingResolution.length >= candidate.proposedResolution.length
+                ? existingResolution
                 : candidate.proposedResolution;
+            existing.proposedResolution = nextResolution;
             existing.highlightTerms = Array.from(new Set([...(existing.highlightTerms || []), ...(candidate.highlightTerms || [])]));
         }
         return Array.from(merged.values()).sort((a, b) => b.confidence - a.confidence);
@@ -1215,6 +1230,17 @@ export class ActionItemsBetaService {
         };
     }
 
+    private getProposedResolution(item: Pick<ActionItemBetaItemEntity, "sourceMeta">) {
+        return String(item.sourceMeta?.proposedResolution || "").trim();
+    }
+
+    private serializeItem(item: ActionItemBetaItemEntity) {
+        return {
+            ...item,
+            proposedResolution: this.getProposedResolution(item) || null,
+        };
+    }
+
     private buildDedupeKey(reservationId: number | null, categoryName: string, title: string) {
         return `${reservationId || "none"}:${this.slugify(categoryName)}:${this.slugify(title).slice(0, 120)}`;
     }
@@ -1243,7 +1269,7 @@ export class ActionItemsBetaService {
             const haystack = [
                 item.title,
                 item.description,
-                item.proposedResolution,
+                this.getProposedResolution(item),
                 item.guestName,
                 item.propertyName,
                 item.confirmationCode,
