@@ -225,6 +225,12 @@ export class ActionItemsBetaService {
 
     async getOverview(filters: ActionItemsBetaFilters = {}) {
         await this.ensureDefaults();
+        if (this.shouldAutoGenerate(filters)) {
+            const existingCount = await this.itemRepo.count();
+            if (existingCount === 0) {
+                await this.analyzeRecentReservations({ triggeredBy: "system" });
+            }
+        }
         const categories = await this.getCategories();
         const rules = await this.getRules();
         const settings = await this.getSettings();
@@ -348,6 +354,7 @@ export class ActionItemsBetaService {
             description: data.description?.trim() || null,
             color: data.color || "#6b7280",
             icon: data.icon || "tag",
+            iconImage: data.iconImage || null,
             notificationTargets: data.notificationTargets || [],
             isDefault: false,
             isActive: data.isActive ?? true,
@@ -549,6 +556,41 @@ export class ActionItemsBetaService {
             await this.communicationService.fetchAndStoreFromHostify(reservationId, options.inboxId);
         }
 
+        return this.analyzeStoredReservation(reservationId, options.triggeredBy || "manual");
+    }
+
+    private async analyzeRecentReservations(options: { triggeredBy?: string; days?: number; limit?: number } = {}) {
+        const days = options.days ?? 14;
+        const limit = options.limit ?? 25;
+        const since = new Date();
+        since.setDate(since.getDate() - days);
+
+        const recentReservations = await this.communicationRepo
+            .createQueryBuilder("communication")
+            .select("communication.reservationId", "reservationId")
+            .addSelect("MAX(communication.communicatedAt)", "lastCommunicatedAt")
+            .where("communication.reservationId IS NOT NULL")
+            .andWhere("communication.communicatedAt >= :since", { since })
+            .groupBy("communication.reservationId")
+            .orderBy("lastCommunicatedAt", "DESC")
+            .limit(limit)
+            .getRawMany<{ reservationId: string }>();
+
+        for (const entry of recentReservations) {
+            const reservationId = Number(entry.reservationId);
+            if (!reservationId) continue;
+            try {
+                await this.analyzeStoredReservation(reservationId, options.triggeredBy || "system");
+            } catch (error: any) {
+                logger.warn(`[ActionItemsBetaService] Failed auto-analyzing reservation ${reservationId}: ${error.message}`);
+            }
+        }
+    }
+
+    private async analyzeStoredReservation(reservationId: number, triggeredBy: string) {
+        await this.ensureDefaults(triggeredBy);
+        const settings = await this.getSettings();
+
         const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
         const communications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
         const timeline = await this.communicationService.buildCommunicationTimeline(reservationId);
@@ -569,7 +611,7 @@ export class ActionItemsBetaService {
             detections,
             categories,
             settings,
-            triggeredBy: options.triggeredBy || "manual",
+            triggeredBy,
         });
 
         return {
@@ -921,5 +963,15 @@ export class ActionItemsBetaService {
         }
 
         return true;
+    }
+
+    private shouldAutoGenerate(filters: ActionItemsBetaFilters) {
+        return !filters.status?.length &&
+            !filters.category?.length &&
+            !filters.property?.length &&
+            !filters.source?.length &&
+            !filters.assignedTo?.length &&
+            !filters.priority?.length &&
+            !filters.search?.trim();
     }
 }
