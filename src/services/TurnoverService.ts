@@ -427,7 +427,7 @@ export class TurnoverService {
     private async getApprovedUpsellsForReservation(reservation: ReservationInfoEntity): Promise<UpsellOrder[]> {
         try {
             return await this.upsellRepo.find({
-                where: { booking_id: String(reservation.id), status: 'Approved' }
+                where: { booking_id: String(reservation.id), status: In(['Approved', 'Paid']) }
             });
         } catch (error: any) {
             logger.error(`[TurnoverService] Error fetching upsells:`, error.message);

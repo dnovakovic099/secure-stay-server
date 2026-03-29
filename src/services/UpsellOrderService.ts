@@ -7,13 +7,20 @@ import { HostAwayClient } from "../client/HostAwayClient";
 import { ListingService } from "./ListingService";
 import { categoryIds, tagIds } from "../constant";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
     private hostAwayClient = new HostAwayClient();
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
+    private requestedDateColumnPromise: Promise<boolean> | null = null;
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
+        const requestedDate = (data as any).requested_date || (data as any).requestedDate || null;
+        delete (data as any).requested_date;
+        delete (data as any).requestedDate;
+
         // Fetch listing name and owner if listing_id is provided
         if (data.listing_id) {
             const listingService = new ListingService();
@@ -34,17 +41,23 @@ export class UpsellOrderService {
 
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
         const savedOrder = await this.upsellOrderRepo.save(order);
+        await this.setRequestedDateIfSupported(savedOrder.id, requestedDate);
         await sendUpsellOrderEmail(savedOrder);
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string = '', listing_id: string = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] = []) {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string | string[] = '', listing_id: string | string[] = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] | string = [], upsellType: string[] | string = []) {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
             take: limit,
             where: {}
         };
+
+        const statusFilters = this.expandStatusFilters(this.parseStringArray(status));
+        const listingFilters = this.parseStringArray(listing_id);
+        const propertyTypeFilters = this.parseStringArray(propertyType);
+        const upsellTypeFilters = this.parseStringArray(upsellType);
 
         if (fromDate && toDate) {
             const startDate = new Date(fromDate);
@@ -61,18 +74,25 @@ export class UpsellOrderService {
             queryOptions.where[dateType] = Between(startDate, endDate);
         }
 
-        if (status && Array.isArray(status)) {
-            queryOptions.where.status = In(status);
-        }  
-
-        if (listing_id && Array.isArray(listing_id)) {
-            queryOptions.where.listing_id = In(listing_id);
+        if (statusFilters.length > 0) {
+            queryOptions.where.status = In(statusFilters);
         }
 
-        if (propertyType && Array.isArray(propertyType)) {
+        if (listingFilters.length > 0) {
+            queryOptions.where.listing_id = In(listingFilters);
+        }
+
+        if (propertyTypeFilters.length > 0) {
             const listingService = new ListingService();
-            const listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(l => l.id);
-            queryOptions.where.listing_id = In(listingIds);
+            const listingIds = (await listingService.getListingsByPropertyTypes(propertyTypeFilters)).map(l => String(l.id));
+            const mergedListingIds = listingFilters.length > 0
+                ? listingIds.filter((id) => listingFilters.includes(id))
+                : listingIds;
+            queryOptions.where.listing_id = In(mergedListingIds.length > 0 ? mergedListingIds : ["__none__"]);
+        }
+
+        if (upsellTypeFilters.length > 0) {
+            queryOptions.where.type = In(upsellTypeFilters);
         }
 
         const where = keyword
@@ -85,23 +105,34 @@ export class UpsellOrderService {
         queryOptions.where = where;
 
         const [orders, total] = await this.upsellOrderRepo.findAndCount(queryOptions);
+        const requestedDateMap = await this.getRequestedDateMap(orders.map((order) => order.id));
 
         // Backfill listing_name and property_owner for existing records if missing
         if (orders.length > 0) {
             const listingService = new ListingService();
-            const allListings = await listingService.getListings('', true);
+            const allListings = await listingService.getListingNames('', true);
             const listingMap = new Map(allListings.map(l => [String(l.id), l]));
+            const reservationIds = orders.map((order) => Number(order.booking_id)).filter((value) => Number.isFinite(value));
+            const reservations = reservationIds.length > 0
+                ? await this.reservationInfoRepo.find({ where: { id: In(reservationIds) } })
+                : [];
+            const reservationMap = new Map(reservations.map((reservation) => [String(reservation.id), reservation]));
 
-            orders.forEach(order => {
+            orders.forEach((order: any) => {
                 const listing = listingMap.get(String(order.listing_id));
+                const reservation = reservationMap.get(String(order.booking_id));
                 if (listing) {
                     if (!order.listing_name || order.listing_name === '-') {
                         order.listing_name = listing.internalListingName || '';
                     }
                     if (!order.property_owner) {
-                        order.property_owner = listing.ownerName || '';
+                        order.property_owner = (listing as any).ownerName || '';
                     }
+                    order.property_type = this.getPropertyTypeFromTags((listing as any).tags);
                 }
+                order.channel_name = reservation?.channelName || '';
+                order.requested_date = requestedDateMap.get(order.id) || order.created_at || null;
+                order.status = this.normalizeDisplayStatus(order.status);
             });
         }
 
@@ -122,8 +153,14 @@ export class UpsellOrderService {
             throw new Error("Order not found");
         }
 
+        const requestedDate = (data as any).requested_date || (data as any).requestedDate;
+        delete (data as any).requested_date;
+        delete (data as any).requestedDate;
+
         if (existingOrder.ha_id) {
-            if (existingOrder.status == "Approved" && data.status && data.status !== "Approved") {
+            const existingPaid = this.isPaidStatus(existingOrder.status);
+            const nextPaid = data.status ? this.isPaidStatus(String(data.status)) : existingPaid;
+            if (existingPaid && !nextPaid) {
                 //delete the expense in HostAway
                 const clientId = process.env.HOST_AWAY_CLIENT_ID;
                 const clientSecret = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -150,6 +187,9 @@ export class UpsellOrderService {
         }
 
         await this.upsellOrderRepo.update(id, { ...data, updated_by: userId, updated_at: new Date() });
+        if (requestedDate !== undefined) {
+            await this.setRequestedDateIfSupported(id, requestedDate);
+        }
         return await this.upsellOrderRepo.findOne({ where: { id } });
     }
 
@@ -183,7 +223,7 @@ export class UpsellOrderService {
     }
 
     async getUpsellsByReservationId(reservationId: number) {
-        const orders = await this.upsellOrderRepo.find({ where: { booking_id: String(reservationId), status:"Approved" } });
+        const orders = await this.upsellOrderRepo.find({ where: { booking_id: String(reservationId), status: In(["Approved", "Paid"]) } });
         return orders.map(order => ({
             type: order.type,
             upsellId: String(order.id)
@@ -201,7 +241,7 @@ export class UpsellOrderService {
 
         const bookingIds = reservationIds.map(id => String(id));
         const orders = await this.upsellOrderRepo.find({
-            where: { booking_id: In(bookingIds), status: "Approved" }
+            where: { booking_id: In(bookingIds), status: In(["Approved", "Paid"]) }
         });
 
         const result = new Map<number, { type: string; upsellId: string; }[]>();
@@ -223,7 +263,7 @@ export class UpsellOrderService {
         return await this.upsellOrderRepo.find({
             where: {
                 departure_date: Between("2025-07-02", date), // process upsells on checkout feature was made live on July 2, 2025
-                status: "Approved"
+                status: In(["Approved", "Paid"])
             }
         });
     }
@@ -320,7 +360,7 @@ export class UpsellOrderService {
         const upsells = await this.upsellOrderRepo.find({
             where: {
                 departure_date: Between("2025-07-02", date), // process upsells on checkout feature was made live on July 2, 2025
-                status: "Approved",
+                status: In(["Approved", "Paid"]),
                 ha_id: Not(IsNull())
             }
         });
@@ -367,5 +407,109 @@ export class UpsellOrderService {
                 logger.error(`Error creating internal expense for upsell ID ${upsell.id}: ${error.message}`);
             }
         }
+    }
+
+    private parseStringArray(value: string[] | string | undefined | null) {
+        if (Array.isArray(value)) {
+            return value.map((item) => String(item).trim()).filter(Boolean);
+        }
+        return String(value || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    private expandStatusFilters(statuses: string[]) {
+        const expanded = new Set<string>();
+        statuses.forEach((status) => {
+            switch (status) {
+                case "Interested":
+                    expanded.add("Interested");
+                    expanded.add("Ordered");
+                    break;
+                case "Paid":
+                    expanded.add("Paid");
+                    expanded.add("Approved");
+                    break;
+                case "Cancelled":
+                    expanded.add("Cancelled");
+                    expanded.add("Denied");
+                    expanded.add("Refunded");
+                    break;
+                default:
+                    expanded.add(status);
+                    break;
+            }
+        });
+        return Array.from(expanded);
+    }
+
+    private normalizeDisplayStatus(status?: string | null) {
+        switch (String(status || "").trim()) {
+            case "Ordered":
+                return "Interested";
+            case "Approved":
+                return "Paid";
+            case "Denied":
+            case "Refunded":
+                return "Cancelled";
+            default:
+                return String(status || "");
+        }
+    }
+
+    private isPaidStatus(status?: string | null) {
+        return ["Approved", "Paid"].includes(String(status || "").trim());
+    }
+
+    private getPropertyTypeFromTags(tags?: string | null) {
+        const tagList = String(tags || "")
+            .split(',')
+            .map((item) => item.trim().toLowerCase())
+            .filter(Boolean);
+        if (tagList.includes("own")) return "Own";
+        if (tagList.includes("arb")) return "Arb";
+        if (tagList.includes("pm")) return "PM";
+        return "";
+    }
+
+    private async hasRequestedDateColumn() {
+        if (!this.requestedDateColumnPromise) {
+            this.requestedDateColumnPromise = this.upsellOrderRepo.query(
+                `SELECT COUNT(*) as count
+                 FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = 'upsell_orders'
+                   AND COLUMN_NAME = 'requested_date'`
+            ).then((rows: Array<{ count: number | string }>) => Number(rows?.[0]?.count || 0) > 0)
+             .catch(() => false);
+        }
+        return this.requestedDateColumnPromise;
+    }
+
+    private async getRequestedDateMap(orderIds: number[]) {
+        const map = new Map<number, string>();
+        if (orderIds.length === 0 || !(await this.hasRequestedDateColumn())) {
+            return map;
+        }
+        const placeholders = orderIds.map(() => '?').join(', ');
+        const rows = await this.upsellOrderRepo.query(
+            `SELECT id, requested_date FROM upsell_orders WHERE id IN (${placeholders})`,
+            orderIds
+        );
+        rows.forEach((row: { id: number; requested_date: string | null }) => {
+            if (row.requested_date) map.set(Number(row.id), row.requested_date);
+        });
+        return map;
+    }
+
+    private async setRequestedDateIfSupported(orderId: number, requestedDate?: string | null) {
+        if (requestedDate === undefined || !(await this.hasRequestedDateColumn())) {
+            return;
+        }
+        await this.upsellOrderRepo.query(
+            `UPDATE upsell_orders SET requested_date = ? WHERE id = ?`,
+            [requestedDate || null, orderId]
+        );
     }
 }
