@@ -8,6 +8,9 @@ import { ActionItemBetaSettingEntity } from "../entity/ActionItemBetaSetting";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { GuestCommunicationService } from "./GuestCommunicationService";
+import { MessagingService } from "./MessagingServices";
+import { OpenPhoneService } from "./OpenPhoneService";
+import { Hostify } from "../client/Hostify";
 import logger from "../utils/logger.utils";
 
 export interface ActionItemsBetaFilters {
@@ -23,6 +26,7 @@ export interface ActionItemsBetaFilters {
 interface DetectionCandidate {
     title: string;
     description: string;
+    proposedResolution: string;
     categoryName: string;
     priority: string;
     confidence: number;
@@ -30,6 +34,9 @@ interface DetectionCandidate {
     source: string;
     messageIds: string[];
     snippet?: string;
+    highlightTerms?: string[];
+    resolvedAt?: Date | null;
+    suggestedStatus?: string;
 }
 
 interface ActionItemsBetaSettings {
@@ -41,6 +48,8 @@ interface ActionItemsBetaSettings {
     };
     dedupeWindowHours: number;
     enableBuiltInDetection: boolean;
+    historicalBackfillStartedAt?: string | null;
+    historicalBackfillCompletedAt?: string | null;
 }
 
 const DEFAULT_SETTINGS: ActionItemsBetaSettings = {
@@ -52,6 +61,8 @@ const DEFAULT_SETTINGS: ActionItemsBetaSettings = {
     },
     dedupeWindowHours: 72,
     enableBuiltInDetection: true,
+    historicalBackfillStartedAt: null,
+    historicalBackfillCompletedAt: null,
 };
 
 const DEFAULT_CATEGORIES = [
@@ -175,6 +186,9 @@ export class ActionItemsBetaService {
     private readonly communicationRepo = appDatabase.getRepository(GuestCommunicationEntity);
     private readonly reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private readonly communicationService = new GuestCommunicationService();
+    private readonly messagingService = new MessagingService();
+    private readonly openPhoneService = new OpenPhoneService();
+    private readonly hostifyClient = new Hostify();
     private readonly openai: OpenAI | null;
 
     constructor() {
@@ -226,8 +240,14 @@ export class ActionItemsBetaService {
     async getOverview(filters: ActionItemsBetaFilters = {}) {
         await this.ensureDefaults();
         if (this.shouldAutoGenerate(filters)) {
+            const settings = await this.getSettings();
             const existingCount = await this.itemRepo.count();
-            if (existingCount === 0) {
+            if (!settings.historicalBackfillCompletedAt) {
+                await this.backfillHistoricalItems({
+                    fromDate: "2026-01-01",
+                    triggeredBy: "system",
+                });
+            } else if (existingCount === 0) {
                 await this.analyzeRecentReservations({ triggeredBy: "system" });
             }
         }
@@ -242,7 +262,7 @@ export class ActionItemsBetaService {
             total: items.length,
             newCount: items.filter((item) => item.status === "New").length,
             inProgressCount: items.filter((item) => item.status === "In Progress").length,
-            resolvedCount: items.filter((item) => item.status === "Resolved").length,
+            resolvedCount: items.filter((item) => item.status === "Resolved" || item.status === "Completed").length,
             reviewCount: pendingReview.length,
             criticalCount: items.filter((item) => item.priority === "Critical").length,
             byCategory: categories.map((category) => ({
@@ -298,7 +318,7 @@ export class ActionItemsBetaService {
             ...data,
             updatedBy: userId || item.updatedBy || "system",
         });
-        if (data.status === "Resolved" && !item.resolvedAt) {
+        if ((data.status === "Resolved" || data.status === "Completed") && !item.resolvedAt) {
             item.resolvedAt = new Date();
         }
         return this.itemRepo.save(item);
@@ -321,7 +341,11 @@ export class ActionItemsBetaService {
         if (updates.priority) item.priority = updates.priority;
         if (updates.title) item.title = updates.title;
         if (updates.description) item.description = updates.description;
+        if (updates.proposedResolution !== undefined) item.proposedResolution = updates.proposedResolution;
         if (updates.assignedTo !== undefined) item.assignedTo = updates.assignedTo;
+        if ((item.status === "Resolved" || item.status === "Completed") && !item.resolvedAt) {
+            item.resolvedAt = new Date();
+        }
 
         return this.itemRepo.save(item);
     }
@@ -559,6 +583,114 @@ export class ActionItemsBetaService {
         return this.analyzeStoredReservation(reservationId, options.triggeredBy || "manual");
     }
 
+    async backfillHistoricalItems(options: { fromDate: string; triggeredBy?: string }) {
+        await this.ensureDefaults(options.triggeredBy);
+        const settings = await this.getSettings();
+        if (settings.historicalBackfillCompletedAt) {
+            return {
+                scannedReservations: 0,
+                createdOrUpdated: 0,
+                completedAt: settings.historicalBackfillCompletedAt,
+                skipped: true,
+            };
+        }
+
+        await this.updateSettings({
+            historicalBackfillStartedAt: new Date().toISOString(),
+            historicalBackfillCompletedAt: null,
+        }, options.triggeredBy);
+
+        const since = new Date(options.fromDate);
+        if (Number.isNaN(since.getTime())) {
+            throw new Error("Invalid fromDate for historical backfill");
+        }
+
+        const historicalReservations = await this.communicationRepo
+            .createQueryBuilder("communication")
+            .select("communication.reservationId", "reservationId")
+            .addSelect("MAX(communication.communicatedAt)", "lastCommunicatedAt")
+            .where("communication.reservationId IS NOT NULL")
+            .andWhere("communication.communicatedAt >= :since", { since })
+            .groupBy("communication.reservationId")
+            .orderBy("lastCommunicatedAt", "DESC")
+            .getRawMany<{ reservationId: string }>();
+
+        let createdOrUpdated = 0;
+        for (const entry of historicalReservations) {
+            const reservationId = Number(entry.reservationId);
+            if (!reservationId) continue;
+            try {
+                const result = await this.analyzeStoredReservation(reservationId, options.triggeredBy || "system", { since });
+                createdOrUpdated += result.createdOrUpdated;
+            } catch (error: any) {
+                logger.warn(`[ActionItemsBetaService] Failed historical backfill for reservation ${reservationId}: ${error.message}`);
+            }
+        }
+
+        const completedAt = new Date().toISOString();
+        await this.updateSettings({
+            historicalBackfillCompletedAt: completedAt,
+        }, options.triggeredBy);
+
+        return {
+            scannedReservations: historicalReservations.length,
+            createdOrUpdated,
+            completedAt,
+            skipped: false,
+        };
+    }
+
+    async replyToItem(id: string, content: string, userId?: string) {
+        const trimmedContent = String(content || "").trim();
+        if (!trimmedContent) {
+            throw new Error("Message content is required");
+        }
+
+        const item = await this.itemRepo.findOne({ where: { id } });
+        if (!item) {
+            throw new Error("Action item not found");
+        }
+        if (!item.reservationId) {
+            throw new Error("Action item is not linked to a reservation");
+        }
+
+        const linkedMessages = item.messageIds?.length
+            ? await this.communicationRepo.find({ where: { id: In(item.messageIds) }, order: { communicatedAt: "ASC" } })
+            : [];
+        const primarySource = this.resolveReplySource(item.source, linkedMessages);
+
+        if (primarySource === "Hostify") {
+            const inboxId = this.resolveHostifyInboxId(linkedMessages);
+            let threadId = inboxId;
+            if (!threadId) {
+                const reservationInfo = await this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY || "", item.reservationId);
+                threadId = reservationInfo?.reservation?.message_id ? String(reservationInfo.reservation.message_id) : null;
+            }
+            if (!threadId) {
+                throw new Error("Unable to resolve the Hostify thread for this action item");
+            }
+            await this.messagingService.postHostifyReply(threadId, trimmedContent);
+            await this.communicationService.fetchAndStoreFromHostify(item.reservationId, threadId);
+        } else {
+            const reservation = await this.reservationRepo.findOne({ where: { id: item.reservationId } });
+            const guestPhone = this.openPhoneService.formatPhoneNumber(undefined, reservation?.phone || undefined);
+            if (!guestPhone) {
+                throw new Error("Unable to resolve the guest phone number for this action item");
+            }
+            const openPhoneResult = await this.openPhoneService.findMessagesByParticipant(guestPhone, 100);
+            const latestMessage = ((openPhoneResult.data || []) as Array<Record<string, any>>)
+                .filter((entry) => entry?.phoneNumberId)
+                .sort((a, b) => new Date(String(b.createdAt || "")).getTime() - new Date(String(a.createdAt || "")).getTime())[0];
+            if (!latestMessage?.phoneNumberId) {
+                throw new Error("Unable to resolve the OpenPhone conversation for this action item");
+            }
+            await this.openPhoneService.sendConversationReply(latestMessage.phoneNumberId, [guestPhone], trimmedContent);
+            await this.communicationService.fetchAndStoreFromOpenPhone(item.reservationId);
+        }
+
+        return this.getItemById(id);
+    }
+
     private async analyzeRecentReservations(options: { triggeredBy?: string; days?: number; limit?: number } = {}) {
         const days = options.days ?? 14;
         const limit = options.limit ?? 25;
@@ -587,13 +719,18 @@ export class ActionItemsBetaService {
         }
     }
 
-    private async analyzeStoredReservation(reservationId: number, triggeredBy: string) {
+    private async analyzeStoredReservation(reservationId: number, triggeredBy: string, options: { since?: Date } = {}) {
         await this.ensureDefaults(triggeredBy);
         const settings = await this.getSettings();
 
         const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
-        const communications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
-        const timeline = await this.communicationService.buildCommunicationTimeline(reservationId);
+        const allCommunications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
+        const communications = options.since
+            ? allCommunications.filter((message) => new Date(message.communicatedAt).getTime() >= options.since!.getTime())
+            : allCommunications;
+        const timeline = communications
+            .map((message) => `[${new Date(message.communicatedAt).toISOString()}] ${message.direction.toUpperCase()} ${message.senderName || "Unknown"} (${message.source}): ${message.content || ""}`)
+            .join("\n");
         const categories = await this.getCategories();
         const rules = await this.getRules();
 
@@ -649,16 +786,18 @@ export class ActionItemsBetaService {
             const existing = await this.itemRepo.findOne({
                 where: {
                     dedupeKey,
-                    status: In(["New", "In Progress", "Pending Review"]),
+                    status: In(["New", "In Progress", "Pending Review", "Resolved", "Completed"]),
                 },
                 order: { updatedAt: "DESC" },
             });
 
-            const nextStatus = detection.confidence >= settings.autoCreateThreshold ? "New" : "Pending Review";
+            const nextStatus = detection.suggestedStatus
+                || (detection.confidence >= settings.autoCreateThreshold ? "New" : "Pending Review");
             const nextDecision = detection.confidence >= settings.autoCreateThreshold ? "auto_created" : "review";
 
             if (existing) {
                 existing.description = detection.description;
+                existing.proposedResolution = detection.proposedResolution || existing.proposedResolution;
                 existing.confidence = Math.max(existing.confidence || 0, detection.confidence);
                 existing.flagReason = detection.reason;
                 existing.messageIds = Array.from(new Set([...(existing.messageIds || []), ...detection.messageIds]));
@@ -669,6 +808,15 @@ export class ActionItemsBetaService {
                 existing.lastDetectedAt = now;
                 existing.updatedBy = triggeredBy;
                 existing.notificationTargets = category?.notificationTargets || [];
+                existing.sourceMeta = {
+                    ...(existing.sourceMeta || {}),
+                    generatedBy: "action-items-beta",
+                    generatedAt: now.toISOString(),
+                    highlightTerms: Array.from(new Set([...(existing.sourceMeta?.highlightTerms || []), ...(detection.highlightTerms || [])])),
+                };
+                if ((existing.status === "Completed" || existing.status === "Resolved") && !existing.resolvedAt) {
+                    existing.resolvedAt = detection.resolvedAt || now;
+                }
                 savedItems.push(await this.itemRepo.save(existing));
                 continue;
             }
@@ -682,6 +830,7 @@ export class ActionItemsBetaService {
                 source: detection.source,
                 title: detection.title,
                 description: detection.description,
+                proposedResolution: detection.proposedResolution || null,
                 categoryId: category?.id || null,
                 categoryName: category?.name || detection.categoryName || "Other",
                 priority: detection.priority,
@@ -696,9 +845,11 @@ export class ActionItemsBetaService {
                 sourceMeta: {
                     generatedBy: "action-items-beta",
                     generatedAt: now.toISOString(),
+                    highlightTerms: detection.highlightTerms || [],
                 },
                 notificationTargets: category?.notificationTargets || [],
                 lastDetectedAt: now,
+                resolvedAt: nextStatus === "Completed" || nextStatus === "Resolved" ? (detection.resolvedAt || now) : null,
                 createdBy: triggeredBy,
                 updatedBy: triggeredBy,
             });
@@ -722,7 +873,10 @@ export class ActionItemsBetaService {
     }): Promise<DetectionCandidate[]> {
         const heuristicCandidates = this.runHeuristicDetection(input.communications, input.rules, input.categories);
         const aiCandidates = await this.runAIDetection(input);
-        return this.mergeDetections([...heuristicCandidates, ...aiCandidates]);
+        return this.mergeDetections([...heuristicCandidates, ...aiCandidates]).map((candidate) => ({
+            ...candidate,
+            ...this.inferDetectionOutcome(candidate, input.communications, input.reservation),
+        }));
     }
 
     private runHeuristicDetection(
@@ -759,6 +913,7 @@ export class ActionItemsBetaService {
                 return {
                     title: summaryTitle,
                     description: lastMessage?.content || rule.description || rule.name,
+                    proposedResolution: this.buildProposedResolution(lastMessage?.content || rule.description || rule.name, category?.name || rule.categoryName || "Other"),
                     categoryName: category?.name || rule.categoryName || "Other",
                     priority: rule.priority || "Medium",
                     confidence,
@@ -766,6 +921,7 @@ export class ActionItemsBetaService {
                     source: this.resolveCandidateSource(matchingMessages),
                     messageIds: matchingMessages.map((message) => message.id),
                     snippet: lastMessage?.content?.slice(0, 280) || "",
+                    highlightTerms: matchedTriggers.slice(0, 6),
                 } satisfies DetectionCandidate;
             })
             .filter(Boolean) as DetectionCandidate[];
@@ -817,7 +973,7 @@ export class ActionItemsBetaService {
             "Only flag issues or requests that clearly require team action.",
             "Be conservative. Prefer no result over false positives.",
             "Return compact JSON with a top-level key called candidates.",
-            "Each candidate must include title, description, categoryName, priority, confidence, reason, source, and messageIds.",
+            "Each candidate must include title, description, proposedResolution, categoryName, priority, confidence, reason, source, messageIds, and highlightTerms.",
             "Confidence must be a number from 0 to 1.",
             "Use only these categories when possible:",
             JSON.stringify(categoryGuide),
@@ -876,6 +1032,7 @@ export class ActionItemsBetaService {
         return {
             title,
             description,
+            proposedResolution: String(candidate.proposedResolution || this.buildProposedResolution(description, categoryName)).trim(),
             categoryName,
             priority: String(candidate.priority || "Medium"),
             confidence: Math.max(0, Math.min(1, Number(candidate.confidence || 0))),
@@ -883,6 +1040,9 @@ export class ActionItemsBetaService {
             source: String(candidate.source || this.resolveCandidateSource(linkedMessages) || "unknown"),
             messageIds: linkedMessages.map((message) => message.id),
             snippet: linkedMessages[linkedMessages.length - 1]?.content?.slice(0, 280) || description.slice(0, 280),
+            highlightTerms: Array.isArray(candidate.highlightTerms)
+                ? candidate.highlightTerms.map((value) => String(value)).filter(Boolean).slice(0, 8)
+                : this.extractHighlightTerms(title, description),
         };
     }
 
@@ -903,6 +1063,10 @@ export class ActionItemsBetaService {
             if (candidate.description.length > existing.description.length) {
                 existing.description = candidate.description;
             }
+            existing.proposedResolution = existing.proposedResolution.length >= candidate.proposedResolution.length
+                ? existing.proposedResolution
+                : candidate.proposedResolution;
+            existing.highlightTerms = Array.from(new Set([...(existing.highlightTerms || []), ...(candidate.highlightTerms || [])]));
         }
         return Array.from(merged.values()).sort((a, b) => b.confidence - a.confidence);
     }
@@ -922,6 +1086,133 @@ export class ActionItemsBetaService {
         if (uniqueSources.length === 0) return "unknown";
         if (uniqueSources.length === 1) return uniqueSources[0];
         return "mixed";
+    }
+
+    private resolveReplySource(itemSource: string | null | undefined, messages: GuestCommunicationEntity[]) {
+        if (String(itemSource || "").toLowerCase() === "hostify") return "Hostify";
+        if (String(itemSource || "").toLowerCase() === "openphone") return "OpenPhone";
+        const latestMessage = [...messages].sort((a, b) => new Date(b.communicatedAt).getTime() - new Date(a.communicatedAt).getTime())[0];
+        if (latestMessage?.source?.startsWith("hostify")) return "Hostify";
+        return "OpenPhone";
+    }
+
+    private resolveHostifyInboxId(messages: GuestCommunicationEntity[]) {
+        const latestHostifyMessage = [...messages]
+            .filter((message) => message.source?.startsWith("hostify"))
+            .sort((a, b) => new Date(b.communicatedAt).getTime() - new Date(a.communicatedAt).getTime())[0];
+        const inboxId = latestHostifyMessage?.metadata?.inboxId;
+        return inboxId ? String(inboxId) : null;
+    }
+
+    private buildProposedResolution(text: string, categoryName: string) {
+        const normalized = String(text || "").toLowerCase();
+        if (normalized.includes("early check")) {
+            return "Check whether early access is possible, confirm any fee or approval needed, and reply with the earliest approved check-in time.";
+        }
+        if (normalized.includes("late check")) {
+            return "Review departure-day availability, confirm any late check-out fee or approval, and send the guest the final approved departure time.";
+        }
+        if (normalized.includes("extend") || normalized.includes("another night") || normalized.includes("change our dates")) {
+            return "Review reservation availability and pricing, then confirm the extension or date-change options back to the guest.";
+        }
+        if (normalized.includes("locked out") || normalized.includes("can't get in") || normalized.includes("door code")) {
+            return "Verify the access method, issue updated entry instructions or code if needed, and stay on the thread until the guest confirms entry.";
+        }
+        if (normalized.includes("dirty") || normalized.includes("clean") || normalized.includes("housekeeping")) {
+            return "Confirm the cleanliness issue, dispatch housekeeping or replacement supplies if needed, and update the guest with the remediation timeline.";
+        }
+        if (normalized.includes("broken") || normalized.includes("not working") || normalized.includes("leak") || normalized.includes("ac")) {
+            return "Confirm the maintenance issue, route it to the repair team with urgency, and update the guest on the next service step or workaround.";
+        }
+        if (normalized.includes("party") || normalized.includes("noise") || normalized.includes("emergency") || normalized.includes("security")) {
+            return "Escalate to the appropriate ops or emergency contact immediately, document the issue, and send the guest a clear follow-up update.";
+        }
+
+        switch (categoryName) {
+            case "Cleanliness":
+                return "Confirm the issue, send the right cleaning follow-up, and update the guest with the service timing.";
+            case "Maintenance":
+                return "Route the issue to maintenance, confirm the next step, and keep the guest updated until it is resolved.";
+            case "Reservation Changes":
+                return "Review the reservation details, confirm what can be changed, and reply with the approved option or next action.";
+            case "Guest Requests":
+                return "Review the request, confirm availability or approval needs, and send the guest a clear next-step response.";
+            default:
+                return "Review the conversation, assign the right owner, and reply with the next operational step for the guest.";
+        }
+    }
+
+    private extractHighlightTerms(...values: Array<string | null | undefined>) {
+        const stopWords = new Set(["about", "after", "again", "already", "because", "could", "guest", "their", "there", "these", "this", "with", "would", "please", "thanks"]);
+        return values
+            .flatMap((value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/g))
+            .filter((entry) => entry.length >= 4 && !stopWords.has(entry))
+            .filter((entry, index, all) => all.indexOf(entry) === index)
+            .slice(0, 8);
+    }
+
+    private inferDetectionOutcome(
+        detection: DetectionCandidate,
+        communications: GuestCommunicationEntity[],
+        reservation: ReservationInfoEntity | null,
+    ) {
+        const relatedMessages = communications.filter((message) => detection.messageIds.includes(message.id));
+        const lastDetectedAt = relatedMessages.length
+            ? new Date(Math.max(...relatedMessages.map((message) => new Date(message.communicatedAt).getTime())))
+            : null;
+        const laterMessages = lastDetectedAt
+            ? communications.filter((message) => new Date(message.communicatedAt).getTime() > lastDetectedAt.getTime())
+            : [];
+        const laterText = laterMessages.map((message) => String(message.content || "").toLowerCase()).join("\n");
+
+        const completionPhrases = [
+            "all set",
+            "resolved",
+            "fixed",
+            "taken care",
+            "completed",
+            "approved",
+            "confirmed",
+            "sent someone",
+            "on the way",
+            "sorted",
+            "working now",
+            "issue is solved",
+        ];
+        const guestAcknowledgementPhrases = [
+            "thank you",
+            "thanks",
+            "perfect",
+            "works now",
+            "that works",
+            "got it",
+            "appreciate it",
+        ];
+
+        const hasCompletionSignal = completionPhrases.some((phrase) => laterText.includes(phrase));
+        const hasGuestAck = laterMessages.some((message) =>
+            message.direction === "inbound"
+            && guestAcknowledgementPhrases.some((phrase) => String(message.content || "").toLowerCase().includes(phrase))
+        );
+
+        const reservationEnded = reservation?.departureDate
+            ? new Date(reservation.departureDate).getTime() < Date.now()
+            : false;
+        const categoryImpliesShortLivedIssue = ["Guest Requests", "Reservation Changes"].includes(detection.categoryName);
+
+        if (hasCompletionSignal || (hasGuestAck && laterMessages.some((message) => message.direction === "outbound")) || (reservationEnded && categoryImpliesShortLivedIssue)) {
+            return {
+                suggestedStatus: "Completed",
+                resolvedAt: laterMessages.length
+                    ? new Date(Math.max(...laterMessages.map((message) => new Date(message.communicatedAt).getTime())))
+                    : new Date(),
+            };
+        }
+
+        return {
+            suggestedStatus: detection.confidence >= DEFAULT_SETTINGS.autoCreateThreshold ? "New" : "Pending Review",
+            resolvedAt: null,
+        };
     }
 
     private buildDedupeKey(reservationId: number | null, categoryName: string, title: string) {
@@ -952,6 +1243,7 @@ export class ActionItemsBetaService {
             const haystack = [
                 item.title,
                 item.description,
+                item.proposedResolution,
                 item.guestName,
                 item.propertyName,
                 item.confirmationCode,

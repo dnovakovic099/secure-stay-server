@@ -12,9 +12,11 @@ router.get("/overview", controller.getOverview);
 router.get("/items", controller.getItems);
 router.get("/items/:id", controller.getItemById);
 router.put("/items/:id", controller.updateItem);
+router.post("/items/:id/reply", controller.replyToItem);
 router.post("/items/:id/approve", controller.approveItem);
 router.post("/items/:id/reject", controller.rejectItem);
 router.post("/analyze/reservation/:reservationId", controller.analyzeReservation);
+router.post("/backfill", verifyAdmin, controller.backfillItems);
 router.post("/test", controller.testDetection);
 
 router.get("/categories", controller.getCategories);
