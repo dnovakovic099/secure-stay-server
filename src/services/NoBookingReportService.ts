@@ -70,18 +70,24 @@ export class NoBookingReportService {
             where: { deletedAt: IsNull() }
         });
 
+        logger.info(`[NoBookingReport] Starting report. Filters: window=${filters.noBookingWindow}, tags=${JSON.stringify(filters.tags)}. Total active listings: ${listings.length}`);
+
         // Filter by tags if provided
         if (filters.tags && filters.tags.length > 0) {
+            const beforeTagFilter = listings.length;
             listings = listings.filter(listing => {
                 const listingTags = (listing.tags || "").split(",").map(t => t.trim().toLowerCase());
                 return filters.tags!.some(tag => listingTags.includes(tag.toLowerCase()));
             });
+            logger.info(`[NoBookingReport] Tag filter applied (${JSON.stringify(filters.tags)}): ${beforeTagFilter} → ${listings.length} listings`);
         }
 
         const apiKey = process.env.HOSTIFY_API_KEY || "";
         const today = new Date();
         const thresholdDays = parseInt(filters.noBookingWindow) || 7;
         const thresholdDate = subDays(today, thresholdDays);
+
+        logger.info(`[NoBookingReport] Threshold date: ${format(thresholdDate, "yyyy-MM-dd HH:mm:ss")} (${thresholdDays} days ago from ${format(today, "yyyy-MM-dd HH:mm:ss")})`);
 
         const report: NoBookingReportData[] = [];
 
@@ -90,20 +96,24 @@ export class NoBookingReportService {
         for (let i = 0; i < listings.length; i += batchSize) {
             const batch = listings.slice(i, i + batchSize);
             const results = await Promise.all(batch.map(async (listing) => {
+                const listingLabel = `[listing id=${listing.id} name="${listing.internalListingName || listing.name}" tags="${listing.tags}"]`;
                 try {
                     // Get last booking date
                     const lastBookingDate = await this.getLastBookingDate(listing.id);
 
                     // Check if listing has no bookings in the specified window
                     const hasRecentBooking = lastBookingDate && isAfter(new Date(lastBookingDate), thresholdDate);
-                    
+
                     // For 30+ days filter, we want listings with no booking in 30+ days
                     // For 7 and 14 days, we want listings with no booking in that exact window
                     const shouldInclude = filters.noBookingWindow === "30"
                         ? !lastBookingDate || !isAfter(new Date(lastBookingDate), subDays(today, 30))
                         : !hasRecentBooking;
 
+                    logger.info(`[NoBookingReport] ${listingLabel} lastBookingDate=${lastBookingDate ?? "null"} hasRecentBooking=${!!hasRecentBooking} shouldInclude=${shouldInclude}`);
+
                     if (!shouldInclude) {
+                        logger.info(`[NoBookingReport] EXCLUDED ${listingLabel} — has recent booking on ${lastBookingDate} (after threshold ${format(thresholdDate, "yyyy-MM-dd HH:mm:ss")})`);
                         return null;
                     }
 
@@ -120,6 +130,8 @@ export class NoBookingReportService {
                     else if (tags.includes("pm")) icon = "🤝";
                     else if (tags.includes("arb")) icon = "💸";
 
+                    logger.info(`[NoBookingReport] INCLUDED ${listingLabel} — lastBookingDate=${lastBookingDate ?? "null"} startDate=${startDate ?? "null"}`);
+
                     return {
                         id: listing.id,
                         name: listing.internalListingName || listing.name,
@@ -129,7 +141,7 @@ export class NoBookingReportService {
                         startDate
                     };
                 } catch (error) {
-                    logger.error(`[NoBookingReportService] Error processing listing ${listing.id}: ${error.message}`);
+                    logger.error(`[NoBookingReport] ERROR processing ${listingLabel}: ${error.message}`);
                     return null;
                 }
             }));
@@ -138,6 +150,8 @@ export class NoBookingReportService {
                 if (res) report.push(res);
             });
         }
+
+        logger.info(`[NoBookingReport] Done. ${report.length} listings included out of ${listings.length} after tag filter.`);
 
         return {
             data: report,
