@@ -11,8 +11,8 @@ export class UpSellEntity {
     @Column({ type: 'varchar', length: 50, nullable: false })
     title: String
 
-    @Column({ type: 'bigint', nullable: false })
-    price: Number
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false, default: 0 })
+    price: number
 
     @Column({ type: 'varchar', default: 'Per Booking - Onetime', length: 50, nullable: true })
     timePeriod: String
@@ -31,5 +31,13 @@ export class UpSellEntity {
 
     @Column({ type: "bool", default: 1, nullable: false })
     isActive: Boolean
-}
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false, default: 0 })
+    actualFee: number
+
+    @Column({ type: 'decimal', precision: 5, scale: 2, nullable: false, default: 0 })
+    pmFee: number
+
+    @Column({ type: 'decimal', precision: 5, scale: 2, nullable: false, default: 3 })
+    processingFee: number
+}
