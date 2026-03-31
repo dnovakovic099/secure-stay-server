@@ -211,7 +211,7 @@ export class MessagingService {
                 ? this.reservationRepository.find({ where: { id: In(reservationIds) } })
                 : Promise.resolve([]),
             listingIds.length
-                ? this.listingRepository.find({ where: { id: In(listingIds) } })
+                ? this.listingRepository.find({ where: { id: In(listingIds) }, withDeleted: true })
                 : Promise.resolve([]),
         ]);
 
@@ -253,7 +253,7 @@ export class MessagingService {
                 arrival_date: arrivalDate,
                 departure_date: departureDate,
                 confirmed_at: reservation?.reservationDate || null,
-                updated_at: reservation ? (reservation as any).updatedAt || null : null,
+                // Keep original Hostify updated_at / last_message for correct timestamp display
                 timezone_identifier: timeZoneIdentifier,
                 timezone_name: normalizedListing?.timezoneName || timeZoneIdentifier,
                 check_in_time_local: checkInTimeLocal,
@@ -847,11 +847,25 @@ export class MessagingService {
 
             const maxPages = 10;
             const collected: any[] = [];
-            for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
-                const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, currentPage, per_page);
-                const batch = result.threads || [];
-                collected.push(...batch);
-                if (batch.length < per_page) break;
+
+            // Fetch first page to check if more exist
+            const firstResult = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, 1, per_page);
+            const firstBatch = firstResult.threads || [];
+            collected.push(...firstBatch);
+
+            // Fetch remaining pages in parallel for speed
+            if (firstBatch.length >= per_page && maxPages > 1) {
+                const remaining = await Promise.all(
+                    Array.from({ length: maxPages - 1 }, (_, i) =>
+                        this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, i + 2, per_page)
+                    )
+                );
+                for (const result of remaining) {
+                    const batch = result.threads || [];
+                    if (!batch.length) break;
+                    collected.push(...batch);
+                    if (batch.length < per_page) break;
+                }
             }
 
             const enriched = await this.enrichHostifyThreads(collected);
@@ -895,7 +909,7 @@ export class MessagingService {
         if (!reservation) return null;
 
         const listing = reservation.listingMapId
-            ? await this.listingRepository.findOne({ where: { id: reservation.listingMapId } })
+            ? await this.listingRepository.findOne({ where: { id: reservation.listingMapId }, withDeleted: true })
             : null;
 
         let hostifyReservation: any = null;
