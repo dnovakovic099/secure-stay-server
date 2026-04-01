@@ -13,8 +13,9 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().required(),
-        status: Joi.string().required().valid("Pending", "Approved", "Denied"),
-        notes: Joi.string().required().allow(null, '')
+        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied"),
+        paymentMethod: Joi.string().optional().allow(null, ''),
+        notes: Joi.string().optional().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);
@@ -38,8 +39,9 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().required(),
-        status: Joi.string().required().valid("Pending", "Approved", "Denied"),
-        notes: Joi.string().required().allow(null,'')
+        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied"),
+        paymentMethod: Joi.string().optional().allow(null, ''),
+        notes: Joi.string().optional().allow(null,'')
     });
 
     const { error } = schema.validate(request.body);
@@ -54,7 +56,7 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
 export const validateRefundRequestStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid("Pending", "Approved", "Denied"),
+        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied"),
     });
 
     const { error } = schema.validate(request.body);
