@@ -16,6 +16,7 @@ import updateSlackMessage from "../utils/updateSlackMsg";
 import { ExpenseStatus } from "../entity/Expense";
 import { ListingService } from "./ListingService";
 import { FileInfo } from "../entity/FileInfo";
+import { categoryIds } from "../constant";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -114,7 +115,7 @@ export class RefundRequestService {
     }
   }
 
-  private async updateRefundRequestFlow(
+    private async updateRefundRequestFlow(
     transactionManager: EntityManager,
     body: Partial<RefundRequestEntity>,
     userId: string,
@@ -123,14 +124,15 @@ export class RefundRequestService {
     refundRequest: RefundRequestEntity,
     user: string,
     slackMessageService: SlackMessageService
-  ) {
-    const isStatusChanged = refundRequest.status !== body.status;
+    ) {
+        const isStatusChanged = refundRequest.status !== body.status;
+        const paymentMethod = typeof (body as any).paymentMethod === "string" ? (body as any).paymentMethod : null;
 
-    await this.updateRefundRequest(transactionManager, refundRequest, body, userId, attachments);
+        await this.updateRefundRequest(transactionManager, refundRequest, body, userId, attachments);
 
-    if (isStatusChanged) {
-      await this.handleExpense(body.status, refundRequest, userId, transactionManager, refundRequest.id);
-    }
+        if (isStatusChanged) {
+            await this.handleExpense(body.status, refundRequest, userId, transactionManager, refundRequest.id, paymentMethod);
+        }
 
     try {
       const slackMessageInfo = await this.slackMessageRepo.findOne({
@@ -172,12 +174,13 @@ export class RefundRequestService {
     fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null,
     user: string,
     slackMessageService: SlackMessageService
-  ) {
-    const newRefundRequest = await this.createRefundRequest(transactionManager, body, userId, attachments);
+    ) {
+        const newRefundRequest = await this.createRefundRequest(transactionManager, body, userId, attachments);
+        const paymentMethod = typeof (body as any).paymentMethod === "string" ? (body as any).paymentMethod : null;
 
-    if (body.status === "Approved") {
-      await this.handleExpense(body.status, newRefundRequest, userId, transactionManager, newRefundRequest.id);
-    }
+        if (body.status === "Approved" || body.status === "Paid") {
+      await this.handleExpense(body.status, newRefundRequest, userId, transactionManager, newRefundRequest.id, paymentMethod);
+        }
 
     try {
       const slackMessage = buildRefundRequestMessage(newRefundRequest);
@@ -214,12 +217,13 @@ export class RefundRequestService {
         request: RefundRequestEntity,
         userId: string,
       transactionalEntityManager: EntityManager,
-      id: number
+      id: number,
+      paymentMethod?: string | null
     ) {
         const expenseService = new ExpenseService();
 
-        if (status === "Approved") {
-          const expense = await this.createExpenseForRefundRequest(request, userId, id);
+        if (status === "Approved" || status === "Paid") {
+          const expense = await this.createExpenseForRefundRequest(request, userId, id, paymentMethod);
             request.expenseId = expense.id;
         } else if (request.expenseId) {
             const expense = await expenseService.getExpense(request.expenseId);
@@ -230,7 +234,7 @@ export class RefundRequestService {
     }
 
 
-  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number) {
+  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, paymentMethod?: string | null) {
         //create expense object
         const expenseObj = {
             body: {
@@ -238,13 +242,13 @@ export class RefundRequestService {
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
                 concept: body.explaination,
                 amount: body.refundAmount,
-                categories: JSON.stringify([23546]),
+                categories: JSON.stringify([categoryIds.Resolutions]),
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
                 findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>`,
                 status: ExpenseStatus.APPROVED,
-                paymentMethod: null,
+                paymentMethod: paymentMethod || null,
                 createdBy: userId
             }
         };
@@ -325,7 +329,7 @@ export class RefundRequestService {
         if (isStatusChanged) {
             const expenseService = new ExpenseService();
 
-            if (status === "Approved") {
+            if (status === "Approved" || status === "Paid") {
               const expense = await this.createExpenseForRefundRequest(refundRequest, userId, refundRequest.id);
                 refundRequest.expenseId = expense.id;
             } else if (refundRequest.expenseId) {
