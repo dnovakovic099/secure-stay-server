@@ -33,3 +33,7 @@ INSERT INTO `category` (`categoryName`, `hostawayId`) VALUES
 ('Tech Fee', 10007)
 ('Special Cleaning', 10008),
 ('Other Supplies', 10009);
+
+
+INSERT INTO `category` (`categoryName`, `hostawayId`) VALUES
+('Review Mitigation', 10010);
