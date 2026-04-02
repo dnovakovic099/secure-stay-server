@@ -91,7 +91,8 @@ export const tagIds = {
 
 export const categoryIds={
     Resolutions: 21981,
-    Upsell: 19780
+    Upsell: 19780,
+    ReviewMitigation: 10010
 }
 
 

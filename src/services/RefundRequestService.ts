@@ -183,22 +183,6 @@ export class RefundRequestService {
         }
 
     try {
-      const slackMessage = buildRefundRequestMessage(newRefundRequest);
-      const slackResponse = await sendSlackMessage(slackMessage);
-
-      await slackMessageService.saveSlackMessageInfo({
-        channel: slackResponse.channel,
-        messageTs: slackResponse.ts,
-        threadTs: slackResponse.ts,
-        entityType: "refund_request",
-        entityId: newRefundRequest.id,
-        originalMessage: JSON.stringify(slackMessage)
-      });
-    } catch (error) {
-      logger.error("Slack creation failed", error);
-    }
-
-    try {
       await this.sendEmailForNewRefundRequest(newRefundRequest);
     } catch (error) {
       logger.error("Email notification failed (new)", error);
@@ -222,8 +206,8 @@ export class RefundRequestService {
     ) {
         const expenseService = new ExpenseService();
 
-        if (status === "Approved" || status === "Paid") {
-          const expense = await this.createExpenseForRefundRequest(request, userId, id, paymentMethod);
+        if (status === "Paid") {
+          const expense = await this.createExpenseForRefundRequest(request, userId, id, status, paymentMethod);
             request.expenseId = expense.id;
         } else if (request.expenseId) {
             const expense = await expenseService.getExpense(request.expenseId);
@@ -234,15 +218,16 @@ export class RefundRequestService {
     }
 
 
-  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, paymentMethod?: string | null) {
+  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status?: string | null, paymentMethod?: string | null) {
+        const category = status === "Paid" ? categoryIds.ReviewMitigation : categoryIds.Resolutions;
         //create expense object
         const expenseObj = {
             body: {
                 listingMapId: body.listingId,
                 expenseDate: format(new Date(), 'yyyy-MM-dd'),
                 concept: body.explaination,
-                amount: body.refundAmount,
-                categories: JSON.stringify([categoryIds.Resolutions]),
+                amount: body.refundAmount ? -Math.abs(body.refundAmount) : body.refundAmount,
+                categories: JSON.stringify([category]),
                 dateOfWork: null,
                 contractorName: " ",
                 contractorNumber: null,
@@ -329,8 +314,8 @@ export class RefundRequestService {
         if (isStatusChanged) {
             const expenseService = new ExpenseService();
 
-            if (status === "Approved" || status === "Paid") {
-              const expense = await this.createExpenseForRefundRequest(refundRequest, userId, refundRequest.id);
+            if (status === "Paid") {
+              const expense = await this.createExpenseForRefundRequest(refundRequest, userId, refundRequest.id, status);
                 refundRequest.expenseId = expense.id;
             } else if (refundRequest.expenseId) {
                 const expense = await expenseService.getExpense(refundRequest.expenseId);
