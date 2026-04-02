@@ -764,6 +764,36 @@ router.post("/access-codes", async (req: Request, res: Response) => {
 });
 
 /**
+ * Update access code
+ * PUT /smart-locks/access-codes/:id
+ */
+router.put("/access-codes/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { code, codeName, guestName, guestPhone } = req.body;
+
+    const accessCode = await accessCodeService.updateAccessCode(parseInt(id), {
+      code,
+      codeName,
+      guestName,
+      guestPhone,
+    });
+
+    return res.json({
+      success: true,
+      data: accessCode,
+      message: "Access code updated successfully",
+    });
+  } catch (error: any) {
+    logger.error("Error updating access code:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update access code",
+    });
+  }
+});
+
+/**
  * Set access code on device immediately
  * POST /smart-locks/access-codes/:id/set-now
  */
