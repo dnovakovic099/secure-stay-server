@@ -183,6 +183,22 @@ export class RefundRequestService {
         }
 
     try {
+      const slackMessage = buildRefundRequestMessage(newRefundRequest);
+      const slackResponse = await sendSlackMessage(slackMessage);
+
+      await slackMessageService.saveSlackMessageInfo({
+        channel: slackResponse.channel,
+        messageTs: slackResponse.ts,
+        threadTs: slackResponse.ts,
+        entityType: "refund_request",
+        entityId: newRefundRequest.id,
+        originalMessage: JSON.stringify(slackMessage)
+      });
+    } catch (error) {
+      logger.error("Slack creation failed", error);
+    }
+
+    try {
       await this.sendEmailForNewRefundRequest(newRefundRequest);
     } catch (error) {
       logger.error("Email notification failed (new)", error);
