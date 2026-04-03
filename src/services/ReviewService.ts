@@ -1368,11 +1368,11 @@ export class ReviewService {
 
         for (const reservation of reservations) {
             const listingId = reservation.listingMapId;
-            const isLaunchListing = listing.some(l => Number(l.id) === Number(listingId));
-            if (isLaunchListing) {
-                logger.warn(`Skipping review checkout processing for launch listing ID: ${listingId}`);
-                continue;
-            }
+            // const isLaunchListing = listing.some(l => Number(l.id) === Number(listingId));
+            // if (isLaunchListing) {
+            //     logger.warn(`Skipping review checkout processing for launch listing ID: ${listingId}`);
+            //     continue;
+            // }
 
             //check if the listingMapId is parent_listing_id or not
             const listingDetail = await this.listingRepo.findOne({ where: { id: listingId } });
