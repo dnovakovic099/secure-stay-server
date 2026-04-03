@@ -26,6 +26,13 @@ router.route('/reviewdiscussion/:reviewId')
 router.route('/reviewdiscussion/:reviewId/reactions')
     .post(verifySession, reviewController.toggleReviewDiscussionReaction.bind(reviewController));
 
+router.route('/reservationdiscussion/:reservationId')
+    .get(verifySession, reviewController.getReservationDiscussion.bind(reviewController))
+    .post(verifySession, reviewController.createReservationDiscussionMessage.bind(reviewController));
+
+router.route('/reservationdiscussion/:reservationId/reactions')
+    .post(verifySession, reviewController.toggleReservationDiscussionReaction.bind(reviewController));
+
 router.route('/')
     .get(verifySession, validateGetReviewRequest, reviewController.getReviews.bind(reviewController))
     .post(verifySession, validateSaveReview, reviewController.saveReview.bind(reviewController))

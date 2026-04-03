@@ -363,6 +363,201 @@ export class ReviewDiscussionService {
             || null;
     }
 
+    private async buildSystemAndAiMessagesByReservation(reservationId: number): Promise<DiscussionItemDTO[]> {
+        const items: DiscussionItemDTO[] = [];
+
+        const issues = await this.issueRepo.find({
+            where: { reservation_id: String(reservationId) },
+            order: { created_at: "ASC" },
+        });
+        issues.forEach((issue) => {
+            items.push({
+                id: `system-issue-${issue.id}`,
+                persistentId: null,
+                parentMessageId: null,
+                sourceType: "system",
+                authorName: "SecureStay",
+                content: `Issue ${issue.status ? `(${issue.status})` : ""}: ${issue.issue_description || "Issue linked to this reservation"}`,
+                mentions: [],
+                createdAt: issue.updated_at?.toISOString?.() || issue.created_at?.toISOString?.() || new Date().toISOString(),
+                metadata: { eventType: "issue", category: issue.category || null },
+                reactions: [],
+                replies: [],
+                canReply: false,
+                canReact: false,
+            });
+        });
+
+        const analyses = await this.analysisRepo.find({
+            where: { reservationId },
+            order: { analyzedAt: "DESC" },
+        });
+        analyses.forEach((analysis) => {
+            items.push({
+                id: `ai-${analysis.id}`,
+                persistentId: null,
+                parentMessageId: null,
+                sourceType: "ai",
+                authorName: analysis.analyzedBy === "auto" ? "AI Manager" : "AI Analysis",
+                content: analysis.summary || "AI analysis generated",
+                mentions: [],
+                createdAt: analysis.analyzedAt?.toISOString?.() || new Date().toISOString(),
+                metadata: {
+                    sentiment: analysis.sentiment,
+                    flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
+                },
+                reactions: [],
+                replies: [],
+                canReply: false,
+                canReact: false,
+            });
+        });
+
+        return items;
+    }
+
+    async getDiscussionFeedByReservation(reservationId: string, filter: string | undefined, sort: string | undefined, currentUserId: string) {
+        const normalizedFilter = this.normalizeFilter(filter);
+        const normalizedSort = this.normalizeSort(sort);
+        const { mentionKeys } = await this.getUserDisplay(currentUserId);
+
+        const storedMessages = await this.messageRepo.find({
+            where: { reservationId: Number(reservationId) },
+            order: { createdAt: "ASC" },
+        });
+        const reactions = storedMessages.length
+            ? await this.reactionRepo.find({
+                where: storedMessages.map((item) => ({ messageId: item.id })),
+                order: { createdAt: "ASC" },
+            })
+            : [];
+
+        const topLevel: DiscussionItemDTO[] = [];
+        const replyMap = new Map<number, DiscussionItemDTO[]>();
+
+        storedMessages.forEach((message) => {
+            const dto: DiscussionItemDTO = {
+                id: String(message.id),
+                persistentId: message.id,
+                parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
+                sourceType: message.sourceType,
+                authorName: message.authorName,
+                authorAvatar: message.authorAvatar || undefined,
+                content: message.content,
+                mentions: message.mentions || [],
+                createdAt: message.createdAt.toISOString(),
+                metadata: message.metadata || null,
+                reactions: this.buildReactionSummary(message.id, reactions, currentUserId),
+                replies: [],
+                canReply: message.sourceType === "note" && !message.parentMessageId,
+                canReact: true,
+            };
+
+            if (message.parentMessageId) {
+                const bucket = replyMap.get(message.parentMessageId) || [];
+                bucket.push(dto);
+                replyMap.set(message.parentMessageId, bucket);
+            } else {
+                topLevel.push(dto);
+            }
+        });
+
+        topLevel.forEach((item) => {
+            item.replies = this.sortItems(replyMap.get(Number(item.id)) || [], "oldest");
+        });
+
+        const syntheticItems = await this.buildSystemAndAiMessagesByReservation(Number(reservationId));
+        let items = [...topLevel, ...syntheticItems];
+
+        if (normalizedFilter === "notes") {
+            items = items.filter((item) => item.sourceType === "note");
+        } else if (normalizedFilter === "system") {
+            items = items.filter((item) => item.sourceType === "system");
+        } else if (normalizedFilter === "ai") {
+            items = items.filter((item) => item.sourceType === "ai");
+        } else if (normalizedFilter === "mentions") {
+            items = items.filter((item) => this.matchesMentionFilter(item, mentionKeys) || item.replies.some((reply) => this.matchesMentionFilter(reply, mentionKeys)));
+        }
+
+        items = this.sortItems(items, normalizedSort);
+
+        return {
+            reservationId,
+            filter: normalizedFilter,
+            sort: normalizedSort,
+            items,
+            allowedReactions: ALLOWED_REACTIONS,
+        };
+    }
+
+    async createMessageByReservation(reservationId: string, content: string, parentMessageId: number | null, userId: string) {
+        const trimmedContent = String(content || "").trim();
+        if (!trimmedContent) {
+            throw CustomErrorHandler.validationError("Content is required");
+        }
+
+        if (parentMessageId) {
+            const parent = await this.messageRepo.findOne({ where: { id: parentMessageId, reservationId: Number(reservationId) } });
+            if (!parent) {
+                throw CustomErrorHandler.notFound(`Parent message ${parentMessageId} not found`);
+            }
+        }
+
+        const { userName } = await this.getUserDisplay(userId);
+        const message = this.messageRepo.create({
+            reviewId: null,
+            reservationId: Number(reservationId),
+            parentMessageId,
+            sourceType: "note",
+            authorId: userId,
+            authorName: userName,
+            authorAvatar: null,
+            content: trimmedContent,
+            mentions: this.extractMentions(trimmedContent),
+            metadata: null,
+        });
+
+        const saved = await this.messageRepo.save(message);
+        return this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId).then((feed) => {
+            const match = feed.items.find((item) => item.id === String(saved.id))
+                || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(saved.id));
+            return match;
+        });
+    }
+
+    async toggleReactionByReservation(reservationId: string, messageId: number, reaction: string, userId: string) {
+        if (!ALLOWED_REACTIONS.includes(reaction as ReviewDiscussionReactionType)) {
+            throw CustomErrorHandler.validationError("Unsupported reaction");
+        }
+
+        const message = await this.messageRepo.findOne({ where: { id: messageId, reservationId: Number(reservationId) } });
+        if (!message) {
+            throw CustomErrorHandler.notFound(`Message ${messageId} not found`);
+        }
+
+        const { userName } = await this.getUserDisplay(userId);
+        const existing = await this.reactionRepo.findOne({
+            where: { messageId, userId, reaction: reaction as ReviewDiscussionReactionType },
+        });
+
+        if (existing) {
+            await this.reactionRepo.remove(existing);
+        } else {
+            const created = this.reactionRepo.create({
+                messageId,
+                userId,
+                userName,
+                reaction: reaction as ReviewDiscussionReactionType,
+            });
+            await this.reactionRepo.save(created);
+        }
+
+        const feed = await this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId);
+        return feed.items.find((item) => item.id === String(messageId))
+            || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(messageId))
+            || null;
+    }
+
     async createSystemMessage(reviewId: string, content: string, metadata: Record<string, any> | null = null) {
         const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
         if (!review) return null;

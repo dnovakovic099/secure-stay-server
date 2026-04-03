@@ -246,6 +246,51 @@ export class ReviewController {
         }
     }
 
+    async getReservationDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.getDiscussionFeedByReservation(
+                request.params.reservationId,
+                request.query.filter as string | undefined,
+                request.query.sort as string | undefined,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createReservationDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.createMessageByReservation(
+                request.params.reservationId,
+                request.body?.content,
+                request.body?.parentMessageId ? Number(request.body.parentMessageId) : null,
+                request.user.id
+            );
+            return response.status(201).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async toggleReservationDiscussionReaction(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.toggleReactionByReservation(
+                request.params.reservationId,
+                Number(request.body?.messageId),
+                request.body?.reaction,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();

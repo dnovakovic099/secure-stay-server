@@ -4,13 +4,17 @@ export type ReviewDiscussionSourceType = "note" | "system" | "ai";
 
 @Entity({ name: "review_discussion_messages" })
 @Index("idx_review_discussion_review", ["reviewId"])
+@Index("idx_review_discussion_reservation", ["reservationId"])
 @Index("idx_review_discussion_parent", ["parentMessageId"])
 export class ReviewDiscussionMessageEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({ type: "varchar", length: 255, name: "review_id" })
-    reviewId: string;
+    @Column({ type: "varchar", length: 255, nullable: true, name: "review_id" })
+    reviewId: string | null;
+
+    @Column({ type: "bigint", nullable: true, name: "reservation_id" })
+    reservationId: number | null;
 
     @Column({ type: "int", nullable: true, name: "parent_message_id" })
     parentMessageId: number | null;
