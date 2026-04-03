@@ -21,7 +21,7 @@ import { PhotographerRequest } from "../entity/PhotographerRequest";
 import { MaintenanceFormRequest } from "../entity/MaintenanceFormRequest";
 import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
 
-const REFUND_REQUEST_CHANNEL = "#bookkeeping";
+const REFUND_REQUEST_CHANNEL = "#resolutions-team";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
