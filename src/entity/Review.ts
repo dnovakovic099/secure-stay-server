@@ -51,6 +51,9 @@ export class ReviewEntity {
     @Column({ type: "tinyint" })
     isHidden: number;
 
+    @Column({ type: "varchar", length: 50, default: "Awaiting Review" })
+    visibility: string;
+
     @Column({ nullable: true })
     bookingAmount: number;
 

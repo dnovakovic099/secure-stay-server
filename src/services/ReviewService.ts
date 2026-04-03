@@ -403,6 +403,16 @@ export class ReviewService {
                 condition.isHidden = 0;
             } else if (status === "hidden") {
                 condition.isHidden = 1;
+            } else if (status === "removed") {
+                condition.visibility = "Removed";
+            } else if (status === "awaiting") {
+                condition.visibility = "Awaiting Review";
+            } else if (status === "submitted") {
+                condition.visibility = "Submitted";
+            } else if (status === "no-review") {
+                condition.visibility = "No Review";
+            } else if (status === "keep") {
+                condition.visibility = "Keep";
             }
 
             if (isClaimOnly && claimResolutionStatus === undefined) {
@@ -630,17 +640,48 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'Removed'];
+        if (!VALID_STATUSES.includes(reviewVisibility)) {
+            throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
+        }
         const review = await this.reviewRepository.findOne({ where: { id } });
         if (!review) {
             throw CustomErrorHandler.notFound(`Review not found with id: ${id}`);
         }
 
-        review.isHidden = reviewVisibility == "Visible" ? 0 : 1;
+        review.visibility = reviewVisibility;
+        review.isHidden = reviewVisibility === 'Removed' ? 1 : 0;
         review.updatedAt = new Date();
         review.updatedBy = userId;
         await this.reviewRepository.save(review);
 
         return review;
+    }
+
+    private applyAutoVisibility(review: ReviewEntity): void {
+        // Only auto-assign if no one has manually set it (updatedBy is null/undefined)
+        if (review.updatedBy) return;
+
+        const today = new Date();
+        const checkout = review.departureDate ? new Date(review.departureDate) : null;
+        if (!checkout) return;
+
+        const daysSinceCheckout = Math.floor((today.getTime() - checkout.getTime()) / (1000 * 60 * 60 * 24));
+        const isVrbo = (review.channelName || '').toLowerCase().includes('vrbo');
+        const noReviewThreshold = isVrbo ? 180 : 14;
+        const hasReview = !!(review.publicReview || review.privateReview);
+
+        if (hasReview) {
+            review.visibility = 'Visible';
+            review.isHidden = 0;
+        } else if (daysSinceCheckout <= 14) {
+            review.visibility = 'Awaiting Review';
+            review.isHidden = 0;
+        } else if (daysSinceCheckout > noReviewThreshold) {
+            review.visibility = 'No Review';
+            review.isHidden = 0;
+        }
+        // else: between 14 days and VRBO threshold — leave as Awaiting Review
     }
 
 
@@ -674,24 +715,23 @@ export class ReviewService {
 
                 if (existingReview) {
                     // Update the existing review
-                    await this.reviewRepository.update(existingReview.id, {
-                        reviewerName: reviewData.reviewerName,
-                        channelId: reviewData.channelId,
-                        rating: reviewData.rating,
-                        externalReservationId: reviewData.externalReservationId,
-                        publicReview: reviewData.publicReview,
-                        submittedAt: reviewData.submittedAt,
-                        arrivalDate: reviewData.arrivalDate,
-                        departureDate: reviewData.departureDate,
-                        listingName: reviewData.listingName,
-                        externalListingName: reviewData.externalListingName,
-                        guestName: reviewData.guestName,
-                        listingMapId: reviewData.listingMapId,
-                        channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName,
-                        // isHidden: reviewData?.isHidden || 0,
-                        isHidden: existingReview.updatedBy ? existingReview.isHidden : reviewData?.isHidden || 0,
-                        reservationId: reviewData?.reservationId || null
-                    });
+                    existingReview.reviewerName = reviewData.reviewerName;
+                    existingReview.channelId = reviewData.channelId;
+                    existingReview.rating = reviewData.rating;
+                    existingReview.externalReservationId = reviewData.externalReservationId;
+                    existingReview.publicReview = reviewData.publicReview;
+                    existingReview.submittedAt = reviewData.submittedAt;
+                    existingReview.arrivalDate = reviewData.arrivalDate;
+                    existingReview.departureDate = reviewData.departureDate;
+                    existingReview.listingName = reviewData.listingName;
+                    existingReview.externalListingName = reviewData.externalListingName;
+                    existingReview.guestName = reviewData.guestName;
+                    existingReview.listingMapId = reviewData.listingMapId;
+                    existingReview.channelName = channelList.find(channel => channel.channelId == reviewData.channelId).channelName;
+                    existingReview.isHidden = existingReview.updatedBy ? existingReview.isHidden : (reviewData?.isHidden || 0);
+                    existingReview.reservationId = reviewData?.reservationId || null;
+                    this.applyAutoVisibility(existingReview);
+                    await this.reviewRepository.save(existingReview);
 
                     if (existingReview.rating != 10 && reviewData.rating == 10) {
                         await this.process5StarRatings(reviewData);
@@ -717,6 +757,7 @@ export class ReviewService {
                         isHidden: reviewData?.isHidden || 0,
                         reservationId: reviewData?.reservationId || null,
                     });
+                    this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
 
                     //check if there is active claim of the reviewer
@@ -781,6 +822,7 @@ export class ReviewService {
                         reservationId: reviewData?.reservation_id || null,
                         privateReview: reviewData?.feedback || null,
                     });
+                    this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
 
                     //check if there is active claim of the reviewer
