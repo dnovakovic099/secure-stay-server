@@ -81,7 +81,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
 
 export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        reviewVisibility: Joi.string().required().valid("Visible", "Hidden"),
+        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Keep", "Removed"),
     });
 
     const { error } = schema.validate(request.body);
