@@ -327,6 +327,25 @@ export class ReviewService {
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private issueRepo = appDatabase.getRepository(Issue);
 
+    private normalizePropertyTypeFilters(values?: string[] | null) {
+        return Array.from(
+            new Set(
+                (values || [])
+                    .map((value) => String(value || '').trim().toLowerCase())
+                    .flatMap((value) => {
+                        if (!value) return [];
+                        if (value === 'own-arb' || value === 'own / arb' || value === 'own,arb' || value === 'own+arb') {
+                            return ['own', 'arb'];
+                        }
+                        if (value === 'own') return ['own'];
+                        if (value === 'arb') return ['arb'];
+                        if (value === 'pm') return ['pm'];
+                        return [];
+                    })
+            )
+        );
+    }
+
     public async getReviews({
         fromDate,
         toDate,
@@ -348,6 +367,12 @@ export class ReviewService {
     }) {
         try {
             let listingIds: number[] = [];
+            const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
+            const selectedStatuses = Array.isArray(status)
+                ? status.map((value) => String(value || '').trim()).filter(Boolean)
+                : String(status || '').trim()
+                    ? [String(status).trim()]
+                    : [];
 
             // Determine listing IDs from owner name(s) if provided
             if ((!listingId || listingId.length === 0) && owner) {
@@ -356,9 +381,9 @@ export class ReviewService {
                 listingIds = results.flat();
             }
 
-            if (propertyType && propertyType.length > 0) {
+            if (normalizedPropertyTypes.length > 0) {
                 const listingService = new ListingService();
-                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id));
+                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id));
             }
             
             // Add listingId(s) if provided
@@ -399,20 +424,33 @@ export class ReviewService {
                 reviewDetailCondition.claimResolutionStatus = claimResolutionStatus;
             }
 
-            if (status === "active") {
-                condition.isHidden = 0;
-            } else if (status === "hidden") {
-                condition.isHidden = 1;
-            } else if (status === "removed") {
-                condition.visibility = "Removed";
-            } else if (status === "awaiting") {
-                condition.visibility = "Awaiting Review";
-            } else if (status === "submitted") {
-                condition.visibility = "Submitted";
-            } else if (status === "no-review") {
-                condition.visibility = "No Review";
-            } else if (status === "keep") {
-                condition.visibility = "Keep";
+            if (selectedStatuses.length) {
+                const normalizedStatuses = selectedStatuses.map((value) => value.toLowerCase());
+                const explicitVisibilityMap: Record<string, string> = {
+                    'awaiting review': 'Awaiting Review',
+                    awaiting: 'Awaiting Review',
+                    submitted: 'Submitted',
+                    visible: 'Visible',
+                    'no review': 'No Review',
+                    'no-review': 'No Review',
+                    keep: 'Keep',
+                    removed: 'Removed',
+                };
+                const explicitVisibilityStates = Array.from(
+                    new Set(
+                        normalizedStatuses
+                            .map((value) => explicitVisibilityMap[value])
+                            .filter(Boolean)
+                    )
+                );
+
+                if (normalizedStatuses.includes('hidden') && !normalizedStatuses.includes('active')) {
+                    condition.isHidden = 1;
+                } else if (explicitVisibilityStates.length) {
+                    condition.visibility = In(explicitVisibilityStates);
+                } else if (normalizedStatuses.includes('active') || normalizedStatuses.includes('keep')) {
+                    condition.isHidden = 0;
+                }
             }
 
             if (isClaimOnly && claimResolutionStatus === undefined) {
@@ -1041,6 +1079,7 @@ export class ReviewService {
             todayDate, status, isActive, tab, keyword,
             propertyType, integration, fromDate, toDate, dateType,
         } = filters;
+        const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
 
         //fetch reviewCheckoutList
         const query = this.reviewCheckoutRepo
@@ -1118,9 +1157,9 @@ export class ReviewService {
         }
 
         // Property type filter — resolve to listing IDs first, then apply listing filter
-        if (propertyType && propertyType.length > 0) {
+        if (normalizedPropertyTypes.length > 0) {
             const listingService = new ListingService();
-            const propertyTypeListings = await listingService.getListingsByPropertyTypes(propertyType as any);
+            const propertyTypeListings = await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any);
             const propertyTypeListingIds = propertyTypeListings.map((l: any) => Number(l.id));
             if (listingMapId && listingMapId.length > 0) {
                 const requestedIds = listingMapId.map(id => Number(id));
@@ -1175,9 +1214,60 @@ export class ReviewService {
             }
         }
 
-        // Keyword search filter (searches guest name)
+        // Keyword search filter (searches reservation, review, AI analysis, and issue data)
         if (keyword) {
-            query.andWhere("reservationInfo.guestName LIKE :keyword", { keyword: `%${keyword}%` });
+            const keywordPattern = `%${keyword}%`;
+            const [matchingReviewRows, matchingAnalyses, matchingIssues] = await Promise.all([
+                this.reviewRepository
+                    .createQueryBuilder('review')
+                    .select('DISTINCT review.reservationId', 'reservationId')
+                    .where(new Brackets((qb) => {
+                        qb.where('review.guestName LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('review.reviewerName LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('review.publicReview LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('review.privateReview LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('review.listingName LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('review.channelName LIKE :keyword', { keyword: keywordPattern });
+                    }))
+                    .getRawMany(),
+                this.guestAnalysisRepo
+                    .createQueryBuilder('analysis')
+                    .select('DISTINCT analysis.reservationId', 'reservationId')
+                    .where(new Brackets((qb) => {
+                        qb.where('analysis.summary LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('analysis.sentimentReason LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('CAST(analysis.flags AS CHAR) LIKE :keyword', { keyword: keywordPattern });
+                    }))
+                    .getRawMany(),
+                this.issueRepo
+                    .createQueryBuilder('issue')
+                    .select('DISTINCT issue.reservation_id', 'reservationId')
+                    .where(new Brackets((qb) => {
+                        qb.where('issue.issue_description LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('issue.owner_notes LIKE :keyword', { keyword: keywordPattern })
+                            .orWhere('issue.next_steps LIKE :keyword', { keyword: keywordPattern });
+                    }))
+                    .getRawMany(),
+            ]);
+
+            const keywordReservationIds = Array.from(new Set([
+                ...matchingReviewRows.map((item: any) => Number(item.reservationId)),
+                ...matchingAnalyses.map((item: any) => Number(item.reservationId)),
+                ...matchingIssues.map((item: any) => Number(item.reservationId)),
+            ].filter((id) => !Number.isNaN(id))));
+
+            query.andWhere(new Brackets((qb) => {
+                qb.where("reservationInfo.guestName LIKE :keyword", { keyword: keywordPattern })
+                    .orWhere("reservationInfo.listingName LIKE :keyword", { keyword: keywordPattern })
+                    .orWhere("reservationInfo.confirmation_code LIKE :keyword", { keyword: keywordPattern })
+                    .orWhere("reservationInfo.integration_nickname LIKE :keyword", { keyword: keywordPattern })
+                    .orWhere("reservationInfo.channelName LIKE :keyword", { keyword: keywordPattern })
+                    .orWhere("reservationInfo.source LIKE :keyword", { keyword: keywordPattern });
+
+                if (keywordReservationIds.length > 0) {
+                    qb.orWhere("reservationInfo.id IN (:...keywordReservationIds)", { keywordReservationIds });
+                }
+            }));
         }
 
         // Status filter (works alongside tab filtering to further narrow results)

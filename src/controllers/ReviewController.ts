@@ -35,7 +35,7 @@ export class ReviewController {
                 rating: this.normalizeNumberArrayParam(rating),
                 owner: this.normalizeArrayParam(owner),
                 claimResolutionStatus,
-                status,
+                status: this.normalizeArrayParam(status),
                 isClaimOnly,
                 keyword,
                 propertyType: this.normalizeArrayParam(propertyType),
