@@ -346,20 +346,6 @@ export class ReviewService {
         );
     }
 
-    private mergeListingIdConstraint(current: number[] | null, incoming: number[]): number[] | null {
-        const normalizedIncoming = Array.from(new Set((incoming || []).map((value) => Number(value)).filter(Boolean)));
-        if (current === null) return normalizedIncoming;
-        return current.filter((value) => normalizedIncoming.includes(value));
-    }
-
-    private async getListingIdsForReviewPropertyTypes(propertyTypes: string[]) {
-        if (!propertyTypes.length) return [];
-
-        const listingService = new ListingService();
-        const tagMatchedListings = await listingService.getListingsByPropertyTypes(propertyTypes as any);
-        return Array.from(new Set(tagMatchedListings.map((listing: any) => Number(listing.id)).filter(Boolean)));
-    }
-
     public async getReviews({
         fromDate,
         toDate,
@@ -380,7 +366,6 @@ export class ReviewService {
         sortDir,
     }) {
         try {
-            let listingIdsConstraint: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
@@ -388,26 +373,37 @@ export class ReviewService {
                     ? [String(status).trim()]
                     : [];
 
-            // Determine listing IDs from owner name(s) if provided
-            if ((!listingId || listingId.length === 0) && owner) {
+            let filteredListingIds: number[] | null = null;
+
+            if (listingId && listingId.length > 0) {
+                filteredListingIds = Array.from(
+                    new Set((Array.isArray(listingId) ? listingId : [listingId]).map((value) => Number(value)).filter(Boolean))
+                );
+            } else if (owner) {
                 const ownerNames = Array.isArray(owner) ? owner : [owner];
-                const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
-                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, results.flat().map((value) => Number(value)));
+                const results = await Promise.all(ownerNames.map((o) => this.getListingIdsByOwnerName(o)));
+                filteredListingIds = Array.from(new Set(results.flat().map((value) => Number(value)).filter(Boolean)));
             }
 
             if (normalizedPropertyTypes.length > 0) {
-                const propertyTypeListingIds = await this.getListingIdsForReviewPropertyTypes(normalizedPropertyTypes);
-                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, propertyTypeListingIds);
-            }
-            
-            // Add listingId(s) if provided
-            if (listingId && listingId.length > 0) {
-                const ids = Array.isArray(listingId) ? listingId : [listingId];
-                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, ids.map((value) => Number(value)));
+                const listingService = new ListingService();
+                const propertyTypeListingIds = Array.from(
+                    new Set(
+                        (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any))
+                            .map((listing: any) => Number(listing.id))
+                            .filter(Boolean)
+                    )
+                );
+
+                if (filteredListingIds !== null) {
+                    filteredListingIds = filteredListingIds.filter((value) => propertyTypeListingIds.includes(value));
+                } else {
+                    filteredListingIds = propertyTypeListingIds;
+                }
             }
 
             const condition: Record<string, any> = {
-                ...(listingIdsConstraint !== null ? { listingMapId: In(listingIdsConstraint.length > 0 ? listingIdsConstraint : [-1]) } : {}),
+                ...(filteredListingIds !== null ? { listingMapId: In(filteredListingIds.length > 0 ? filteredListingIds : [-1]) } : {}),
                 ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
@@ -597,7 +593,7 @@ export class ReviewService {
 
                 const listing = listingMap.get(Number(review.listingMapId))
                     || listingMap.get(Number(reservationInfo?.listingMapId));
-                const propertyType = this.getReviewPropertyType(listing, review as any, reservationInfo as any);
+                const propertyType = this.getReviewPropertyType(listing);
                 const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
@@ -644,21 +640,8 @@ export class ReviewService {
         }
     }
 
-    private getReviewPropertyType(listing?: Listing | null, review?: any, reservationInfo?: any) {
-        const candidates = [listing?.tags, review?.propertyType, reservationInfo?.propertyType, listing?.propertyType];
-
-        for (const candidate of candidates) {
-            if (!candidate || typeof candidate !== 'string') continue;
-            const parts = candidate.split(',').map((part) => part.trim());
-            if (parts.includes('Own')) return 'Own';
-            if (parts.includes('Arb')) return 'Arb';
-            if (parts.includes('pm') || parts.includes('PM')) return 'PM';
-            if (candidate.trim().toLowerCase() === 'pm') return 'PM';
-            if (candidate.trim().toLowerCase() === 'own') return 'Own';
-            if (candidate.trim().toLowerCase() === 'arb') return 'Arb';
-        }
-
-        return null;
+    private getReviewPropertyType(listing?: Listing | null) {
+        return this.extractPropertyTypeFromTags(listing?.tags);
     }
 
     private getReviewIntegration(review?: any, reservationInfo?: any) {
