@@ -384,7 +384,7 @@ export class ReviewService {
                     : [];
 
             // Determine listing IDs from owner name(s) if provided
-            if ((!listingId || listingId.length === 0) && owner) {
+            if ((!listingId || listingId.length === 0) && owner && owner.length > 0) {
                 const ownerNames = Array.isArray(owner) ? owner : [owner];
                 const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
                 listingIds = this.mergeListingIds(listingIds, results.flat());
@@ -425,7 +425,7 @@ export class ReviewService {
 
             const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
 
-            if (fromDate !== undefined && toDate !== undefined && dateType && allowedDateTypes.includes(dateType)) {
+            if (fromDate !== undefined && fromDate !== null && toDate !== undefined && toDate !== null && dateType && allowedDateTypes.includes(dateType)) {
                 condition[dateType] = Between(fromDate, toDate);
             }
 
@@ -477,7 +477,10 @@ export class ReviewService {
                 order[dateColumn] = 'DESC';
             }
 
-            let whereClause: any = { ...condition, reviewDetail: reviewDetailCondition };
+            const hasReviewDetailCondition = Object.keys(reviewDetailCondition).length > 0;
+            let whereClause: any = hasReviewDetailCondition
+                ? { ...condition, reviewDetail: reviewDetailCondition }
+                : { ...condition };
 
             if (keyword) {
                 const keywordPattern = `%${keyword}%`;
@@ -522,19 +525,19 @@ export class ReviewService {
                 ].filter(Boolean)));
 
                 const keywordConditions: any[] = [
-                    { ...condition, publicReview: Like(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, privateReview: Like(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, guestName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, reviewerName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, listingName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
-                    { ...condition, channelName: Like(keywordPattern), reviewDetail: reviewDetailCondition },
+                    { ...condition, publicReview: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
+                    { ...condition, privateReview: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
+                    { ...condition, guestName: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
+                    { ...condition, reviewerName: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
+                    { ...condition, listingName: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
+                    { ...condition, channelName: Like(keywordPattern), ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }) },
                 ];
 
                 if (keywordReservationIds.length > 0) {
                     keywordConditions.push({
                         ...condition,
                         reservationId: In(keywordReservationIds),
-                        reviewDetail: reviewDetailCondition,
+                        ...(hasReviewDetailCondition && { reviewDetail: reviewDetailCondition }),
                     });
                 }
 
