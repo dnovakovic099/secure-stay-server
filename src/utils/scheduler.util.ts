@@ -234,19 +234,19 @@ export function scheduleGetReservation() {
   //   }
   // );
 
-  schedule.scheduleJob(
-    { hour: 4, minute: 0, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('Scheduled task for deleting launch status review checkout ran...');
-        const reviewService = new ReviewService();
-        await reviewService.deleteLaunchReviewCheckouts();
-        logger.info('Scheduled task for deleting launch status review checkout completed...');
-      } catch (error) {
-        logger.error(error);
-      }
-    }
-  );
+  // schedule.scheduleJob(
+  //   { hour: 4, minute: 0, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('Scheduled task for deleting launch status review checkout ran...');
+  //       const reviewService = new ReviewService();
+  //       await reviewService.deleteLaunchReviewCheckouts();
+  //       logger.info('Scheduled task for deleting launch status review checkout completed...');
+  //     } catch (error) {
+  //       logger.error(error);
+  //     }
+  //   }
+  // );
 
   schedule.scheduleJob(
     { hour: 9, minute: 0, tz: "America/New_York" }, // 9 AM EST daily
@@ -261,62 +261,62 @@ export function scheduleGetReservation() {
       }
     })
 
-  schedule.scheduleJob(
-    { hour: 14, minute: 0, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('Processing upsells to create missing extras in the system...');
-        const currentDate = format(new Date(), 'yyyy-MM-dd');
-        const upsellOrderService = new UpsellOrderService();
-        await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
-        logger.info('Processed upsells to create missing extras in the system successfully.');
-      } catch (error) {
-        logger.error("Error processing upsells to create missing extras in the system:", error);
-      }
-    })
+  // schedule.scheduleJob(
+  //   { hour: 14, minute: 0, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('Processing upsells to create missing extras in the system...');
+  //       const currentDate = format(new Date(), 'yyyy-MM-dd');
+  //       const upsellOrderService = new UpsellOrderService();
+  //       await upsellOrderService.scriptToCreateMissingExtrasFromUpsell(currentDate);
+  //       logger.info('Processed upsells to create missing extras in the system successfully.');
+  //     } catch (error) {
+  //       logger.error("Error processing upsells to create missing extras in the system:", error);
+  //     }
+  //   })
 
-  schedule.scheduleJob({ hour: 13, minute: 15, tz: "America/New_York" }, updateListingId);
+  // schedule.scheduleJob({ hour: 13, minute: 15, tz: "America/New_York" }, updateListingId);
 
   schedule.scheduleJob({ hour: 13, minute: 17, tz: "America/New_York" }, createExpenseLogsFromResolution);
 
-  schedule.scheduleJob({ hour: 13, minute: 19, tz: "America/New_York" }, updateMgmtFee);
+  // schedule.scheduleJob({ hour: 13, minute: 19, tz: "America/New_York" }, updateMgmtFee);
 
   // Tech Fee Expense Automation
   // December 30, 2025 at 8 AM EST (one-time)
-  schedule.scheduleJob({ year: 2025, month: 11, date: 30, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
-    try {
-      logger.info('Processing tech fee expenses for December 30, 2025...');
-      const expenseService = new ExpenseService();
-      await expenseService.processTechFeeExpenses();
-      logger.info('Tech fee expenses processed successfully for December 30, 2025.');
-    } catch (error) {
-      logger.error("Error processing tech fee expenses:", error);
-    }
-  });
+  // schedule.scheduleJob({ year: 2025, month: 11, date: 30, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+  //   try {
+  //     logger.info('Processing tech fee expenses for December 30, 2025...');
+  //     const expenseService = new ExpenseService();
+  //     await expenseService.processTechFeeExpenses();
+  //     logger.info('Tech fee expenses processed successfully for December 30, 2025.');
+  //   } catch (error) {
+  //     logger.error("Error processing tech fee expenses:", error);
+  //   }
+  // });
 
-  // January 15, 2026 at 8 AM EST (one-time)
-  schedule.scheduleJob({ year: 2026, month: 0, date: 15, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
-    try {
-      logger.info('Processing tech fee expenses for January 15, 2026...');
-      const expenseService = new ExpenseService();
-      await expenseService.processTechFeeExpenses();
-      logger.info('Tech fee expenses processed successfully for January 15, 2026.');
-    } catch (error) {
-      logger.error("Error processing tech fee expenses:", error);
-    }
-  });
+  // // January 15, 2026 at 8 AM EST (one-time)
+  // schedule.scheduleJob({ year: 2026, month: 0, date: 15, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+  //   try {
+  //     logger.info('Processing tech fee expenses for January 15, 2026...');
+  //     const expenseService = new ExpenseService();
+  //     await expenseService.processTechFeeExpenses();
+  //     logger.info('Tech fee expenses processed successfully for January 15, 2026.');
+  //   } catch (error) {
+  //     logger.error("Error processing tech fee expenses:", error);
+  //   }
+  // });
 
-  // February 1, 2026 at 8 AM EST (one-time)
-  schedule.scheduleJob({ year: 2026, month: 1, date: 1, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
-    try {
-      logger.info('Processing tech fee expenses for February 1, 2026...');
-      const expenseService = new ExpenseService();
-      await expenseService.processTechFeeExpenses();
-      logger.info('Tech fee expenses processed successfully for February 1, 2026.');
-    } catch (error) {
-      logger.error("Error processing tech fee expenses:", error);
-    }
-  });
+  // // February 1, 2026 at 8 AM EST (one-time)
+  // schedule.scheduleJob({ year: 2026, month: 1, date: 1, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+  //   try {
+  //     logger.info('Processing tech fee expenses for February 1, 2026...');
+  //     const expenseService = new ExpenseService();
+  //     await expenseService.processTechFeeExpenses();
+  //     logger.info('Tech fee expenses processed successfully for February 1, 2026.');
+  //   } catch (error) {
+  //     logger.error("Error processing tech fee expenses:", error);
+  //   }
+  // });
 
   // 1st of every month at 8 AM EST (recurring, starting March 1, 2026)
   schedule.scheduleJob({ date: 1, hour: 8, minute: 0, tz: "America/New_York" }, async () => {
