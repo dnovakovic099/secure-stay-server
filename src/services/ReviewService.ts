@@ -583,7 +583,7 @@ export class ReviewService {
 
                 const listing = listingMap.get(Number(review.listingMapId))
                     || listingMap.get(Number(reservationInfo?.listingMapId));
-                const propertyType = this.getReviewPropertyType(listing, review as any, reservationInfo as any);
+                const propertyType = this.getReviewPropertyType(listing);
                 const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
@@ -630,21 +630,8 @@ export class ReviewService {
         }
     }
 
-    private getReviewPropertyType(listing?: Listing | null, review?: any, reservationInfo?: any) {
-        const candidates = [listing?.tags, review?.propertyType, reservationInfo?.propertyType, listing?.propertyType];
-
-        for (const candidate of candidates) {
-            if (!candidate || typeof candidate !== 'string') continue;
-            const parts = candidate.split(',').map((part) => part.trim());
-            if (parts.includes('Own')) return 'Own';
-            if (parts.includes('Arb')) return 'Arb';
-            if (parts.includes('pm') || parts.includes('PM')) return 'PM';
-            if (candidate.trim().toLowerCase() === 'pm') return 'PM';
-            if (candidate.trim().toLowerCase() === 'own') return 'Own';
-            if (candidate.trim().toLowerCase() === 'arb') return 'Arb';
-        }
-
-        return null;
+    private getReviewPropertyType(listing?: Listing | null) {
+        return this.extractPropertyTypeFromTags(listing?.tags);
     }
 
     private getReviewIntegration(review?: any, reservationInfo?: any) {
