@@ -596,6 +596,7 @@ export class ReviewService {
                     propertyType,
                     confirmationCode,
                     integration,
+                    status: reviewCheckout?.status || null,
                     issues: issues.filter((issue) => Number(issue.reservation_id) === Number(review.reservationId)) || [],
                     aiAnalysis: guestAnalyses.find((analysis) => Number(analysis.reservationId) === Number(review.reservationId)) || null,
                     guestPhone: reservationInfo?.phone || null,
