@@ -687,10 +687,11 @@ export class ListingService {
       query.andWhere(new Brackets(qb => {
         propertyTypes.forEach((type, index) => {
           const normalizedType = String(type || '').trim().toLowerCase();
+          const clause = "FIND_IN_SET(:type" + index + ", REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', '')) > 0";
           if (index === 0) {
-            qb.where("FIND_IN_SET(:type" + index + ", LOWER(listing.tags)) > 0", { ["type" + index]: normalizedType });
+            qb.where(clause, { ["type" + index]: normalizedType });
           } else {
-            qb.orWhere("FIND_IN_SET(:type" + index + ", LOWER(listing.tags)) > 0", { ["type" + index]: normalizedType });
+            qb.orWhere(clause, { ["type" + index]: normalizedType });
           }
         });
       }));
