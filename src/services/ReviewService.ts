@@ -346,6 +346,15 @@ export class ReviewService {
         );
     }
 
+    private mergeListingIds(current: number[] | null, incoming: Array<number | string>) {
+        const normalizedIncoming = Array.from(
+            new Set((incoming || []).map((value) => Number(value)).filter(Boolean))
+        );
+
+        if (current === null) return normalizedIncoming;
+        return current.filter((value) => normalizedIncoming.includes(value));
+    }
+
     public async getReviews({
         fromDate,
         toDate,
@@ -366,7 +375,7 @@ export class ReviewService {
         sortDir,
     }) {
         try {
-            let listingIds: number[] = [];
+            let listingIds: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
@@ -378,22 +387,23 @@ export class ReviewService {
             if ((!listingId || listingId.length === 0) && owner) {
                 const ownerNames = Array.isArray(owner) ? owner : [owner];
                 const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
-                listingIds = results.flat();
+                listingIds = this.mergeListingIds(listingIds, results.flat());
             }
 
             if (normalizedPropertyTypes.length > 0) {
                 const listingService = new ListingService();
-                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id));
+                const propertyTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id);
+                listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
             }
             
             // Add listingId(s) if provided
             if (listingId && listingId.length > 0) {
                 const ids = Array.isArray(listingId) ? listingId : [listingId];
-                listingIds = listingIds.concat(ids);
+                listingIds = this.mergeListingIds(listingIds, ids);
             }
 
             const condition: Record<string, any> = {
-                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
+                ...(listingIds !== null ? { listingMapId: In(listingIds.length > 0 ? listingIds : [-1]) } : {}),
                 ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
