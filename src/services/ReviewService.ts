@@ -366,6 +366,7 @@ export class ReviewService {
         sortDir,
     }) {
         try {
+            let listingIds: number[] = [];
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
@@ -373,37 +374,26 @@ export class ReviewService {
                     ? [String(status).trim()]
                     : [];
 
-            let filteredListingIds: number[] | null = null;
-
-            if (listingId && listingId.length > 0) {
-                filteredListingIds = Array.from(
-                    new Set((Array.isArray(listingId) ? listingId : [listingId]).map((value) => Number(value)).filter(Boolean))
-                );
-            } else if (owner) {
+            // Determine listing IDs from owner name(s) if provided
+            if ((!listingId || listingId.length === 0) && owner) {
                 const ownerNames = Array.isArray(owner) ? owner : [owner];
-                const results = await Promise.all(ownerNames.map((o) => this.getListingIdsByOwnerName(o)));
-                filteredListingIds = Array.from(new Set(results.flat().map((value) => Number(value)).filter(Boolean)));
+                const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
+                listingIds = results.flat();
             }
 
             if (normalizedPropertyTypes.length > 0) {
                 const listingService = new ListingService();
-                const propertyTypeListingIds = Array.from(
-                    new Set(
-                        (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any))
-                            .map((listing: any) => Number(listing.id))
-                            .filter(Boolean)
-                    )
-                );
-
-                if (filteredListingIds !== null) {
-                    filteredListingIds = filteredListingIds.filter((value) => propertyTypeListingIds.includes(value));
-                } else {
-                    filteredListingIds = propertyTypeListingIds;
-                }
+                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id));
+            }
+            
+            // Add listingId(s) if provided
+            if (listingId && listingId.length > 0) {
+                const ids = Array.isArray(listingId) ? listingId : [listingId];
+                listingIds = listingIds.concat(ids);
             }
 
             const condition: Record<string, any> = {
-                ...(filteredListingIds !== null ? { listingMapId: In(filteredListingIds.length > 0 ? filteredListingIds : [-1]) } : {}),
+                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
                 ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
@@ -593,7 +583,7 @@ export class ReviewService {
 
                 const listing = listingMap.get(Number(review.listingMapId))
                     || listingMap.get(Number(reservationInfo?.listingMapId));
-                const propertyType = this.getReviewPropertyType(listing);
+                const propertyType = this.getReviewPropertyType(listing, review as any, reservationInfo as any);
                 const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
@@ -640,8 +630,21 @@ export class ReviewService {
         }
     }
 
-    private getReviewPropertyType(listing?: Listing | null) {
-        return this.extractPropertyTypeFromTags(listing?.tags);
+    private getReviewPropertyType(listing?: Listing | null, review?: any, reservationInfo?: any) {
+        const candidates = [listing?.tags, review?.propertyType, reservationInfo?.propertyType, listing?.propertyType];
+
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'string') continue;
+            const parts = candidate.split(',').map((part) => part.trim());
+            if (parts.includes('Own')) return 'Own';
+            if (parts.includes('Arb')) return 'Arb';
+            if (parts.includes('pm') || parts.includes('PM')) return 'PM';
+            if (candidate.trim().toLowerCase() === 'pm') return 'PM';
+            if (candidate.trim().toLowerCase() === 'own') return 'Own';
+            if (candidate.trim().toLowerCase() === 'arb') return 'Arb';
+        }
+
+        return null;
     }
 
     private getReviewIntegration(review?: any, reservationInfo?: any) {
