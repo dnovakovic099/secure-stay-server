@@ -346,6 +346,49 @@ export class ReviewService {
         );
     }
 
+    private mergeListingIdConstraint(current: number[] | null, incoming: number[]): number[] | null {
+        const normalizedIncoming = Array.from(new Set((incoming || []).map((value) => Number(value)).filter(Boolean)));
+        if (current === null) return normalizedIncoming;
+        return current.filter((value) => normalizedIncoming.includes(value));
+    }
+
+    private async getListingIdsForReviewPropertyTypes(propertyTypes: string[]) {
+        if (!propertyTypes.length) return [];
+
+        const listingService = new ListingService();
+        const [tagMatchedListings, reservationMatched, reviewMatched] = await Promise.all([
+            listingService.getListingsByPropertyTypes(propertyTypes as any),
+            this.reservationInfoRepo
+                .createQueryBuilder('reservation')
+                .select('reservation.listingMapId', 'listingMapId')
+                .where(new Brackets((qb) => {
+                    propertyTypes.forEach((type, index) => {
+                        qb[index === 0 ? 'where' : 'orWhere'](`LOWER(TRIM(reservation.propertyType)) = :reservationType${index}`, {
+                            [`reservationType${index}`]: type,
+                        });
+                    });
+                }))
+                .getRawMany(),
+            this.reviewRepository
+                .createQueryBuilder('review')
+                .select('review.listingMapId', 'listingMapId')
+                .where(new Brackets((qb) => {
+                    propertyTypes.forEach((type, index) => {
+                        qb[index === 0 ? 'where' : 'orWhere'](`LOWER(TRIM(review.propertyType)) = :reviewType${index}`, {
+                            [`reviewType${index}`]: type,
+                        });
+                    });
+                }))
+                .getRawMany(),
+        ]);
+
+        return Array.from(new Set([
+            ...tagMatchedListings.map((listing: any) => Number(listing.id)),
+            ...reservationMatched.map((item: any) => Number(item.listingMapId)),
+            ...reviewMatched.map((item: any) => Number(item.listingMapId)),
+        ].filter(Boolean)));
+    }
+
     public async getReviews({
         fromDate,
         toDate,
@@ -366,7 +409,7 @@ export class ReviewService {
         sortDir,
     }) {
         try {
-            let listingIds: number[] = [];
+            let listingIdsConstraint: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
@@ -378,22 +421,22 @@ export class ReviewService {
             if ((!listingId || listingId.length === 0) && owner) {
                 const ownerNames = Array.isArray(owner) ? owner : [owner];
                 const results = await Promise.all(ownerNames.map(o => this.getListingIdsByOwnerName(o)));
-                listingIds = results.flat();
+                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, results.flat().map((value) => Number(value)));
             }
 
             if (normalizedPropertyTypes.length > 0) {
-                const listingService = new ListingService();
-                listingIds = listingIds.concat((await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id));
+                const propertyTypeListingIds = await this.getListingIdsForReviewPropertyTypes(normalizedPropertyTypes);
+                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, propertyTypeListingIds);
             }
             
             // Add listingId(s) if provided
             if (listingId && listingId.length > 0) {
                 const ids = Array.isArray(listingId) ? listingId : [listingId];
-                listingIds = listingIds.concat(ids);
+                listingIdsConstraint = this.mergeListingIdConstraint(listingIdsConstraint, ids.map((value) => Number(value)));
             }
 
             const condition: Record<string, any> = {
-                ...(listingIds.length > 0 ? { listingMapId: In(listingIds) } : {}),
+                ...(listingIdsConstraint !== null ? { listingMapId: In(listingIdsConstraint.length > 0 ? listingIdsConstraint : [-1]) } : {}),
                 ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
                 ...(channel && channel.length > 0 ? { channelId: In(channel) } : {}),
             };
