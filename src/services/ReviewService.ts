@@ -356,37 +356,8 @@ export class ReviewService {
         if (!propertyTypes.length) return [];
 
         const listingService = new ListingService();
-        const [tagMatchedListings, reservationMatched, reviewMatched] = await Promise.all([
-            listingService.getListingsByPropertyTypes(propertyTypes as any),
-            this.reservationInfoRepo
-                .createQueryBuilder('reservation')
-                .select('reservation.listingMapId', 'listingMapId')
-                .where(new Brackets((qb) => {
-                    propertyTypes.forEach((type, index) => {
-                        qb[index === 0 ? 'where' : 'orWhere'](`LOWER(TRIM(reservation.propertyType)) = :reservationType${index}`, {
-                            [`reservationType${index}`]: type,
-                        });
-                    });
-                }))
-                .getRawMany(),
-            this.reviewRepository
-                .createQueryBuilder('review')
-                .select('review.listingMapId', 'listingMapId')
-                .where(new Brackets((qb) => {
-                    propertyTypes.forEach((type, index) => {
-                        qb[index === 0 ? 'where' : 'orWhere'](`LOWER(TRIM(review.propertyType)) = :reviewType${index}`, {
-                            [`reviewType${index}`]: type,
-                        });
-                    });
-                }))
-                .getRawMany(),
-        ]);
-
-        return Array.from(new Set([
-            ...tagMatchedListings.map((listing: any) => Number(listing.id)),
-            ...reservationMatched.map((item: any) => Number(item.listingMapId)),
-            ...reviewMatched.map((item: any) => Number(item.listingMapId)),
-        ].filter(Boolean)));
+        const tagMatchedListings = await listingService.getListingsByPropertyTypes(propertyTypes as any);
+        return Array.from(new Set(tagMatchedListings.map((listing: any) => Number(listing.id)).filter(Boolean)));
     }
 
     public async getReviews({
