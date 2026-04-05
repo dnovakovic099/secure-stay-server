@@ -855,7 +855,7 @@ export class ReviewService {
                         listingName: reservationInfo.listingName,
                         externalListingName: null,
                         guestName: reservationInfo.guestName,
-                        listingMapId: reviewData.listing_id,
+                        listingMapId: reservationInfo.listingMapId,
                         channelName: reservationInfo.channelName,
                         isHidden: reviewData?.isHidden || 0,
                         reservationId: reviewData?.reservation_id || null,
