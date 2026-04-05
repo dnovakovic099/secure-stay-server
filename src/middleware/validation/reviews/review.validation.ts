@@ -329,3 +329,22 @@ export const validateBackfillReviewCheckout = (request: Request, response: Respo
     }
     next();
 };
+
+export const validateFixReviewCheckoutCreatedAt = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        startDate: Joi.string()
+            .pattern(/^\d{4}-\d{2}-\d{2}$/)
+            .optional()
+            .messages({ 'string.pattern.base': 'startDate must be in the format "yyyy-mm-dd"' }),
+        endDate: Joi.string()
+            .pattern(/^\d{4}-\d{2}-\d{2}$/)
+            .optional()
+            .messages({ 'string.pattern.base': 'endDate must be in the format "yyyy-mm-dd"' }),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};

@@ -1,7 +1,7 @@
 import { ReviewController } from "../controllers/ReviewController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout, validateCreateLatestUpdate, validateBadReviewUpdateStatus, validateBadReviewLatestUpdate, validateGetBadReview, validateGetLiveIssues, validateCreateLiveIssue, validateUpdateLiveIssue, validateCreateLiveIssueUpdate, validateBackfillReviewCheckout } from "../middleware/validation/reviews/review.validation";
+import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout, validateCreateLatestUpdate, validateBadReviewUpdateStatus, validateBadReviewLatestUpdate, validateGetBadReview, validateGetLiveIssues, validateCreateLiveIssue, validateUpdateLiveIssue, validateCreateLiveIssueUpdate, validateBackfillReviewCheckout, validateFixReviewCheckoutCreatedAt } from "../middleware/validation/reviews/review.validation";
 import { validateReviewDetailsRequest } from "../middleware/validation/reviews/reviewDetail.validation";
 import { ReviewDetailController } from "../controllers/ReviewDetailController";
 
@@ -55,6 +55,8 @@ router.route('/reviewcheckout/update').put(verifySession, validateUpdateReviewFo
 router.route('/reviewcheckout/latest-update/create').post(verifySession,validateCreateLatestUpdate, reviewController.createReviewCheckoutUpdate.bind(reviewController));
 
 router.route('/reviewcheckout/backfill').post(verifySession, validateBackfillReviewCheckout, reviewController.backfillReviewCheckout.bind(reviewController));
+
+router.route('/reviewcheckout/fix-created-at').post(verifySession, validateFixReviewCheckoutCreatedAt, reviewController.fixReviewCheckoutCreatedAt.bind(reviewController));
 
 router.route('/liveissues')
     .get(verifySession, validateGetLiveIssues, reviewController.getLiveIssues.bind(reviewController))
