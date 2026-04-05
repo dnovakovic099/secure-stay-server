@@ -60,6 +60,7 @@ interface Filter {
     isActive?: boolean | null | undefined;
     tab?: string | null | undefined;
     propertyType?: string[] | null | undefined;
+    serviceType?: string[] | null | undefined;
     integration?: string[] | null | undefined;
     fromDate?: string | undefined;
     toDate?: string | undefined;
@@ -382,6 +383,31 @@ export class ReviewService {
         );
     }
 
+    private normalizeServiceTypeFilters(values?: string[] | null) {
+        return Array.from(
+            new Set(
+                (values || [])
+                    .map((value) => String(value || '').trim().toLowerCase())
+                    .flatMap((value) => {
+                        if (!value) return [];
+                        if (value === 'full') return ['full'];
+                        if (value === 'pro') return ['pro'];
+                        if (value === 'launch') return ['launch'];
+                        return [];
+                    })
+            )
+        );
+    }
+
+    private extractServiceTypeFromTags(tags: string | null | undefined): string | null {
+        if (!tags) return null;
+        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
+        if (tagList.includes('full')) return 'Full';
+        if (tagList.includes('pro')) return 'Pro';
+        if (tagList.includes('launch')) return 'Launch';
+        return null;
+    }
+
     private mergeListingIds(current: number[] | null, incoming: Array<number | string>) {
         const normalizedIncoming = Array.from(
             new Set((incoming || []).map((value) => Number(value)).filter(Boolean))
@@ -404,6 +430,7 @@ export class ReviewService {
         isClaimOnly,
         keyword,
         propertyType,
+        serviceType,
         dateType,
         channel,
         integration,
@@ -413,6 +440,7 @@ export class ReviewService {
         try {
             let listingIds: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
+            const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
                 : String(status || '').trim()
@@ -431,7 +459,13 @@ export class ReviewService {
                 const propertyTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id);
                 listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
             }
-            
+
+            if (normalizedServiceTypes.length > 0) {
+                const listingService = new ListingService();
+                const serviceTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedServiceTypes as any)).map(l => l.id);
+                listingIds = this.mergeListingIds(listingIds, serviceTypeListingIds);
+            }
+
             // Add listingId(s) if provided
             if (listingId && listingId.length > 0) {
                 const ids = Array.isArray(listingId) ? listingId : [listingId];
@@ -633,6 +667,7 @@ export class ReviewService {
                 const listing = listingMap.get(Number(review.listingMapId))
                     || listingMap.get(Number(reservationInfo?.listingMapId));
                 const propertyType = this.getReviewPropertyType(listing);
+                const serviceType = this.extractServiceTypeFromTags(listing?.tags);
                 const confirmationCode = this.getReviewConfirmationCode(review as any, reservationInfo as any);
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
@@ -643,6 +678,7 @@ export class ReviewService {
                     arrivalDate,
                     departureDate,
                     propertyType,
+                    serviceType,
                     confirmationCode,
                     integration,
                     status: reviewCheckout?.status || null,
@@ -1114,9 +1150,10 @@ export class ReviewService {
             page, limit, listingMapId, guestName,
             actionItemsStatus, issuesStatus, channel,
             todayDate, status, isActive, tab, keyword,
-            propertyType, integration, fromDate, toDate, dateType,
+            propertyType, serviceType, integration, fromDate, toDate, dateType,
         } = filters;
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
+        const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
 
         //fetch reviewCheckoutList
         const query = this.reviewCheckoutRepo
@@ -1214,6 +1251,19 @@ export class ReviewService {
             }
         } else if (listingMapId && listingMapId.length > 0) {
             query.andWhere("reservationInfo.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId.map(id => Number(id)) });
+        }
+
+        // Service type filter — independently resolves to listing IDs and applies as additional AND constraint
+        if (normalizedServiceTypes.length > 0) {
+            const listingService = new ListingService();
+            const serviceTypeListings = await listingService.getListingsByPropertyTypes(normalizedServiceTypes as any);
+            const serviceTypeListingIds = serviceTypeListings.map((l: any) => Number(l.id));
+            query.andWhere(
+                serviceTypeListingIds.length > 0
+                    ? "reservationInfo.listingMapId IN (:...stListingIds)"
+                    : "1 = 0",
+                serviceTypeListingIds.length > 0 ? { stListingIds: serviceTypeListingIds } : {}
+            );
         }
 
         // Guest name filter
@@ -1392,11 +1442,11 @@ export class ReviewService {
         const transformedData = reviewCheckoutList.map(rc => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
             const enrichedReview = matchedReview
-                ? { ...matchedReview, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))) }
+                ? { ...matchedReview, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))), serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))) }
                 : null;
             const enrichedReviews = reviews
                 .filter(r => r.reservationId == rc.reservationInfo?.id)
-                .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
+                .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))), serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
             return {
                 ...rc,
                 assignee: rc.assignee || null,
@@ -1407,6 +1457,7 @@ export class ReviewService {
                 reservationInfo: {
                     ...rc.reservationInfo,
                     propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))),
+                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))),
                     review: enrichedReview,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,

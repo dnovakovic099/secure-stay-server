@@ -49,6 +49,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         status: Joi.string().required().valid("active", "hidden").allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: arrayOrSingle(Joi.string().required()),
+        serviceType: arrayOrSingle(Joi.string().required()),
         channel: arrayOrSingle(Joi.number()),
         integration: arrayOrSingle(Joi.string().required()),
         sortField: Joi.string().optional().valid(
@@ -119,6 +120,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         page: Joi.number().required(),
         limit: Joi.number().required(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
+        serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
         actionItems: Joi.array().items(
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),
