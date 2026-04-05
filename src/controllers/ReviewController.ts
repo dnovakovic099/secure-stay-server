@@ -70,6 +70,21 @@ export class ReviewController {
         }
     }
 
+    async fixReviewCheckoutCreatedAt(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { startDate, endDate } = request.body;
+            const { fixReviewCheckoutCreatedAt } = await import("../scripts/fixReviewCheckoutCreatedAt");
+            const result = await fixReviewCheckoutCreatedAt(startDate, endDate);
+            return response.status(200).json({
+                success: true,
+                message: `Fix complete — updated: ${result.updated}, skipped: ${result.skipped}, errors: ${result.errors}`,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async backfillReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const { startDate, endDate } = request.body;

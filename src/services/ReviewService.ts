@@ -1596,6 +1596,7 @@ export class ReviewService {
                     status: ReviewCheckoutStatus.TO_CALL,
                     createdBy: "system",
                 });
+                newReviewCheckout.createdAt = new Date(reservation.departureDate);
                 await this.reviewCheckoutRepo.save(newReviewCheckout);
                 created++;
                 logger.info(`[BackfillReviewCheckout] Created review checkout for reservation ID: ${reservation.id} (${reservation.guestName})`);
