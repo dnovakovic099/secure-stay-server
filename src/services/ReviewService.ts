@@ -327,6 +327,42 @@ export class ReviewService {
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private issueRepo = appDatabase.getRepository(Issue);
 
+    /**
+     * Expands display-level status labels (New, In Progress, Completed) into their
+     * actual DB values. Passes through any unrecognized values unchanged.
+     */
+    private expandMitigationStatuses(statuses: string[]): string[] {
+        const expanded: string[] = [];
+        for (const s of statuses) {
+            switch (s) {
+                case 'New':
+                    expanded.push(ReviewCheckoutStatus.TO_CALL);
+                    break;
+                case 'In Progress':
+                    expanded.push(
+                        ReviewCheckoutStatus.CALLED_ONCE,
+                        ReviewCheckoutStatus.FOLLOW_UP_NO_ANSWER,
+                        ReviewCheckoutStatus.FOLLOW_UP_REVIEW_CHECK,
+                        ReviewCheckoutStatus.NO_FURTHER_ACTION_REQUIRED,
+                        ReviewCheckoutStatus.ISSUE,
+                        ReviewCheckoutStatus.LAUNCH,
+                    );
+                    break;
+                case 'Completed':
+                    expanded.push(
+                        ReviewCheckoutStatus.CLOSED_FIVE_STAR,
+                        ReviewCheckoutStatus.CLOSED_BAD_REVIEW,
+                        ReviewCheckoutStatus.CLOSED_NO_REVIEW,
+                        ReviewCheckoutStatus.CLOSED_TRAPPED,
+                    );
+                    break;
+                default:
+                    expanded.push(s);
+            }
+        }
+        return Array.from(new Set(expanded));
+    }
+
     private normalizePropertyTypeFilters(values?: string[] | null) {
         return Array.from(
             new Set(
@@ -1146,14 +1182,16 @@ export class ReviewService {
                 default:
                     // If tab is provided but not recognized, use existing status filter logic
                     if (status && status.length > 0) {
-                        query.andWhere("reviewCheckout.status IN (:...status)", { status });
+                        const expandedStatuses = this.expandMitigationStatuses(status as string[]);
+                        query.andWhere("reviewCheckout.status IN (:...status)", { status: expandedStatuses });
                     }
                     break;
             }
         } else {
             // Legacy status filter (when no tab is specified)
             if (status && status.length > 0) {
-                query.andWhere("reviewCheckout.status IN (:...status)", { status });
+                const expandedStatuses = this.expandMitigationStatuses(status as string[]);
+                query.andWhere("reviewCheckout.status IN (:...status)", { status: expandedStatuses });
             }
         }
 
@@ -1273,7 +1311,8 @@ export class ReviewService {
 
         // Status filter (works alongside tab filtering to further narrow results)
         if (status && status.length > 0) {
-            query.andWhere("reviewCheckout.status IN (:...statusFilter)", { statusFilter: status });
+            const expandedStatuses = this.expandMitigationStatuses(status as string[]);
+            query.andWhere("reviewCheckout.status IN (:...statusFilter)", { statusFilter: expandedStatuses });
         }
 
         query.skip((page - 1) * limit).take(limit);
