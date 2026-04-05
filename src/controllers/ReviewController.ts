@@ -70,6 +70,21 @@ export class ReviewController {
         }
     }
 
+    async backfillReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { startDate, endDate } = request.body;
+            const reviewService = new ReviewService();
+            const result = await reviewService.processReviewCheckoutForDateRange(startDate, endDate);
+            return response.status(200).json({
+                success: true,
+                message: `Backfill complete — created: ${result.created}, skipped: ${result.skipped}, errors: ${result.errors}`,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateReviewVisibility(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
