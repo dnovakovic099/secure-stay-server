@@ -1553,6 +1553,62 @@ export class ReviewService {
 
     }
 
+    async processReviewCheckoutForDateRange(startDate: string, endDate: string): Promise<{ created: number; skipped: number; errors: number }> {
+        let created = 0;
+        let skipped = 0;
+        let errors = 0;
+
+        const validStatus = ["new", "accepted", "modified", "ownerStay", "moved"];
+
+        const reservations = await this.reservationInfoRepo.find({
+            where: {
+                departureDate: Between(startOfDay(new Date(startDate)), endOfDay(new Date(endDate))),
+                status: In(validStatus),
+            },
+            order: { departureDate: "ASC" },
+        });
+
+        logger.info(`[BackfillReviewCheckout] Found ${reservations.length} reservations between ${startDate} and ${endDate}`);
+
+        for (const reservation of reservations) {
+            try {
+                const listingDetail = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+                if (!listingDetail) {
+                    logger.warn(`[BackfillReviewCheckout] Listing not found for reservation ID: ${reservation.id}, skipping`);
+                    skipped++;
+                    continue;
+                }
+
+                const existingReviewCheckout = await this.reviewCheckoutRepo.findOne({
+                    where: { reservationInfo: { id: reservation.id } },
+                });
+
+                if (existingReviewCheckout) {
+                    skipped++;
+                    continue;
+                }
+
+                const newReviewCheckout = this.reviewCheckoutRepo.create({
+                    reservationInfo: reservation,
+                    adjustedCheckoutDate: this.getAdjustedDepartureDate(reservation.departureDate),
+                    sevenDaysAfterCheckout: format(addDays(reservation.departureDate, 7), 'yyyy-MM-dd'),
+                    fourteenDaysAfterCheckout: format(addDays(reservation.departureDate, 14), 'yyyy-MM-dd'),
+                    status: ReviewCheckoutStatus.TO_CALL,
+                    createdBy: "system",
+                });
+                await this.reviewCheckoutRepo.save(newReviewCheckout);
+                created++;
+                logger.info(`[BackfillReviewCheckout] Created review checkout for reservation ID: ${reservation.id} (${reservation.guestName})`);
+            } catch (err) {
+                logger.error(`[BackfillReviewCheckout] Error processing reservation ID: ${reservation.id}`, err);
+                errors++;
+            }
+        }
+
+        logger.info(`[BackfillReviewCheckout] Completed — created: ${created}, skipped: ${skipped}, errors: ${errors}`);
+        return { created, skipped, errors };
+    }
+
     async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; isActive?: boolean }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
