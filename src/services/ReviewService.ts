@@ -30,6 +30,8 @@ import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Issue } from "../entity/Issue";
 import { EscalationSettings } from "../entity/EscalationSettings";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+import { RefundRequestEntity } from "../entity/RefundRequest";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -327,6 +329,50 @@ export class ReviewService {
     private guestAnalysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private issueRepo = appDatabase.getRepository(Issue);
+    private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
+    private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+
+    private async getLatestReservationNotes(reservationIds: number[]) {
+        if (!reservationIds.length) return new Map<number, ReviewDiscussionMessageEntity>();
+        const messages = await this.discussionMessageRepo.find({
+            where: {
+                reservationId: In(reservationIds),
+                sourceType: Equal("note"),
+                parentMessageId: IsNull(),
+            },
+            order: {
+                createdAt: "DESC",
+            },
+        });
+        const latestByReservation = new Map<number, ReviewDiscussionMessageEntity>();
+        messages.forEach((message) => {
+            const reservationId = Number(message.reservationId);
+            if (!reservationId || latestByReservation.has(reservationId)) return;
+            latestByReservation.set(reservationId, message);
+        });
+        return latestByReservation;
+    }
+
+    private async getLatestRefundRequests(reservationIds: number[]) {
+        if (!reservationIds.length) return new Map<number, RefundRequestEntity>();
+        const refunds = await this.refundRequestRepo.find({
+            where: {
+                reservationId: In(reservationIds),
+                deletedAt: IsNull(),
+            },
+            order: {
+                updatedAt: "DESC",
+                createdAt: "DESC",
+            },
+        });
+        const latestByReservation = new Map<number, RefundRequestEntity>();
+        refunds.forEach((refund) => {
+            const reservationId = Number(refund.reservationId);
+            if (!reservationId || latestByReservation.has(reservationId)) return;
+            latestByReservation.set(reservationId, refund);
+        });
+        return latestByReservation;
+    }
 
     /**
      * Expands display-level status labels (New, In Progress, Completed) into their
@@ -632,13 +678,15 @@ export class ReviewService {
             );
 
             const reservationIds = reviews.map((review) => Number(review.reservationId)).filter(Boolean);
-            const [issues, guestAnalyses] = await Promise.all([
+            const [issues, guestAnalyses, latestNotesByReservation, latestRefundsByReservation] = await Promise.all([
                 reservationIds.length > 0
                     ? this.issueRepo.find({ where: { reservation_id: In(reservationIds) } })
                     : Promise.resolve([]),
                 reservationIds.length > 0
                     ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) }, order: { analyzedAt: 'DESC' } })
                     : Promise.resolve([]),
+                this.getLatestReservationNotes(reservationIds),
+                this.getLatestRefundRequests(reservationIds),
             ]);
             const reviewCheckouts = reservationIds.length > 0
                 ? await this.reviewCheckoutRepo.find({
@@ -672,6 +720,13 @@ export class ReviewService {
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
                 const departureDate = this.normalizeReviewDate(reservationInfo?.departureDate || review.departureDate);
+                const latestUpdate = latestNotesByReservation.get(Number(review.reservationId)) || null;
+                const latestRefund = latestRefundsByReservation.get(Number(review.reservationId)) || null;
+                const ownerRevenue = reservationInfo?.owner_revenue ?? null;
+                const refundAmount = latestRefund?.refundAmount ?? null;
+                const refundPercent = ownerRevenue && refundAmount
+                    ? Math.round((Number(refundAmount) / Number(ownerRevenue)) * 100)
+                    : null;
 
                 return {
                     ...review,
@@ -686,12 +741,22 @@ export class ReviewService {
                     aiAnalysis: guestAnalyses.find((analysis) => Number(analysis.reservationId) === Number(review.reservationId)) || null,
                     guestPhone: reservationInfo?.phone || null,
                     bookingAmount: reservationInfo?.totalPrice || null,
+                    ownerRevenue,
                     guestEmail: reservationInfo?.guestEmail || null,
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
                     reviewCheckoutId: reviewCheckout?.id || null,
                     assignee: reviewCheckout?.assignee || null,
                     assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
+                    latestUpdate: latestUpdate ? {
+                        content: latestUpdate.content,
+                        createdAt: latestUpdate.createdAt,
+                        authorName: latestUpdate.authorName,
+                    } : null,
+                    refundAmount,
+                    refundStatus: latestRefund?.status ?? null,
+                    refundExplanation: latestRefund?.explaination ?? null,
+                    refundPercent,
                 };
             });
 
@@ -1396,7 +1461,7 @@ export class ReviewService {
         const actionItemServices = new ActionItemsService();
 
         // Run all secondary queries in parallel for better performance
-        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses] = await Promise.all([
+        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses, latestNotesByReservation, latestRefundsByReservation] = await Promise.all([
             // Fetch reviews
             this.reviewRepository.find({
                 where: {
@@ -1422,7 +1487,9 @@ export class ReviewService {
                     reservationId: In(reservationIds),
                 },
                 order: { analyzedAt: 'DESC' },
-            })
+            }),
+            this.getLatestReservationNotes(reservationIds),
+            this.getLatestRefundRequests(reservationIds),
         ]);
 
         const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
@@ -1447,6 +1514,14 @@ export class ReviewService {
             const enrichedReviews = reviews
                 .filter(r => r.reservationId == rc.reservationInfo?.id)
                 .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))), serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
+            const reservationId = Number(rc.reservationInfo?.id);
+            const latestUpdate = latestNotesByReservation.get(reservationId) || null;
+            const latestRefund = latestRefundsByReservation.get(reservationId) || null;
+            const ownerRevenue = rc.reservationInfo?.owner_revenue ?? null;
+            const refundAmount = latestRefund?.refundAmount ?? null;
+            const refundPercent = ownerRevenue && refundAmount
+                ? Math.round((Number(refundAmount) / Number(ownerRevenue)) * 100)
+                : null;
             return {
                 ...rc,
                 assignee: rc.assignee || null,
@@ -1462,6 +1537,15 @@ export class ReviewService {
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
                     aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
+                    latestUpdate: latestUpdate ? {
+                        content: latestUpdate.content,
+                        createdAt: latestUpdate.createdAt,
+                        authorName: latestUpdate.authorName,
+                    } : null,
+                    refundAmount,
+                    refundStatus: latestRefund?.status ?? null,
+                    refundExplanation: latestRefund?.explaination ?? null,
+                    refundPercent,
                 },
                 reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
                     return {
