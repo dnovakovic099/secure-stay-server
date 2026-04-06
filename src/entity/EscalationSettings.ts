@@ -210,6 +210,31 @@ export class EscalationSettings {
     avoidFillerMessages: boolean;
 
     /**
+     * Alert type toggles — allow managers to enable/disable each category of Slack message
+     */
+
+    /**
+     * Send an alert when a task first becomes overdue (no action after X hours).
+     * Turn off to suppress first-contact overdue alerts for this channel/event.
+     */
+    @Column({ name: 'overdue_alert_enabled', type: 'boolean', default: true })
+    overdueAlertEnabled: boolean;
+
+    /**
+     * Send follow-up reminders for tasks that are already overdue and still unresolved.
+     * Turn off to stop recurring reminder messages.
+     */
+    @Column({ name: 'follow_up_reminders_enabled', type: 'boolean', default: true })
+    followUpRemindersEnabled: boolean;
+
+    /**
+     * Send a daily check-in message for tasks in In Progress status.
+     * Turn off to suppress the morning 10 AM daily reminder for this channel/event.
+     */
+    @Column({ name: 'daily_check_in_enabled', type: 'boolean', default: true })
+    dailyCheckInEnabled: boolean;
+
+    /**
      * User who last updated this setting
      */
     @Column({ name: 'updated_by', nullable: true })

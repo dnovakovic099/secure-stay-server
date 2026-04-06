@@ -339,7 +339,12 @@ export class ZapierWebhookService {
     }
 
     /**
-     * Send completion thank-you message to Slack thread
+     * Send completion review message to Slack thread.
+     * Uses AI to evaluate completion quality:
+     *   - Strong completion → optional praise (if reinforcement enabled)
+     *   - Weak/missing detail → ask for resolution note
+     *   - Escalation flag → tag manager for bad completion
+     * Suppresses generic/useless messages.
      */
     private async sendCompletionMessage(event: ZapierTriggerEvent) {
         try {
@@ -348,26 +353,39 @@ export class ZapierWebhookService {
                 where: { entityType: 'zapier_trigger_event', entityId: event.id }
             });
 
-            if (slackMsg) {
-                const review = await this.aiManager.reviewCompletion(event.id);
-
-                if (!review?.shouldSendMessage || !review.message) {
-                    logger.info(`[ZapierWebhookService][sendCompletionMessage] Suppressed non-useful completion message for event ${event.id}`);
-                    return;
-                }
-
-                await sendSlackMessage({
-                    channel: slackMsg.channel,
-                    text: review.message,
-                }, slackMsg.messageTs);
-
-                event.completionQualityScore = review.completionQuality;
-                event.lastAiReviewSummary = review.reasoningSummary;
-                event.lastAiReviewAt = new Date();
-                await appDatabase.getRepository(ZapierTriggerEvent).save(event);
-
-                logger.info(`[ZapierWebhookService][sendCompletionMessage] Sent reviewed completion message for event ${event.id}`);
+            if (!slackMsg) {
+                logger.warn(`[ZapierWebhookService][sendCompletionMessage] No Slack thread record for event ${event.id} — skipping`);
+                return;
             }
+
+            const review = await this.aiManager.reviewCompletion(event.id);
+
+            if (!review) {
+                logger.info(`[ZapierWebhookService][sendCompletionMessage] Completion review disabled for event ${event.id}`);
+                return;
+            }
+
+            if (!review.shouldSendMessage) {
+                logger.info(`[ZapierWebhookService][sendCompletionMessage] Suppressed non-useful completion message for event ${event.id} (quality=${review.completionQuality.toFixed(2)})`);
+            } else {
+                // Build full message: optional manager mention + body
+                const parts: string[] = [];
+                if (review.managerMention) parts.push(review.managerMention);
+                if (review.message) parts.push(review.message);
+                const fullMessage = parts.join(' ').trim();
+
+                if (fullMessage) {
+                    await sendSlackMessage({ channel: slackMsg.channel, text: fullMessage }, slackMsg.messageTs);
+                    logger.info(`[ZapierWebhookService][sendCompletionMessage] Sent completion review for event ${event.id} (quality=${review.completionQuality.toFixed(2)}, escalate=${review.escalateToManager})`);
+                }
+            }
+
+            // Always persist the AI review result
+            event.completionQualityScore = review.completionQuality;
+            event.lastAiReviewSummary = review.reasoningSummary;
+            event.lastAiReviewAt = new Date();
+            await appDatabase.getRepository(ZapierTriggerEvent).save(event);
+
         } catch (error) {
             logger.error(`[ZapierWebhookService][sendCompletionMessage] Error: ${error}`);
         }

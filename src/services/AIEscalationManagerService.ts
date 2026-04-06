@@ -136,6 +136,7 @@ interface CompletionReview {
     completionQuality: number;
     reasoningSummary: string;
     escalateToManager: boolean;
+    managerMention: string | null;
 }
 
 /**
@@ -447,8 +448,118 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         const context = await this.getTaskContext(taskId, aiSettings);
         if (!context) return null;
 
-        const latestHuman = context.latestHumanReplies[context.latestHumanReplies.length - 1];
-        const latestText = latestHuman?.text?.toLowerCase() || '';
+        return await this.aiReviewCompletion(context, aiSettings);
+    }
+
+    private async aiReviewCompletion(context: TaskContext, settings: AISettings): Promise<CompletionReview> {
+        const threadSummary = context.threadMessages
+            .slice(-20)
+            .map(msg => `${msg.bot_id ? '[BOT]' : '[USER]'} ${msg.username || msg.user || 'unknown'}: ${msg.text?.substring(0, 200)}`)
+            .join('\n');
+
+        const latestReplies = context.latestHumanReplies
+            .map(msg => msg.text?.substring(0, 200))
+            .join('\n');
+
+        const settingFlags = [
+            `requireClearResolution: ${settings.requireClearResolution}`,
+            `askForMissingDetails: ${settings.askForMissingDetails}`,
+            `escalateWeakCompletion: ${settings.escalateWeakCompletion}`,
+            `suppressGenericMessages: ${settings.suppressGenericMessages}`,
+            `allowPositiveReinforcement: ${settings.allowPositiveReinforcement}`,
+            `toneStyle: ${settings.toneStyle}`,
+        ].join('\n');
+
+        const prompt = `A GR (Guest Relations) task has just been marked Completed. Review the thread and evaluate the quality of the resolution.
+
+TASK METADATA
+- Event type: ${context.event.event}
+- Title: ${context.event.title || 'N/A'}
+- Original issue: ${(context.event.message || '').substring(0, 500)}
+- Hours since created: ${context.hoursSinceCreation}
+- Reminder count: ${context.reminderCount}
+- Assigned rep: ${context.assignedRepName || 'None'}
+
+LATEST REP REPLIES (most recent first)
+${latestReplies || 'No human replies found'}
+
+FULL THREAD (last 20 messages)
+${threadSummary || 'No thread activity'}
+
+SETTINGS
+${settingFlags}
+
+Evaluate whether the task was truly resolved and whether the thread contains enough detail for audit/accountability.
+
+Return JSON:
+{
+  "completion_quality": number (0.0 to 1.0),
+  "resolution_evident": boolean,
+  "missing_details": string or null,
+  "should_send_message": boolean,
+  "message": string or null,
+  "escalate_to_manager": boolean,
+  "reasoning_summary": string
+}
+
+Rules:
+- completion_quality >= 0.85: strong close-out with clear resolution evidence
+- completion_quality 0.55-0.84: acceptable but missing some detail
+- completion_quality < 0.55: unclear or incomplete resolution
+- Only set should_send_message=true if there is a genuinely useful message to send
+- Never send a generic thank-you or filler message
+- If suppressGenericMessages is true, only send messages that add operational value
+- If allowPositiveReinforcement is false, do not praise the rep
+- escalate_to_manager only if escalateWeakCompletion is true AND quality is low
+- message must be ≤ 2 sentences, direct, and actionable`;
+
+        try {
+            const openai = this.getOpenAI();
+            const persona = this.MANAGER_PERSONAS[settings.aiMode] || this.MANAGER_PERSONAS.standard;
+            const response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: `${persona}\n\nReturn only valid JSON.` },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.15,
+                max_tokens: 350,
+                response_format: { type: 'json_object' }
+            });
+
+            const content = response.choices[0]?.message?.content;
+            if (!content) throw new Error('Empty AI response for completion review');
+
+            const parsed = JSON.parse(content);
+            const completionQuality = this.normalizeScore(parsed.completion_quality, 0.4);
+            const message = this.cleanOperationalMessage(parsed.message);
+            const shouldSend = parsed.should_send_message === true && !!message;
+            const escalateToManager = parsed.escalate_to_manager === true && settings.escalateWeakCompletion;
+            const managerMention = escalateToManager && settings.managerTagBadCompletion
+                ? `<@${settings.managerTagBadCompletion}>`
+                : null;
+            const reasoningSummary = typeof parsed.reasoning_summary === 'string'
+                ? parsed.reasoning_summary
+                : `AI completion review scored ${completionQuality.toFixed(2)}`;
+
+            logger.info(`[AIEscalationManager] Completion review for task ${context.event.id}: quality=${completionQuality.toFixed(2)}, send=${shouldSend}, escalate=${escalateToManager}`);
+
+            return {
+                shouldSendMessage: shouldSend || escalateToManager,
+                message: shouldSend ? message || null : null,
+                completionQuality,
+                reasoningSummary,
+                escalateToManager,
+                managerMention
+            };
+        } catch (error) {
+            logger.warn('[AIEscalationManager] AI completion review failed, using heuristic fallback:', error);
+            return this.heuristicCompletionReview(context, settings);
+        }
+    }
+
+    private heuristicCompletionReview(context: TaskContext, settings: AISettings): CompletionReview {
+        const latestText = (context.latestHumanReplies[context.latestHumanReplies.length - 1]?.text || '').toLowerCase();
         const hasResolutionKeywords = /(resolved|fixed|completed|done|guest confirmed|issue handled|refund sent|sent update)/.test(latestText);
         const hasDetail = latestText.split(/\s+/).length >= 8;
 
@@ -461,34 +572,29 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         let escalateToManager = false;
 
         if (completionQuality >= 0.85) {
-            if (aiSettings.allowPositiveReinforcement) {
-                message = 'Nice close-out. The thread shows clear resolution details, so this looks ready to stay completed.';
+            if (settings.allowPositiveReinforcement) {
+                message = 'Good close-out — the thread shows clear resolution details.';
             }
         } else if (completionQuality >= 0.55) {
-            if (aiSettings.askForMissingDetails) {
-                message = 'Before we leave this closed, please add one quick note on the final resolution so the thread is easier to audit later.';
+            if (settings.askForMissingDetails) {
+                message = 'Please add a brief note on the final resolution so the thread is easier to audit.';
             }
-        } else if (aiSettings.requireClearResolution) {
-            message = 'This was marked completed, but the thread does not clearly show the final resolution yet. Please add the outcome, guest impact, and next step if anything is still pending.';
-            escalateToManager = aiSettings.escalateWeakCompletion;
+        } else if (settings.requireClearResolution) {
+            message = 'Marked completed, but the thread does not clearly show the resolution. Please add the outcome and any pending next steps.';
+            escalateToManager = settings.escalateWeakCompletion;
         }
 
-        if (aiSettings.suppressGenericMessages && !message) {
-            return {
-                shouldSendMessage: false,
-                message: null,
-                completionQuality,
-                reasoningSummary: 'Completion review found no useful follow-up message.',
-                escalateToManager
-            };
-        }
+        const managerMention = escalateToManager && settings.managerTagBadCompletion
+            ? `<@${settings.managerTagBadCompletion}>`
+            : null;
 
         return {
-            shouldSendMessage: !!message,
+            shouldSendMessage: !!message || escalateToManager,
             message,
             completionQuality,
-            reasoningSummary: `Completion review scored ${completionQuality.toFixed(2)} based on the latest completion evidence in-thread.`,
-            escalateToManager
+            reasoningSummary: `Heuristic completion review: quality=${completionQuality.toFixed(2)}`,
+            escalateToManager,
+            managerMention
         };
     }
 
