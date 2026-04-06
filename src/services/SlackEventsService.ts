@@ -45,19 +45,19 @@ export class SlackEventsService {
         try {
             // Skip if not a thread reply (no thread_ts means it's a root message)
             if (!event.thread_ts) {
-                logger.info('[SlackEventsService] Skipping: Not a thread reply');
+                logger.debug('[SlackEventsService] Skipping: Not a thread reply');
                 return;
             }
 
             // Skip if it's the same as the root message (thread_ts === ts for root messages)
             if (event.thread_ts === event.ts) {
-                logger.info('[SlackEventsService] Skipping: Root message, not a reply');
+                logger.debug('[SlackEventsService] Skipping: Root message, not a reply');
                 return;
             }
 
             // Skip bot messages (including our own bot) to prevent infinite loops
             if (event.bot_id || event.subtype === 'bot_message') {
-                logger.info('[SlackEventsService] Skipping: Bot message');
+                logger.debug(`[SlackEventsService] Skipping: Bot message — channel=${event.channel} ts=${event.ts}`);
                 return;
             }
 
@@ -69,9 +69,11 @@ export class SlackEventsService {
             });
 
             if (!slackMessageRecord) {
-                logger.info(`[SlackEventsService] No tracking record found for thread_ts: ${event.thread_ts}`);
+                logger.debug(`[SlackEventsService] No tracking record found for thread_ts=${event.thread_ts} channel=${event.channel} — not a tracked entity`);
                 return;
             }
+
+            logger.info(`[SlackEventsService] Thread reply received — entityType=${slackMessageRecord.entityType} entityId=${slackMessageRecord.entityId} channel=${event.channel} ts=${event.ts}`);
 
             // ----- Route according to entityType -----
 
@@ -234,18 +236,17 @@ export class SlackEventsService {
      * Routes to AI Escalation Manager for conversational responses
      */
     async handleAppMention(event: SlackAppMentionEvent): Promise<void> {
-        try {
-            logger.info(`[SlackEventsService] App mention received in channel ${event.channel}`);
+        const threadTs = event.thread_ts || event.ts;
 
-            // Get the thread_ts (if in a thread) or use ts for root-level mentions
-            const threadTs = event.thread_ts || event.ts;
+        try {
+            logger.info(`[SlackEventsService] App mention received — channel=${event.channel} user=${event.user} thread=${threadTs} ts=${event.ts}`);
 
             // Extract the actual message (remove the bot mention)
             const botMentionRegex = /<@[A-Z0-9]+>/g;
             const userMessage = event.text.replace(botMentionRegex, '').trim();
 
             if (!userMessage) {
-                // Just mentioned with no message, send a helpful response
+                logger.info(`[SlackEventsService] Mention with no message body — sending help response. channel=${event.channel} thread=${threadTs}`);
                 await sendSlackMessage({
                     channel: event.channel,
                     text: "👋 Hi! I'm the GR Tasks AI Manager. You can ask me about task status, request extensions, or provide updates. How can I help?"
@@ -253,33 +254,56 @@ export class SlackEventsService {
                 return;
             }
 
+            logger.info(`[SlackEventsService] Generating AI response for mention — channel=${event.channel} thread=${threadTs} msgLength=${userMessage.length}`);
+
+            // Look up the GR task linked to this thread
+            const slackMsgRecord = await this.slackMessageRepo.findOne({
+                where: { channel: event.channel, messageTs: threadTs, entityType: 'zapier_trigger_event' }
+            }).catch((lookupErr) => {
+                logger.error(`[SlackEventsService] Thread lookup DB error — channel=${event.channel} thread=${threadTs}: ${lookupErr}`);
+                return null;
+            });
+
+            if (!slackMsgRecord) {
+                logger.warn(`[SlackEventsService] No GR task tracking record found for mention — channel=${event.channel} thread=${threadTs}. Mention will not be answered by AI.`);
+                return;
+            }
+
+            logger.info(`[SlackEventsService] Found GR task ${slackMsgRecord.entityId} for mention — channel=${event.channel} thread=${threadTs}`);
+
             // Use AI Manager to generate a response
-            const aiManager = new AIEscalationManagerService();
-            const response = await aiManager.handleMention(event.channel, threadTs, userMessage, event.user);
+            let response: string | null = null;
+            try {
+                const aiManager = new AIEscalationManagerService();
+                response = await aiManager.handleMention(event.channel, threadTs, userMessage, event.user);
+                logger.info(`[SlackEventsService] AI response generated — channel=${event.channel} thread=${threadTs} responseLength=${response?.length ?? 0}`);
+            } catch (aiError) {
+                logger.error(`[SlackEventsService] AI response generation failed — channel=${event.channel} thread=${threadTs}: ${aiError}`);
+                response = null;
+            }
 
             if (response) {
-                // Send the AI response as a thread reply
-                await sendSlackMessage({
-                    channel: event.channel,
-                    text: response
-                }, threadTs);
-                logger.info(`[SlackEventsService] Sent AI response for mention in ${event.channel}`);
+                try {
+                    await sendSlackMessage({ channel: event.channel, text: response }, threadTs);
+                    logger.info(`[SlackEventsService] AI reply posted — channel=${event.channel} thread=${threadTs}`);
+                } catch (postError) {
+                    logger.error(`[SlackEventsService] Failed to post AI reply — channel=${event.channel} thread=${threadTs}: ${postError}`);
+                }
             } else {
-                logger.warn(`[SlackEventsService] AI mention produced no response for channel=${event.channel} thread=${threadTs}`);
+                logger.warn(`[SlackEventsService] AI mention produced no response — channel=${event.channel} thread=${threadTs} taskId=${slackMsgRecord.entityId}`);
             }
 
         } catch (error) {
-            logger.error('[SlackEventsService] Error handling app mention:', error);
-            
-            // Send error response
+            logger.error(`[SlackEventsService] Unhandled error in handleAppMention — channel=${event.channel} thread=${threadTs}: ${error}`);
+
+            // Send a user-facing error message so the rep knows something went wrong
             try {
-                const threadTs = event.thread_ts || event.ts;
                 await sendSlackMessage({
                     channel: event.channel,
-                    text: "I encountered an error processing your message. Please try again or contact support."
+                    text: "I encountered an error processing your message. Please try again or check the AI logs for details."
                 }, threadTs);
             } catch (sendError) {
-                logger.error('[SlackEventsService] Failed to send error message:', sendError);
+                logger.error(`[SlackEventsService] Failed to send error fallback message — channel=${event.channel} thread=${threadTs}: ${sendError}`);
             }
         }
     }

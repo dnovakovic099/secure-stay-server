@@ -50,12 +50,28 @@ export class EscalationService {
             'ADD COLUMN IF NOT EXISTS assigned_rep_slack_id VARCHAR(100) NULL'
         ];
 
+        const settingsColumns = [
+            'ADD COLUMN IF NOT EXISTS overdue_alert_enabled BOOLEAN NOT NULL DEFAULT true',
+            'ADD COLUMN IF NOT EXISTS follow_up_reminders_enabled BOOLEAN NOT NULL DEFAULT true',
+            'ADD COLUMN IF NOT EXISTS daily_check_in_enabled BOOLEAN NOT NULL DEFAULT true',
+        ];
+
         for (const sql of taskColumns) {
             try {
                 await appDatabase.query(`ALTER TABLE zapier_trigger_events ${sql}`);
             } catch (error: any) {
                 if (!error.message?.includes('already exists') && !error.message?.includes('duplicate column')) {
                     logger.warn('[EscalationService] Failed to ensure zapier_trigger_events column:', error.message);
+                }
+            }
+        }
+
+        for (const sql of settingsColumns) {
+            try {
+                await appDatabase.query(`ALTER TABLE escalation_settings ${sql}`);
+            } catch (error: any) {
+                if (!error.message?.includes('already exists') && !error.message?.includes('duplicate column')) {
+                    logger.warn('[EscalationService] Failed to ensure escalation_settings column:', error.message);
                 }
             }
         }
@@ -107,24 +123,33 @@ export class EscalationService {
     }
 
     /**
-     * Get settings for determining overdue threshold and reminder interval
+     * Get settings for determining overdue threshold, reminder interval, and alert toggles.
      */
     private async getEscalationSettings(slackChannel: string | null): Promise<{
         overdueThresholdHours: number;
         reminderIntervalHours: number;
+        overdueAlertEnabled: boolean;
+        followUpRemindersEnabled: boolean;
+        dailyCheckInEnabled: boolean;
     }> {
         const channelName = (slackChannel || '').replace(/^#/, '').toLowerCase();
-        
+
         try {
             const settings = await this.settingsService.getSettingsByKey(channelName);
             return {
                 overdueThresholdHours: settings?.overdueThresholdHours || DEFAULT_OVERDUE_THRESHOLD_HOURS,
                 reminderIntervalHours: settings?.reminderIntervalHours || DEFAULT_REMINDER_INTERVAL_HOURS,
+                overdueAlertEnabled: settings?.overdueAlertEnabled ?? true,
+                followUpRemindersEnabled: settings?.followUpRemindersEnabled ?? true,
+                dailyCheckInEnabled: settings?.dailyCheckInEnabled ?? true,
             };
         } catch (error) {
             return {
                 overdueThresholdHours: DEFAULT_OVERDUE_THRESHOLD_HOURS,
                 reminderIntervalHours: DEFAULT_REMINDER_INTERVAL_HOURS,
+                overdueAlertEnabled: true,
+                followUpRemindersEnabled: true,
+                dailyCheckInEnabled: true,
             };
         }
     }
@@ -334,12 +359,13 @@ export class EscalationService {
 
     /**
      * Process overdue tasks (runs every 5 minutes)
-     * 
-     * 1. Find newly-overdue tasks (New for 4+ hours, not yet flagged)
-     *    → Post first overdue alert, set is_overdue = true
-     * 
-     * 2. Find already-overdue tasks needing hourly reminders
-     *    → Generate AI context summary, post reminder to Slack thread
+     *
+     * 1. Find newly-overdue tasks (New for threshold+ hours, not yet flagged)
+     *    → Route through AI for first alert, set is_overdue = true
+     *    → Per-channel overdue threshold is checked per task (defaults to 4h)
+     *
+     * 2. Find already-overdue tasks whose next_follow_up_at is due
+     *    → Route through AI for follow-up decision
      */
     async processOverdueTasks(): Promise<void> {
         await this.ensureSchema();
@@ -347,67 +373,95 @@ export class EscalationService {
         const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
         const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
-        const overdueThreshold = new Date(Date.now() - DEFAULT_OVERDUE_THRESHOLD_HOURS * 60 * 60 * 1000);
+        // Use the minimum possible threshold as the query window (conservative 1h)
+        // Per-task validation happens inside the loop using channel-specific settings
+        const queryThreshold = new Date(Date.now() - 1 * 60 * 60 * 1000);
         const reminderThreshold = new Date(Date.now() - DEFAULT_REMINDER_INTERVAL_HOURS * 60 * 60 * 1000);
 
         // ── Step 1: Flag newly overdue tasks ──
         try {
-            const newlyOverdue = await eventRepo
+            const newlyOverdueCandidates = await eventRepo
                 .createQueryBuilder('event')
                 .where('event.status = :status', { status: 'New' })
                 .andWhere('event.is_overdue = :isOverdue', { isOverdue: false })
-                .andWhere('event.created_at < :threshold', { threshold: overdueThreshold })
+                .andWhere('event.created_at < :threshold', { threshold: queryThreshold })
                 .getMany();
 
-            if (newlyOverdue.length > 0) {
-                logger.info(`[EscalationService] Found ${newlyOverdue.length} newly overdue tasks`);
+            if (newlyOverdueCandidates.length > 0) {
+                logger.info(`[EscalationService] Found ${newlyOverdueCandidates.length} newly overdue candidates to evaluate`);
             }
 
-            for (const event of newlyOverdue) {
+            for (const event of newlyOverdueCandidates) {
                 try {
+                    // Check per-channel settings (threshold + alert toggle)
+                    const channelSettings = await this.getEscalationSettings(event.slackChannel);
+
+                    if (!channelSettings.overdueAlertEnabled) {
+                        logger.debug(`[EscalationService] Overdue alert disabled for event ${event.id} (channel: ${event.slackChannel}) — skipping`);
+                        continue;
+                    }
+
+                    const thresholdHours = channelSettings.overdueThresholdHours || DEFAULT_OVERDUE_THRESHOLD_HOURS;
+                    const taskAgeHours = (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60);
+                    if (taskAgeHours < thresholdHours) {
+                        // Not yet overdue per this channel's settings
+                        continue;
+                    }
+
                     const isActive = await this.isEscalationActiveForEvent(event);
                     if (!isActive) {
                         continue;
                     }
 
-                    // Get Slack message info
                     const slackMsg = await slackMessageRepo.findOne({
                         where: { entityType: 'zapier_trigger_event', entityId: event.id }
                     });
 
-                    if (slackMsg) {
-                        const hoursSinceCreation = Math.floor(
-                            (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60)
-                        );
-
-                        // Get appropriate mention based on channel and shift status
-                        const mention = await this.getMentionForChannel(event.slackChannel);
-
-                        const alertText = [
-                            `${mention} 🚨 *OVERDUE TASK*`,
-                            ``,
-                            `This task has been in *New* status for *${hoursSinceCreation} hours* without being picked up.`,
-                            ``,
-                            `*Event:* ${event.event}`,
-                            event.title ? `*Title:* ${event.title}` : null,
-                            ``,
-                            `Please pick this up and move to *In Progress*, or mark *Completed* if already resolved.`,
-                        ].filter(Boolean).join('\n');
-
-                        const sent = await this.sendThreadReply(slackMsg.channel, alertText, slackMsg.messageTs, event.id);
-                        if (!sent) continue;
-
-                        // Update escalation state only after successfully sending the Slack message
-                        event.isOverdue = true;
-                        event.escalationLevel = 1;
-                        event.lastReminderAt = new Date();
-                        event.reminderCount = 1;
-                        const settings = await this.getEscalationSettings(event.slackChannel);
-                        event.nextFollowUpAt = new Date(Date.now() + settings.reminderIntervalHours * 60 * 60 * 1000);
-                        await eventRepo.save(event);
-                    } else {
-                        logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping escalation, will retry next cycle`);
+                    if (!slackMsg) {
+                        logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping, will retry`);
+                        continue;
                     }
+
+                    // Mark overdue now so even if AI fails, it won't re-trigger this path
+                    event.isOverdue = true;
+                    event.escalationLevel = 1;
+                    event.lastReminderAt = new Date();
+                    event.reminderCount = 1;
+                    event.nextFollowUpAt = new Date(Date.now() + channelSettings.reminderIntervalHours * 60 * 60 * 1000);
+                    await eventRepo.save(event);
+
+                    // ── AI-POWERED FIRST ALERT ──
+                    if (AI_ESCALATION_ENABLED) {
+                        try {
+                            const decision = await this.aiManager.analyzeAndDecide(event.id);
+                            const isFallback = decision.action === 'REMIND' && decision.message === 'FALLBACK_TO_STANDARD';
+
+                            if (!isFallback) {
+                                await this.aiManager.executeDecision(event.id, decision, slackMsg.channel, slackMsg.messageTs);
+                                logger.info(`[EscalationService] AI first alert for newly overdue event ${event.id}: ${decision.action}`);
+                                continue;
+                            }
+                            logger.info(`[EscalationService] AI disabled for event ${event.id}, using fallback first alert`);
+                        } catch (aiError) {
+                            logger.warn(`[EscalationService] AI first alert failed for event ${event.id}, using fallback: ${aiError}`);
+                        }
+                    }
+
+                    // ── FALLBACK FIRST ALERT (AI disabled or failed) ──
+                    const hoursSinceCreation = Math.floor(taskAgeHours);
+                    const mention = await this.getMentionForChannel(event.slackChannel);
+                    const alertText = [
+                        `${mention} 🚨 *OVERDUE TASK*`,
+                        ``,
+                        `This task has been in *New* status for *${hoursSinceCreation} hours* without being picked up.`,
+                        ``,
+                        `*Event:* ${event.event}`,
+                        event.title ? `*Title:* ${event.title}` : null,
+                        ``,
+                        `Please pick this up and move to *In Progress*, or mark *Completed* if already resolved.`,
+                    ].filter(Boolean).join('\n');
+
+                    await this.sendThreadReply(slackMsg.channel, alertText, slackMsg.messageTs, event.id);
 
                 } catch (error) {
                     logger.error(`[EscalationService] Failed to process newly overdue event ${event.id}: ${error}`);
@@ -436,7 +490,12 @@ export class EscalationService {
             for (const event of needsReminder) {
                 try {
                     const isActive = await this.isEscalationActiveForEvent(event);
-                    if (!isActive) {
+                    if (!isActive) continue;
+
+                    // Check if follow-up reminders are enabled for this channel
+                    const reminderSettings = await this.getEscalationSettings(event.slackChannel);
+                    if (!reminderSettings.followUpRemindersEnabled) {
+                        logger.debug(`[EscalationService] Follow-up reminders disabled for event ${event.id} (channel: ${event.slackChannel}) — skipping`);
                         continue;
                     }
 
@@ -532,9 +591,9 @@ export class EscalationService {
 
     /**
      * Process daily reminders for In Progress tasks (runs daily at 10 AM)
-     * 
-     * Posts a reminder to the Slack thread for every task in "In Progress" status,
-     * tagging the GR user group.
+     *
+     * Routes each In Progress task through AI to decide if a check-in is useful.
+     * Falls back to a standard daily reminder if AI is disabled or fails.
      */
     async processDailyReminders(): Promise<void> {
         const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
@@ -550,12 +609,17 @@ export class EscalationService {
                 return;
             }
 
-            logger.info(`[EscalationService] Sending daily reminders for ${inProgressTasks.length} In Progress tasks`);
+            logger.info(`[EscalationService] Processing daily check-in for ${inProgressTasks.length} In Progress tasks`);
 
             for (const event of inProgressTasks) {
                 try {
                     const isActive = await this.isEscalationActiveForEvent(event);
-                    if (!isActive) {
+                    if (!isActive) continue;
+
+                    // Check if daily check-ins are enabled for this channel
+                    const checkInSettings = await this.getEscalationSettings(event.slackChannel);
+                    if (!checkInSettings.dailyCheckInEnabled) {
+                        logger.debug(`[EscalationService] Daily check-in disabled for event ${event.id} (channel: ${event.slackChannel}) — skipping`);
                         continue;
                     }
 
@@ -563,34 +627,66 @@ export class EscalationService {
                         where: { entityType: 'zapier_trigger_event', entityId: event.id }
                     });
 
-                    if (slackMsg) {
-                        const daysSinceCreation = Math.floor(
-                            (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60 * 24)
-                        );
-
-                        // Get appropriate mention based on channel and shift status
-                        const mention = await this.getMentionForChannel(event.slackChannel);
-
-                        const reminderText = [
-                            `${mention} 📋 *Daily Check-in* — Task is *In Progress* (day ${daysSinceCreation + 1})`,
-                            ``,
-                            `*Event:* ${event.event}`,
-                            event.title ? `*Title:* ${event.title}` : null,
-                            ``,
-                            `If this is resolved, please mark it as *Completed*. Otherwise, let the team know the current status.`,
-                        ].filter(Boolean).join('\n');
-
-                        const sent = await this.sendThreadReply(slackMsg.channel, reminderText, slackMsg.messageTs, event.id);
-                        if (!sent) continue;
-
-                        // Update last reminder timestamp
-                        event.lastReminderAt = new Date();
-                        await eventRepo.save(event);
-
-                        logger.info(`[EscalationService] Sent daily reminder for In Progress event ${event.id}`);
-                    } else {
-                        logger.warn(`[EscalationService] No Slack message record found for In Progress event ${event.id} — skipping daily reminder`);
+                    if (!slackMsg) {
+                        logger.warn(`[EscalationService] No Slack message record for In Progress event ${event.id} — skipping daily reminder`);
+                        continue;
                     }
+
+                    // ── AI-POWERED DAILY CHECK-IN ──
+                    if (AI_ESCALATION_ENABLED) {
+                        try {
+                            const decision = await this.aiManager.analyzeAndDecide(event.id);
+                            const isFallback = decision.action === 'REMIND' && decision.message === 'FALLBACK_TO_STANDARD';
+
+                            if (!isFallback) {
+                                // AI decided to SKIP → no message needed today for this task
+                                if (decision.action === 'SKIP') {
+                                    logger.info(`[EscalationService] AI skipped daily check-in for event ${event.id} (no useful message)`);
+                                    continue;
+                                }
+
+                                const executed = await this.aiManager.executeDecision(
+                                    event.id,
+                                    decision,
+                                    slackMsg.channel,
+                                    slackMsg.messageTs
+                                );
+
+                                if (executed) {
+                                    event.lastReminderAt = new Date();
+                                    await eventRepo.save(event);
+                                    logger.info(`[EscalationService] AI daily check-in for event ${event.id}: ${decision.action}`);
+                                }
+                                continue;
+                            }
+                            logger.info(`[EscalationService] AI disabled for event ${event.id}, using fallback daily reminder`);
+                        } catch (aiError) {
+                            logger.warn(`[EscalationService] AI daily check-in failed for event ${event.id}, using fallback: ${aiError}`);
+                        }
+                    }
+
+                    // ── FALLBACK DAILY REMINDER (AI disabled or failed) ──
+                    const daysSinceCreation = Math.floor(
+                        (Date.now() - new Date(event.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+                    );
+                    const mention = await this.getMentionForChannel(event.slackChannel);
+
+                    const reminderText = [
+                        `${mention} 📋 *Daily Check-in* — Task is *In Progress* (day ${daysSinceCreation + 1})`,
+                        ``,
+                        `*Event:* ${event.event}`,
+                        event.title ? `*Title:* ${event.title}` : null,
+                        ``,
+                        `If this is resolved, please mark it as *Completed*. Otherwise, please share the current status.`,
+                    ].filter(Boolean).join('\n');
+
+                    const sent = await this.sendThreadReply(slackMsg.channel, reminderText, slackMsg.messageTs, event.id);
+                    if (!sent) continue;
+
+                    event.lastReminderAt = new Date();
+                    await eventRepo.save(event);
+
+                    logger.info(`[EscalationService] Sent fallback daily reminder for In Progress event ${event.id}`);
                 } catch (error) {
                     logger.error(`[EscalationService] Failed to send daily reminder for event ${event.id}: ${error}`);
                 }

@@ -1,0 +1,41 @@
+-- Migration: Add AI behavior/configuration columns to escalation_settings
+-- Date: 2026-04-06
+-- Fix: Unknown column 'EscalationSettings.read_slack_replies' in 'field list'
+-- These columns were added to the entity after the initial 20260303 table creation.
+
+ALTER TABLE escalation_settings
+    ADD COLUMN IF NOT EXISTS read_slack_replies BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS use_conversation_context BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS reply_when_tagged BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS count_acknowledgment_as_activity BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS require_actionable_responses BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS use_ai_for_decisions BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS min_follow_up_minutes INT NOT NULL DEFAULT 30,
+    ADD COLUMN IF NOT EXISTS max_follow_up_minutes INT NOT NULL DEFAULT 480,
+    ADD COLUMN IF NOT EXISTS allow_ai_adjust_timing BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS urgency_overrides_timing BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS evaluate_acknowledgment BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS evaluate_vague_reply BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS evaluate_eta BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS evaluate_actionable_update BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS evaluate_completion BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS enable_completion_review BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS require_clear_resolution BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS ask_for_missing_details BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS escalate_weak_completion BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS suppress_generic_messages BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS allow_positive_reinforcement BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS manager_tag_serious VARCHAR(50) NULL,
+    ADD COLUMN IF NOT EXISTS manager_tag_neglect VARCHAR(50) NULL,
+    ADD COLUMN IF NOT EXISTS manager_tag_bad_completion VARCHAR(50) NULL,
+    ADD COLUMN IF NOT EXISTS neglect_threshold INT NOT NULL DEFAULT 2,
+    ADD COLUMN IF NOT EXISTS immediate_escalation BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS vague_reply_escalation BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS only_follow_up_on_shift BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS delay_if_off_shift BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS escalate_urgent_off_shift BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS fallback_timing_minutes INT NOT NULL DEFAULT 60,
+    ADD COLUMN IF NOT EXISTS tone_style VARCHAR(50) NOT NULL DEFAULT 'supportive_firm',
+    ADD COLUMN IF NOT EXISTS encourage_clarity BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS push_for_next_steps BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS avoid_filler_messages BOOLEAN NOT NULL DEFAULT true;
