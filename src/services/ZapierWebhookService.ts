@@ -6,6 +6,7 @@ import { EmailProcessor } from '../utils/emailProcessor.util';
 import sendSlackMessage from '../utils/sendSlackMsg';
 import updateSlackMessage from '../utils/updateSlackMsg';
 import { SlackMessageService } from './SlackMessageService';
+import { AIEscalationManagerService } from './AIEscalationManagerService';
 import { buildZapierEventSlackMessage, buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from '../utils/slackMessageBuilder';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 
@@ -20,6 +21,7 @@ export enum ZapierEventStatus {
 
 export class ZapierWebhookService {
     private slackMessageService = new SlackMessageService();
+    private aiManager = new AIEscalationManagerService();
 
     async processWebhook(payload: any): Promise<{ status: string; message: string; eventId?: number; }> {
         logger.info(`[ZapierWebhookService][processWebhook] Received payload: ${JSON.stringify(payload)}`);
@@ -347,14 +349,24 @@ export class ZapierWebhookService {
             });
 
             if (slackMsg) {
-                const completionText = `✅ Thanks team! Marked *Completed*. Appreciate the quick turnaround—please keep an eye on GR Tasks so nothing sits too long.`;
-                
+                const review = await this.aiManager.reviewCompletion(event.id);
+
+                if (!review?.shouldSendMessage || !review.message) {
+                    logger.info(`[ZapierWebhookService][sendCompletionMessage] Suppressed non-useful completion message for event ${event.id}`);
+                    return;
+                }
+
                 await sendSlackMessage({
                     channel: slackMsg.channel,
-                    text: completionText,
+                    text: review.message,
                 }, slackMsg.messageTs);
 
-                logger.info(`[ZapierWebhookService][sendCompletionMessage] Sent completion message for event ${event.id}`);
+                event.completionQualityScore = review.completionQuality;
+                event.lastAiReviewSummary = review.reasoningSummary;
+                event.lastAiReviewAt = new Date();
+                await appDatabase.getRepository(ZapierTriggerEvent).save(event);
+
+                logger.info(`[ZapierWebhookService][sendCompletionMessage] Sent reviewed completion message for event ${event.id}`);
             }
         } catch (error) {
             logger.error(`[ZapierWebhookService][sendCompletionMessage] Error: ${error}`);

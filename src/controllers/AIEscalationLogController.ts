@@ -3,8 +3,15 @@ import { appDatabase } from '../utils/database.util';
 import { AIEscalationLog } from '../entity/AIEscalationLog';
 import { Between, In, Like } from 'typeorm';
 import logger from '../utils/logger.utils';
+import OpenAI from 'openai';
 
 const logRepo = appDatabase.getRepository(AIEscalationLog);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+const getOpenAI = () => {
+    if (!OPENAI_API_KEY) return null;
+    return new OpenAI({ apiKey: OPENAI_API_KEY });
+};
 
 /**
  * Get AI escalation logs with filtering and pagination
@@ -212,7 +219,7 @@ export const getLogsByTask = async (req: Request, res: Response) => {
 export const submitFeedback = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { feedback, rating } = req.body;
+        const { feedback, rating, feedbackType, expectedBehavior, scope, managerComment } = req.body;
         const userId = (req as any).user?.id || (req as any).userId;
 
         if (!feedback) {
@@ -234,6 +241,10 @@ export const submitFeedback = async (req: Request, res: Response) => {
         log.feedbackRating = rating || 'neutral';
         log.feedbackBy = userId || null;
         log.feedbackAt = new Date();
+        log.feedbackType = feedbackType || null;
+        log.expectedBehavior = expectedBehavior || null;
+        log.feedbackScope = scope || 'global';
+        log.managerComment = managerComment || feedback;
 
         await logRepo.save(log);
 
@@ -247,6 +258,227 @@ export const submitFeedback = async (req: Request, res: Response) => {
     } catch (error) {
         logger.error('[AILogController] Error submitting feedback:', error);
         res.status(500).json({ error: 'Failed to submit feedback' });
+    }
+};
+
+const getPerformanceRows = async (days: number) => {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const events = await appDatabase.query(
+        `SELECT
+            e.id,
+            e.status,
+            e.created_at,
+            e.updated_at,
+            e.completed_on,
+            e.completion_quality_score,
+            e.ignored_prompt_count,
+            e.is_overdue,
+            e.assigned_rep_name,
+            (
+                SELECT tm.user_name
+                FROM thread_messages tm
+                WHERE tm.gr_task_id = e.id
+                  AND tm.user_name IS NOT NULL
+                  AND tm.user_name <> ''
+                  AND tm.user_name <> 'AI Manager'
+                ORDER BY tm.message_timestamp DESC
+                LIMIT 1
+            ) AS latest_rep_name,
+            (
+                SELECT MIN(tm.message_timestamp)
+                FROM thread_messages tm
+                WHERE tm.gr_task_id = e.id
+                  AND tm.user_name IS NOT NULL
+                  AND tm.user_name <> ''
+                  AND tm.user_name <> 'AI Manager'
+            ) AS first_rep_reply_at,
+            (
+                SELECT COUNT(*)
+                FROM ai_escalation_logs log
+                WHERE log.task_id = e.id
+                  AND log.decision = 'ESCALATE'
+            ) AS escalation_count
+        FROM zapier_trigger_events e
+        WHERE e.created_at >= ?`,
+        [since]
+    );
+
+    const byRep = new Map<string, any>();
+
+    for (const row of events) {
+        const repName = row.assigned_rep_name || row.latest_rep_name || 'Unassigned / No rep reply';
+        const current = byRep.get(repName) || {
+            repName,
+            tasksAssigned: 0,
+            completedTasks: 0,
+            overdueTasks: 0,
+            totalResponseHours: 0,
+            responseSamples: 0,
+            totalResolutionHours: 0,
+            resolutionSamples: 0,
+            escalationCount: 0,
+            neglectCount: 0,
+            completionQualityTotal: 0,
+            completionQualitySamples: 0,
+            recentTaskIds: []
+        };
+
+        current.tasksAssigned += 1;
+        if (row.status === 'Completed') current.completedTasks += 1;
+        if (row.is_overdue) current.overdueTasks += 1;
+        current.escalationCount += Number(row.escalation_count || 0);
+        current.neglectCount += Number(row.ignored_prompt_count || 0);
+
+        if (row.first_rep_reply_at) {
+            const responseHours = (new Date(row.first_rep_reply_at).getTime() - new Date(row.created_at).getTime()) / (1000 * 60 * 60);
+            if (Number.isFinite(responseHours) && responseHours >= 0) {
+                current.totalResponseHours += responseHours;
+                current.responseSamples += 1;
+            }
+        }
+
+        if (row.completed_on) {
+            const resolutionHours = (new Date(row.completed_on).getTime() - new Date(row.created_at).getTime()) / (1000 * 60 * 60);
+            if (Number.isFinite(resolutionHours) && resolutionHours >= 0) {
+                current.totalResolutionHours += resolutionHours;
+                current.resolutionSamples += 1;
+            }
+        }
+
+        if (row.completion_quality_score !== null && row.completion_quality_score !== undefined) {
+            current.completionQualityTotal += Number(row.completion_quality_score);
+            current.completionQualitySamples += 1;
+        }
+
+        current.recentTaskIds.push(row.id);
+        byRep.set(repName, current);
+    }
+
+    return Array.from(byRep.values())
+        .map(rep => ({
+            repName: rep.repName,
+            tasksAssigned: rep.tasksAssigned,
+            completionRate: rep.tasksAssigned ? rep.completedTasks / rep.tasksAssigned : 0,
+            overdueRate: rep.tasksAssigned ? rep.overdueTasks / rep.tasksAssigned : 0,
+            avgResponseTimeHours: rep.responseSamples ? rep.totalResponseHours / rep.responseSamples : null,
+            avgResolutionTimeHours: rep.resolutionSamples ? rep.totalResolutionHours / rep.resolutionSamples : null,
+            escalationRate: rep.tasksAssigned ? rep.escalationCount / rep.tasksAssigned : 0,
+            neglectRate: rep.tasksAssigned ? rep.neglectCount / rep.tasksAssigned : 0,
+            completionQualityScore: rep.completionQualitySamples ? rep.completionQualityTotal / rep.completionQualitySamples : null,
+            recentTaskIds: rep.recentTaskIds.slice(-10)
+        }))
+        .sort((a, b) => b.tasksAssigned - a.tasksAssigned);
+};
+
+export const getAssistantPerformance = async (req: Request, res: Response) => {
+    try {
+        const days = Number(req.query.days || 30);
+        const reps = await getPerformanceRows(days);
+
+        const totals = reps.reduce((acc, rep) => {
+            acc.tasks += rep.tasksAssigned;
+            acc.escalations += rep.escalationRate * rep.tasksAssigned;
+            return acc;
+        }, { tasks: 0, escalations: 0 });
+
+        res.json({
+            scope: 'GR tasks with latest known rep engagement',
+            timeRange: `Last ${days} days`,
+            taskCount: totals.tasks,
+            reps
+        });
+    } catch (error) {
+        logger.error('[AILogController] Error fetching assistant performance:', error);
+        res.status(500).json({ error: 'Failed to fetch AI Manager assistant performance data' });
+    }
+};
+
+export const assistantChat = async (req: Request, res: Response) => {
+    try {
+        const { question, days = 30 } = req.body || {};
+        if (!question || typeof question !== 'string') {
+            return res.status(400).json({ error: 'question is required' });
+        }
+
+        const rows = await getPerformanceRows(Number(days));
+        const q = question.toLowerCase();
+
+        let selectedRows = rows;
+        let headline = 'General GR performance snapshot';
+
+        if (q.includes('missing the most follow-ups') || q.includes('neglect')) {
+            selectedRows = [...rows].sort((a, b) => b.neglectRate - a.neglectRate).slice(0, 5);
+            headline = 'Highest neglect / missed follow-up risk';
+        } else if (q.includes('completed poorly') || q.includes('poorly')) {
+            selectedRows = [...rows].sort((a, b) => (a.completionQualityScore ?? 1) - (b.completionQualityScore ?? 1)).slice(0, 5);
+            headline = 'Lowest completion quality';
+        } else if (q.includes('need improvement') || q.includes('improvement')) {
+            selectedRows = [...rows]
+                .sort((a, b) => (b.overdueRate + b.escalationRate + b.neglectRate) - (a.overdueRate + a.escalationRate + a.neglectRate))
+                .slice(0, 5);
+            headline = 'Reps needing the most operational coaching';
+        }
+
+        const dataScope = {
+            scope: 'GR tasks, thread activity, AI decisions, and completion review data',
+            timeRange: `Last ${days} days`,
+            tasksAnalyzed: rows.reduce((sum, row) => sum + row.tasksAssigned, 0)
+        };
+
+        const factualSummary = selectedRows.map(row => ({
+            repName: row.repName,
+            tasksAssigned: row.tasksAssigned,
+            completionRate: Number((row.completionRate * 100).toFixed(1)),
+            overdueRate: Number((row.overdueRate * 100).toFixed(1)),
+            escalationRate: Number((row.escalationRate * 100).toFixed(1)),
+            neglectRate: Number((row.neglectRate * 100).toFixed(1)),
+            completionQualityScore: row.completionQualityScore === null ? null : Number((row.completionQualityScore * 100).toFixed(1))
+        }));
+
+        let answer = `${headline}\n\n`;
+        if (factualSummary.length === 0) {
+            answer += 'No matching GR task activity was found in the selected time range.';
+        } else {
+            answer += factualSummary
+                .map(row => `- ${row.repName}: ${row.tasksAssigned} tasks, ${row.completionRate}% completion, ${row.overdueRate}% overdue, ${row.escalationRate}% escalation, ${row.neglectRate}% neglect, completion quality ${row.completionQualityScore ?? 'n/a'}%`)
+                .join('\n');
+        }
+
+        const openai = getOpenAI();
+        if (openai) {
+            try {
+                const response = await openai.chat.completions.create({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are an AI manager assistant. Summarize operational findings using only the supplied data. Do not invent metrics.'
+                        },
+                        {
+                            role: 'user',
+                            content: `Question: ${question}\n\nData scope: ${JSON.stringify(dataScope)}\n\nFacts:\n${JSON.stringify(factualSummary)}`
+                        }
+                    ],
+                    temperature: 0.2,
+                    max_tokens: 220
+                });
+
+                answer = response.choices[0]?.message?.content?.trim() || answer;
+            } catch (aiError) {
+                logger.warn('[AILogController] Assistant chat summarization failed, using raw answer:', aiError);
+            }
+        }
+
+        res.json({
+            dataScope,
+            rows: factualSummary,
+            answer
+        });
+    } catch (error) {
+        logger.error('[AILogController] Error in assistant chat:', error);
+        res.status(500).json({ error: 'Failed to answer AI Manager assistant question' });
     }
 };
 

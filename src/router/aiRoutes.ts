@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getLogs, getStats, getLogById, getLogsByTask, submitFeedback, getFeedbackStats } from '../controllers/AIEscalationLogController';
+import { assistantChat, getAssistantPerformance, getLogs, getStats, getLogById, getLogsByTask, submitFeedback, getFeedbackStats } from '../controllers/AIEscalationLogController';
 
 const router = Router();
 
@@ -17,6 +17,8 @@ const router = Router();
 router.get('/logs', getLogs);
 router.get('/logs/stats', getStats);
 router.get('/logs/feedback-stats', getFeedbackStats);
+router.get('/assistant/performance', getAssistantPerformance);
+router.post('/assistant/chat', assistantChat);
 router.get('/logs/:id', getLogById);
 router.get('/logs/task/:taskId', getLogsByTask);
 router.post('/logs/:id/feedback', submitFeedback);

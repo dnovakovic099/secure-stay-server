@@ -88,4 +88,31 @@ export class ZapierTriggerEvent {
 
     @Column({ name: 'is_overdue', type: 'boolean', default: false })
     isOverdue: boolean;
+
+    @Column({ name: 'next_follow_up_at', type: 'timestamp', nullable: true })
+    nextFollowUpAt: Date | null;
+
+    @Column({ name: 'ignored_prompt_count', type: 'int', default: 0 })
+    ignoredPromptCount: number;
+
+    @Column({ name: 'vague_reply_count', type: 'int', default: 0 })
+    vagueReplyCount: number;
+
+    @Column({ name: 'completion_quality_score', type: 'float', nullable: true })
+    completionQualityScore: number | null;
+
+    @Column({ name: 'last_ai_review_summary', type: 'text', nullable: true })
+    lastAiReviewSummary: string | null;
+
+    @Column({ name: 'last_ai_review_payload', type: 'mediumtext', nullable: true })
+    lastAiReviewPayload: string | null;
+
+    @Column({ name: 'last_ai_review_at', type: 'timestamp', nullable: true })
+    lastAiReviewAt: Date | null;
+
+    @Column({ name: 'assigned_rep_name', type: 'varchar', length: 255, nullable: true })
+    assignedRepName: string | null;
+
+    @Column({ name: 'assigned_rep_slack_id', type: 'varchar', length: 100, nullable: true })
+    assignedRepSlackId: string | null;
 }
