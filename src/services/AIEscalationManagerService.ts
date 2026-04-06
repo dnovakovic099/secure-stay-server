@@ -372,6 +372,7 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         await this.ensureSchema();
 
         let executed = false;
+        let executionMeta: { slackMessageTs?: string | null; slackChannelId?: string | null; slackPermalink?: string | null } | undefined;
 
         try {
             const event = await this.eventRepo.findOne({ where: { id: taskId } });
@@ -390,6 +391,14 @@ You still hold the line on guest outcomes, but you give more room for reasonable
                     if (!fullMessage) break;
                     const result = await sendSlackMessage({ channel: slackChannel, text: fullMessage }, threadTs);
                     if (result?.ok) {
+                        executionMeta = {
+                            slackMessageTs: result.ts || null,
+                            slackChannelId: result.channel || slackChannel || event.slackChannelId || null,
+                            slackPermalink: this.buildSlackPermalink(
+                                result.channel || slackChannel || event.slackChannelId || null,
+                                result.ts || null
+                            )
+                        };
                         event.lastReminderAt = new Date();
                         event.reminderCount = (event.reminderCount || 0) + 1;
                         event.ignoredPromptCount = (event.ignoredPromptCount || 0) + 1;
@@ -417,7 +426,7 @@ You still hold the line on guest outcomes, but you give more room for reasonable
                     break;
             }
 
-            await this.markLogExecuted(taskId, decision.action, executed);
+            await this.markLogExecuted(taskId, decision.action, executed, undefined, executionMeta);
             return executed;
         } catch (error) {
             logger.error(`[AIEscalationManager] Error executing decision for task ${taskId}:`, error);
@@ -1108,7 +1117,23 @@ Rules:
         }
     }
 
-    private async markLogExecuted(taskId: number, action: string, executed: boolean, error?: string): Promise<void> {
+    private buildSlackPermalink(channel: string | null, ts: string | null): string | null {
+        const workspaceUrl = process.env.SLACK_WORKSPACE_URL;
+        if (!workspaceUrl || !channel || !ts) {
+            return null;
+        }
+
+        const normalizedWorkspace = workspaceUrl.endsWith('/') ? workspaceUrl.slice(0, -1) : workspaceUrl;
+        return `${normalizedWorkspace}/archives/${channel}/p${ts.replace('.', '')}`;
+    }
+
+    private async markLogExecuted(
+        taskId: number,
+        action: string,
+        executed: boolean,
+        error?: string,
+        executionMeta?: { slackMessageTs?: string | null; slackChannelId?: string | null; slackPermalink?: string | null }
+    ): Promise<void> {
         try {
             const log = await this.logRepo.findOne({
                 where: { taskId, decision: action },
@@ -1119,6 +1144,15 @@ Rules:
 
             log.executed = executed;
             if (error) log.error = error;
+            if (executionMeta?.slackMessageTs) {
+                log.slackMessageTs = executionMeta.slackMessageTs;
+            }
+            if (executionMeta?.slackChannelId) {
+                log.slackChannelId = executionMeta.slackChannelId;
+            }
+            if (executionMeta?.slackPermalink) {
+                log.slackPermalink = executionMeta.slackPermalink;
+            }
             await this.logRepo.save(log);
         } catch (err) {
             logger.warn('[AIEscalationManager] Failed to update log execution status:', err);

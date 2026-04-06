@@ -1,16 +1,139 @@
 import { Request, Response } from 'express';
 import { appDatabase } from '../utils/database.util';
 import { AIEscalationLog } from '../entity/AIEscalationLog';
+import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 import { Between, In, Like } from 'typeorm';
 import logger from '../utils/logger.utils';
 import OpenAI from 'openai';
+import axios from 'axios';
 
 const logRepo = appDatabase.getRepository(AIEscalationLog);
+const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 
 const getOpenAI = () => {
     if (!OPENAI_API_KEY) return null;
     return new OpenAI({ apiKey: OPENAI_API_KEY });
+};
+
+const buildSlackPermalink = (channel: string | null, ts: string | null): string | null => {
+    const workspaceUrl = process.env.SLACK_WORKSPACE_URL;
+    if (!workspaceUrl || !channel || !ts) return null;
+    const normalizedWorkspace = workspaceUrl.endsWith('/') ? workspaceUrl.slice(0, -1) : workspaceUrl;
+    return `${normalizedWorkspace}/archives/${channel}/p${ts.replace('.', '')}`;
+};
+
+const parseSlackTs = (ts: string | null | undefined): number => {
+    if (!ts) return 0;
+    const parsed = Number(ts);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isCandidateAIDelete = (log: AIEscalationLog) => {
+    return ['REMIND', 'ASK_UPDATE', 'ESCALATE'].includes(log.decision);
+};
+
+const resolveSlackMessageTarget = async (log: AIEscalationLog): Promise<{ channel: string; ts: string } | null> => {
+    const event = await eventRepo.findOne({ where: { id: log.taskId } });
+    const rootTs = event?.slackThreadTs || null;
+    const rootChannel = event?.slackChannelId || null;
+
+    if (log.slackChannelId && log.slackMessageTs) {
+        if (rootTs && log.slackMessageTs === rootTs) {
+            throw new Error('Refusing to delete the root GR task message.');
+        }
+
+        return {
+            channel: log.slackChannelId,
+            ts: log.slackMessageTs
+        };
+    }
+
+    if (!SLACK_BOT_TOKEN) {
+        throw new Error('SLACK_BOT_TOKEN is not configured.');
+    }
+
+    if (!event?.slackThreadTs || !(event.slackChannelId || log.slackChannelId || rootChannel)) {
+        return null;
+    }
+
+    if (!log.message?.trim()) {
+        return null;
+    }
+
+    const channel = event.slackChannelId || log.slackChannelId || rootChannel;
+    if (!channel) return null;
+
+    const response = await axios.get('https://slack.com/api/conversations.replies', {
+        headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+        params: {
+            channel,
+            ts: event.slackThreadTs,
+            limit: 200
+        }
+    });
+
+    if (!response.data?.ok) {
+        throw new Error(`Slack thread lookup failed: ${response.data?.error || 'unknown_error'}`);
+    }
+
+    const logCreated = log.createdAt ? new Date(log.createdAt).getTime() / 1000 : 0;
+    const logMessage = log.message.trim().toLowerCase();
+    const messages = (response.data.messages || []).slice(1);
+
+    const candidates = messages
+        .filter((message: any) => {
+            if (!message?.bot_id || !message?.ts || message.ts === rootTs) return false;
+            const text = String(message.text || '').toLowerCase();
+            return text.includes(logMessage);
+        })
+        .map((message: any) => ({
+            ts: message.ts as string,
+            score: Math.abs(parseSlackTs(message.ts) - logCreated)
+        }))
+        .sort((a: { ts: string; score: number }, b: { ts: string; score: number }) => a.score - b.score);
+
+    if (!candidates.length) {
+        return null;
+    }
+
+    return {
+        channel,
+        ts: candidates[0].ts
+    };
+};
+
+const deleteSlackMessageForLog = async (log: AIEscalationLog): Promise<{ channel: string; ts: string }> => {
+    if (!isCandidateAIDelete(log)) {
+        throw new Error('Only AI follow-up Slack messages can be deleted from this page.');
+    }
+
+    if (!SLACK_BOT_TOKEN) {
+        throw new Error('SLACK_BOT_TOKEN is not configured.');
+    }
+
+    const target = await resolveSlackMessageTarget(log);
+    if (!target) {
+        throw new Error('Could not locate the AI Slack message for this log.');
+    }
+
+    const response = await axios.post(
+        'https://slack.com/api/chat.delete',
+        { channel: target.channel, ts: target.ts },
+        {
+            headers: {
+                Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        }
+    );
+
+    if (!response.data?.ok) {
+        throw new Error(`Slack delete failed: ${response.data?.error || 'unknown_error'}`);
+    }
+
+    return target;
 };
 
 /**
@@ -258,6 +381,70 @@ export const submitFeedback = async (req: Request, res: Response) => {
     } catch (error) {
         logger.error('[AILogController] Error submitting feedback:', error);
         res.status(500).json({ error: 'Failed to submit feedback' });
+    }
+};
+
+export const deleteLog = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const log = await logRepo.findOne({ where: { id: Number(id) } });
+
+        if (!log) {
+            return res.status(404).json({ error: 'AI log not found' });
+        }
+
+        const deletedTarget = await deleteSlackMessageForLog(log);
+        await logRepo.delete({ id: log.id });
+
+        return res.json({
+            success: true,
+            deletedLogId: log.id,
+            slack: {
+                channel: deletedTarget.channel,
+                ts: deletedTarget.ts,
+                permalink: buildSlackPermalink(deletedTarget.channel, deletedTarget.ts)
+            }
+        });
+    } catch (error: any) {
+        logger.error('[AILogController] Error deleting AI log/message:', error);
+        return res.status(400).json({ error: error?.message || 'Failed to delete AI message' });
+    }
+};
+
+export const bulkDeleteLogs = async (req: Request, res: Response) => {
+    try {
+        const ids = Array.isArray(req.body?.ids)
+            ? req.body.ids.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id))
+            : [];
+
+        if (!ids.length) {
+            return res.status(400).json({ error: 'ids is required' });
+        }
+
+        const logs = await logRepo.find({ where: { id: In(ids) } });
+        const deleted: Array<{ id: number; channel: string; ts: string }> = [];
+        const failed: Array<{ id: number; error: string }> = [];
+
+        for (const log of logs) {
+            try {
+                const target = await deleteSlackMessageForLog(log);
+                await logRepo.delete({ id: log.id });
+                deleted.push({ id: log.id, channel: target.channel, ts: target.ts });
+            } catch (error: any) {
+                failed.push({ id: log.id, error: error?.message || 'Failed to delete AI message' });
+            }
+        }
+
+        return res.json({
+            success: failed.length === 0,
+            deletedCount: deleted.length,
+            failedCount: failed.length,
+            deleted,
+            failed
+        });
+    } catch (error) {
+        logger.error('[AILogController] Error bulk deleting AI logs/messages:', error);
+        return res.status(500).json({ error: 'Failed to bulk delete AI messages' });
     }
 };
 
