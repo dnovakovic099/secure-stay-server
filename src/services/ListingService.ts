@@ -701,6 +701,39 @@ export class ListingService {
     return listings;
   }
 
+  async getListingsByServiceTypes(serviceTypes: string[], userId?: string, includeDeleted: boolean = false) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .select([
+        "listing.id",
+        "listing.name",
+        "listing.internalListingName",
+        "listing.address",
+        "listing.state",
+        "listing.city",
+      ]);
+
+    if (includeDeleted) {
+      query.withDeleted();
+    }
+
+    if (serviceTypes && serviceTypes.length > 0) {
+      query.andWhere(new Brackets(qb => {
+        serviceTypes.forEach((type, index) => {
+          const normalizedType = String(type || '').trim().toLowerCase();
+          const clause = "FIND_IN_SET(:serviceType" + index + ", REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', '')) > 0";
+          if (index === 0) {
+            qb.where(clause, { ["serviceType" + index]: normalizedType });
+          } else {
+            qb.orWhere(clause, { ["serviceType" + index]: normalizedType });
+          }
+        });
+      }));
+    }
+
+    return await query.getMany();
+  }
+
   async getPmListings(includeDeleted: boolean = false) {
     // Optimized: Filter at database level instead of fetching all and filtering in JS
     const query = this.listingRepository

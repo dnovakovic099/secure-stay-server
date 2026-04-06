@@ -508,7 +508,7 @@ export class ReviewService {
 
             if (normalizedServiceTypes.length > 0) {
                 const listingService = new ListingService();
-                const serviceTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedServiceTypes as any)).map(l => l.id);
+                const serviceTypeListingIds = (await listingService.getListingsByServiceTypes(normalizedServiceTypes as any)).map(l => l.id);
                 listingIds = this.mergeListingIds(listingIds, serviceTypeListingIds);
             }
 
@@ -1321,7 +1321,7 @@ export class ReviewService {
         // Service type filter — independently resolves to listing IDs and applies as additional AND constraint
         if (normalizedServiceTypes.length > 0) {
             const listingService = new ListingService();
-            const serviceTypeListings = await listingService.getListingsByPropertyTypes(normalizedServiceTypes as any);
+            const serviceTypeListings = await listingService.getListingsByServiceTypes(normalizedServiceTypes as any);
             const serviceTypeListingIds = serviceTypeListings.map((l: any) => Number(l.id));
             query.andWhere(
                 serviceTypeListingIds.length > 0
