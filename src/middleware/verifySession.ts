@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { appDatabase } from "../utils/database.util";
 import { UserApiKeyEntity } from "../entity/UserApiKey";
+import { UsersEntity } from "../entity/Users";
 import { supabase } from "../utils/supabase";
 
 interface CustomRequest extends Request {
@@ -55,7 +56,26 @@ const verifySession = async (
         });
       }
 
-      req.user = data.user;
+      const usersRepo = appDatabase.getRepository(UsersEntity);
+      const secureStayUser = await usersRepo.findOne({
+        where: {
+          uid: data.user.id,
+          deletedAt: null as any,
+        },
+      });
+
+      if (secureStayUser && secureStayUser.isActive === false) {
+        return res.status(403).json({
+          success: false,
+          message: "Your SecureStay account is inactive. Please contact an administrator.",
+          status: 403,
+        });
+      }
+
+      req.user = {
+        ...data.user,
+        secureStayUserId: secureStayUser?.id ?? null,
+      };
       next();
     } catch (error) {
       return res.status(500).json({ message: "Internal server error" });

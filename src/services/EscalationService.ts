@@ -129,6 +129,20 @@ export class EscalationService {
         }
     }
 
+    private async isEscalationActiveForEvent(event: Pick<ZapierTriggerEvent, 'slackChannel' | 'event' | 'id'>): Promise<boolean> {
+        try {
+            const settings = await this.settingsService.resolveSettingsForEvent(event);
+            if (settings?.isActive === false) {
+                logger.info(`[EscalationService] Escalation setting inactive for event ${event.id} (${settings.settingKey})`);
+                return false;
+            }
+        } catch (error) {
+            logger.warn(`[EscalationService] Failed to resolve escalation settings for event ${event.id}: ${error}`);
+        }
+
+        return true;
+    }
+
     /**
      * Check if a specific employee is on shift
      */
@@ -351,6 +365,11 @@ export class EscalationService {
 
             for (const event of newlyOverdue) {
                 try {
+                    const isActive = await this.isEscalationActiveForEvent(event);
+                    if (!isActive) {
+                        continue;
+                    }
+
                     // Get Slack message info
                     const slackMsg = await slackMessageRepo.findOne({
                         where: { entityType: 'zapier_trigger_event', entityId: event.id }
@@ -416,6 +435,11 @@ export class EscalationService {
 
             for (const event of needsReminder) {
                 try {
+                    const isActive = await this.isEscalationActiveForEvent(event);
+                    if (!isActive) {
+                        continue;
+                    }
+
                     const slackMsg = await slackMessageRepo.findOne({
                         where: { entityType: 'zapier_trigger_event', entityId: event.id }
                     });
@@ -530,6 +554,11 @@ export class EscalationService {
 
             for (const event of inProgressTasks) {
                 try {
+                    const isActive = await this.isEscalationActiveForEvent(event);
+                    if (!isActive) {
+                        continue;
+                    }
+
                     const slackMsg = await slackMessageRepo.findOne({
                         where: { entityType: 'zapier_trigger_event', entityId: event.id }
                     });

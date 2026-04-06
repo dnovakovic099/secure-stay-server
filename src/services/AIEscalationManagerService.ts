@@ -287,27 +287,28 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         const defaults = this.getDefaultSettings();
 
         try {
-            const channelKey = event.slackChannel?.toLowerCase().replace(/^#/, '') || '';
-            const eventKey = event.event || '';
-            const keysToTry = [
-                `${channelKey}-${eventKey}`.replace(/\s+/g, '-'),
-                channelKey,
-                eventKey,
-                'default'
-            ].filter(Boolean);
-
-            for (const key of keysToTry) {
-                const settings = await this.settingsService.getSettingsByKey(key);
-                if (settings && (settings.settingKey === key || key === 'default')) {
+            const settings = await this.settingsService.resolveSettingsForEvent(event);
+            if (settings) {
+                if (settings.isActive === false) {
                     return {
                         ...defaults,
                         ...settings,
-                        aiEnabled: settings.aiEnabled ?? true,
+                        aiEnabled: false,
                         aiMode: (settings.aiMode as 'standard' | 'strict' | 'lenient') || 'standard',
-                        aiInstructions: settings.aiInstructions || null,
+                        useAIForDecisions: false,
+                        replyWhenTagged: false,
                         fallbackSlackGroupId: settings.fallbackSlackGroupId || DEFAULT_GR_GROUP,
                     };
                 }
+
+                return {
+                    ...defaults,
+                    ...settings,
+                    aiEnabled: settings.aiEnabled ?? true,
+                    aiMode: (settings.aiMode as 'standard' | 'strict' | 'lenient') || 'standard',
+                    aiInstructions: settings.aiInstructions || null,
+                    fallbackSlackGroupId: settings.fallbackSlackGroupId || DEFAULT_GR_GROUP,
+                };
             }
         } catch (error) {
             logger.warn('[AIEscalationManager] Error fetching AI settings, using defaults:', error);

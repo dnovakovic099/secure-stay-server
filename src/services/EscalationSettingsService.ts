@@ -3,6 +3,7 @@ import { appDatabase } from '../utils/database.util';
 import { EscalationSettings } from '../entity/EscalationSettings';
 import { Employee, EmployeeDepartment } from '../entity/Employee';
 import { UsersEntity } from '../entity/Users';
+import { ZapierTriggerEvent } from '../entity/ZapierTriggerEvent';
 
 interface UpdateSettingsDto {
     overdueThresholdHours?: number;
@@ -392,6 +393,28 @@ export class EscalationSettingsService {
         }
 
         return enriched;
+    }
+
+    async resolveSettingsForEvent(event: Pick<ZapierTriggerEvent, 'slackChannel' | 'event'>): Promise<SettingsWithEmployeeInfo | null> {
+        await this.ensureTable();
+
+        const channelKey = event.slackChannel?.toLowerCase().replace(/^#/, '') || '';
+        const eventKey = event.event || '';
+        const keysToTry = [
+            `${channelKey}-${eventKey}`.replace(/\s+/g, '-'),
+            channelKey,
+            eventKey,
+            'default'
+        ].filter(Boolean);
+
+        for (const key of keysToTry) {
+            const setting = await this.getSettingsByKey(key);
+            if (setting && setting.settingKey === key) {
+                return setting;
+            }
+        }
+
+        return null;
     }
 
     /**
