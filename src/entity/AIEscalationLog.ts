@@ -52,6 +52,39 @@ export class AIEscalationLog {
     @Column({ name: 'reason', type: 'text', nullable: true })
     reason: string | null;
 
+    @Column({ name: 'severity_level', nullable: true })
+    severityLevel: string | null;
+
+    @Column({ name: 'rep_engagement_type', nullable: true })
+    repEngagementType: string | null;
+
+    @Column({ name: 'neglect_count', type: 'int', default: 0 })
+    neglectCount: number;
+
+    @Column({ name: 'urgency_score', type: 'float', nullable: true })
+    urgencyScore: number | null;
+
+    @Column({ name: 'completion_quality', type: 'float', nullable: true })
+    completionQuality: number | null;
+
+    @Column({ name: 'recommended_action', nullable: true })
+    recommendedAction: string | null;
+
+    @Column({ name: 'next_follow_up_at', type: 'timestamp', nullable: true })
+    nextFollowUpAt: Date | null;
+
+    @Column({ name: 'escalation_required', default: false })
+    escalationRequired: boolean;
+
+    @Column({ name: 'reasoning_summary', type: 'text', nullable: true })
+    reasoningSummary: string | null;
+
+    @Column({ name: 'decision_input_summary', type: 'text', nullable: true })
+    decisionInputSummary: string | null;
+
+    @Column({ name: 'decision_payload', type: 'mediumtext', nullable: true })
+    decisionPayload: string | null;
+
     /**
      * Whether the decision was executed successfully
      */
@@ -135,6 +168,18 @@ export class AIEscalationLog {
      */
     @Column({ name: 'feedback_at', nullable: true })
     feedbackAt: Date | null;
+
+    @Column({ name: 'feedback_type', nullable: true })
+    feedbackType: string | null;
+
+    @Column({ name: 'feedback_scope', nullable: true })
+    feedbackScope: string | null;
+
+    @Column({ name: 'expected_behavior', type: 'text', nullable: true })
+    expectedBehavior: string | null;
+
+    @Column({ name: 'manager_comment', type: 'text', nullable: true })
+    managerComment: string | null;
 
     /**
      * When the decision was made

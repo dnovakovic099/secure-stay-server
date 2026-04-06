@@ -17,6 +17,41 @@ interface UpdateSettingsDto {
     aiEnabled?: boolean;
     aiMode?: string;
     aiInstructions?: string | null;
+    readSlackReplies?: boolean;
+    useConversationContext?: boolean;
+    replyWhenTagged?: boolean;
+    countAcknowledgmentAsActivity?: boolean;
+    requireActionableResponses?: boolean;
+    useAIForDecisions?: boolean;
+    minFollowUpMinutes?: number;
+    maxFollowUpMinutes?: number;
+    allowAIAdjustTiming?: boolean;
+    urgencyOverridesTiming?: boolean;
+    evaluateAcknowledgment?: boolean;
+    evaluateVagueReply?: boolean;
+    evaluateEta?: boolean;
+    evaluateActionableUpdate?: boolean;
+    evaluateCompletion?: boolean;
+    enableCompletionReview?: boolean;
+    requireClearResolution?: boolean;
+    askForMissingDetails?: boolean;
+    escalateWeakCompletion?: boolean;
+    suppressGenericMessages?: boolean;
+    allowPositiveReinforcement?: boolean;
+    managerTagSerious?: string | null;
+    managerTagNeglect?: string | null;
+    managerTagBadCompletion?: string | null;
+    neglectThreshold?: number;
+    immediateEscalation?: boolean;
+    vagueReplyEscalation?: boolean;
+    onlyFollowUpOnShift?: boolean;
+    delayIfOffShift?: boolean;
+    escalateUrgentOffShift?: boolean;
+    fallbackTimingMinutes?: number;
+    toneStyle?: string;
+    encourageClarity?: boolean;
+    pushForNextSteps?: boolean;
+    avoidFillerMessages?: boolean;
 }
 
 interface SettingsWithEmployeeInfo extends EscalationSettings {
@@ -95,6 +130,41 @@ export class EscalationSettingsService {
             { name: 'ai_enabled', sql: 'ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT true' },
             { name: 'ai_instructions', sql: 'ADD COLUMN IF NOT EXISTS ai_instructions TEXT' },
             { name: 'ai_mode', sql: "ADD COLUMN IF NOT EXISTS ai_mode VARCHAR(20) DEFAULT 'standard'" },
+            { name: 'read_slack_replies', sql: 'ADD COLUMN IF NOT EXISTS read_slack_replies BOOLEAN DEFAULT true' },
+            { name: 'use_conversation_context', sql: 'ADD COLUMN IF NOT EXISTS use_conversation_context BOOLEAN DEFAULT true' },
+            { name: 'reply_when_tagged', sql: 'ADD COLUMN IF NOT EXISTS reply_when_tagged BOOLEAN DEFAULT true' },
+            { name: 'count_acknowledgment_as_activity', sql: 'ADD COLUMN IF NOT EXISTS count_acknowledgment_as_activity BOOLEAN DEFAULT true' },
+            { name: 'require_actionable_responses', sql: 'ADD COLUMN IF NOT EXISTS require_actionable_responses BOOLEAN DEFAULT false' },
+            { name: 'use_ai_for_decisions', sql: 'ADD COLUMN IF NOT EXISTS use_ai_for_decisions BOOLEAN DEFAULT true' },
+            { name: 'min_follow_up_minutes', sql: 'ADD COLUMN IF NOT EXISTS min_follow_up_minutes INT DEFAULT 30' },
+            { name: 'max_follow_up_minutes', sql: 'ADD COLUMN IF NOT EXISTS max_follow_up_minutes INT DEFAULT 480' },
+            { name: 'allow_ai_adjust_timing', sql: 'ADD COLUMN IF NOT EXISTS allow_ai_adjust_timing BOOLEAN DEFAULT true' },
+            { name: 'urgency_overrides_timing', sql: 'ADD COLUMN IF NOT EXISTS urgency_overrides_timing BOOLEAN DEFAULT true' },
+            { name: 'evaluate_acknowledgment', sql: 'ADD COLUMN IF NOT EXISTS evaluate_acknowledgment BOOLEAN DEFAULT true' },
+            { name: 'evaluate_vague_reply', sql: 'ADD COLUMN IF NOT EXISTS evaluate_vague_reply BOOLEAN DEFAULT true' },
+            { name: 'evaluate_eta', sql: 'ADD COLUMN IF NOT EXISTS evaluate_eta BOOLEAN DEFAULT true' },
+            { name: 'evaluate_actionable_update', sql: 'ADD COLUMN IF NOT EXISTS evaluate_actionable_update BOOLEAN DEFAULT true' },
+            { name: 'evaluate_completion', sql: 'ADD COLUMN IF NOT EXISTS evaluate_completion BOOLEAN DEFAULT true' },
+            { name: 'enable_completion_review', sql: 'ADD COLUMN IF NOT EXISTS enable_completion_review BOOLEAN DEFAULT true' },
+            { name: 'require_clear_resolution', sql: 'ADD COLUMN IF NOT EXISTS require_clear_resolution BOOLEAN DEFAULT true' },
+            { name: 'ask_for_missing_details', sql: 'ADD COLUMN IF NOT EXISTS ask_for_missing_details BOOLEAN DEFAULT true' },
+            { name: 'escalate_weak_completion', sql: 'ADD COLUMN IF NOT EXISTS escalate_weak_completion BOOLEAN DEFAULT false' },
+            { name: 'suppress_generic_messages', sql: 'ADD COLUMN IF NOT EXISTS suppress_generic_messages BOOLEAN DEFAULT true' },
+            { name: 'allow_positive_reinforcement', sql: 'ADD COLUMN IF NOT EXISTS allow_positive_reinforcement BOOLEAN DEFAULT true' },
+            { name: 'manager_tag_serious', sql: 'ADD COLUMN IF NOT EXISTS manager_tag_serious VARCHAR(50)' },
+            { name: 'manager_tag_neglect', sql: 'ADD COLUMN IF NOT EXISTS manager_tag_neglect VARCHAR(50)' },
+            { name: 'manager_tag_bad_completion', sql: 'ADD COLUMN IF NOT EXISTS manager_tag_bad_completion VARCHAR(50)' },
+            { name: 'neglect_threshold', sql: 'ADD COLUMN IF NOT EXISTS neglect_threshold INT DEFAULT 2' },
+            { name: 'immediate_escalation', sql: 'ADD COLUMN IF NOT EXISTS immediate_escalation BOOLEAN DEFAULT false' },
+            { name: 'vague_reply_escalation', sql: 'ADD COLUMN IF NOT EXISTS vague_reply_escalation BOOLEAN DEFAULT false' },
+            { name: 'only_follow_up_on_shift', sql: 'ADD COLUMN IF NOT EXISTS only_follow_up_on_shift BOOLEAN DEFAULT false' },
+            { name: 'delay_if_off_shift', sql: 'ADD COLUMN IF NOT EXISTS delay_if_off_shift BOOLEAN DEFAULT true' },
+            { name: 'escalate_urgent_off_shift', sql: 'ADD COLUMN IF NOT EXISTS escalate_urgent_off_shift BOOLEAN DEFAULT true' },
+            { name: 'fallback_timing_minutes', sql: 'ADD COLUMN IF NOT EXISTS fallback_timing_minutes INT DEFAULT 60' },
+            { name: 'tone_style', sql: "ADD COLUMN IF NOT EXISTS tone_style VARCHAR(50) DEFAULT 'supportive_firm'" },
+            { name: 'encourage_clarity', sql: 'ADD COLUMN IF NOT EXISTS encourage_clarity BOOLEAN DEFAULT true' },
+            { name: 'push_for_next_steps', sql: 'ADD COLUMN IF NOT EXISTS push_for_next_steps BOOLEAN DEFAULT true' },
+            { name: 'avoid_filler_messages', sql: 'ADD COLUMN IF NOT EXISTS avoid_filler_messages BOOLEAN DEFAULT true' },
         ];
 
         for (const col of columns) {
@@ -205,6 +275,41 @@ export class EscalationSettingsService {
                 aiEnabled: row.ai_enabled ?? true,
                 aiInstructions: row.ai_instructions ?? null,
                 aiMode: row.ai_mode ?? 'standard',
+                readSlackReplies: row.read_slack_replies ?? true,
+                useConversationContext: row.use_conversation_context ?? true,
+                replyWhenTagged: row.reply_when_tagged ?? true,
+                countAcknowledgmentAsActivity: row.count_acknowledgment_as_activity ?? true,
+                requireActionableResponses: row.require_actionable_responses ?? false,
+                useAIForDecisions: row.use_ai_for_decisions ?? true,
+                minFollowUpMinutes: row.min_follow_up_minutes ?? 30,
+                maxFollowUpMinutes: row.max_follow_up_minutes ?? 480,
+                allowAIAdjustTiming: row.allow_ai_adjust_timing ?? true,
+                urgencyOverridesTiming: row.urgency_overrides_timing ?? true,
+                evaluateAcknowledgment: row.evaluate_acknowledgment ?? true,
+                evaluateVagueReply: row.evaluate_vague_reply ?? true,
+                evaluateEta: row.evaluate_eta ?? true,
+                evaluateActionableUpdate: row.evaluate_actionable_update ?? true,
+                evaluateCompletion: row.evaluate_completion ?? true,
+                enableCompletionReview: row.enable_completion_review ?? true,
+                requireClearResolution: row.require_clear_resolution ?? true,
+                askForMissingDetails: row.ask_for_missing_details ?? true,
+                escalateWeakCompletion: row.escalate_weak_completion ?? false,
+                suppressGenericMessages: row.suppress_generic_messages ?? true,
+                allowPositiveReinforcement: row.allow_positive_reinforcement ?? true,
+                managerTagSerious: row.manager_tag_serious ?? null,
+                managerTagNeglect: row.manager_tag_neglect ?? null,
+                managerTagBadCompletion: row.manager_tag_bad_completion ?? null,
+                neglectThreshold: row.neglect_threshold ?? 2,
+                immediateEscalation: row.immediate_escalation ?? false,
+                vagueReplyEscalation: row.vague_reply_escalation ?? false,
+                onlyFollowUpOnShift: row.only_follow_up_on_shift ?? false,
+                delayIfOffShift: row.delay_if_off_shift ?? true,
+                escalateUrgentOffShift: row.escalate_urgent_off_shift ?? true,
+                fallbackTimingMinutes: row.fallback_timing_minutes ?? 60,
+                toneStyle: row.tone_style ?? 'supportive_firm',
+                encourageClarity: row.encourage_clarity ?? true,
+                pushForNextSteps: row.push_for_next_steps ?? true,
+                avoidFillerMessages: row.avoid_filler_messages ?? true,
                 updatedBy: row.updated_by,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,

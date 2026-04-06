@@ -104,6 +104,111 @@ export class EscalationSettings {
     @Column({ name: 'ai_mode', type: 'varchar', length: 20, default: 'standard' })
     aiMode: string;
 
+    @Column({ name: 'read_slack_replies', type: 'boolean', default: true })
+    readSlackReplies: boolean;
+
+    @Column({ name: 'use_conversation_context', type: 'boolean', default: true })
+    useConversationContext: boolean;
+
+    @Column({ name: 'reply_when_tagged', type: 'boolean', default: true })
+    replyWhenTagged: boolean;
+
+    @Column({ name: 'count_acknowledgment_as_activity', type: 'boolean', default: true })
+    countAcknowledgmentAsActivity: boolean;
+
+    @Column({ name: 'require_actionable_responses', type: 'boolean', default: false })
+    requireActionableResponses: boolean;
+
+    @Column({ name: 'use_ai_for_decisions', type: 'boolean', default: true })
+    useAIForDecisions: boolean;
+
+    @Column({ name: 'min_follow_up_minutes', type: 'int', default: 30 })
+    minFollowUpMinutes: number;
+
+    @Column({ name: 'max_follow_up_minutes', type: 'int', default: 480 })
+    maxFollowUpMinutes: number;
+
+    @Column({ name: 'allow_ai_adjust_timing', type: 'boolean', default: true })
+    allowAIAdjustTiming: boolean;
+
+    @Column({ name: 'urgency_overrides_timing', type: 'boolean', default: true })
+    urgencyOverridesTiming: boolean;
+
+    @Column({ name: 'evaluate_acknowledgment', type: 'boolean', default: true })
+    evaluateAcknowledgment: boolean;
+
+    @Column({ name: 'evaluate_vague_reply', type: 'boolean', default: true })
+    evaluateVagueReply: boolean;
+
+    @Column({ name: 'evaluate_eta', type: 'boolean', default: true })
+    evaluateEta: boolean;
+
+    @Column({ name: 'evaluate_actionable_update', type: 'boolean', default: true })
+    evaluateActionableUpdate: boolean;
+
+    @Column({ name: 'evaluate_completion', type: 'boolean', default: true })
+    evaluateCompletion: boolean;
+
+    @Column({ name: 'enable_completion_review', type: 'boolean', default: true })
+    enableCompletionReview: boolean;
+
+    @Column({ name: 'require_clear_resolution', type: 'boolean', default: true })
+    requireClearResolution: boolean;
+
+    @Column({ name: 'ask_for_missing_details', type: 'boolean', default: true })
+    askForMissingDetails: boolean;
+
+    @Column({ name: 'escalate_weak_completion', type: 'boolean', default: false })
+    escalateWeakCompletion: boolean;
+
+    @Column({ name: 'suppress_generic_messages', type: 'boolean', default: true })
+    suppressGenericMessages: boolean;
+
+    @Column({ name: 'allow_positive_reinforcement', type: 'boolean', default: true })
+    allowPositiveReinforcement: boolean;
+
+    @Column({ name: 'manager_tag_serious', type: 'varchar', length: 50, nullable: true })
+    managerTagSerious: string | null;
+
+    @Column({ name: 'manager_tag_neglect', type: 'varchar', length: 50, nullable: true })
+    managerTagNeglect: string | null;
+
+    @Column({ name: 'manager_tag_bad_completion', type: 'varchar', length: 50, nullable: true })
+    managerTagBadCompletion: string | null;
+
+    @Column({ name: 'neglect_threshold', type: 'int', default: 2 })
+    neglectThreshold: number;
+
+    @Column({ name: 'immediate_escalation', type: 'boolean', default: false })
+    immediateEscalation: boolean;
+
+    @Column({ name: 'vague_reply_escalation', type: 'boolean', default: false })
+    vagueReplyEscalation: boolean;
+
+    @Column({ name: 'only_follow_up_on_shift', type: 'boolean', default: false })
+    onlyFollowUpOnShift: boolean;
+
+    @Column({ name: 'delay_if_off_shift', type: 'boolean', default: true })
+    delayIfOffShift: boolean;
+
+    @Column({ name: 'escalate_urgent_off_shift', type: 'boolean', default: true })
+    escalateUrgentOffShift: boolean;
+
+    @Column({ name: 'fallback_timing_minutes', type: 'int', default: 60 })
+    fallbackTimingMinutes: number;
+
+    @Column({ name: 'tone_style', type: 'varchar', length: 50, default: 'supportive_firm' })
+    toneStyle: string;
+
+    @Column({ name: 'encourage_clarity', type: 'boolean', default: true })
+    encourageClarity: boolean;
+
+    @Column({ name: 'push_for_next_steps', type: 'boolean', default: true })
+    pushForNextSteps: boolean;
+
+    @Column({ name: 'avoid_filler_messages', type: 'boolean', default: true })
+    avoidFillerMessages: boolean;
+
     /**
      * User who last updated this setting
      */

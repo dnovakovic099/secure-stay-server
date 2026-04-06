@@ -33,6 +33,35 @@ export class EscalationService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private settingsService = new EscalationSettingsService();
     private aiManager = new AIEscalationManagerService();
+    private schemaReady = false;
+
+    private async ensureSchema(): Promise<void> {
+        if (this.schemaReady) return;
+
+        const taskColumns = [
+            'ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMP NULL',
+            'ADD COLUMN IF NOT EXISTS ignored_prompt_count INT NOT NULL DEFAULT 0',
+            'ADD COLUMN IF NOT EXISTS vague_reply_count INT NOT NULL DEFAULT 0',
+            'ADD COLUMN IF NOT EXISTS completion_quality_score FLOAT NULL',
+            'ADD COLUMN IF NOT EXISTS last_ai_review_summary TEXT NULL',
+            'ADD COLUMN IF NOT EXISTS last_ai_review_payload MEDIUMTEXT NULL',
+            'ADD COLUMN IF NOT EXISTS last_ai_review_at TIMESTAMP NULL',
+            'ADD COLUMN IF NOT EXISTS assigned_rep_name VARCHAR(255) NULL',
+            'ADD COLUMN IF NOT EXISTS assigned_rep_slack_id VARCHAR(100) NULL'
+        ];
+
+        for (const sql of taskColumns) {
+            try {
+                await appDatabase.query(`ALTER TABLE zapier_trigger_events ${sql}`);
+            } catch (error: any) {
+                if (!error.message?.includes('already exists') && !error.message?.includes('duplicate column')) {
+                    logger.warn('[EscalationService] Failed to ensure zapier_trigger_events column:', error.message);
+                }
+            }
+        }
+
+        this.schemaReady = true;
+    }
 
     /**
      * Get the appropriate Slack mention based on channel settings and shift status.
@@ -299,6 +328,8 @@ export class EscalationService {
      *    → Generate AI context summary, post reminder to Slack thread
      */
     async processOverdueTasks(): Promise<void> {
+        await this.ensureSchema();
+
         const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
         const slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
@@ -352,6 +383,8 @@ export class EscalationService {
                         event.escalationLevel = 1;
                         event.lastReminderAt = new Date();
                         event.reminderCount = 1;
+                        const settings = await this.getEscalationSettings(event.slackChannel);
+                        event.nextFollowUpAt = new Date(Date.now() + settings.reminderIntervalHours * 60 * 60 * 1000);
                         await eventRepo.save(event);
                     } else {
                         logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping escalation, will retry next cycle`);
@@ -371,7 +404,10 @@ export class EscalationService {
                 .createQueryBuilder('event')
                 .where('event.status = :status', { status: 'New' })
                 .andWhere('event.is_overdue = :isOverdue', { isOverdue: true })
-                .andWhere('event.last_reminder_at < :threshold', { threshold: reminderThreshold })
+                .andWhere('(event.next_follow_up_at IS NOT NULL AND event.next_follow_up_at <= :now) OR (event.next_follow_up_at IS NULL AND event.last_reminder_at < :threshold)', {
+                    now: new Date(),
+                    threshold: reminderThreshold
+                })
                 .getMany();
 
             if (needsReminder.length > 0) {
@@ -454,6 +490,8 @@ export class EscalationService {
                         event.reminderCount += 1;
                         event.escalationLevel += 1;
                         event.lastReminderAt = new Date();
+                        const settings = await this.getEscalationSettings(event.slackChannel);
+                        event.nextFollowUpAt = new Date(Date.now() + settings.reminderIntervalHours * 60 * 60 * 1000);
                         await eventRepo.save(event);
                     } else {
                         logger.warn(`[EscalationService] No Slack message record found for overdue event ${event.id} — skipping reminder, will retry next cycle`);

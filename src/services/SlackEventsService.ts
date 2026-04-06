@@ -264,6 +264,8 @@ export class SlackEventsService {
                     text: response
                 }, threadTs);
                 logger.info(`[SlackEventsService] Sent AI response for mention in ${event.channel}`);
+            } else {
+                logger.warn(`[SlackEventsService] AI mention produced no response for channel=${event.channel} thread=${threadTs}`);
             }
 
         } catch (error) {
