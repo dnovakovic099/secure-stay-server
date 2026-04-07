@@ -46,7 +46,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         owner: arrayOrSingle(Joi.string().required()).required(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
-        status: Joi.string().required().valid("active", "hidden").allow(null, ""),
+        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Keep", "Removed").required()).allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: arrayOrSingle(Joi.string().required()),
         serviceType: arrayOrSingle(Joi.string().required()),
