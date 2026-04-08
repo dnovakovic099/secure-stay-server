@@ -135,7 +135,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         integration: Joi.array().items(Joi.string()).optional(),
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        dateType: Joi.string().optional().valid("submittedAt", "updatedAt"),
+        dateType: Joi.string().optional().valid("submittedAt", "updatedAt", "arrivalDate", "departureDate"),
     });
 
     const { error } = schema.validate(request.query);

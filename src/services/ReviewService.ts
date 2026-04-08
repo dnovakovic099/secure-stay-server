@@ -1368,6 +1368,8 @@ export class ReviewService {
             } else {
                 query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
             }
+        } else if (fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
+            query.andWhere(`DATE(reservationInfo.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
         }
 
         // Keyword search filter (searches reservation, review, AI analysis, and issue data)
