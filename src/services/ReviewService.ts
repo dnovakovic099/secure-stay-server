@@ -748,12 +748,14 @@ export class ReviewService {
                     reviewCheckoutId: reviewCheckout?.id || null,
                     assignee: reviewCheckout?.assignee || null,
                     assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
+                    resolutionNotes: reviewCheckout?.comments || null,
                     latestUpdate: latestUpdate ? {
                         content: latestUpdate.content,
                         createdAt: latestUpdate.createdAt,
                         authorName: latestUpdate.authorName,
                     } : null,
                     refundAmount,
+                    refundRequestId: latestRefund?.id ?? null,
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
@@ -1466,7 +1468,6 @@ export class ReviewService {
             this.reviewRepository.find({
                 where: {
                     reservationId: In(reservationIds),
-                    isHidden: 0,
                 },
                 relations: ['reviewDetail', 'reviewDetail.removalAttempts'],
                 order: {
@@ -1542,7 +1543,9 @@ export class ReviewService {
                         createdAt: latestUpdate.createdAt,
                         authorName: latestUpdate.authorName,
                     } : null,
+                    resolutionNotes: rc.comments || null,
                     refundAmount,
+                    refundRequestId: latestRefund?.id ?? null,
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
@@ -1800,6 +1803,34 @@ export class ReviewService {
             });
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
+
+        return reviewCheckout;
+    }
+
+    async ensureReviewCheckout(reservationId: number, userId: string) {
+        const reservation = await this.reservationInfoRepo.findOne({ where: { id: reservationId } });
+        if (!reservation) {
+            throw CustomErrorHandler.notFound(`Reservation not found with id: ${reservationId}`);
+        }
+
+        let reviewCheckout = await this.reviewCheckoutRepo.findOne({
+            where: { reservationInfo: { id: reservationId } },
+            relations: ['reservationInfo'],
+        });
+
+        if (!reviewCheckout) {
+            const departureDate = reservation.departureDate;
+            reviewCheckout = this.reviewCheckoutRepo.create({
+                reservationInfo: reservation,
+                adjustedCheckoutDate: this.getAdjustedDepartureDate(departureDate),
+                sevenDaysAfterCheckout: format(addDays(departureDate, 7), 'yyyy-MM-dd'),
+                fourteenDaysAfterCheckout: format(addDays(departureDate, 14), 'yyyy-MM-dd'),
+                status: ReviewCheckoutStatus.TO_CALL,
+                createdBy: userId || "system",
+                updatedBy: userId || "system",
+            });
+            reviewCheckout = await this.reviewCheckoutRepo.save(reviewCheckout);
+        }
 
         return reviewCheckout;
     }
