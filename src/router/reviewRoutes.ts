@@ -51,6 +51,7 @@ router.route('/reviewcheckout')
     .get(verifySession, validateGetReviewForCheckout, reviewController.getReviewsForCheckout.bind(reviewController))
 
 router.route('/reviewcheckout/update').put(verifySession, validateUpdateReviewForCheckout, reviewController.updateReviewCheckout.bind(reviewController))
+router.route('/reviewcheckout/ensure').post(verifySession, reviewController.ensureReviewCheckout.bind(reviewController))
 
 router.route('/reviewcheckout/latest-update/create').post(verifySession,validateCreateLatestUpdate, reviewController.createReviewCheckoutUpdate.bind(reviewController));
 

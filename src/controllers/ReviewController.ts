@@ -340,6 +340,22 @@ export class ReviewController {
         }
     }
 
+    async ensureReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const reservationId = Number(request.body?.reservationId);
+            const userId = request.user.id;
+            const reviewCheckout = await reviewService.ensureReviewCheckout(reservationId, userId);
+            return response.status(200).json({
+                success: true,
+                data: reviewCheckout,
+            });
+        } catch (error) {
+            logger.error("Error ensuring review checkout:", error);
+            return next(error);
+        }
+    }
+
     async createReviewCheckoutUpdate(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
