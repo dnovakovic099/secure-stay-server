@@ -742,6 +742,9 @@ export class ReviewService {
                     guestPhone: reservationInfo?.phone || null,
                     bookingAmount: reservationInfo?.totalPrice || null,
                     ownerRevenue,
+                    checkInTime: reservationInfo?.checkInTime ?? null,
+                    checkOutTime: reservationInfo?.checkOutTime ?? listing?.checkOutTime ?? null,
+                    timeZoneName: listing?.timeZoneName ?? 'America/New_York',
                     guestEmail: reservationInfo?.guestEmail || null,
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
@@ -1504,19 +1507,31 @@ export class ReviewService {
             ...reviews.map(r => Number(r.listingMapId)),
             ...reviewCheckoutList.map(rc => Number(rc.reservationInfo?.listingMapId)),
         ].filter(Boolean))];
-        const listingTagRecords = uniqueListingIds.length > 0
-            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags'] })
+            const listingTagRecords = uniqueListingIds.length > 0
+            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags', 'timeZoneName', 'checkOutTime'] })
             : [];
-        const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l.tags]));
+        const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l]));
 
         const transformedData = reviewCheckoutList.map(rc => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
             const enrichedReview = matchedReview
-                ? { ...matchedReview, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))), serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))) }
+                ? {
+                    ...matchedReview,
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))?.tags),
+                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(matchedReview.listingMapId))?.tags),
+                    checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(matchedReview.listingMapId))?.checkOutTime ?? null,
+                    timeZoneName: listingTagMap.get(Number(matchedReview.listingMapId))?.timeZoneName ?? 'America/New_York',
+                }
                 : null;
             const enrichedReviews = reviews
                 .filter(r => r.reservationId == rc.reservationInfo?.id)
-                .map(r => ({ ...r, propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))), serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(r.listingMapId))) }));
+                .map(r => ({
+                    ...r,
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(r.listingMapId))?.tags),
+                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(r.listingMapId))?.tags),
+                    checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(r.listingMapId))?.checkOutTime ?? null,
+                    timeZoneName: listingTagMap.get(Number(r.listingMapId))?.timeZoneName ?? 'America/New_York',
+                }));
             const reservationId = Number(rc.reservationInfo?.id);
             const latestUpdate = latestNotesByReservation.get(reservationId) || null;
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
@@ -1534,8 +1549,8 @@ export class ReviewService {
                 deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
                 reservationInfo: {
                     ...rc.reservationInfo,
-                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))),
-                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))),
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.tags),
+                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.tags),
                     review: enrichedReview,
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
@@ -1551,6 +1566,8 @@ export class ReviewService {
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
+                    checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.checkOutTime ?? null,
+                    timeZoneName: listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.timeZoneName ?? 'America/New_York',
                 },
                 reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
                     return {
