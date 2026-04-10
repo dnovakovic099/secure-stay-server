@@ -4,33 +4,106 @@ import { appDatabase } from "../utils/database.util";
 import { Request, Response } from "express";
 import { UpSellListing } from "../entity/UpSellListing";
 import { Listing } from "../entity/Listing";
+import { UpSellPropertyConfig } from "../entity/UpSellPropertyConfig";
 
 export class UpSellServices {
   private upSellRepository = appDatabase.getRepository(UpSellEntity);
   private upSellListings = appDatabase.getRepository(UpSellListing);
   private listingInfoRepository = appDatabase.getRepository(Listing);
+  private upSellPropertyConfigRepository = appDatabase.getRepository(UpSellPropertyConfig);
+
+  private parseArrayField<T>(value: unknown): T[] {
+    if (Array.isArray(value)) {
+      return value as T[];
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
+  private normalizeNullableString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized ? normalized : null;
+  }
+
+  private normalizeNullableNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = Number(value);
+    return Number.isFinite(normalized) ? normalized : null;
+  }
+
+  private normalizePropertyConfigs(value: unknown) {
+    return this.parseArrayField<any>(value)
+      .map((item) => ({
+        listingId: Number(item?.listingId),
+        serviceType: this.normalizeNullableString(item?.serviceType),
+        actualFee: this.normalizeNullableNumber(item?.actualFee),
+        processingFee: this.normalizeNullableNumber(item?.processingFee),
+        chargeType: this.normalizeNullableString(item?.chargeType),
+        upsellFee: this.normalizeNullableNumber(item?.upsellFee),
+        internalNotes: this.normalizeNullableString(item?.internalNotes),
+      }))
+      .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
+  }
 
   async saveUpSellInfo(request: Request, response: Response) {
     try {
-      let { listingIds, ...upSellInfo } = request.body;
+      let { listingIds, propertyConfigs, ...upSellInfo } = request.body;
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
           image: `uploads/${request.file.filename}`,
         };
 
+      const normalizedPropertyConfigs = this.normalizePropertyConfigs(propertyConfigs);
+      const normalizedListingIds = Array.from(
+        new Set(
+          (
+            normalizedPropertyConfigs.length
+              ? normalizedPropertyConfigs.map((item) => item.listingId)
+              : this.parseArrayField<number | string>(listingIds).map((listingId) => Number(listingId))
+          ).filter((listingId) => Number.isFinite(listingId) && Number(listingId) > 0)
+        )
+      );
+
       await appDatabase.transaction(async (transactionalEntityManager) => {
-        await transactionalEntityManager.save(UpSellEntity, upSellInfo);
+        const savedUpSell = await transactionalEntityManager.save(UpSellEntity, upSellInfo);
         //saving listing to associated upSell
 
-        if (Array.isArray(listingIds)) {
+        if (normalizedListingIds.length) {
           await Promise.all(
-            listingIds.map(async (listingId: number) => {
+            normalizedListingIds.map(async (listingId: number) => {
               const upSellListing = new UpSellListing();
               upSellListing.listingId = listingId;
-              upSellListing.upSellId = upSellInfo.upSellId;
+              upSellListing.upSellId = savedUpSell.upSellId;
               upSellListing.status = 1;
               await transactionalEntityManager.save(upSellListing);
+            })
+          );
+        }
+
+        if (normalizedPropertyConfigs.length) {
+          await Promise.all(
+            normalizedPropertyConfigs.map(async (config) => {
+              const propertyConfig = new UpSellPropertyConfig();
+              propertyConfig.upSellId = Number(savedUpSell.upSellId);
+              propertyConfig.listingId = config.listingId;
+              propertyConfig.serviceType = config.serviceType;
+              propertyConfig.actualFee = config.actualFee;
+              propertyConfig.processingFee = config.processingFee;
+              propertyConfig.chargeType = config.chargeType;
+              propertyConfig.upsellFee = config.upsellFee;
+              propertyConfig.internalNotes = config.internalNotes;
+              await transactionalEntityManager.save(propertyConfig);
             })
           );
         }
@@ -47,12 +120,22 @@ export class UpSellServices {
 
   async updateUpSellInfo(request: Request, response: Response) {
     try {
-      let { listingIds, ...upSellInfo } = request.body;
+      let { listingIds, propertyConfigs, ...upSellInfo } = request.body;
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
           image: `uploads/${request.file.filename}`,
         };
+      const normalizedPropertyConfigs = this.normalizePropertyConfigs(propertyConfigs);
+      const normalizedListingIds = Array.from(
+        new Set(
+          (
+            normalizedPropertyConfigs.length
+              ? normalizedPropertyConfigs.map((item) => item.listingId)
+              : this.parseArrayField<number | string>(listingIds).map((listingId) => Number(listingId))
+          ).filter((listingId) => Number.isFinite(listingId) && Number(listingId) > 0)
+        )
+      );
       //check for existing upsell
       const data = await this.upSellRepository.findOne({
         where: {
@@ -76,7 +159,7 @@ export class UpSellServices {
           );
 
           // check either listing are present in the api request
-          if (Array.isArray(listingIds)) {
+          if (normalizedListingIds.length) {
             // Update UpSellListing status to 0
             await transactionalEntityManager.update(
               UpSellListing,
@@ -85,12 +168,33 @@ export class UpSellServices {
             );
             // Save new UpSellListing records
             await Promise.all(
-              listingIds?.map(async (listingId: number) => {
+              normalizedListingIds.map(async (listingId: number) => {
                 const upSellListing = new UpSellListing();
                 upSellListing.listingId = listingId;
                 upSellListing.upSellId = upSellInfo.upSellId;
                 upSellListing.status = 1;
                 await transactionalEntityManager.save(upSellListing);
+              })
+            );
+          }
+
+          await transactionalEntityManager.delete(UpSellPropertyConfig, {
+            upSellId: Number(upSellInfo.upSellId),
+          });
+
+          if (normalizedPropertyConfigs.length) {
+            await Promise.all(
+              normalizedPropertyConfigs.map(async (config) => {
+                const propertyConfig = new UpSellPropertyConfig();
+                propertyConfig.upSellId = Number(upSellInfo.upSellId);
+                propertyConfig.listingId = config.listingId;
+                propertyConfig.serviceType = config.serviceType;
+                propertyConfig.actualFee = config.actualFee;
+                propertyConfig.processingFee = config.processingFee;
+                propertyConfig.chargeType = config.chargeType;
+                propertyConfig.upsellFee = config.upsellFee;
+                propertyConfig.internalNotes = config.internalNotes;
+                await transactionalEntityManager.save(propertyConfig);
               })
             );
           }
@@ -363,14 +467,33 @@ export class UpSellServices {
             status: 1,
           },
         });
+        const propertyConfigs = await this.upSellPropertyConfigRepository.find({
+          where: {
+            upSellId: Number(upSellId),
+          },
+        });
+        const propertyConfigMap = new Map(
+          propertyConfigs.map((config) => [Number(config.listingId), config])
+        );
         if (Array.isArray(listingData)) {
           await Promise.all(
             listingData.map(async (data: any) => {
               const listingsInfo: any = await this.listingInfoRepository.find({
                 where: { id: data.listingId },
               });
-              listingsInfo[0].status = 1;
-              upSellListing.push(listingsInfo[0]);
+              const listingInfo = listingsInfo[0];
+              if (!listingInfo) {
+                return;
+              }
+              const propertyConfig = propertyConfigMap.get(Number(data.listingId));
+              listingInfo.status = 1;
+              listingInfo.serviceType = propertyConfig?.serviceType ?? null;
+              listingInfo.actualFee = propertyConfig?.actualFee ?? null;
+              listingInfo.processingFee = propertyConfig?.processingFee ?? null;
+              listingInfo.chargeType = propertyConfig?.chargeType ?? null;
+              listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
+              listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
+              upSellListing.push(listingInfo);
             })
           );
           return {
