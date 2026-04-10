@@ -11,6 +11,9 @@ export class UpSellEntity {
     @Column({ type: 'varchar', length: 50, nullable: false })
     title: String
 
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    serviceType: String
+
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false, default: 0 })
     price: number
 
@@ -22,6 +25,9 @@ export class UpSellEntity {
 
     @Column({ type: 'varchar', length: 500, nullable: false })
     description: String
+
+    @Column({ type: 'text', nullable: true })
+    internalNotes: String
 
     @Column({ type: 'tinyint', default: 1, nullable: false, })
     status: Number
