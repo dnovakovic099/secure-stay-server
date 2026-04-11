@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
 @Entity({ name: "upsell_property_config" })
 export class UpSellPropertyConfig {
@@ -14,6 +14,9 @@ export class UpSellPropertyConfig {
   @Column({ type: "varchar", length: 100, nullable: true })
   serviceType: string | null;
 
+  @Column({ type: "decimal", precision: 5, scale: 2, nullable: true })
+  pmFee: number | null;
+
   @Column({ type: "decimal", precision: 10, scale: 2, nullable: true })
   actualFee: number | null;
 
@@ -28,4 +31,10 @@ export class UpSellPropertyConfig {
 
   @Column({ type: "text", nullable: true })
   internalNotes: string | null;
+
+  @CreateDateColumn({ type: "timestamp" })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: "timestamp" })
+  updatedAt: Date;
 }

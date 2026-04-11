@@ -46,6 +46,7 @@ export class UpSellServices {
       .map((item) => ({
         listingId: Number(item?.listingId),
         serviceType: this.normalizeNullableString(item?.serviceType),
+        pmFee: this.normalizeNullableNumber(item?.pmFee),
         actualFee: this.normalizeNullableNumber(item?.actualFee),
         processingFee: this.normalizeNullableNumber(item?.processingFee),
         chargeType: this.normalizeNullableString(item?.chargeType),
@@ -98,6 +99,7 @@ export class UpSellServices {
               propertyConfig.upSellId = Number(savedUpSell.upSellId);
               propertyConfig.listingId = config.listingId;
               propertyConfig.serviceType = config.serviceType;
+              propertyConfig.pmFee = config.pmFee;
               propertyConfig.actualFee = config.actualFee;
               propertyConfig.processingFee = config.processingFee;
               propertyConfig.chargeType = config.chargeType;
@@ -189,6 +191,7 @@ export class UpSellServices {
                 propertyConfig.upSellId = Number(upSellInfo.upSellId);
                 propertyConfig.listingId = config.listingId;
                 propertyConfig.serviceType = config.serviceType;
+                propertyConfig.pmFee = config.pmFee;
                 propertyConfig.actualFee = config.actualFee;
                 propertyConfig.processingFee = config.processingFee;
                 propertyConfig.chargeType = config.chargeType;
@@ -488,11 +491,14 @@ export class UpSellServices {
               const propertyConfig = propertyConfigMap.get(Number(data.listingId));
               listingInfo.status = 1;
               listingInfo.serviceType = propertyConfig?.serviceType ?? null;
+              listingInfo.pmFee = propertyConfig?.pmFee ?? null;
               listingInfo.actualFee = propertyConfig?.actualFee ?? null;
               listingInfo.processingFee = propertyConfig?.processingFee ?? null;
               listingInfo.chargeType = propertyConfig?.chargeType ?? null;
               listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
               listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
+              listingInfo.createdAt = propertyConfig?.createdAt ?? null;
+              listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;
               upSellListing.push(listingInfo);
             })
           );
