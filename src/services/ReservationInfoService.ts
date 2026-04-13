@@ -874,17 +874,28 @@ export class ReservationInfoService {
   }
 
   /**
-   * Get current and upcoming reservations for a specific listing
-   * Used for upsell form guest name dropdown
+   * Get reservations for a specific listing:
+   * - Past 15 days checked-out reservations
+   * - Ongoing reservations
+   * - Future reservations
+   * Used for refund request form guest name dropdown
    */
   async getReservationsByListingId(listingId: number): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
     const today = format(new Date(), 'yyyy-MM-dd');
+    const past15DaysDate = new Date();
+    past15DaysDate.setDate(past15DaysDate.getDate() - 15);
+    const past15Days = format(past15DaysDate, 'yyyy-MM-dd');
 
     const reservations = await this.reservationInfoRepository
       .createQueryBuilder('reservation')
       .where('reservation.listingMapId = :listingId', { listingId })
       .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus })
-      .andWhere('(DATE(reservation.arrivalDate) >= :today OR (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today))', { today })
+      .andWhere(
+        '(DATE(reservation.arrivalDate) >= :today' +
+        ' OR (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)' +
+        ' OR (DATE(reservation.departureDate) >= :past15Days AND DATE(reservation.departureDate) < :today))',
+        { today, past15Days }
+      )
       .orderBy('reservation.arrivalDate', 'ASC')
       .getMany();
 
