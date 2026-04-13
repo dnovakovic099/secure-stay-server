@@ -8,15 +8,16 @@ import sendEmail from "../utils/sendEmai";
 import { formatCurrency } from "../helpers/helpers";
 import logger from "../utils/logger.utils";
 import { UsersEntity } from "../entity/Users";
-import { buildRefundRequestMessage, buildRefundRequestReminderMessage, buildUpdatedRefundRequestMessage, buildUpdatedStatusRefundRequestMessage } from "../utils/slackMessageBuilder";
+import { buildRefundRequestMessage, buildRefundRequestOriginalMessageForStatus, buildRefundRequestReminderMessage, buildUpdatedRefundRequestMessage, buildUpdatedStatusRefundRequestMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import updateSlackMessage from "../utils/updateSlackMsg";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { SlackMessageService } from "./SlackMessageService";
-import updateSlackMessage from "../utils/updateSlackMsg";
 import { ExpenseStatus } from "../entity/Expense";
 import { ListingService } from "./ListingService";
 import { FileInfo } from "../entity/FileInfo";
 import { categoryIds } from "../constant";
+import { RefundRequestSettingsService } from "./RefundRequestSettingsService";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -143,11 +144,17 @@ export class RefundRequestService {
       });
 
       if (slackMessageInfo) {
-        const slackMessage = isStatusChanged
+        // 1. Update the original message to reflect the new status/buttons
+        await updateSlackMessage(
+          buildRefundRequestOriginalMessageForStatus(refundRequest),
+          slackMessageInfo.messageTs,
+          slackMessageInfo.channel
+        );
+        // 2. Post a thread reply with the change summary
+        const replyMessage = isStatusChanged
           ? buildUpdatedStatusRefundRequestMessage(refundRequest, user)
           : buildUpdatedRefundRequestMessage(refundRequest, user);
-
-        await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+        await sendSlackMessage(replyMessage, slackMessageInfo.threadTs || slackMessageInfo.messageTs);
       }
     } catch (error) {
       logger.error("Slack update failed", error);
@@ -182,20 +189,23 @@ export class RefundRequestService {
       await this.handleExpense(body.status, newRefundRequest, userId, transactionManager, newRefundRequest.id, paymentMethod);
         }
 
-    try {
-      const slackMessage = buildRefundRequestMessage(newRefundRequest);
-      const slackResponse = await sendSlackMessage(slackMessage);
+    if (newRefundRequest.status === "Pending") {
+      try {
+        const slackTagIds = await this.getSlackTagIds();
+        const slackMessage = buildRefundRequestMessage(newRefundRequest, slackTagIds);
+        const slackResponse = await sendSlackMessage(slackMessage);
 
-      await slackMessageService.saveSlackMessageInfo({
-        channel: slackResponse.channel,
-        messageTs: slackResponse.ts,
-        threadTs: slackResponse.ts,
-        entityType: "refund_request",
-        entityId: newRefundRequest.id,
-        originalMessage: JSON.stringify(slackMessage)
-      });
-    } catch (error) {
-      logger.error("Slack creation failed", error);
+        await slackMessageService.saveSlackMessageInfo({
+          channel: slackResponse.channel,
+          messageTs: slackResponse.ts,
+          threadTs: slackResponse.ts,
+          entityType: "refund_request",
+          entityId: newRefundRequest.id,
+          originalMessage: JSON.stringify(slackMessage)
+        });
+      } catch (error) {
+        logger.error("Slack creation failed", error);
+      }
     }
 
     try {
@@ -211,6 +221,20 @@ export class RefundRequestService {
     return newRefundRequest;
   }
 
+
+    private async getSlackTagIds(): Promise<string[]> {
+        try {
+            const settingsService = new RefundRequestSettingsService();
+            const settings = await settingsService.getSettings();
+            if (settings.slackTagIds) {
+                const parsed = JSON.parse(settings.slackTagIds);
+                return Array.isArray(parsed) ? parsed : [];
+            }
+        } catch (e) {
+            logger.error("Failed to fetch refund request Slack tag IDs", e);
+        }
+        return [];
+    }
 
     private async handleExpense(
         status: string,
@@ -344,9 +368,17 @@ export class RefundRequestService {
 
       await this.refundRequestRepo.save(refundRequest);
       if (slackMessageInfo && !isRequestFromSlack) {
-        await updateSlackMessage(buildUpdatedStatusRefundRequestMessage(refundRequest, user), slackMessageInfo.messageTs, slackMessageInfo.channel);
-        const slackMessage = isStatusChanged ? buildUpdatedStatusRefundRequestMessage(refundRequest, user) : buildUpdatedRefundRequestMessage(refundRequest, user);
-        await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+        // 1. Update the original message to reflect the new status/buttons
+        await updateSlackMessage(
+          buildRefundRequestOriginalMessageForStatus(refundRequest),
+          slackMessageInfo.messageTs,
+          slackMessageInfo.channel
+        );
+        // 2. Post a thread reply with the change summary
+        const replyMessage = isStatusChanged
+          ? buildUpdatedStatusRefundRequestMessage(refundRequest, user)
+          : buildUpdatedRefundRequestMessage(refundRequest, user);
+        await sendSlackMessage(replyMessage, slackMessageInfo.threadTs || slackMessageInfo.messageTs);
       }
       await this.sendEmailForUpdatedRefundRequest(refundRequest);
       return refundRequest

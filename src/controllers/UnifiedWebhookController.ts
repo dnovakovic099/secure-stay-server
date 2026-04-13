@@ -65,7 +65,8 @@ export class UnifiedWebhookController {
         try {
             const payload = request.body.payload && JSON.parse(request.body.payload);
             const action = payload.actions[0];
-            const user = payload?.user?.username ? `@${payload.user.username}` : 'user';
+            const userMention = payload?.user?.id ? `<@${payload.user.id}>` : (payload?.user?.username ? `@${payload.user.username}` : 'user');
+            const user = userMention;
             const actionData = action.value && JSON.parse(action.value);
             const responseUrl = payload.response_url;
             let messageText = "";
@@ -73,13 +74,15 @@ export class UnifiedWebhookController {
 
             switch (action.action_id) {
                 case slackInteractivityEventNames.APPROVE_REFUND_REQUEST: {
-                    messageText = `Your request to approve refund request is being processed. You will receive a confirmation message shortly.`;
-                    await this.sendResponseInSlack(responseUrl, messageText);
+                    // Acknowledgment handled by response.send() below; service updates original message + posts thread reply
                     break;
                 }
                 case slackInteractivityEventNames.DENY_REFUND_REQUEST: {
-                    messageText = `Your request to deny refund request is being processed. You will receive a confirmation message shortly.`;
-                    await this.sendResponseInSlack(responseUrl, messageText);
+                    // Acknowledgment handled by response.send() below; service updates original message + posts thread reply
+                    break;
+                }
+                case slackInteractivityEventNames.PAID_REFUND_REQUEST: {
+                    // Acknowledgment handled by response.send() below; service updates original message + posts thread reply
                     break;
                 }
                 case slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS: {
@@ -128,44 +131,50 @@ export class UnifiedWebhookController {
             switch (action.action_id) {
                 case `${slackInteractivityEventNames.APPROVE_REFUND_REQUEST}`: {
                     try {
-                        // update the refund request status to Approved
+                        // isRequestFromSlack=false → service handles updateSlackMessage (buttons only) + thread reply
                         const refundRequestService = new RefundRequestService();
-                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Approved", user, true);
+                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Approved", user, false);
                         if (refundRequest) {
                             logger.info(`User ${user} approved refund request ${actionData.guestName} for ${actionData.amount}`);
-                            messageText = `✅ <@${user}> approved *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*. *<https://securestay.ai/issues?id=${JSON.parse(actionData.issueId).join(",")}|View Issue>*`;
-                            await this.sendResponseInSlack(responseUrl, messageText);
                         } else {
-                            messageText = `Something went wrong. ❌ Failed to approve refund request for *${actionData.guestName}*.`;
-                            await this.sendResponseInSlack(responseUrl, messageText);
+                            logger.error(`Failed to approve refund request for ${actionData.guestName}`);
                         }
                     } catch (error) {
                         logger.error(`Error approving refund request: ${error}`);
-                        messageText = `❌ Failed to approve refund request for *${actionData.guestName}*.`;
-                        await this.sendResponseInSlack(responseUrl, messageText);
                     }
 
                     break;
                 }
                 case `${slackInteractivityEventNames.DENY_REFUND_REQUEST}`: {
                     try {
-                        // update the refund request status to denied
+                        // isRequestFromSlack=false → service handles updateSlackMessage (buttons only) + thread reply
                         const refundRequestService = new RefundRequestService();
-                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Denied", user, true);
+                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Denied", user, false);
                         if (refundRequest) {
                             logger.info(`User ${user} denied refund request ${actionData.guestName} for ${actionData.amount}`);
-                            messageText = `<@${user}> denied *${formatCurrency(actionData.amount)}* refund request for *${actionData.guestName}*. *<https://securestay.ai/issues?id=${JSON.parse(actionData.issueId).join(",")}|View Issue>*`;
-                            await this.sendResponseInSlack(responseUrl, messageText);
                         } else {
-                            messageText = `Something went wrong. ❌ Failed to deny refund request for *${actionData.guestName}*.`;
-                            await this.sendResponseInSlack(responseUrl, messageText);
+                            logger.error(`Failed to deny refund request for ${actionData.guestName}`);
                         }
                     } catch (error) {
                         logger.error(`Error denying refund request: ${error}`);
-                        messageText = `❌ Failed to deny refund request for *${actionData.guestName}*.`;
-                        await this.sendResponseInSlack(responseUrl, messageText);
                     }
-                    
+
+                    break;
+                }
+                case `${slackInteractivityEventNames.PAID_REFUND_REQUEST}`: {
+                    try {
+                        // isRequestFromSlack=false → service handles updateSlackMessage (buttons only) + thread reply
+                        const refundRequestService = new RefundRequestService();
+                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(actionData.id), "Paid", user, false);
+                        if (refundRequest) {
+                            logger.info(`User ${user} marked refund request ${actionData.guestName} as paid`);
+                        } else {
+                            logger.error(`Failed to mark refund request as paid for ${actionData.guestName}`);
+                        }
+                    } catch (error) {
+                        logger.error(`Error marking refund request as paid: ${error}`);
+                    }
+
                     break;
                 }
                 case `${slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS}`: {
@@ -294,11 +303,11 @@ export class UnifiedWebhookController {
         }
     }
 
-    private async sendResponseInSlack(responseUrl: string, messageText: string) {
+    private async sendResponseInSlack(responseUrl: string, messageText: string, replaceOriginal = true) {
         try {
             const response = await axios.post(responseUrl, {
                 text: messageText,
-                replace_original: true
+                replace_original: replaceOriginal
             });
             logger.info('Response sent to Slack:', response.data);
         } catch (error) {
