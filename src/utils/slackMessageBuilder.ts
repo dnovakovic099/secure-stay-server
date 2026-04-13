@@ -21,7 +21,7 @@ import { PhotographerRequest } from "../entity/PhotographerRequest";
 import { MaintenanceFormRequest } from "../entity/MaintenanceFormRequest";
 import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
 
-const REFUND_REQUEST_CHANNEL = "#resolutions-team";
+const REFUND_REQUEST_CHANNEL = "#social";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
@@ -32,11 +32,19 @@ const UNRESPONDED_MESSAGES_CHANNEL = "#unresponded-messages";
 const CLEANING_AND_MAINTENANCE = "#cleaning-and-maintenance";
 const INTERNAL_PHOTOGRAPHY = "#internal-photography";
 
-export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) => {
+export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity, slackTagIds?: string[]) => {
+    const tagMention = slackTagIds && slackTagIds.length > 0
+        ? slackTagIds.map(id => `<@${id}>`).join(' ') + ' — New refund request requires your approval.'
+        : null;
+
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `New Refund Request for ${refundRequest.guestName}`,
         blocks: [
+            ...(tagMention ? [{
+                type: "section",
+                text: { type: "mrkdwn", text: tagMention }
+            }] : []),
             {
                 type: "section",
                 text: {
@@ -59,30 +67,40 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
                     {
                         type: "button",
                         text: { type: "plain_text", text: "Approve", emoji: true },
-                        style: "primary",
                         action_id: slackInteractivityEventNames.APPROVE_REFUND_REQUEST,
-                        value: `${JSON.stringify({
+                        value: JSON.stringify({
                             id: refundRequest.id,
                             guestName: refundRequest.guestName,
                             listingName: refundRequest.listingName,
                             amount: refundRequest.refundAmount,
                             issueId: refundRequest.issueId
                         })
-                            }`
                     },
                     {
                         type: "button",
                         text: { type: "plain_text", text: "Deny", emoji: true },
                         style: "danger",
                         action_id: slackInteractivityEventNames.DENY_REFUND_REQUEST,
-                        value: `${JSON.stringify({
+                        value: JSON.stringify({
                             id: refundRequest.id,
                             guestName: refundRequest.guestName,
                             listingName: refundRequest.listingName,
                             amount: refundRequest.refundAmount,
                             issueId: refundRequest.issueId
                         })
-                            }`
+                    },
+                    {
+                        type: "button",
+                        text: { type: "plain_text", text: "Paid", emoji: true },
+                        style: "primary",
+                        action_id: slackInteractivityEventNames.PAID_REFUND_REQUEST,
+                        value: JSON.stringify({
+                            id: refundRequest.id,
+                            guestName: refundRequest.guestName,
+                            listingName: refundRequest.listingName,
+                            amount: refundRequest.refundAmount,
+                            issueId: refundRequest.issueId
+                        })
                     }
                 ]
             }
@@ -90,6 +108,97 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity) =>
     };
 
     return slackMessage;
+};
+
+/**
+ * Rebuilds the original refund request message with action buttons appropriate
+ * for the current status. Used to update (chat.update) the original message
+ * after a status change so the buttons always reflect the current state.
+ */
+export const buildRefundRequestOriginalMessageForStatus = (refundRequest: RefundRequestEntity) => {
+    const actionValue = JSON.stringify({
+        id: refundRequest.id,
+        guestName: refundRequest.guestName,
+        listingName: refundRequest.listingName,
+        amount: refundRequest.refundAmount,
+        issueId: refundRequest.issueId
+    });
+
+    const statusEmoji = refundRequest.status.toLowerCase() === "approved" ? "✅"
+        : refundRequest.status.toLowerCase() === "denied" ? "❌"
+        : refundRequest.status.toLowerCase() === "paid" ? "💰"
+        : refundRequest.status.toLowerCase() === "cancelled" ? "🚫"
+        : "⏳";
+
+    const statusLabel = `${statusEmoji} *Status: ${refundRequest.status}*`;
+
+    // Build the action elements based on current status
+    let actionElements: any[] = [];
+    if (refundRequest.status === "Pending") {
+        actionElements = [
+            {
+                type: "button",
+                text: { type: "plain_text", text: "Approve", emoji: true },
+                action_id: slackInteractivityEventNames.APPROVE_REFUND_REQUEST,
+                value: actionValue
+            },
+            {
+                type: "button",
+                text: { type: "plain_text", text: "Deny", emoji: true },
+                style: "danger",
+                action_id: slackInteractivityEventNames.DENY_REFUND_REQUEST,
+                value: actionValue
+            },
+            {
+                type: "button",
+                text: { type: "plain_text", text: "Paid", emoji: true },
+                style: "primary",
+                action_id: slackInteractivityEventNames.PAID_REFUND_REQUEST,
+                value: actionValue
+            }
+        ];
+    } else if (refundRequest.status === "Approved") {
+        actionElements = [
+            {
+                type: "button",
+                text: { type: "plain_text", text: "Mark as Paid", emoji: true },
+                style: "primary",
+                action_id: slackInteractivityEventNames.PAID_REFUND_REQUEST,
+                value: actionValue
+            }
+        ];
+    }
+    // Paid / Denied / Cancelled → no action buttons
+
+    const blocks: any[] = [
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*Refund request:* *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+            }
+        },
+        {
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*Reservation:*\n${refundRequest.guestName}` },
+                { type: "mrkdwn", text: `*Listing:*\n${refundRequest.listingName}` },
+                { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}` },
+                { type: "mrkdwn", text: `*Explanation:*\n${refundRequest.explaination}` }
+            ]
+        },
+        {
+            type: "section",
+            text: { type: "mrkdwn", text: statusLabel }
+        },
+        ...(actionElements.length > 0 ? [{ type: "actions", elements: actionElements }] : [])
+    ];
+
+    return {
+        channel: REFUND_REQUEST_CHANNEL,
+        text: `Refund Request for ${refundRequest.guestName} — ${refundRequest.status}`,
+        blocks
+    };
 };
 
 export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEntity[]) => {
@@ -189,7 +298,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : "⏳"} <@${user}> ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
                 }
             },
         ]
@@ -346,7 +455,7 @@ const formatFieldName = (name: string) => {
 };
 
 
-export const buildClientTicketSlackMessageDelete = (ticket: ClientTicket, user: string, listingName: string) => {
+export const buildClientTicketSlackMessageDelete = (_ticket: ClientTicket, user: string, listingName: string) => {
     const slackMessage = {
         channel: CLIENT_RELATIONS,
         text: ` ${user} deleted the client ticket of 🏠 ${listingName}`,
@@ -587,7 +696,7 @@ export const buildClientTicketUpdateMessage = (updates: ClientTicketUpdates, lis
     };
 };
 
-export const buildActionItemsUpdateMessage = (updates: ActionItemsUpdates, listingName: string, user: string) => {
+export const buildActionItemsUpdateMessage = (updates: ActionItemsUpdates, _listingName: string, user: string) => {
     return {
         channel: GUEST_RELATIONS,
         text: `New update for 🏠 ${updates.actionItems.listingName} - 👤 ${updates.actionItems.guestName}`,

@@ -1,4 +1,5 @@
 import { RefundRequestController } from "../controllers/RefundRequestController";
+import { RefundRequestSettingsController } from "../controllers/RefundRequestSettingsController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { validateRefundRequestStatus, validateSaveRefundRequest, validateUpdateRefundRequest } from "../middleware/validation/refundRequest/refundRequest.validation";
@@ -6,6 +7,7 @@ import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const refundRequestController = new RefundRequestController();
+const refundRequestSettingsController = new RefundRequestSettingsController();
 
 router.route('/')
     .post(
@@ -34,5 +36,9 @@ router.route('/:reservationId').get(verifySession, refundRequestController.getRe
 router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, refundRequestController.updateRefundRequestStatus);
 
 router.route('/getrefundrequestbyid/:id').get(verifySession, refundRequestController.getRefundRequestById);
+
+router.route('/settings')
+    .get(verifySession, refundRequestSettingsController.getSettings)
+    .put(verifySession, refundRequestSettingsController.updateSettings);
 
 export default router;
