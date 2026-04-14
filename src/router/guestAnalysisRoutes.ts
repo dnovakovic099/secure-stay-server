@@ -23,6 +23,18 @@ router.get("/settings", controller.getSettings);
 // PUT /api/guest-analysis/settings - Update taxonomy/settings
 router.put("/settings", controller.updateSettings);
 
+// GET /api/guest-analysis/report-threads - List saved report threads
+router.get("/report-threads", controller.listReportThreads);
+
+// POST /api/guest-analysis/report-threads - Create a saved report thread
+router.post("/report-threads", controller.createReportThread);
+
+// GET /api/guest-analysis/report-threads/:threadId - Load a saved report thread
+router.get("/report-threads/:threadId", controller.getReportThread);
+
+// POST /api/guest-analysis/report-threads/:threadId/messages - Add a user message and generate a report response
+router.post("/report-threads/:threadId/messages", controller.createReportThreadMessage);
+
 // GET /api/guest-analysis/:reservationId - Get existing analysis
 router.get("/:reservationId", controller.getAnalysis);
 

@@ -60,6 +60,11 @@ export interface GuestAnalysisRecordFilters {
     department?: string[];
     status?: string[];
     priority?: string[];
+    property?: string[];
+    arrivalDateFrom?: string;
+    arrivalDateTo?: string;
+    departureDateFrom?: string;
+    departureDateTo?: string;
     sortField?: string;
     sortDir?: "ASC" | "DESC";
     page?: number;
@@ -229,6 +234,15 @@ export class GuestAnalysisService {
             page,
             limit,
         };
+    }
+
+    async getAllAnalysisRecords(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisRecord[]> {
+        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const priorityRankMap = await this.settingsService.getPriorityRankMap();
+        const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
+        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
+        const filtered = this.applyRecordFilters(mapped, filters);
+        return this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
     }
 
     async getAnalysisSummary(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisPhaseSummary[]> {
@@ -410,6 +424,10 @@ export class GuestAnalysisService {
 
     private applyRecordFilters(records: GuestAnalysisRecord[], filters: GuestAnalysisRecordFilters): GuestAnalysisRecord[] {
         const keyword = String(filters.search || "").trim().toLowerCase();
+        const arrivalDateFrom = this.parseDateFilter(filters.arrivalDateFrom, false);
+        const arrivalDateTo = this.parseDateFilter(filters.arrivalDateTo, true);
+        const departureDateFrom = this.parseDateFilter(filters.departureDateFrom, false);
+        const departureDateTo = this.parseDateFilter(filters.departureDateTo, true);
 
         return records.filter((record) => {
             if (filters.bookingPhase?.length && !filters.bookingPhase.includes(record.bookingPhase)) return false;
@@ -418,6 +436,19 @@ export class GuestAnalysisService {
             if (filters.department?.length && !record.departments.some((department) => filters.department?.includes(department))) return false;
             if (filters.status?.length && !filters.status.includes(record.status)) return false;
             if (filters.priority?.length && !filters.priority.includes(record.priority)) return false;
+            if (filters.property?.length && !filters.property.includes(record.listingName || "")) return false;
+            if (arrivalDateFrom || arrivalDateTo) {
+                const arrival = this.parseRecordDate(record.arrivalDate);
+                if (!arrival) return false;
+                if (arrivalDateFrom && arrival < arrivalDateFrom) return false;
+                if (arrivalDateTo && arrival > arrivalDateTo) return false;
+            }
+            if (departureDateFrom || departureDateTo) {
+                const departure = this.parseRecordDate(record.departureDate);
+                if (!departure) return false;
+                if (departureDateFrom && departure < departureDateFrom) return false;
+                if (departureDateTo && departure > departureDateTo) return false;
+            }
             if (!keyword) return true;
 
             const haystack = [
@@ -442,6 +473,24 @@ export class GuestAnalysisService {
 
             return haystack.includes(keyword);
         });
+    }
+
+    private parseRecordDate(value: Date | string | null | undefined): Date | null {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    private parseDateFilter(value?: string, endOfDay = false): Date | null {
+        if (!value) return null;
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return null;
+        if (endOfDay) {
+            parsed.setHours(23, 59, 59, 999);
+        } else {
+            parsed.setHours(0, 0, 0, 0);
+        }
+        return parsed;
     }
 
     private sortRecords(
