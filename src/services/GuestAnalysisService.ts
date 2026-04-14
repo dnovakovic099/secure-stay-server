@@ -9,6 +9,7 @@ import { GuestAnalysisSettingsEntry } from "../entity/GuestAnalysisSettings";
 import { GuestAnalysisSettingsService } from "./GuestAnalysisSettingsService";
 import logger from "../utils/logger.utils";
 import { v4 as uuidv4 } from "uuid";
+import { Listing } from "../entity/Listing";
 
 /**
  * Sentiment types for guest analysis
@@ -45,6 +46,8 @@ export interface GuestAnalysisRecord {
     flags: GuestAnalysisFlag[];
     analyzedAt: Date;
     analyzedBy: string | null;
+    propertyType: string | null;
+    serviceType: string | null;
     categories: string[];
     departments: string[];
     flagCount: number;
@@ -61,6 +64,9 @@ export interface GuestAnalysisRecordFilters {
     status?: string[];
     priority?: string[];
     property?: string[];
+    propertyType?: string[];
+    serviceType?: string[];
+    dateType?: "arrivalDate" | "departureDate";
     arrivalDateFrom?: string;
     arrivalDateTo?: string;
     departureDateFrom?: string;
@@ -102,6 +108,7 @@ export class GuestAnalysisService {
     private openai: OpenAI;
     private analysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+    private listingRepo = appDatabase.getRepository(Listing);
     private communicationService: GuestCommunicationService;
     private settingsService: GuestAnalysisSettingsService;
 
@@ -221,7 +228,7 @@ export class GuestAnalysisService {
         const latestAnalyses = await this.getLatestAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
+        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
         const filtered = this.applyRecordFilters(mapped, filters);
         const sorted = this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
         const page = Math.max(1, Number(filters.page || 1));
@@ -240,7 +247,7 @@ export class GuestAnalysisService {
         const latestAnalyses = await this.getLatestAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
+        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
         const filtered = this.applyRecordFilters(mapped, filters);
         return this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
     }
@@ -249,7 +256,7 @@ export class GuestAnalysisService {
         const latestAnalyses = await this.getLatestAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
+        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
         const filtered = this.applyRecordFilters(mapped, filters);
 
         return PHASE_ORDER.map((phase) => {
@@ -315,7 +322,7 @@ export class GuestAnalysisService {
         return { processed, failed, skipped };
     }
 
-    private async getLatestAnalysesWithReservations(): Promise<Array<{ analysis: GuestAnalysisEntity; reservation: ReservationInfoEntity | null }>> {
+    private async getLatestAnalysesWithReservations(): Promise<Array<{ analysis: GuestAnalysisEntity; reservation: ReservationInfoEntity | null; listing: Listing | null }>> {
         const all = await this.analysisRepo.find({ order: { analyzedAt: "DESC" } });
         const latestByReservation = new Map<number, GuestAnalysisEntity>();
 
@@ -332,10 +339,24 @@ export class GuestAnalysisService {
         const reservationMap = new Map<number, ReservationInfoEntity>(
             reservations.map((reservation) => [Number(reservation.id), reservation])
         );
+        const listingIds = Array.from(
+            new Set(
+                reservations
+                    .map((reservation) => Number(reservation.listingMapId))
+                    .filter((value) => Number.isFinite(value) && value > 0)
+            )
+        );
+        const listings = listingIds.length
+            ? await this.listingRepo.find({ where: { id: In(listingIds) }, select: ["id", "tags"] })
+            : [];
+        const listingMap = new Map<number, Listing>(
+            listings.map((listing) => [Number(listing.id), listing])
+        );
 
         return Array.from(latestByReservation.values()).map((analysis) => ({
             analysis,
             reservation: reservationMap.get(Number(analysis.reservationId)) || null,
+            listing: listingMap.get(Number(reservationMap.get(Number(analysis.reservationId))?.listingMapId || 0)) || null,
         }));
     }
 
@@ -372,6 +393,7 @@ export class GuestAnalysisService {
     private mapAnalysisRecord(
         analysis: GuestAnalysisEntity,
         reservation: ReservationInfoEntity | null,
+        listing: Listing | null,
         priorityRankMap: Map<string, number>,
         priorityStatusMap: Map<string, AnalysisStatus>,
     ): GuestAnalysisRecord {
@@ -397,6 +419,8 @@ export class GuestAnalysisService {
             flags: analysis.flags || [],
             analyzedAt: analysis.analyzedAt,
             analyzedBy: analysis.analyzedBy || null,
+            propertyType: this.extractPropertyTypeFromTags(listing?.tags),
+            serviceType: this.extractServiceTypeFromTags(listing?.tags),
             categories,
             departments,
             flagCount: analysis.flags?.length || 0,
@@ -424,10 +448,13 @@ export class GuestAnalysisService {
 
     private applyRecordFilters(records: GuestAnalysisRecord[], filters: GuestAnalysisRecordFilters): GuestAnalysisRecord[] {
         const keyword = String(filters.search || "").trim().toLowerCase();
+        const selectedDateType = filters.dateType === "arrivalDate" ? "arrivalDate" : filters.dateType === "departureDate" ? "departureDate" : null;
         const arrivalDateFrom = this.parseDateFilter(filters.arrivalDateFrom, false);
         const arrivalDateTo = this.parseDateFilter(filters.arrivalDateTo, true);
         const departureDateFrom = this.parseDateFilter(filters.departureDateFrom, false);
         const departureDateTo = this.parseDateFilter(filters.departureDateTo, true);
+        const activeDateFrom = selectedDateType === "departureDate" ? departureDateFrom : arrivalDateFrom;
+        const activeDateTo = selectedDateType === "departureDate" ? departureDateTo : arrivalDateTo;
 
         return records.filter((record) => {
             if (filters.bookingPhase?.length && !filters.bookingPhase.includes(record.bookingPhase)) return false;
@@ -437,17 +464,13 @@ export class GuestAnalysisService {
             if (filters.status?.length && !filters.status.includes(record.status)) return false;
             if (filters.priority?.length && !filters.priority.includes(record.priority)) return false;
             if (filters.property?.length && !filters.property.includes(record.listingName || "")) return false;
-            if (arrivalDateFrom || arrivalDateTo) {
-                const arrival = this.parseRecordDate(record.arrivalDate);
-                if (!arrival) return false;
-                if (arrivalDateFrom && arrival < arrivalDateFrom) return false;
-                if (arrivalDateTo && arrival > arrivalDateTo) return false;
-            }
-            if (departureDateFrom || departureDateTo) {
-                const departure = this.parseRecordDate(record.departureDate);
-                if (!departure) return false;
-                if (departureDateFrom && departure < departureDateFrom) return false;
-                if (departureDateTo && departure > departureDateTo) return false;
+            if (filters.propertyType?.length && !filters.propertyType.includes(record.propertyType || "")) return false;
+            if (filters.serviceType?.length && !filters.serviceType.includes(record.serviceType || "")) return false;
+            if (selectedDateType && (activeDateFrom || activeDateTo)) {
+                const target = this.parseRecordDate(selectedDateType === "departureDate" ? record.departureDate : record.arrivalDate);
+                if (!target) return false;
+                if (activeDateFrom && target < activeDateFrom) return false;
+                if (activeDateTo && target > activeDateTo) return false;
             }
             if (!keyword) return true;
 
@@ -461,6 +484,8 @@ export class GuestAnalysisService {
                 record.integration,
                 record.confirmationCode,
                 record.bookingPhase,
+                record.propertyType,
+                record.serviceType,
                 record.priority,
                 record.status,
                 ...record.categories,
@@ -473,6 +498,24 @@ export class GuestAnalysisService {
 
             return haystack.includes(keyword);
         });
+    }
+
+    private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
+        if (!tags) return null;
+        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
+        if (tagList.includes('own')) return 'Own';
+        if (tagList.includes('arb')) return 'Arb';
+        if (tagList.includes('pm')) return 'PM';
+        return null;
+    }
+
+    private extractServiceTypeFromTags(tags: string | null | undefined): string | null {
+        if (!tags) return null;
+        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
+        if (tagList.includes('full')) return 'Full';
+        if (tagList.includes('pro')) return 'Pro';
+        if (tagList.includes('launch')) return 'Launch';
+        return null;
     }
 
     private parseRecordDate(value: Date | string | null | undefined): Date | null {
