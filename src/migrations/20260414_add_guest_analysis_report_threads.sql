@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS guest_analysis_report_threads (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  createdBy VARCHAR(120) NULL,
+  latestFilters JSON NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS guest_analysis_report_messages (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  threadId VARCHAR(36) NOT NULL,
+  role VARCHAR(16) NOT NULL,
+  content LONGTEXT NOT NULL,
+  filterSnapshot JSON NULL,
+  datasetSnapshot JSON NULL,
+  structuredReport JSON NULL,
+  createdBy VARCHAR(120) NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_guest_analysis_report_messages_threadId_createdAt (threadId, createdAt)
+);

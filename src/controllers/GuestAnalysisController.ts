@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import { GuestAnalysisSettingsService } from "../services/GuestAnalysisSettingsService";
+import { GuestAnalysisReportThreadService } from "../services/GuestAnalysisReportThreadService";
 import logger from "../utils/logger.utils";
 import type { GuestAnalysisRecordFilters } from "../services/GuestAnalysisService";
 import type { GuestAnalysisMigrationPlan, GuestAnalysisSettingsValue } from "../entity/GuestAnalysisSettings";
@@ -14,11 +15,13 @@ export class GuestAnalysisController {
     private analysisService: GuestAnalysisService;
     private communicationService: GuestCommunicationService;
     private settingsService: GuestAnalysisSettingsService;
+    private reportThreadService: GuestAnalysisReportThreadService;
 
     constructor() {
         this.analysisService = new GuestAnalysisService();
         this.communicationService = new GuestCommunicationService();
         this.settingsService = new GuestAnalysisSettingsService();
+        this.reportThreadService = new GuestAnalysisReportThreadService();
     }
 
     /**
@@ -131,6 +134,57 @@ export class GuestAnalysisController {
         } catch (error: any) {
             logger.error("[GuestAnalysisController] updateSettings error:", error.message);
             res.status(400).json({ error: error?.message || "Failed to update AI analysis settings" });
+        }
+    };
+
+    listReportThreads = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const threads = await this.reportThreadService.listThreads();
+            res.json({ success: true, data: threads });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] listReportThreads error:", error.message);
+            res.status(500).json({ error: "Failed to load report threads" });
+        }
+    };
+
+    createReportThread = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const userId = (req as any).user?.id || null;
+            const thread = await this.reportThreadService.createThread({
+                name: req.body?.name,
+                initialPrompt: req.body?.initialPrompt,
+                filters: req.body?.filters || {},
+                userId,
+            });
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] createReportThread error:", error.message);
+            res.status(400).json({ error: error?.message || "Failed to create report thread" });
+        }
+    };
+
+    getReportThread = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const thread = await this.reportThreadService.getThread(String(req.params.threadId));
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getReportThread error:", error.message);
+            res.status(404).json({ error: error?.message || "Report thread not found" });
+        }
+    };
+
+    createReportThreadMessage = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const userId = (req as any).user?.id || null;
+            const thread = await this.reportThreadService.addMessage(String(req.params.threadId), {
+                content: req.body?.content,
+                filters: req.body?.filters || {},
+                userId,
+            });
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] createReportThreadMessage error:", error.message);
+            res.status(400).json({ error: error?.message || "Failed to create report thread message" });
         }
     };
 
@@ -294,6 +348,11 @@ export class GuestAnalysisController {
             department: parseList(req.query.department),
             status: parseList(req.query.status),
             priority: parseList(req.query.priority),
+            property: parseList(req.query.property),
+            arrivalDateFrom: typeof req.query.arrivalDateFrom === "string" ? req.query.arrivalDateFrom : undefined,
+            arrivalDateTo: typeof req.query.arrivalDateTo === "string" ? req.query.arrivalDateTo : undefined,
+            departureDateFrom: typeof req.query.departureDateFrom === "string" ? req.query.departureDateFrom : undefined,
+            departureDateTo: typeof req.query.departureDateTo === "string" ? req.query.departureDateTo : undefined,
             sortField: typeof req.query.sortField === "string" ? req.query.sortField : "analyzedAt",
             sortDir: req.query.sortDir === "ASC" ? "ASC" : "DESC",
             page: Number(req.query.page || 1),
