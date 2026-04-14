@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
+import { GuestAnalysisSettingsService } from "../services/GuestAnalysisSettingsService";
 import logger from "../utils/logger.utils";
 import type { GuestAnalysisRecordFilters } from "../services/GuestAnalysisService";
+import type { GuestAnalysisMigrationPlan, GuestAnalysisSettingsValue } from "../entity/GuestAnalysisSettings";
 
 /**
  * GuestAnalysisController
@@ -11,10 +13,12 @@ import type { GuestAnalysisRecordFilters } from "../services/GuestAnalysisServic
 export class GuestAnalysisController {
     private analysisService: GuestAnalysisService;
     private communicationService: GuestCommunicationService;
+    private settingsService: GuestAnalysisSettingsService;
 
     constructor() {
         this.analysisService = new GuestAnalysisService();
         this.communicationService = new GuestCommunicationService();
+        this.settingsService = new GuestAnalysisSettingsService();
     }
 
     /**
@@ -94,6 +98,39 @@ export class GuestAnalysisController {
         } catch (error: any) {
             logger.error("[GuestAnalysisController] getRecords error:", error.message);
             res.status(500).json({ error: "Failed to get analysis records" });
+        }
+    };
+
+    getSettings = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const settings = await this.settingsService.getSettings();
+            res.json({ success: true, data: settings });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getSettings error:", error.message);
+            res.status(500).json({ error: "Failed to get AI analysis settings" });
+        }
+    };
+
+    updateSettings = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const userId = (req as any).user?.id;
+            if (!userId) {
+                res.status(401).json({ error: "Unauthorized" });
+                return;
+            }
+
+            const value = req.body?.value as GuestAnalysisSettingsValue | undefined;
+            const migrationPlan = (req.body?.migrationPlan || null) as GuestAnalysisMigrationPlan | null;
+            if (!value) {
+                res.status(400).json({ error: "Missing settings payload" });
+                return;
+            }
+
+            const settings = await this.settingsService.updateSettings(value, migrationPlan, userId);
+            res.json({ success: true, data: settings });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] updateSettings error:", error.message);
+            res.status(400).json({ error: error?.message || "Failed to update AI analysis settings" });
         }
     };
 

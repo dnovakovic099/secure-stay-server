@@ -5,6 +5,8 @@ import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag } from "../entity/
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { GuestCommunicationService } from "./GuestCommunicationService";
+import { GuestAnalysisSettingsEntry } from "../entity/GuestAnalysisSettings";
+import { GuestAnalysisSettingsService } from "./GuestAnalysisSettingsService";
 import logger from "../utils/logger.utils";
 import { v4 as uuidv4 } from "uuid";
 
@@ -12,19 +14,6 @@ import { v4 as uuidv4 } from "uuid";
  * Sentiment types for guest analysis
  */
 export type SentimentType = "Positive" | "Neutral" | "Negative" | "Mixed";
-
-/**
- * Flag types for operational issues
- */
-export const FLAG_TYPES = [
-    "Responsiveness",
-    "Execution Failure",
-    "Property / Unit Issue",
-    "Information Problem",
-    "Service Quality",
-    "Process Problem",
-    "Escalation / Risk"
-] as const;
 
 export const FLAG_ROOT_CAUSES = [
     "Staffing problem",
@@ -37,24 +26,6 @@ export const FLAG_ROOT_CAUSES = [
     "Unknown"
 ] as const;
 
-export const FLAG_OWNERS = [
-    "Guest Relations",
-    "Maintenance",
-    "Housekeeping",
-    "Operations",
-    "Training / QA",
-    "Leadership",
-    "Vendor"
-] as const;
-
-export const FLAG_SEVERITIES = [
-    "Low",
-    "Medium",
-    "High",
-    "Critical"
-] as const;
-
-export type FlagType = typeof FLAG_TYPES[number];
 export type AnalysisStatus = "No issue" | "Monitor" | "Action needed";
 
 export interface GuestAnalysisRecord {
@@ -117,12 +88,6 @@ export interface GuestAnalysisResult {
 }
 
 const PHASE_ORDER: BookingPhase[] = ["inquiry", "during_stay", "after_stay"];
-const SEVERITY_RANK: Record<string, number> = {
-    Low: 1,
-    Medium: 2,
-    High: 3,
-    Critical: 4,
-};
 
 /**
  * GuestAnalysisService
@@ -133,6 +98,7 @@ export class GuestAnalysisService {
     private analysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private communicationService: GuestCommunicationService;
+    private settingsService: GuestAnalysisSettingsService;
 
     constructor() {
         const apiKey = process.env.OPENAI_API_KEY;
@@ -141,6 +107,7 @@ export class GuestAnalysisService {
         }
         this.openai = new OpenAI({ apiKey });
         this.communicationService = new GuestCommunicationService();
+        this.settingsService = new GuestAnalysisSettingsService();
     }
 
     /**
@@ -247,9 +214,11 @@ export class GuestAnalysisService {
         limit: number;
     }> {
         const latestAnalyses = await this.getLatestAnalysesWithReservations();
-        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation));
+        const priorityRankMap = await this.settingsService.getPriorityRankMap();
+        const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
+        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
         const filtered = this.applyRecordFilters(mapped, filters);
-        const sorted = this.sortRecords(filtered, filters.sortField, filters.sortDir || "DESC");
+        const sorted = this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
         const page = Math.max(1, Number(filters.page || 1));
         const limit = Math.max(1, Number(filters.limit || 25));
         const start = (page - 1) * limit;
@@ -264,7 +233,9 @@ export class GuestAnalysisService {
 
     async getAnalysisSummary(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisPhaseSummary[]> {
         const latestAnalyses = await this.getLatestAnalysesWithReservations();
-        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation));
+        const priorityRankMap = await this.settingsService.getPriorityRankMap();
+        const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
+        const mapped = latestAnalyses.map(({ analysis, reservation }) => this.mapAnalysisRecord(analysis, reservation, priorityRankMap, priorityStatusMap));
         const filtered = this.applyRecordFilters(mapped, filters);
 
         return PHASE_ORDER.map((phase) => {
@@ -384,11 +355,16 @@ export class GuestAnalysisService {
         return "during_stay";
     }
 
-    private mapAnalysisRecord(analysis: GuestAnalysisEntity, reservation: ReservationInfoEntity | null): GuestAnalysisRecord {
+    private mapAnalysisRecord(
+        analysis: GuestAnalysisEntity,
+        reservation: ReservationInfoEntity | null,
+        priorityRankMap: Map<string, number>,
+        priorityStatusMap: Map<string, AnalysisStatus>,
+    ): GuestAnalysisRecord {
         const categories = Array.from(new Set((analysis.flags || []).map((flag) => flag.flag).filter(Boolean)));
         const departments = Array.from(new Set((analysis.flags || []).map((flag) => flag.owner).filter(Boolean) as string[]));
-        const priority = this.getPriorityFromFlags(analysis.flags || []);
-        const status = this.getStatusFromFlags(analysis.flags || []);
+        const priority = this.getPriorityFromFlags(analysis.flags || [], priorityRankMap);
+        const status = this.getStatusFromFlags(analysis.flags || [], priorityRankMap, priorityStatusMap);
 
         return {
             id: analysis.id,
@@ -415,18 +391,21 @@ export class GuestAnalysisService {
         };
     }
 
-    private getPriorityFromFlags(flags: GuestAnalysisFlag[]): string {
+    private getPriorityFromFlags(flags: GuestAnalysisFlag[], priorityRankMap: Map<string, number>): string {
         if (!flags.length) return "None";
         return [...flags]
-            .sort((left, right) => (SEVERITY_RANK[right.severity || "Low"] || 0) - (SEVERITY_RANK[left.severity || "Low"] || 0))[0]
-            ?.severity || "Medium";
+            .sort((left, right) => (priorityRankMap.get(right.severity || "") || 0) - (priorityRankMap.get(left.severity || "") || 0))[0]
+            ?.severity || "None";
     }
 
-    private getStatusFromFlags(flags: GuestAnalysisFlag[]): AnalysisStatus {
+    private getStatusFromFlags(
+        flags: GuestAnalysisFlag[],
+        priorityRankMap: Map<string, number>,
+        priorityStatusMap: Map<string, AnalysisStatus>,
+    ): AnalysisStatus {
         if (!flags.length) return "No issue";
-        const highest = this.getPriorityFromFlags(flags);
-        if (highest === "Critical" || highest === "High") return "Action needed";
-        return "Monitor";
+        const highest = this.getPriorityFromFlags(flags, priorityRankMap);
+        return priorityStatusMap.get(highest) || "Monitor";
     }
 
     private applyRecordFilters(records: GuestAnalysisRecord[], filters: GuestAnalysisRecordFilters): GuestAnalysisRecord[] {
@@ -465,20 +444,25 @@ export class GuestAnalysisService {
         });
     }
 
-    private sortRecords(records: GuestAnalysisRecord[], sortField?: string, sortDir: "ASC" | "DESC" = "DESC"): GuestAnalysisRecord[] {
+    private sortRecords(
+        records: GuestAnalysisRecord[],
+        priorityRankMap: Map<string, number>,
+        sortField?: string,
+        sortDir: "ASC" | "DESC" = "DESC",
+    ): GuestAnalysisRecord[] {
         const direction = sortDir === "ASC" ? 1 : -1;
         const field = sortField || "analyzedAt";
 
         return [...records].sort((left, right) => {
-            const leftValue = this.getSortValue(left, field);
-            const rightValue = this.getSortValue(right, field);
+            const leftValue = this.getSortValue(left, field, priorityRankMap);
+            const rightValue = this.getSortValue(right, field, priorityRankMap);
             if (leftValue === rightValue) return 0;
             if (leftValue > rightValue) return direction;
             return -1 * direction;
         });
     }
 
-    private getSortValue(record: GuestAnalysisRecord, field: string): string | number {
+    private getSortValue(record: GuestAnalysisRecord, field: string, priorityRankMap: Map<string, number>): string | number {
         switch (field) {
             case "guestName":
                 return (record.guestName || "").toLowerCase();
@@ -487,7 +471,7 @@ export class GuestAnalysisService {
             case "bookingPhase":
                 return PHASE_ORDER.indexOf(record.bookingPhase);
             case "priority":
-                return SEVERITY_RANK[record.priority] || 0;
+                return priorityRankMap.get(record.priority) || 0;
             case "status":
                 return record.status;
             case "flagCount":
@@ -515,7 +499,13 @@ export class GuestAnalysisService {
         timeline: string,
         reservation: ReservationInfoEntity | null
     ): Promise<GuestAnalysisResult> {
-        const systemPrompt = this.buildSystemPrompt();
+        const [categories, departments, priorities] = await Promise.all([
+            this.settingsService.getActiveSectionItems("categories"),
+            this.settingsService.getActiveSectionItems("departments"),
+            this.settingsService.getActiveSectionItems("priorities"),
+        ]);
+
+        const systemPrompt = this.buildSystemPrompt(categories, departments, priorities);
         const userPrompt = this.buildUserPrompt(timeline, reservation);
 
         const response = await this.openai.chat.completions.create({
@@ -549,14 +539,21 @@ export class GuestAnalysisService {
             if (!Array.isArray(parsed.flags)) {
                 parsed.flags = [];
             }
+            const categoryNames = new Set(categories.map((entry) => entry.name));
+            const departmentNames = new Set(departments.map((entry) => entry.name));
+            const priorityNames = new Set(priorities.map((entry) => entry.name));
+            const fallbackCategory = categories[0]?.name || "Issue";
+            const fallbackDepartment = departments[0]?.name || "Operations";
+            const fallbackPriority = priorities[0]?.name || "Medium";
+
             parsed.flags = parsed.flags
                 .filter((flag: any) => flag && typeof flag === "object")
                 .map((flag: any) => ({
-                    flag: FLAG_TYPES.includes(flag.flag) ? flag.flag : "Process Problem",
+                    flag: categoryNames.has(flag.flag) ? flag.flag : fallbackCategory,
                     explanation: String(flag.explanation || "").trim(),
-                    owner: FLAG_OWNERS.includes(flag.owner) ? flag.owner : "Operations",
+                    owner: departmentNames.has(flag.owner) ? flag.owner : fallbackDepartment,
                     rootCause: FLAG_ROOT_CAUSES.includes(flag.rootCause) ? flag.rootCause : "Unknown",
-                    severity: FLAG_SEVERITIES.includes(flag.severity) ? flag.severity : "Medium",
+                    severity: priorityNames.has(flag.severity) ? flag.severity : fallbackPriority,
                     evidence: String(flag.evidence || "").trim(),
                     evidenceAt: String(flag.evidenceAt || "").trim() || undefined,
                 }))
@@ -597,7 +594,22 @@ export class GuestAnalysisService {
     /**
      * Build system prompt for AI analysis
      */
-    private buildSystemPrompt(): string {
+    private buildSettingsPromptBlock(title: string, items: GuestAnalysisSettingsEntry[], valueFieldLabel = "Use only these values") {
+        const lines = [`## ${title.toUpperCase()}`, valueFieldLabel];
+        items.forEach((item) => {
+            lines.push(`- ${item.name}: ${item.criteria}`);
+        });
+        return lines.join("\n");
+    }
+
+    private buildSystemPrompt(
+        categories: GuestAnalysisSettingsEntry[],
+        departments: GuestAnalysisSettingsEntry[],
+        priorities: GuestAnalysisSettingsEntry[],
+    ): string {
+        const categoryList = categories.map((item) => item.name).join(" | ");
+        const departmentList = departments.map((item) => item.name).join(" | ");
+        const priorityList = priorities.map((item) => item.name).join(" | ");
         return `You are an expert hospitality communication analyst for a vacation rental management company. Your role is to analyze guest-host communication data and produce structured internal insights.
 
 ## YOUR TASK
@@ -614,11 +626,11 @@ Respond in valid JSON with this structure:
     "sentimentReason": "1-2 line explanation of sentiment classification",
     "flags": [
         {
-            "flag": "Responsiveness | Execution Failure | Property / Unit Issue | Information Problem | Service Quality | Process Problem | Escalation / Risk",
+            "flag": "${categoryList}",
             "explanation": "One sentence explaining exactly what went wrong",
-            "owner": "Guest Relations | Maintenance | Housekeeping | Operations | Training / QA | Leadership | Vendor",
+            "owner": "${departmentList}",
             "rootCause": "Staffing problem | Training problem | Bad process / SOP | Vendor didn't show up | System/tool issue | Too much workload | Not enough maintenance | Unknown",
-            "severity": "Low | Medium | High | Critical",
+            "severity": "${priorityList}",
             "evidence": "Short quote or paraphrase from the communication/review",
             "evidenceAt": "Exact timestamp from the communication timeline when the guest said this, if available"
         }
@@ -649,14 +661,7 @@ Respond in valid JSON with this structure:
 - Do not guess or invent facts
 - When you cite evidence from a guest message, include the guest message timestamp in evidenceAt when it is available in the timeline
 
-## FLAG TYPES (use only these)
-- Responsiveness: Slow, delayed, or missing replies / follow-up
-- Execution Failure: Something should have been done but was not done or not completed
-- Property / Unit Issue: Problem with the actual unit/property such as AC, plumbing, cleanliness, broken items, noise, smell, pests
-- Information Problem: Wrong, missing, or conflicting instructions/info
-- Service Quality: Tone, empathy, professionalism, helpfulness
-- Process Problem: Internal confusion, handoff failure, no clear owner
-- Escalation / Risk: Refund demand, safety concern, bad review threat, manager request, urgent access issue
+${this.buildSettingsPromptBlock("Categories", categories)}
 
 ## ROOT CAUSE (pick the best fit)
 - Staffing problem
@@ -668,20 +673,9 @@ Respond in valid JSON with this structure:
 - Not enough maintenance
 - Unknown
 
-## OWNER (pick the best fit)
-- Guest Relations
-- Maintenance
-- Housekeeping
-- Operations
-- Training / QA
-- Leadership
-- Vendor
+${this.buildSettingsPromptBlock("Departments", departments, "Assign the primary department/team using only these values")}
 
-## SEVERITY
-- Low: small inconvenience
-- Medium: noticeable issue
-- High: major problem, likely bad review
-- Critical: safety, no access, no AC, urgent issue
+${this.buildSettingsPromptBlock("Priority", priorities, "Assign the issue priority using only these values")}
 
 If no issues found, return empty flags array: []`;
     }
