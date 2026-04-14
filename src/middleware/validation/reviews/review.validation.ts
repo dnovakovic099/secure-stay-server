@@ -4,17 +4,10 @@ import { BadReviewStatus } from "../../../services/ReviewService";
 import { LiveIssueStatus } from "../../../entity/LiveIssue";
 
 enum ReviewCheckoutStatus {
-    TO_CALL = "To Call",
-    CALLED_ONCE = "Called Once",
-    FOLLOW_UP_NO_ANSWER = "Follow up (No answer)",
-    FOLLOW_UP_REVIEW_CHECK = "Follow up (Review check)",
-    NO_FURTHER_ACTION_REQUIRED = "No further action required",
-    ISSUE = "Issue",
-    CLOSED_FIVE_STAR = "Closed - 5 Star",
-    CLOSED_BAD_REVIEW = "Closed - Bad Review",
-    CLOSED_NO_REVIEW = "Closed - No Review",
-    CLOSED_TRAPPED = "Closed - Trapped",
-    LAUNCH = "Launch"
+    NEW = "New",
+    IN_PROGRESS = "In Progress",
+    COMPLETED = "Completed",
+    ARCHIVED = "Archived",
 }
 
 
