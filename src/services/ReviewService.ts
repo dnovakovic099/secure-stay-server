@@ -67,6 +67,12 @@ interface Filter {
     fromDate?: string | undefined;
     toDate?: string | undefined;
     dateType?: string | undefined;
+    sentiment?: string[] | null | undefined;
+    visibility?: string[] | null | undefined;
+    operationalFlags?: string[] | null | undefined;
+    owner?: string[] | null | undefined;
+    isClaimOnly?: boolean | string | null | undefined;
+    refundStatus?: string[] | null | undefined;
 }
 
 
@@ -821,7 +827,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'Removed'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'Removed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }
@@ -1221,6 +1227,7 @@ export class ReviewService {
             actionItemsStatus, issuesStatus, channel,
             todayDate, status, isActive, tab, keyword,
             propertyType, serviceType, integration, fromDate, toDate, dateType,
+            sentiment, visibility, operationalFlags, owner, isClaimOnly, refundStatus,
         } = filters;
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
@@ -1299,6 +1306,9 @@ export class ReviewService {
             if (status && status.length > 0) {
                 const expandedStatuses = this.expandMitigationStatuses(status as string[]);
                 query.andWhere("reviewCheckout.status IN (:...status)", { status: expandedStatuses });
+            } else {
+                // By default, exclude Archived records unless explicitly requested
+                query.andWhere("(reviewCheckout.status != :archivedStatus OR reviewCheckout.status IS NULL)", { archivedStatus: 'Archived' });
             }
         }
 
@@ -1435,6 +1445,101 @@ export class ReviewService {
         if (status && status.length > 0) {
             const expandedStatuses = this.expandMitigationStatuses(status as string[]);
             query.andWhere("reviewCheckout.status IN (:...statusFilter)", { statusFilter: expandedStatuses });
+        }
+
+        // Sentiment filter — subquery from guest_analysis
+        if (sentiment && (sentiment as string[]).length > 0) {
+            const sentimentRows = await this.guestAnalysisRepo
+                .createQueryBuilder('analysis')
+                .select('DISTINCT analysis.reservationId', 'reservationId')
+                .where('analysis.sentiment IN (:...sentiment)', { sentiment })
+                .getRawMany();
+            const sentimentIds = sentimentRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                sentimentIds.length > 0 ? 'reservationInfo.id IN (:...sentimentIds)' : '1 = 0',
+                sentimentIds.length > 0 ? { sentimentIds } : {}
+            );
+        }
+
+        // Visibility filter — subquery from review table
+        if (visibility && (visibility as string[]).length > 0) {
+            const visibilityRows = await this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId')
+                .where('review.visibility IN (:...visibility)', { visibility })
+                .getRawMany();
+            const visibilityIds = visibilityRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                visibilityIds.length > 0 ? 'reservationInfo.id IN (:...visibilityIds)' : '1 = 0',
+                visibilityIds.length > 0 ? { visibilityIds } : {}
+            );
+        }
+
+        // Operational flags filter — subquery from guest_analysis using JSON flag search
+        if (operationalFlags && (operationalFlags as string[]).length > 0) {
+            const flagList = operationalFlags as string[];
+            const flagQb = this.guestAnalysisRepo.createQueryBuilder('analysis')
+                .select('DISTINCT analysis.reservationId', 'reservationId');
+            flagQb.where(new Brackets((qb) => {
+                flagList.forEach((flag, index) => {
+                    qb.orWhere(`CAST(analysis.flags AS CHAR) LIKE :flagPattern${index}`, { [`flagPattern${index}`]: `%${flag}%` });
+                });
+            }));
+            const flagRows = await flagQb.getRawMany();
+            const flagIds = flagRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                flagIds.length > 0 ? 'reservationInfo.id IN (:...flagIds)' : '1 = 0',
+                flagIds.length > 0 ? { flagIds } : {}
+            );
+        }
+
+        // Owner filter — resolve owner name to listing IDs
+        if (owner && (owner as string[]).length > 0) {
+            const ownerNames = owner as string[];
+            const listings = await this.listingRepo
+                .createQueryBuilder('listing')
+                .select('listing.id')
+                .where(new Brackets((qb) => {
+                    ownerNames.forEach((ownerName, index) => {
+                        qb.orWhere(`CAST(listing.tags AS CHAR) LIKE :ownerPattern${index}`, { [`ownerPattern${index}`]: `%${ownerName}%` });
+                    });
+                }))
+                .getMany();
+            const ownerListingIds = listings.map((l: any) => Number(l.id)).filter(Boolean);
+            query.andWhere(
+                ownerListingIds.length > 0 ? 'reservationInfo.listingMapId IN (:...ownerListingIds)' : '1 = 0',
+                ownerListingIds.length > 0 ? { ownerListingIds } : {}
+            );
+        }
+
+        // Refund status filter — subquery from refund_request_info table
+        if (refundStatus && (refundStatus as string[]).length > 0) {
+            const refundRows = await this.refundRequestRepo
+                .createQueryBuilder('refund')
+                .select('DISTINCT refund.reservationId', 'reservationId')
+                .where('LOWER(refund.status) IN (:...refundStatuses)', {
+                    refundStatuses: (refundStatus as string[]).map((s: string) => s.toLowerCase()),
+                })
+                .getRawMany();
+            const refundIds = refundRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                refundIds.length > 0 ? 'reservationInfo.id IN (:...refundIds)' : '1 = 0',
+                refundIds.length > 0 ? { refundIds } : {}
+            );
+        }
+
+        // Claim only filter — only show reservations that have a refund/claim request
+        if (isClaimOnly === 'true' || isClaimOnly === true) {
+            const claimRows = await this.refundRequestRepo
+                .createQueryBuilder('refund')
+                .select('DISTINCT refund.reservationId', 'reservationId')
+                .where('refund.deletedAt IS NULL')
+                .getRawMany();
+            const claimIds = claimRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                claimIds.length > 0 ? 'reservationInfo.id IN (:...claimIds)' : '1 = 0',
+                claimIds.length > 0 ? { claimIds } : {}
+            );
         }
 
         query.skip((page - 1) * limit).take(limit);

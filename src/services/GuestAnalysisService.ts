@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { In } from "typeorm";
+import { Between, In } from "typeorm";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { appDatabase } from "../utils/database.util";
 import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag } from "../entity/GuestAnalysis";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
@@ -280,17 +281,25 @@ export class GuestAnalysisService {
     }
 
     /**
-     * Process scheduled AI analysis for today's checkout reservations
-     * This is called by the daily scheduler at 6:15 AM EST
+     * Process scheduled AI analysis for reservations from the last 14 days
+     * This is called by the daily scheduler at 10:00 AM EST
      */
     async processScheduledAnalysis(): Promise<{ processed: number; failed: number; skipped: number; }> {
-        const { ReservationInfoService } = await import('./ReservationInfoService');
-        const reservationInfoService = new ReservationInfoService();
+        logger.info('[GuestAnalysisService] Scheduled analysis started - fetching last 14 days of checkouts...');
 
-        logger.info('[GuestAnalysisService] Scheduled analysis started - fetching today\'s checkouts...');
+        const today = new Date();
+        const fourteenDaysAgo = subDays(today, 14);
 
-        const { reservations } = await reservationInfoService.getCheckoutReservations();
-        logger.info(`[GuestAnalysisService] Found ${reservations.length} checkout reservations to analyze`);
+        const validStatus = ["new", "accepted", "modified", "ownerStay", "moved"];
+        const reservations = await this.reservationRepo.find({
+            where: {
+                departureDate: Between(startOfDay(fourteenDaysAgo), endOfDay(today)),
+                status: In(validStatus),
+            },
+            order: { departureDate: 'ASC' },
+        });
+
+        logger.info(`[GuestAnalysisService] Found ${reservations.length} checkout reservations in last 14 days to analyze`);
 
         let processed = 0;
         let failed = 0;

@@ -462,10 +462,10 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Scheduled AI Guest Analysis - Daily at 6:15 AM EST
-  // Generates AI analysis for reservations with checkout today
+  // Scheduled AI Guest Analysis - Daily at 10:00 AM EST
+  // Generates AI analysis for reservations with checkout in the last 14 days
   schedule.scheduleJob(
-    { hour: 6, minute: 15, tz: "America/New_York" },
+    { hour: 10, minute: 0, tz: "America/New_York" },
     async () => {
       try {
         logger.info('[GuestAnalysis] Scheduled AI analysis job started...');
