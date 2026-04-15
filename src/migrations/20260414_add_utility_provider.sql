@@ -1,0 +1,17 @@
+CREATE TABLE utility_provider (
+    id INT NOT NULL AUTO_INCREMENT,
+    providerType VARCHAR(100) NOT NULL,
+    customProviderLabel VARCHAR(150) NULL,
+    providerName VARCHAR(255) NULL,
+    username VARCHAR(255) NULL,
+    password TEXT NULL,
+    notes TEXT NULL,
+    propertyIds LONGTEXT NULL,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deletedAt TIMESTAMP NULL,
+    createdBy VARCHAR(255) NULL,
+    updatedBy VARCHAR(255) NULL,
+    deletedBy VARCHAR(255) NULL,
+    PRIMARY KEY (id)
+);
