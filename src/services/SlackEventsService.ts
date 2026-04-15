@@ -5,6 +5,7 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { ThreadMessageEntity } from "../entity/ThreadMessage";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 import axios from "axios";
@@ -79,6 +80,19 @@ export class SlackEventsService {
 
             if (slackMessageRecord.entityType === 'zapier_trigger_event') {
                 return await this.handleZapierEventMessage(event, slackMessageRecord.entityId);
+            }
+
+            if (slackMessageRecord.entityType === 'review_checkout') {
+                const resolutionsService = new ResolutionsTeamSlackService();
+                const slackUsers = await getSlackUsers();
+                const processedText = replaceSlackIdsWithMentions(event.text, slackUsers);
+                await resolutionsService.syncSlackReplyToSS(
+                    slackMessageRecord.entityId,
+                    event.user,
+                    processedText,
+                    event.ts
+                );
+                return;
             }
 
             if (slackMessageRecord.entityType !== 'client_ticket') {
@@ -256,16 +270,40 @@ export class SlackEventsService {
 
             logger.info(`[SlackEventsService] Generating AI response for mention — channel=${event.channel} thread=${threadTs} msgLength=${userMessage.length}`);
 
-            // Look up the GR task linked to this thread
-            const slackMsgRecord = await this.slackMessageRepo.findOne({
-                where: { channel: event.channel, messageTs: threadTs, entityType: 'zapier_trigger_event' }
-            }).catch((lookupErr) => {
-                logger.error(`[SlackEventsService] Thread lookup DB error — channel=${event.channel} thread=${threadTs}: ${lookupErr}`);
-                return null;
-            });
+            // Look up the entity (GR task or review_checkout) linked to this thread
+            const slackMsgRecord = await this.slackMessageRepo
+                .createQueryBuilder('sm')
+                .where('sm.messageTs = :threadTs', { threadTs })
+                .andWhere('sm.entityType IN (:...types)', { types: ['zapier_trigger_event', 'review_checkout'] })
+                .getOne()
+                .catch((lookupErr) => {
+                    logger.error(`[SlackEventsService] Thread lookup DB error — channel=${event.channel} thread=${threadTs}: ${lookupErr}`);
+                    return null;
+                });
 
             if (!slackMsgRecord) {
-                logger.warn(`[SlackEventsService] No GR task tracking record found for mention — channel=${event.channel} thread=${threadTs}. Mention will not be answered by AI.`);
+                logger.warn(`[SlackEventsService] No tracked entity found for mention — channel=${event.channel} thread=${threadTs}. Mention will not be answered by AI.`);
+                return;
+            }
+
+            // If this is a review_checkout thread, trigger AI guest analysis instead
+            if (slackMsgRecord.entityType === 'review_checkout') {
+                const resolutionsService = new ResolutionsTeamSlackService();
+                const { ReviewCheckout } = await import('../entity/ReviewCheckout');
+                const rcRepo = appDatabase.getRepository(ReviewCheckout);
+                const rc = await rcRepo.findOne({
+                    where: { id: slackMsgRecord.entityId },
+                    relations: ['reservationInfo'],
+                });
+                if (rc?.reservationInfo?.id) {
+                    await resolutionsService.triggerAIAnalysisFromSlack(
+                        rc.reservationInfo.id,
+                        event.channel,
+                        threadTs
+                    );
+                } else {
+                    await sendSlackMessage({ channel: event.channel, text: "❌ Could not find the reservation for this thread." }, threadTs);
+                }
                 return;
             }
 

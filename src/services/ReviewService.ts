@@ -32,6 +32,7 @@ import { Issue } from "../entity/Issue";
 import { EscalationSettings } from "../entity/EscalationSettings";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { RefundRequestEntity } from "../entity/RefundRequest";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -1748,7 +1749,9 @@ export class ReviewService {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
         }
 
-        const nextStatus = data.status ?? reviewCheckout.status;
+        const prevStatus = reviewCheckout.status;
+        const prevAssignee = reviewCheckout.assignee;
+
         if (data.status !== undefined) {
             reviewCheckout.status = data.status;
         }
@@ -1764,6 +1767,32 @@ export class ReviewService {
             reviewCheckout.isActive = data.isActive;
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
+
+        // Post activity to Slack thread (fire-and-forget, never blocks the main flow)
+        if (reviewCheckout.slackThreadTs) {
+            const slackService = new ResolutionsTeamSlackService();
+            if (data.status !== undefined && data.status !== prevStatus) {
+                slackService.postActivityToThread(id, {
+                    type: 'status',
+                    actor: userId,
+                    details: data.status,
+                }).catch((err) => logger.error('[ReviewService] Slack status activity post failed:', err));
+            }
+            if (data.assignee !== undefined && (data.assignee || null) !== prevAssignee) {
+                slackService.postActivityToThread(id, {
+                    type: 'assignee',
+                    actor: userId,
+                    details: data.assignee || '',
+                }).catch((err) => logger.error('[ReviewService] Slack assignee activity post failed:', err));
+            }
+            if (data.comments !== undefined) {
+                slackService.postActivityToThread(id, {
+                    type: 'resolution_notes',
+                    actor: userId,
+                    details: data.comments,
+                }).catch((err) => logger.error('[ReviewService] Slack resolution notes activity post failed:', err));
+            }
+        }
 
         return reviewCheckout;
     }
@@ -1806,10 +1835,24 @@ export class ReviewService {
             updates,
             createdBy: userId,
             reviewCheckout,
+            source: 'app',
         };
 
         const reviewCheckoutUpdate = this.reviewCheckoutUpdatesRepo.create(newUpdate);
-        return await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
+        const saved = await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
+
+        // Post comment to Slack thread (fire-and-forget)
+        if (reviewCheckout.slackThreadTs) {
+            new ResolutionsTeamSlackService()
+                .postActivityToThread(reviewCheckoutId, {
+                    type: 'comment',
+                    actor: userId,
+                    details: updates,
+                })
+                .catch((err) => logger.error('[ReviewService] Slack comment post failed:', err));
+        }
+
+        return saved;
     }
 
     async deleteLaunchReviewCheckouts() {

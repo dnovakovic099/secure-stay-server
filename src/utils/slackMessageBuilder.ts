@@ -1950,4 +1950,145 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
     };
 };
 
+// ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
+
+export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
+
+export interface ResolutionsCheckoutMessageData {
+    emoji: string;
+    listingName: string;
+    guestName: string;
+    hostifyUrl: string;
+    channelName: string;
+    checkIn: string;
+    checkOut: string;
+    payout: string;
+    status: string;
+    assignee: string;
+    ssUrl: string;
+    reviewCheckoutId: number;
+    statusOptions: string[];
+    assigneeOptions: { label: string; value: string }[];
+}
+
+export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
+    const {
+        emoji, listingName, guestName, hostifyUrl, channelName,
+        checkIn, checkOut, payout, status, assignee, ssUrl,
+        reviewCheckoutId, statusOptions, assigneeOptions,
+    } = data;
+
+    const headerText = `${emoji} *${listingName}* | <${hostifyUrl}|${guestName}> | ${channelName} | ${checkIn} → ${checkOut} | ${payout}`;
+
+    const statusSelectOptions = statusOptions.map((s) => ({
+        text: { type: 'plain_text' as const, text: s },
+        value: JSON.stringify({ reviewCheckoutId, newStatus: s }),
+    }));
+    const assigneeSelectOptions = [
+        { text: { type: 'plain_text' as const, text: 'Unassigned' }, value: JSON.stringify({ reviewCheckoutId, assignee: '' }) },
+        ...assigneeOptions.map((a) => ({
+            text: { type: 'plain_text' as const, text: a.label },
+            value: JSON.stringify({ reviewCheckoutId, assignee: a.value }),
+        })),
+    ];
+
+    const currentStatusOption = statusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || statusSelectOptions[0];
+    const currentAssigneeOption = assigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || assigneeSelectOptions[0];
+
+    return {
+        channel: RESOLUTIONS_TEAM_CHANNEL,
+        text: headerText,
+        blocks: [
+            {
+                type: 'section',
+                text: { type: 'mrkdwn', text: headerText },
+            },
+            {
+                type: 'actions',
+                elements: [
+                    {
+                        type: 'static_select',
+                        action_id: 'update_review_checkout_status',
+                        placeholder: { type: 'plain_text', text: 'Status' },
+                        ...(currentStatusOption ? { initial_option: currentStatusOption } : {}),
+                        options: statusSelectOptions,
+                    },
+                    {
+                        type: 'static_select',
+                        action_id: 'update_review_checkout_assignee',
+                        placeholder: { type: 'plain_text', text: 'Assignee' },
+                        ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
+                        options: assigneeSelectOptions,
+                    },
+                ],
+            },
+            {
+                type: 'context',
+                elements: [
+                    { type: 'mrkdwn', text: `<${ssUrl}|📋 View in SecureStay>` },
+                ],
+            },
+        ],
+        bot_name: 'Resolutions Team',
+        bot_icon: 'https://img.icons8.com/ios-filled/50/task.png',
+        unfurl_links: false,
+        unfurl_media: false,
+    };
+};
+
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'comment' | 'refund_request' | 'ai_analysis';
+
+export interface ResolutionsActivityData {
+    type: ResolutionsActivityType;
+    actor: string;
+    details: string;
+    anjSlackId?: string;
+}
+
+export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
+    const { type, actor, details, anjSlackId } = data;
+
+    let text = '';
+    switch (type) {
+        case 'status':
+            text = `🔄 *${actor}* changed status to *${details}*`;
+            break;
+        case 'assignee':
+            text = `👤 *${actor}* assigned to *${details || 'Unassigned'}*`;
+            break;
+        case 'visibility':
+            text = `👁 *${actor}* changed visibility to *${details}*`;
+            break;
+        case 'resolution_notes':
+            text = `📝 *${actor}* updated resolution notes:\n${details}`;
+            break;
+        case 'comment':
+            text = `💬 *${actor}*: ${details}`;
+            break;
+        case 'refund_request':
+            text = `💸 *Refund Request* — ${details}${anjSlackId ? ` | <@${anjSlackId}> please review` : ''}`;
+            break;
+        case 'ai_analysis':
+            text = `🤖 *AI Analysis*\n${details}`;
+            break;
+        default:
+            text = `ℹ️ *${actor}*: ${details}`;
+    }
+
+    return {
+        channel: RESOLUTIONS_TEAM_CHANNEL,
+        text,
+        blocks: [
+            {
+                type: 'section',
+                text: { type: 'mrkdwn', text },
+            },
+        ],
+        bot_name: 'Resolutions Team',
+        bot_icon: 'https://img.icons8.com/ios-filled/50/task.png',
+        unfurl_links: false,
+        unfurl_media: false,
+    };
+};
+
 

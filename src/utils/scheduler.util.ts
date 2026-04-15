@@ -27,6 +27,7 @@ import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { CleanerNotificationService } from "../services/CleanerNotificationService";
 import { EscalationService } from "../services/EscalationService";
 import { CheckInNotificationService } from "../services/CheckInNotificationService";
+import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 
 
 export function scheduleGetReservation() {
@@ -489,6 +490,21 @@ export function scheduleGetReservation() {
         logger.info('[GRTasksEscalation] Overdue task processing completed.');
       } catch (error) {
         logger.error("[GRTasksEscalation] Error processing overdue tasks:", error);
+      }
+    }
+  );
+
+  // Resolutions Team — daily checkout messages to #resolutions-team at 9 AM EST
+  schedule.scheduleJob(
+    { hour: 9, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("[ResolutionsTeam] Posting daily checkout messages to #resolutions-team...");
+        const resolutionsService = new ResolutionsTeamSlackService();
+        await resolutionsService.postDailyCheckoutMessages();
+        logger.info("[ResolutionsTeam] Daily checkout messages posted.");
+      } catch (error) {
+        logger.error("[ResolutionsTeam] Error posting daily checkout messages:", error);
       }
     }
   );
