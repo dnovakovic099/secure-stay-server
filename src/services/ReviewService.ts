@@ -73,6 +73,7 @@ interface Filter {
     owner?: string[] | null | undefined;
     isClaimOnly?: boolean | string | null | undefined;
     refundStatus?: string[] | null | undefined;
+    rating?: number[] | null | undefined;
 }
 
 
@@ -1190,7 +1191,7 @@ export class ReviewService {
             actionItemsStatus, issuesStatus, channel,
             todayDate, status, isActive, tab, keyword,
             propertyType, serviceType, integration, fromDate, toDate, dateType,
-            sentiment, visibility, operationalFlags, owner, isClaimOnly, refundStatus,
+            sentiment, visibility, operationalFlags, owner, isClaimOnly, refundStatus, rating,
         } = filters;
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
@@ -1306,6 +1307,31 @@ export class ReviewService {
             }
         } else if (fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
             query.andWhere(`DATE(reservationInfo.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+        } else if (fromDate && toDate && dateType === 'refundedAt') {
+            const refundDateRows = await this.refundRequestRepo
+                .createQueryBuilder('refund')
+                .select('DISTINCT refund.reservationId', 'reservationId')
+                .where('DATE(refund.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+                .getRawMany();
+            const refundDateIds = refundDateRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                refundDateIds.length > 0 ? 'reservationInfo.id IN (:...refundDateIds)' : '1 = 0',
+                refundDateIds.length > 0 ? { refundDateIds } : {}
+            );
+        }
+
+        // Rating filter — subquery from review table
+        if (rating && Array.isArray(rating) && rating.length > 0) {
+            const ratingRows = await this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId')
+                .where('review.rating IN (:...ratings)', { ratings: rating.map(Number) })
+                .getRawMany();
+            const ratingIds = ratingRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                ratingIds.length > 0 ? 'reservationInfo.id IN (:...ratingIds)' : '1 = 0',
+                ratingIds.length > 0 ? { ratingIds } : {}
+            );
         }
 
         // Keyword search filter (searches reservation, review, AI analysis, and issue data)
@@ -1424,7 +1450,7 @@ export class ReviewService {
                 .select('listing.id')
                 .where(new Brackets((qb) => {
                     ownerNames.forEach((ownerName, index) => {
-                        qb.orWhere(`CAST(listing.tags AS CHAR) LIKE :ownerPattern${index}`, { [`ownerPattern${index}`]: `%${ownerName}%` });
+                        qb.orWhere(`listing.ownerName LIKE :ownerPattern${index}`, { [`ownerPattern${index}`]: `%${ownerName}%` });
                     });
                 }))
                 .getMany();
