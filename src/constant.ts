@@ -77,7 +77,9 @@ export const slackInteractivityEventNames={
     UPDATE_PHOTOGRAPHER_REQUEST_STATUS: "update_photographer_request_status",
     UPDATE_CLEANER_REQUEST_STATUS: "update_cleaner_request_status",
     UPDATE_MAINTENANCE_FORM_REQUEST_STATUS: "update_maintenance_form_request_status",
-    UPDATE_ITEM_SUPPLY_REQUEST_STATUS: "update_item_supply_request_status"
+    UPDATE_ITEM_SUPPLY_REQUEST_STATUS: "update_item_supply_request_status",
+    UPDATE_REVIEW_CHECKOUT_STATUS: "update_review_checkout_status",
+    UPDATE_REVIEW_CHECKOUT_ASSIGNEE: "update_review_checkout_assignee",
 }
 
 

@@ -18,6 +18,8 @@ import { ListingService } from "./ListingService";
 import { FileInfo } from "../entity/FileInfo";
 import { categoryIds } from "../constant";
 import { RefundRequestSettingsService } from "./RefundRequestSettingsService";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -216,6 +218,31 @@ export class RefundRequestService {
 
     if (fileInfo && fileInfo.length > 0) {
       await this.saveFileInfo(fileInfo, newRefundRequest, userId);
+    }
+
+    // Post refund request to the #resolutions-team thread if one exists for this reservation
+    if (newRefundRequest.reservationId) {
+      try {
+        const reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+        const rc = await reviewCheckoutRepo.findOne({
+          where: { reservationInfo: { id: newRefundRequest.reservationId } },
+        });
+        if (rc?.slackThreadTs) {
+          const resolutionsService = new ResolutionsTeamSlackService();
+          const amountLabel = newRefundRequest.refundAmount
+            ? formatCurrency(Number(newRefundRequest.refundAmount))
+            : "N/A";
+          resolutionsService
+            .postActivityToThread(rc.id, {
+              type: 'refund_request',
+              actor: user || userId,
+              details: amountLabel,
+            })
+            .catch((err) => logger.error('[RefundRequestService] Slack refund thread post failed:', err));
+        }
+      } catch (err) {
+        logger.error('[RefundRequestService] Failed to look up review checkout for Slack thread:', err);
+      }
     }
 
     return newRefundRequest;

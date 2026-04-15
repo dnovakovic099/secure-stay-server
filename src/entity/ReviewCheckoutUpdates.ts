@@ -29,6 +29,12 @@ export class ReviewCheckoutUpdates {
     @Column({ nullable: true })
     deletedBy: string;
 
+    @Column({ type: 'varchar', length: 10, default: 'app' })
+    source: string; // 'app' | 'slack' — prevents infinite sync loop
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    slackMessageTs: string; // Slack message timestamp for deduplication
+
     @ManyToOne(() => ReviewCheckout, reviewCheckout => reviewCheckout.reviewCheckoutUpdates, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'reviewCheckoutId' })
     reviewCheckout: ReviewCheckout;

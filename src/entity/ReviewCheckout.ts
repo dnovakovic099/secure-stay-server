@@ -61,6 +61,12 @@ export class ReviewCheckout {
     @Column({ nullable: true })
     deletedBy: string;
 
+    @Column({ nullable: true })
+    slackThreadTs: string; // message_ts of the root daily message in #resolutions-team (used as thread_ts for replies)
+
+    @Column({ nullable: true })
+    slackChannelId: string; // Slack channel where the thread was posted
+
     @OneToOne(() => ReservationInfoEntity, (reservationInfo) => reservationInfo.reviewCheckout, { onDelete: "CASCADE" })
     @JoinColumn()
     reservationInfo: ReservationInfoEntity;

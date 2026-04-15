@@ -19,6 +19,7 @@ import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessa
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
+import { ReviewService } from "../services/ReviewService";
 
 export class UnifiedWebhookController {
 
@@ -112,6 +113,14 @@ export class UnifiedWebhookController {
                 }
                 case slackInteractivityEventNames.UPDATE_ITEM_SUPPLY_REQUEST_STATUS: {
                     logger.info(`Item/Supply Request status update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_STATUS: {
+                    logger.info(`Review checkout status update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_ASSIGNEE: {
+                    logger.info(`Review checkout assignee update request`);
                     break;
                 }
                 default: {
@@ -287,6 +296,30 @@ export class UnifiedWebhookController {
                     } catch (error) {
                         logger.error(`Error updating item supply request status: ${error}`);
                         await this.sendResponseInSlack(responseUrl, `❌ Error: ${error.message}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
+                        const { reviewCheckoutId, newStatus } = requestObj;
+                        const reviewService = new ReviewService();
+                        await reviewService.updateReviewCheckout(Number(reviewCheckoutId), { status: newStatus }, user);
+                        logger.info(`${user} updated review checkout ${reviewCheckoutId} status to ${newStatus}`);
+                    } catch (error) {
+                        logger.error(`Error updating review checkout status: ${error}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_ASSIGNEE}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
+                        const { reviewCheckoutId, assignee } = requestObj;
+                        const reviewService = new ReviewService();
+                        await reviewService.updateReviewCheckout(Number(reviewCheckoutId), { assignee: assignee || null }, user);
+                        logger.info(`${user} updated review checkout ${reviewCheckoutId} assignee to ${assignee || 'Unassigned'}`);
+                    } catch (error) {
+                        logger.error(`Error updating review checkout assignee: ${error}`);
                     }
                     break;
                 }
