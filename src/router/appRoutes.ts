@@ -55,6 +55,7 @@ import aiRoutes from "./aiRoutes";
 import turnoverRoutes from "./turnoverRoutes";
 import hostifyRoutes from "./hostifyRoutes";
 import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
+import utilityProviderRoutes from "./utilityProviderRoutes";
 
 const router = Router();
 
@@ -116,5 +117,6 @@ router.use('/employees', employeeRoutes);
 router.use('/ai', aiRoutes);
 router.use('/turnovers', turnoverRoutes);
 router.use('/hostify', hostifyRoutes);
+router.use('/utility-providers', utilityProviderRoutes);
 
 export default router;
