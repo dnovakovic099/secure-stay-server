@@ -180,13 +180,13 @@ export class ResolutionsTeamSlackService {
         const today = format(new Date(), "yyyy-MM-dd");
         logger.info(`[ResolutionsTeam] Posting daily checkout messages for ${today}`);
 
-        // Fetch all reservations checking out today that have a ReviewCheckout record
+        // Fetch all reservations checking in today that have a ReviewCheckout record
         const reviewCheckouts = await this.reviewCheckoutRepo
             .createQueryBuilder("rc")
             .leftJoinAndSelect("rc.reservationInfo", "reservation")
             .leftJoin(Listing, "listing", "listing.id = reservation.listingMapId")
             .addSelect(["listing.tags", "listing.ownerName"])
-            .where("DATE(reservation.departureDate) = :today", { today })
+            .where("DATE(reservation.arrivalDate) = :today", { today })
             .andWhere("rc.deletedAt IS NULL")
             .andWhere("rc.slackThreadTs IS NULL") // Don't re-post if already sent today
             .getMany();
