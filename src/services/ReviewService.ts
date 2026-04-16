@@ -823,7 +823,7 @@ export class ReviewService {
         const daysSinceCheckout = Math.floor((today.getTime() - checkout.getTime()) / (1000 * 60 * 60 * 24));
         const isVrbo = (review.channelName || '').toLowerCase().includes('vrbo');
         const noReviewThreshold = isVrbo ? 180 : 14;
-        const hasReview = !!(review.publicReview || review.privateReview);
+        const hasReview = !!(review.publicReview || review.privateReview || review.rating);
 
         if (hasReview) {
             review.visibility = 'Visible';
@@ -1743,7 +1743,7 @@ export class ReviewService {
         return { created, skipped, errors };
     }
 
-    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; isActive?: boolean }, userId: string) {
+    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; isActive?: boolean; visibility?: string }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
@@ -1765,6 +1765,9 @@ export class ReviewService {
         reviewCheckout.updatedBy = userId;
         if (data.isActive !== undefined) {
             reviewCheckout.isActive = data.isActive;
+        }
+        if (data.visibility !== undefined) {
+            reviewCheckout.visibility = data.visibility;
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
 
