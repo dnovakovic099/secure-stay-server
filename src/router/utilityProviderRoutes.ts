@@ -5,6 +5,7 @@ import {
     validateCreateUtilityProvider,
     validateUpdateUtilityProvider,
     validateGetUtilityProviders,
+    validateUtilityPaymentMethod,
 } from "../middleware/validation/utility/utility.validation";
 
 const router = Router();
@@ -16,6 +17,14 @@ router.route("/")
 
 router.route("/listing/:listingId")
     .get(verifySession, controller.getUtilityProvidersByListing.bind(controller));
+
+router.route("/payment-methods")
+    .get(verifySession, controller.getUtilityPaymentMethods.bind(controller))
+    .post(verifySession, validateUtilityPaymentMethod, controller.createUtilityPaymentMethod.bind(controller));
+
+router.route("/payment-methods/:id")
+    .put(verifySession, validateUtilityPaymentMethod, controller.updateUtilityPaymentMethod.bind(controller))
+    .delete(verifySession, controller.deleteUtilityPaymentMethod.bind(controller));
 
 router.route("/:id")
     .put(verifySession, validateUpdateUtilityProvider, controller.updateUtilityProvider.bind(controller))

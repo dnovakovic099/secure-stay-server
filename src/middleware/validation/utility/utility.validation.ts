@@ -15,6 +15,8 @@ const baseSchema = Joi.object({
             propertyId: Joi.number().integer().positive().required(),
             accountNumber: Joi.string().allow(null, ""),
             propertyNotes: Joi.string().allow(null, ""),
+            autopay: Joi.boolean().optional(),
+            paymentMethod: Joi.string().allow(null, ""),
         })
     ).min(1).optional(),
 });
@@ -37,8 +39,25 @@ export const validateUpdateUtilityProvider = (request: Request, response: Respon
                 propertyId: Joi.number().integer().positive().required(),
                 accountNumber: Joi.string().allow(null, ""),
                 propertyNotes: Joi.string().allow(null, ""),
+                autopay: Joi.boolean().optional(),
+                paymentMethod: Joi.string().allow(null, ""),
             })
         ).min(1).optional(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateUtilityPaymentMethod = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        label: Joi.string().trim().required(),
+        sortOrder: Joi.number().integer().min(0).optional(),
+        isActive: Joi.boolean().optional(),
     });
 
     const { error } = schema.validate(request.body);
