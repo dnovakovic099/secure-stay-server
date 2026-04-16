@@ -1,5 +1,11 @@
 import { Column, CreateDateColumn, DeleteDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
+export type UtilityProviderPropertyLink = {
+    propertyId: number;
+    accountNumber: string | null;
+    propertyNotes: string | null;
+};
+
 @Entity("utility_provider")
 export class UtilityProvider {
     @PrimaryGeneratedColumn({ type: "int" })
@@ -20,11 +26,17 @@ export class UtilityProvider {
     @Column({ type: "text", nullable: true })
     password: string | null;
 
+    @Column({ type: "boolean", default: false })
+    lastpass: boolean;
+
     @Column({ type: "text", nullable: true })
     notes: string | null;
 
     @Column({ type: "simple-json", nullable: true })
     propertyIds: number[];
+
+    @Column({ type: "simple-json", nullable: true })
+    propertyLinks: UtilityProviderPropertyLink[];
 
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;

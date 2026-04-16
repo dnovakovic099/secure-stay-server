@@ -7,8 +7,16 @@ const baseSchema = Joi.object({
     providerName: Joi.string().allow(null, ""),
     username: Joi.string().allow(null, ""),
     password: Joi.string().allow(null, ""),
+    lastpass: Joi.boolean().optional(),
     notes: Joi.string().allow(null, ""),
     propertyIds: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+    propertyLinks: Joi.array().items(
+        Joi.object({
+            propertyId: Joi.number().integer().positive().required(),
+            accountNumber: Joi.string().allow(null, ""),
+            propertyNotes: Joi.string().allow(null, ""),
+        })
+    ).min(1).optional(),
 });
 
 export const validateCreateUtilityProvider = (request: Request, response: Response, next: NextFunction) => {
@@ -24,6 +32,13 @@ export const validateUpdateUtilityProvider = (request: Request, response: Respon
     const schema = baseSchema.keys({
         providerType: Joi.string().optional(),
         propertyIds: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
+        propertyLinks: Joi.array().items(
+            Joi.object({
+                propertyId: Joi.number().integer().positive().required(),
+                accountNumber: Joi.string().allow(null, ""),
+                propertyNotes: Joi.string().allow(null, ""),
+            })
+        ).min(1).optional(),
     });
 
     const { error } = schema.validate(request.body);

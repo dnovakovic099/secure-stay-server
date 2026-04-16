@@ -1,5 +1,5 @@
 import { appDatabase } from "../utils/database.util";
-import { UtilityProvider } from "../entity/UtilityProvider";
+import { UtilityProvider, UtilityProviderPropertyLink } from "../entity/UtilityProvider";
 import CustomErrorHandler from "../middleware/customError.middleware";
 
 type UtilityQuery = {
@@ -10,6 +10,31 @@ type UtilityQuery = {
 
 export class UtilityProviderService {
     private utilityRepo = appDatabase.getRepository(UtilityProvider);
+
+    private normalizePropertyLinks(
+        propertyLinks?: Array<Partial<UtilityProviderPropertyLink> | null> | null,
+        fallbackPropertyIds?: Array<number | string> | null
+    ): UtilityProviderPropertyLink[] {
+        const normalizedLinks = (propertyLinks || [])
+            .map((link) => ({
+                propertyId: Number(link?.propertyId),
+                accountNumber: link?.accountNumber?.toString().trim() || null,
+                propertyNotes: link?.propertyNotes?.toString().trim() || null,
+            }))
+            .filter((link) => Number.isFinite(link.propertyId) && link.propertyId > 0);
+
+        if (normalizedLinks.length > 0) {
+            return Array.from(
+                new Map(normalizedLinks.map((link) => [link.propertyId, link])).values()
+            );
+        }
+
+        return this.normalizePropertyIds(fallbackPropertyIds).map((propertyId) => ({
+            propertyId,
+            accountNumber: null,
+            propertyNotes: null,
+        }));
+    }
 
     private normalizePropertyIds(propertyIds?: Array<number | string> | null): number[] {
         return Array.from(
@@ -22,21 +47,30 @@ export class UtilityProviderService {
     }
 
     private normalizeUtility(utility: UtilityProvider) {
+        const propertyLinks = this.normalizePropertyLinks(utility.propertyLinks || [], utility.propertyIds || []);
         return {
             ...utility,
-            propertyIds: this.normalizePropertyIds(utility.propertyIds || []),
+            lastpass: Boolean(utility.lastpass),
+            propertyLinks,
+            propertyIds: propertyLinks.map((link) => link.propertyId),
         };
     }
 
     async createUtilityProvider(body: Partial<UtilityProvider>, userId: string) {
+        const propertyLinks = this.normalizePropertyLinks(
+            body.propertyLinks as Array<Partial<UtilityProviderPropertyLink> | null> | undefined,
+            body.propertyIds
+        );
         const utility = this.utilityRepo.create({
             providerType: body.providerType?.trim(),
             customProviderLabel: body.customProviderLabel?.trim() || null,
             providerName: body.providerName?.trim() || null,
             username: body.username?.trim() || null,
             password: body.password || null,
+            lastpass: Boolean(body.lastpass),
             notes: body.notes || null,
-            propertyIds: this.normalizePropertyIds(body.propertyIds),
+            propertyIds: propertyLinks.map((link) => link.propertyId),
+            propertyLinks,
             createdBy: userId,
             updatedBy: userId,
         });
@@ -51,13 +85,23 @@ export class UtilityProviderService {
             throw CustomErrorHandler.notFound("Utility provider not found");
         }
 
+        const propertyLinks =
+            body.propertyLinks !== undefined || body.propertyIds !== undefined
+                ? this.normalizePropertyLinks(
+                    body.propertyLinks as Array<Partial<UtilityProviderPropertyLink> | null> | undefined,
+                    body.propertyIds
+                )
+                : this.normalizePropertyLinks(existing.propertyLinks || [], existing.propertyIds || []);
+
         existing.providerType = body.providerType?.trim() || existing.providerType;
         existing.customProviderLabel = body.customProviderLabel !== undefined ? body.customProviderLabel?.trim() || null : existing.customProviderLabel;
         existing.providerName = body.providerName !== undefined ? body.providerName?.trim() || null : existing.providerName;
         existing.username = body.username !== undefined ? body.username?.trim() || null : existing.username;
         existing.password = body.password !== undefined ? body.password || null : existing.password;
+        existing.lastpass = body.lastpass !== undefined ? Boolean(body.lastpass) : existing.lastpass;
         existing.notes = body.notes !== undefined ? body.notes || null : existing.notes;
-        existing.propertyIds = body.propertyIds !== undefined ? this.normalizePropertyIds(body.propertyIds) : existing.propertyIds;
+        existing.propertyLinks = propertyLinks;
+        existing.propertyIds = propertyLinks.map((link) => link.propertyId);
         existing.updatedBy = userId;
 
         const updated = await this.utilityRepo.save(existing);
@@ -104,6 +148,7 @@ export class UtilityProviderService {
                 utility.providerName,
                 utility.username,
                 utility.notes,
+                ...(utility.propertyLinks || []).flatMap((link) => [String(link.propertyId), link.accountNumber, link.propertyNotes]),
             ]
                 .filter(Boolean)
                 .some((value) => String(value).toLowerCase().includes(keyword));
