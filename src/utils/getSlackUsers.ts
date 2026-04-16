@@ -20,9 +20,7 @@ export const getSlackUsers = async () => {
         });
 
         if (response.data.ok) {
-            // Filter out deleted users and bots if needed, for now just returning all members
-            // Mapping to a simpler structure if preferred, but frontend might want avatar etc.
-            // Let's keep it simple: id, name, real_name, profile.image_24
+            // Use the largest available Slack avatar so linked employee photos stay crisp in the HR UI.
             const members = response.data.members
                 .filter((member: any) => !member.deleted && !member.is_bot && member.id !== 'USLACKBOT')
                 .map((member: any) => ({
@@ -30,7 +28,7 @@ export const getSlackUsers = async () => {
                     name: member.name,
                     real_name: member.real_name,
                     display_name: member.profile.display_name || member.real_name,
-                    image: member.profile.image_24
+                    image: member.profile.image_512 || member.profile.image_192 || member.profile.image_72 || member.profile.image_48 || member.profile.image_24
                 }));
 
             usersCache = members;
