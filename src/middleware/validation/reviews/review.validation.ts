@@ -145,7 +145,8 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
         comments: Joi.string().allow('', null),
         assignee: Joi.string().allow('', null).optional(),
         isActive: Joi.boolean().optional(),
-    }).or('status', 'comments', 'assignee', 'isActive');
+        visibility: Joi.string().optional(),
+    }).or('status', 'comments', 'assignee', 'isActive', 'visibility');
 
     const { error } = schema.validate(request.body);
     if (error) {

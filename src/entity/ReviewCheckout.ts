@@ -62,6 +62,9 @@ export class ReviewCheckout {
     deletedBy: string;
 
     @Column({ nullable: true })
+    visibility: string; // Visibility state when no linked review exists (e.g. "Awaiting Review", "No Review")
+
+    @Column({ nullable: true })
     slackThreadTs: string; // message_ts of the root daily message in #resolutions-team (used as thread_ts for replies)
 
     @Column({ nullable: true })
