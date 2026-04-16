@@ -495,19 +495,19 @@ export function scheduleGetReservation() {
   );
 
   // Resolutions Team — daily checkout messages to #resolutions-team at 9 AM EST
-  schedule.scheduleJob(
-    { hour: 9, minute: 0, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info("[ResolutionsTeam] Posting daily checkout messages to #resolutions-team...");
-        const resolutionsService = new ResolutionsTeamSlackService();
-        await resolutionsService.postDailyCheckoutMessages();
-        logger.info("[ResolutionsTeam] Daily checkout messages posted.");
-      } catch (error) {
-        logger.error("[ResolutionsTeam] Error posting daily checkout messages:", error);
-      }
-    }
-  );
+  // schedule.scheduleJob(
+  //   { hour: 9, minute: 0, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info("[ResolutionsTeam] Posting daily checkout messages to #resolutions-team...");
+  //       const resolutionsService = new ResolutionsTeamSlackService();
+  //       await resolutionsService.postDailyCheckoutMessages();
+  //       logger.info("[ResolutionsTeam] Daily checkout messages posted.");
+  //     } catch (error) {
+  //       logger.error("[ResolutionsTeam] Error posting daily checkout messages:", error);
+  //     }
+  //   }
+  // );
 
   // GR Tasks Daily Reminder - 10 AM EST for In Progress tasks
   schedule.scheduleJob(
