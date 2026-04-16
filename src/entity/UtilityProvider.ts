@@ -4,6 +4,8 @@ export type UtilityProviderPropertyLink = {
     propertyId: number;
     accountNumber: string | null;
     propertyNotes: string | null;
+    autopay: boolean;
+    paymentMethod: string | null;
 };
 
 @Entity("utility_provider")

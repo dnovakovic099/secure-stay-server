@@ -65,4 +65,44 @@ export class UtilityProviderController {
             next(error);
         }
     }
+
+    async getUtilityPaymentMethods(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const result = await service.getUtilityPaymentMethods();
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async createUtilityPaymentMethod(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const created = await service.createUtilityPaymentMethod(request.body, request.user!.id);
+            return response.status(201).json(created);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateUtilityPaymentMethod(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const updated = await service.updateUtilityPaymentMethod(Number(request.params.id), request.body, request.user!.id);
+            return response.status(200).json(updated);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteUtilityPaymentMethod(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const result = await service.deleteUtilityPaymentMethod(Number(request.params.id), request.user!.id);
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
 }

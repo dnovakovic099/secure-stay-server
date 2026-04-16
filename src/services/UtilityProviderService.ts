@@ -1,5 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { UtilityProvider, UtilityProviderPropertyLink } from "../entity/UtilityProvider";
+import { UtilityPaymentMethod } from "../entity/UtilityPaymentMethod";
 import CustomErrorHandler from "../middleware/customError.middleware";
 
 type UtilityQuery = {
@@ -10,6 +11,7 @@ type UtilityQuery = {
 
 export class UtilityProviderService {
     private utilityRepo = appDatabase.getRepository(UtilityProvider);
+    private paymentMethodRepo = appDatabase.getRepository(UtilityPaymentMethod);
 
     private normalizePropertyLinks(
         propertyLinks?: Array<Partial<UtilityProviderPropertyLink> | null> | null,
@@ -20,6 +22,8 @@ export class UtilityProviderService {
                 propertyId: Number(link?.propertyId),
                 accountNumber: link?.accountNumber?.toString().trim() || null,
                 propertyNotes: link?.propertyNotes?.toString().trim() || null,
+                autopay: Boolean(link?.autopay),
+                paymentMethod: link?.paymentMethod?.toString().trim() || null,
             }))
             .filter((link) => Number.isFinite(link.propertyId) && link.propertyId > 0);
 
@@ -33,6 +37,8 @@ export class UtilityProviderService {
             propertyId,
             accountNumber: null,
             propertyNotes: null,
+            autopay: false,
+            paymentMethod: null,
         }));
     }
 
@@ -158,5 +164,56 @@ export class UtilityProviderService {
     async getUtilityProvidersByListing(listingId: number) {
         const utilities = await this.getUtilityProviders({ listingId });
         return utilities;
+    }
+
+    async getUtilityPaymentMethods() {
+        return this.paymentMethodRepo.find({
+            where: { deletedAt: null as any },
+            order: { sortOrder: "ASC", label: "ASC" },
+        });
+    }
+
+    async createUtilityPaymentMethod(body: Partial<UtilityPaymentMethod>, userId: string) {
+        const last = await this.paymentMethodRepo.find({
+            where: { deletedAt: null as any },
+            order: { sortOrder: "DESC" },
+            take: 1,
+        });
+
+        const entry = this.paymentMethodRepo.create({
+            label: body.label?.trim(),
+            sortOrder: body.sortOrder ?? ((last[0]?.sortOrder ?? -1) + 1),
+            isActive: body.isActive ?? true,
+            createdBy: userId,
+            updatedBy: userId,
+        });
+
+        return this.paymentMethodRepo.save(entry);
+    }
+
+    async updateUtilityPaymentMethod(id: number, body: Partial<UtilityPaymentMethod>, userId: string) {
+        const existing = await this.paymentMethodRepo.findOne({ where: { id } });
+        if (!existing) {
+            throw CustomErrorHandler.notFound("Utility payment method not found");
+        }
+
+        existing.label = body.label !== undefined ? body.label?.trim() || existing.label : existing.label;
+        existing.sortOrder = body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder;
+        existing.isActive = body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive;
+        existing.updatedBy = userId;
+
+        return this.paymentMethodRepo.save(existing);
+    }
+
+    async deleteUtilityPaymentMethod(id: number, userId: string) {
+        const existing = await this.paymentMethodRepo.findOne({ where: { id } });
+        if (!existing) {
+            throw CustomErrorHandler.notFound("Utility payment method not found");
+        }
+
+        existing.deletedBy = userId;
+        await this.paymentMethodRepo.save(existing);
+        await this.paymentMethodRepo.softRemove(existing);
+        return { message: "Utility payment method deleted successfully" };
     }
 }
