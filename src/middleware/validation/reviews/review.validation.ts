@@ -108,24 +108,44 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
             'any.required': 'todayDate is required'
         }),
-        listingMapId: Joi.array().items(Joi.number()).min(1).allow("", null),
+        listingMapId: Joi.alternatives().try(
+            Joi.number().integer(),
+            Joi.array().items(Joi.number().integer()).min(1)
+        ).optional().allow("", null),
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
         limit: Joi.number().required(),
-        propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
-        serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
-        actionItems: Joi.array().items(
-            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
+        propertyType: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string()).min(1)
         ).optional(),
-        issues: Joi.array().items(
-            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+        serviceType: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string()).min(1)
         ).optional(),
-        channel: Joi.array().items(Joi.string()).optional(),
+        actionItems: Joi.alternatives().try(
+            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress'),
+            Joi.array().items(Joi.string().valid('incomplete', 'completed', 'expired', 'in progress'))
+        ).optional(),
+        issues: Joi.alternatives().try(
+            Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New"),
+            Joi.array().items(Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New"))
+        ).optional(),
+        channel: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
         keyword: Joi.string().optional(),
-        status: Joi.array().items(Joi.string().required()).min(1).allow("", null),
+        status: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string()).min(1)
+        ).optional().allow("", null),
         isActive: Joi.boolean().optional(),
         tab: Joi.string().optional().valid("today", "active", "closed", "all"),
-        integration: Joi.array().items(Joi.string()).optional(),
+        integration: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         dateType: Joi.string().optional().valid("submittedAt", "updatedAt", "arrivalDate", "departureDate"),
