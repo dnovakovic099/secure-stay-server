@@ -20,6 +20,7 @@ import { LiveIssue } from "../entity/LiveIssue";
 import { AssignedTask } from "../entity/AssignedTask";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
+import { Employee } from "../entity/Employee";
 
 // Priority departments per page type
 const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
@@ -48,6 +49,7 @@ export class UsersService {
     private clientTicketRepo = appDatabase.getRepository(ClientTicket);
     private liveIssuesRepo = appDatabase.getRepository(LiveIssue);
     private assignedTaskRepo = appDatabase.getRepository(AssignedTask);
+    private employeeRepo = appDatabase.getRepository(Employee);
 
 
     async createUser(request: Request, response: Response) {
@@ -607,6 +609,19 @@ export class UsersService {
     async fetchUserListByDepartment(pageType: string = 'default') {
         const departmentRepo = appDatabase.getRepository(DepartmentEntity);
         const userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
+        const employees = await this.employeeRepo.find({
+            where: { deletedAt: null as any },
+            select: ['userId', 'preferredName'],
+        });
+        const preferredNameByUserId = new Map(employees.map((employee) => [employee.userId, employee.preferredName || null]));
+
+        const buildDisplayName = (user: { id: number; firstName: string; lastName: string; email: string }) => {
+            const first = user.firstName || '';
+            const last = user.lastName || '';
+            const preferred = preferredNameByUserId.get(user.id);
+            const display = [first, preferred ? `"${preferred}"` : '', last].filter(Boolean).join(' ').trim();
+            return display || user.email;
+        };
 
         // Get all departments
         const departments = await departmentRepo.find({
@@ -645,7 +660,7 @@ export class UsersService {
         const usersInDepartments = new Set<string>();
         for (const ud of userDepartments) {
             const deptName = ud.department?.name;
-            const userName = `${ud.user.firstName || ''} ${ud.user.lastName || ''}`.trim();
+            const userName = buildDisplayName(ud.user as any);
             
             if (deptName && departmentUsersMap[deptName]) {
                 departmentUsersMap[deptName].users.push({
@@ -663,7 +678,7 @@ export class UsersService {
         
         for (const user of allActiveUsers) {
             if (!usersInDepartments.has(user.uid)) {
-                const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+                const userName = buildDisplayName(user as any);
                 departmentUsersMap['Unassigned'].users.push({
                     uid: user.uid,
                     name: userName || user.email,
@@ -919,5 +934,3 @@ export class UsersService {
 
 
 }
-
-

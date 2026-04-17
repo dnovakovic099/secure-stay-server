@@ -1,6 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { Employee, EmployeeDepartment } from "../entity/Employee";
 import { EmployeeNote } from "../entity/EmployeeNote";
+import { EmployeeChangeLog } from "../entity/EmployeeChangeLog";
 import { UsersEntity } from "../entity/Users";
 import { FileInfo } from "../entity/FileInfo";
 import { IsNull } from "typeorm";
@@ -19,6 +20,7 @@ interface CreateEmployeeDto {
     phone?: string | null;
     birthday?: Date | null;
     country?: string | null;
+    preferredName?: string | null;
     paymentMethod?: string | null;
     paymentMethodOther?: string | null;
     paymentSchedule?: string | null;
@@ -44,6 +46,7 @@ interface UpdateEmployeeDto {
     phone?: string | null;
     birthday?: Date | null;
     country?: string | null;
+    preferredName?: string | null;
     schedule?: string | null;
     slackId?: string | null;
     paymentMethod?: string | null;
@@ -61,6 +64,7 @@ let tablesInitialized = false;
 export class EmployeeService {
     private employeeRepo = appDatabase.getRepository(Employee);
     private noteRepo = appDatabase.getRepository(EmployeeNote);
+    private changeLogRepo = appDatabase.getRepository(EmployeeChangeLog);
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
     /**
@@ -86,6 +90,7 @@ export class EmployeeService {
             await addColumnIfNotExists('phone', 'VARCHAR(30) NULL');
             await addColumnIfNotExists('birthday', 'DATE NULL');
             await addColumnIfNotExists('country', 'VARCHAR(100) NULL');
+            await addColumnIfNotExists('preferred_name', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('schedule', 'VARCHAR(255) NULL');
             await addColumnIfNotExists('slack_id', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('payment_method', 'VARCHAR(50) NULL');
@@ -101,6 +106,21 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_day', 'VARCHAR(20) NULL');
             await addColumnIfNotExists('payment_recurrence', 'VARCHAR(20) NULL');
             await addColumnIfNotExists('payment_start_date', 'DATE NULL');
+            await appDatabase.query(`
+                CREATE TABLE IF NOT EXISTS employee_change_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    employee_id INT NOT NULL,
+                    field_name VARCHAR(100) NOT NULL,
+                    old_value TEXT NULL,
+                    new_value TEXT NULL,
+                    changed_by INT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                    FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
+                    INDEX idx_employee_change_logs_employee_id (employee_id),
+                    INDEX idx_employee_change_logs_created_at (created_at)
+                )
+            `);
 
             // Cleanup soft-deleted employee numbers to prevent conflicts with active ones
             await appDatabase.query(`UPDATE employees SET employee_number = NULL, employee_number_seq = NULL WHERE deleted_at IS NOT NULL`);
@@ -161,6 +181,22 @@ export class EmployeeService {
                     )
                 `);
 
+                await appDatabase.query(`
+                    CREATE TABLE IF NOT EXISTS employee_change_logs (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        employee_id INT NOT NULL,
+                        field_name VARCHAR(100) NOT NULL,
+                        old_value TEXT NULL,
+                        new_value TEXT NULL,
+                        changed_by INT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                        FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
+                        INDEX idx_employee_change_logs_employee_id (employee_id),
+                        INDEX idx_employee_change_logs_created_at (created_at)
+                    )
+                `);
+
                 console.log('Employees tables created successfully');
                 tablesInitialized = true;
             } else {
@@ -206,7 +242,7 @@ export class EmployeeService {
 
         if (filters.search) {
             queryBuilder.andWhere(
-                '(user.firstName LIKE :search OR user.lastName LIKE :search OR user.email LIKE :search)',
+                '(user.firstName LIKE :search OR user.lastName LIKE :search OR employee.preferredName LIKE :search OR user.email LIKE :search)',
                 { search: `%${filters.search}%` }
             );
         }
@@ -265,7 +301,7 @@ export class EmployeeService {
     async getEmployeeById(id: number) {
         const employee: any = await this.employeeRepo.findOne({
             where: { id, deletedAt: IsNull() },
-            relations: ['user', 'notes', 'notes.addedByUser'],
+            relations: ['user', 'notes', 'notes.addedByUser', 'changeLogs', 'changeLogs.changedByUser'],
         });
 
         if (employee && employee.profilePhoto && !isNaN(Number(employee.profilePhoto))) {
@@ -278,6 +314,10 @@ export class EmployeeService {
 
         if (employee?.user) {
             employee.isActive = !!employee.user.isActive;
+        }
+
+        if (employee?.changeLogs) {
+            employee.changeLogs.sort((a: EmployeeChangeLog, b: EmployeeChangeLog) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
 
         return employee;
@@ -355,6 +395,7 @@ export class EmployeeService {
             phone: dto.phone || null,
             birthday: dto.birthday || null,
             country: dto.country || null,
+            preferredName: dto.preferredName || null,
             paymentMethod: dto.paymentMethod || null,
             paymentMethodOther: dto.paymentMethodOther || null,
             paymentSchedule: dto.paymentSchedule || null,
@@ -389,7 +430,28 @@ export class EmployeeService {
     /**
      * Update employee
      */
-    async updateEmployee(id: number, dto: UpdateEmployeeDto) {
+    private normalizeLogValue(value: any): string | null {
+        if (value === undefined || value === null || value === '') return null;
+        if (value instanceof Date) return value.toISOString();
+        return String(value);
+    }
+
+    async logEmployeeChange(employeeId: number, fieldName: string, oldValue: any, newValue: any, changedBy?: number | null) {
+        const previous = this.normalizeLogValue(oldValue);
+        const next = this.normalizeLogValue(newValue);
+        if (previous === next) return;
+
+        const log = this.changeLogRepo.create({
+            employeeId,
+            fieldName,
+            oldValue: previous,
+            newValue: next,
+            changedBy: changedBy ?? null,
+        });
+        await this.changeLogRepo.save(log);
+    }
+
+    async updateEmployee(id: number, dto: UpdateEmployeeDto, changedBy?: number) {
         const employee = await this.employeeRepo.findOne({
             where: { id, deletedAt: IsNull() },
         });
@@ -398,40 +460,47 @@ export class EmployeeService {
             throw new Error('Employee not found');
         }
 
-        // Update fields
-        if (dto.department !== undefined) employee.department = dto.department;
-        if (dto.jobTitle !== undefined) employee.jobTitle = dto.jobTitle;
-        if (dto.jobType !== undefined) employee.jobType = dto.jobType || null;
-        if (dto.hiredFrom !== undefined) employee.hiredFrom = dto.hiredFrom || null;
-        if (dto.hiredFromOther !== undefined) employee.hiredFromOther = dto.hiredFromOther || null;
-        if (dto.employeeType !== undefined) employee.employeeType = dto.employeeType || null;
-        if (dto.hourlyRate !== undefined) employee.hourlyRate = dto.hourlyRate;
-        if (dto.overtimeHours !== undefined) employee.overtimeHours = dto.overtimeHours;
-        if (dto.bonuses !== undefined) employee.bonuses = dto.bonuses;
-        if (dto.slackUserId !== undefined) employee.slackUserId = dto.slackUserId || null;
-        if (dto.profilePhoto !== undefined) employee.profilePhoto = dto.profilePhoto || null;
-        if (dto.isActive !== undefined) employee.isActive = dto.isActive;
-        if (dto.phone !== undefined) employee.phone = dto.phone || null;
-        if (dto.birthday !== undefined) employee.birthday = dto.birthday || null;
-        if (dto.country !== undefined) employee.country = dto.country || null;
-        if (dto.schedule !== undefined) employee.schedule = dto.schedule || null;
-        if (dto.slackId !== undefined) employee.slackId = dto.slackId || null;
-        if (dto.paymentMethod !== undefined) employee.paymentMethod = dto.paymentMethod || null;
-        if (dto.paymentMethodOther !== undefined) employee.paymentMethodOther = dto.paymentMethodOther || null;
-        if (dto.paymentSchedule !== undefined) employee.paymentSchedule = dto.paymentSchedule || null;
-        if (dto.paymentInfo !== undefined) employee.paymentInfo = dto.paymentInfo || null;
-        if (dto.paymentDay !== undefined) employee.paymentDay = dto.paymentDay || null;
-        if (dto.paymentRecurrence !== undefined) employee.paymentRecurrence = dto.paymentRecurrence || null;
-        if (dto.paymentStartDate !== undefined) employee.paymentStartDate = dto.paymentStartDate || null;
+        const logTasks: Promise<void>[] = [];
+        const queue = (fieldName: string, oldValue: any, newValue: any) => {
+            logTasks.push(this.logEmployeeChange(id, fieldName, oldValue, newValue, changedBy));
+        };
+
+        if (dto.department !== undefined) { queue('Department', employee.department, dto.department); employee.department = dto.department; }
+        if (dto.jobTitle !== undefined) { queue('Job Title', employee.jobTitle, dto.jobTitle); employee.jobTitle = dto.jobTitle; }
+        if (dto.jobType !== undefined) { queue('Job Type', employee.jobType, dto.jobType || null); employee.jobType = dto.jobType || null; }
+        if (dto.hiredFrom !== undefined) { queue('Hired From', employee.hiredFrom, dto.hiredFrom || null); employee.hiredFrom = dto.hiredFrom || null; }
+        if (dto.hiredFromOther !== undefined) { queue('Hired From Other', employee.hiredFromOther, dto.hiredFromOther || null); employee.hiredFromOther = dto.hiredFromOther || null; }
+        if (dto.employeeType !== undefined) { queue('Employee Type', employee.employeeType, dto.employeeType || null); employee.employeeType = dto.employeeType || null; }
+        if (dto.hourlyRate !== undefined) { queue('Hourly Rate', employee.hourlyRate, dto.hourlyRate); employee.hourlyRate = dto.hourlyRate; }
+        if (dto.overtimeHours !== undefined) { queue('Overtime Hours', employee.overtimeHours, dto.overtimeHours); employee.overtimeHours = dto.overtimeHours; }
+        if (dto.bonuses !== undefined) { queue('Bonuses', employee.bonuses, dto.bonuses); employee.bonuses = dto.bonuses; }
+        if (dto.slackUserId !== undefined) { queue('Slack User', employee.slackUserId, dto.slackUserId || null); employee.slackUserId = dto.slackUserId || null; }
+        if (dto.profilePhoto !== undefined) { queue('Profile Photo', employee.profilePhoto, dto.profilePhoto || null); employee.profilePhoto = dto.profilePhoto || null; }
+        if (dto.isActive !== undefined) { queue('Status', employee.isActive, dto.isActive); employee.isActive = dto.isActive; }
+        if (dto.phone !== undefined) { queue('Phone', employee.phone, dto.phone || null); employee.phone = dto.phone || null; }
+        if (dto.birthday !== undefined) { queue('Birthday', employee.birthday, dto.birthday || null); employee.birthday = dto.birthday || null; }
+        if (dto.country !== undefined) { queue('Country', employee.country, dto.country || null); employee.country = dto.country || null; }
+        if (dto.preferredName !== undefined) { queue('Preferred Name', employee.preferredName, dto.preferredName || null); employee.preferredName = dto.preferredName || null; }
+        if (dto.schedule !== undefined) { queue('Schedule', employee.schedule, dto.schedule || null); employee.schedule = dto.schedule || null; }
+        if (dto.slackId !== undefined) { queue('Slack ID', employee.slackId, dto.slackId || null); employee.slackId = dto.slackId || null; }
+        if (dto.paymentMethod !== undefined) { queue('Payment Method', employee.paymentMethod, dto.paymentMethod || null); employee.paymentMethod = dto.paymentMethod || null; }
+        if (dto.paymentMethodOther !== undefined) { queue('Payment Method Other', employee.paymentMethodOther, dto.paymentMethodOther || null); employee.paymentMethodOther = dto.paymentMethodOther || null; }
+        if (dto.paymentSchedule !== undefined) { queue('Payment Schedule', employee.paymentSchedule, dto.paymentSchedule || null); employee.paymentSchedule = dto.paymentSchedule || null; }
+        if (dto.paymentInfo !== undefined) { queue('Payment Info', employee.paymentInfo, dto.paymentInfo || null); employee.paymentInfo = dto.paymentInfo || null; }
+        if (dto.paymentDay !== undefined) { queue('Payment Day', employee.paymentDay, dto.paymentDay || null); employee.paymentDay = dto.paymentDay || null; }
+        if (dto.paymentRecurrence !== undefined) { queue('Payment Recurrence', employee.paymentRecurrence, dto.paymentRecurrence || null); employee.paymentRecurrence = dto.paymentRecurrence || null; }
+        if (dto.paymentStartDate !== undefined) { queue('Payment Start Date', employee.paymentStartDate, dto.paymentStartDate || null); employee.paymentStartDate = dto.paymentStartDate || null; }
 
         const startDateChanged = dto.startDate !== undefined && 
             new Date(dto.startDate).getTime() !== new Date(employee.startDate).getTime();
         
         if (dto.startDate !== undefined) {
+            queue('Start Date', employee.startDate, dto.startDate);
             employee.startDate = dto.startDate;
         }
 
         await this.employeeRepo.save(employee);
+        await Promise.all(logTasks);
 
         // If start date changed, regenerate all employee numbers
         if (startDateChanged) {
