@@ -129,6 +129,35 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         dateType: Joi.string().optional().valid("submittedAt", "updatedAt", "arrivalDate", "departureDate"),
+        sentiment: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        visibility: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        refundStatus: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        operationalFlags: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        owner: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        isClaimOnly: Joi.boolean().optional(),
+        rating: Joi.alternatives().try(
+            Joi.number(),
+            Joi.array().items(Joi.number())
+        ).optional(),
+        tags: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
     });
 
     const { error } = schema.validate(request.query);
