@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/EmployeeService';
 import { EmployeeDepartment } from '../entity/Employee';
+import { EmployeeScheduleShiftType } from '../entity/EmployeeScheduleEntry';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { FileInfo } from '../entity/FileInfo';
@@ -49,6 +50,26 @@ export class EmployeeController {
                 isActive: isActive !== undefined ? isActive === 'true' : undefined,
                 sortField: sortField as string,
                 sortDir: (sortDir as string)?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC',
+            });
+
+            return res.json(result);
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    getScheduleOverrides = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { startDate, endDate, employeeId } = req.query;
+
+            if (!startDate || !endDate) {
+                return res.status(400).json({ error: 'startDate and endDate are required' });
+            }
+
+            const result = await this.employeeService.getScheduleOverrides({
+                startDate: String(startDate),
+                endDate: String(endDate),
+                employeeId: employeeId ? parseInt(String(employeeId), 10) : undefined,
             });
 
             return res.json(result);
@@ -198,6 +219,61 @@ export class EmployeeController {
             if (error.message === 'Employee not found') {
                 return res.status(404).json({ error: error.message });
             }
+            next(error);
+        }
+    };
+
+    upsertScheduleOverride = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { id } = req.params;
+            const { date, shiftType, shiftStart, shiftEnd, notes } = req.body;
+
+            if (!date || !shiftType) {
+                return res.status(400).json({ error: 'date and shiftType are required' });
+            }
+
+            if (!Object.values(EmployeeScheduleShiftType).includes(shiftType)) {
+                return res.status(400).json({ error: 'Invalid shiftType' });
+            }
+
+            const updatedBy = await this.getInternalUserId(req.user);
+            const result = await this.employeeService.upsertScheduleOverride(
+                parseInt(id, 10),
+                {
+                    date,
+                    shiftType,
+                    shiftStart,
+                    shiftEnd,
+                    notes,
+                },
+                updatedBy
+            );
+
+            return res.json(result);
+        } catch (error: any) {
+            if (error.message === 'Employee not found') {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message === 'Date is required' || error.message === 'Shift start and end are required for a regular override') {
+                return res.status(400).json({ error: error.message });
+            }
+            next(error);
+        }
+    };
+
+    clearScheduleOverride = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const { id } = req.params;
+            const date = typeof req.query.date === 'string' ? req.query.date : '';
+
+            if (!date) {
+                return res.status(400).json({ error: 'date is required' });
+            }
+
+            const updatedBy = await this.getInternalUserId(req.user);
+            const result = await this.employeeService.clearScheduleOverride(parseInt(id, 10), date, updatedBy);
+            return res.json(result);
+        } catch (error) {
             next(error);
         }
     };

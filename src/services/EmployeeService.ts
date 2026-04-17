@@ -2,9 +2,10 @@ import { appDatabase } from "../utils/database.util";
 import { Employee, EmployeeDepartment } from "../entity/Employee";
 import { EmployeeNote } from "../entity/EmployeeNote";
 import { EmployeeChangeLog } from "../entity/EmployeeChangeLog";
+import { EmployeeScheduleEntry, EmployeeScheduleShiftType } from "../entity/EmployeeScheduleEntry";
 import { UsersEntity } from "../entity/Users";
 import { FileInfo } from "../entity/FileInfo";
-import { IsNull } from "typeorm";
+import { Between, IsNull } from "typeorm";
 
 interface CreateEmployeeDto {
     userId: number;
@@ -61,10 +62,19 @@ interface UpdateEmployeeDto {
 // Flag to track if tables have been initialized
 let tablesInitialized = false;
 
+interface UpsertScheduleOverrideDto {
+    date: string;
+    shiftType: EmployeeScheduleShiftType;
+    shiftStart?: string | null;
+    shiftEnd?: string | null;
+    notes?: string | null;
+}
+
 export class EmployeeService {
     private employeeRepo = appDatabase.getRepository(Employee);
     private noteRepo = appDatabase.getRepository(EmployeeNote);
     private changeLogRepo = appDatabase.getRepository(EmployeeChangeLog);
+    private scheduleRepo = appDatabase.getRepository(EmployeeScheduleEntry);
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
     /**
@@ -121,6 +131,31 @@ export class EmployeeService {
                     INDEX idx_employee_change_logs_created_at (created_at)
                 )
             `);
+
+            await appDatabase.query(`
+                CREATE TABLE IF NOT EXISTS employee_schedules (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    employee_id INT NOT NULL,
+                    \`date\` DATE NOT NULL,
+                    shift_start TIME NULL,
+                    shift_end TIME NULL,
+                    break_duration INT NULL,
+                    shift_type ENUM('Regular', 'Off', 'Holiday') NOT NULL DEFAULT 'Regular',
+                    notes TEXT NULL,
+                    is_recurring BOOLEAN DEFAULT FALSE,
+                    recurring_day_of_week TINYINT NULL,
+                    created_by VARCHAR(255) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                    UNIQUE INDEX idx_schedule_employee_date (employee_id, \`date\`),
+                    INDEX idx_schedule_date (\`date\`),
+                    INDEX idx_schedule_shift_type (shift_type)
+                )
+            `);
+            await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN shift_start TIME NULL`);
+            await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN shift_end TIME NULL`);
+            await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN notes TEXT NULL`);
 
             // Cleanup soft-deleted employee numbers to prevent conflicts with active ones
             await appDatabase.query(`UPDATE employees SET employee_number = NULL, employee_number_seq = NULL WHERE deleted_at IS NOT NULL`);
@@ -194,6 +229,28 @@ export class EmployeeService {
                         FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
                         INDEX idx_employee_change_logs_employee_id (employee_id),
                         INDEX idx_employee_change_logs_created_at (created_at)
+                    )
+                `);
+
+                await appDatabase.query(`
+                    CREATE TABLE IF NOT EXISTS employee_schedules (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        employee_id INT NOT NULL,
+                        \`date\` DATE NOT NULL,
+                        shift_start TIME NULL,
+                        shift_end TIME NULL,
+                        break_duration INT NULL,
+                        shift_type ENUM('Regular', 'Off', 'Holiday') NOT NULL DEFAULT 'Regular',
+                        notes TEXT NULL,
+                        is_recurring BOOLEAN DEFAULT FALSE,
+                        recurring_day_of_week TINYINT NULL,
+                        created_by VARCHAR(255) NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                        UNIQUE INDEX idx_schedule_employee_date (employee_id, \`date\`),
+                        INDEX idx_schedule_date (\`date\`),
+                        INDEX idx_schedule_shift_type (shift_type)
                     )
                 `);
 
@@ -449,6 +506,123 @@ export class EmployeeService {
             changedBy: changedBy ?? null,
         });
         await this.changeLogRepo.save(log);
+    }
+
+    private describeScheduleOverride(entry: Partial<EmployeeScheduleEntry> | null | undefined): string | null {
+        if (!entry) return null;
+        if (entry.shiftType === EmployeeScheduleShiftType.OFF || entry.shiftType === EmployeeScheduleShiftType.HOLIDAY) {
+            return entry.notes ? `${entry.shiftType} (${entry.notes})` : entry.shiftType || 'Off';
+        }
+
+        const start = entry.shiftStart || '';
+        const end = entry.shiftEnd || '';
+        const range = start && end ? `${start}-${end}` : 'Regular';
+        return entry.notes ? `${range} (${entry.notes})` : range;
+    }
+
+    async getScheduleOverrides(filters: { startDate: string; endDate: string; employeeId?: number }) {
+        await this.ensureTables();
+
+        const where: any = {
+            isRecurring: false,
+            date: Between(filters.startDate, filters.endDate),
+        };
+
+        if (filters.employeeId !== undefined) {
+            where.employeeId = filters.employeeId;
+        }
+
+        return this.scheduleRepo.find({
+            where,
+            order: {
+                date: 'ASC',
+                employeeId: 'ASC',
+            },
+        });
+    }
+
+    async upsertScheduleOverride(employeeId: number, dto: UpsertScheduleOverrideDto, changedBy?: number) {
+        await this.ensureTables();
+
+        const employee = await this.employeeRepo.findOne({
+            where: { id: employeeId, deletedAt: IsNull() },
+        });
+
+        if (!employee) {
+            throw new Error('Employee not found');
+        }
+
+        if (!dto.date) {
+            throw new Error('Date is required');
+        }
+
+        if (dto.shiftType === EmployeeScheduleShiftType.REGULAR && (!dto.shiftStart || !dto.shiftEnd)) {
+            throw new Error('Shift start and end are required for a regular override');
+        }
+
+        let entry = await this.scheduleRepo.findOne({
+            where: {
+                employeeId,
+                date: dto.date,
+                isRecurring: false,
+            },
+        });
+
+        const previousSummary = this.describeScheduleOverride(entry);
+
+        if (!entry) {
+            entry = this.scheduleRepo.create({
+                employeeId,
+                date: dto.date,
+                isRecurring: false,
+            });
+        }
+
+        entry.shiftType = dto.shiftType;
+        entry.shiftStart = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? (dto.shiftStart || null) : null;
+        entry.shiftEnd = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? (dto.shiftEnd || null) : null;
+        entry.notes = dto.notes || null;
+        entry.createdBy = changedBy !== undefined ? String(changedBy) : entry.createdBy || null;
+
+        const saved = await this.scheduleRepo.save(entry);
+
+        await this.logEmployeeChange(
+            employeeId,
+            `Schedule Override (${dto.date})`,
+            previousSummary,
+            this.describeScheduleOverride(saved),
+            changedBy
+        );
+
+        return saved;
+    }
+
+    async clearScheduleOverride(employeeId: number, date: string, changedBy?: number) {
+        await this.ensureTables();
+
+        const entry = await this.scheduleRepo.findOne({
+            where: {
+                employeeId,
+                date,
+                isRecurring: false,
+            },
+        });
+
+        if (!entry) {
+            return { success: true };
+        }
+
+        const previousSummary = this.describeScheduleOverride(entry);
+        await this.scheduleRepo.remove(entry);
+        await this.logEmployeeChange(
+            employeeId,
+            `Schedule Override (${date})`,
+            previousSummary,
+            null,
+            changedBy
+        );
+
+        return { success: true };
     }
 
     async updateEmployee(id: number, dto: UpdateEmployeeDto, changedBy?: number) {
