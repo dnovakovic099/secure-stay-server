@@ -97,6 +97,7 @@ export class EmployeeController {
             console.log('User:', req.user?.id);
             
             const { userId, department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
+                preferredName,
                 phone, birthday, country, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
@@ -121,6 +122,7 @@ export class EmployeeController {
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
                 slackUserId: slackUserId || undefined,
+                preferredName: preferredName || undefined,
                 phone: phone || undefined,
                 birthday: birthday ? new Date(birthday) : undefined,
                 country: country || undefined,
@@ -154,7 +156,10 @@ export class EmployeeController {
         try {
             const { id } = req.params;
             const { department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
+                preferredName,
                 phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, paymentDay, paymentStartDate } = req.body;
+
+            const updatedBy = await this.getInternalUserId(req.user);
 
             // Validate department if provided
             if (department && !Object.values(EmployeeDepartment).includes(department)) {
@@ -172,6 +177,7 @@ export class EmployeeController {
                 overtimeHours,
                 bonuses,
                 slackUserId,
+                preferredName,
                 profilePhoto,
                 isActive,
                 phone,
@@ -185,7 +191,7 @@ export class EmployeeController {
                 paymentInfo,
                 paymentDay,
                 paymentStartDate: paymentStartDate ? new Date(paymentStartDate) : undefined,
-            });
+            }, updatedBy);
 
             return res.json(employee);
         } catch (error: any) {
@@ -327,9 +333,10 @@ export class EmployeeController {
             const savedFileInfo = await fileInfoRepo.save(fileRecord);
 
             // Store fileInfo.id in employee.profilePhoto
+            const updatedBy = await this.getInternalUserId(req.user);
             const employee = await this.employeeService.updateEmployee(parseInt(id), {
                 profilePhoto: String(savedFileInfo.id),
-            });
+            }, updatedBy);
 
             return res.json({ profilePhoto: String(savedFileInfo.id), employee });
         } catch (error: any) {
@@ -369,9 +376,10 @@ export class EmployeeController {
                 }
             }
 
+            const updatedBy = await this.getInternalUserId(req.user);
             const updated = await this.employeeService.updateEmployee(parseInt(id), {
                 profilePhoto: null as any,
-            });
+            }, updatedBy);
 
             return res.json({ message: 'Photo deleted', employee: updated });
         } catch (error: any) {

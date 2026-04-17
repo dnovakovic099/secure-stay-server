@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, DeleteDateColumn } from 'typeorm';
 import { UsersEntity } from './Users';
 import { EmployeeNote } from './EmployeeNote';
+import { EmployeeChangeLog } from './EmployeeChangeLog';
 
 export enum EmployeeDepartment {
     GUEST_RELATIONS = 'Guest Relations',
@@ -61,6 +62,9 @@ export class Employee {
     @Column({ name: 'slack_user_id', type: 'varchar', length: 50, nullable: true })
     slackUserId: string | null;
 
+    @Column({ name: 'preferred_name', type: 'varchar', length: 100, nullable: true })
+    preferredName: string | null;
+
     @Column({ name: 'profile_photo', type: 'varchar', length: 500, nullable: true })
     profilePhoto: string | null;
 
@@ -105,6 +109,9 @@ export class Employee {
 
     @OneToMany(() => EmployeeNote, note => note.employee)
     notes: EmployeeNote[];
+
+    @OneToMany(() => EmployeeChangeLog, log => log.employee)
+    changeLogs: EmployeeChangeLog[];
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

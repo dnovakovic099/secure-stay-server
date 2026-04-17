@@ -4,6 +4,7 @@ import { UsersEntity } from "../entity/Users";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { Employee } from "../entity/Employee";
+import { EmployeeChangeLog } from "../entity/EmployeeChangeLog";
 import { supabaseAdmin } from "../utils/supabase";
 import { Like, In } from "typeorm";
 import logger from "../utils/logger.utils";
@@ -29,6 +30,7 @@ export class UserManagementService {
     private departmentRepository = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
     private employeeRepository = appDatabase.getRepository(Employee);
+    private employeeChangeLogRepository = appDatabase.getRepository(EmployeeChangeLog);
 
     /**
      * Get all users with pagination and filters
@@ -181,7 +183,17 @@ export class UserManagementService {
                     updatedBy: adminUserId,
                     updatedAt: new Date(),
                 });
+                const employee = await this.employeeRepository.findOne({ where: { userId } });
                 await this.employeeRepository.update({ userId }, { isActive: true });
+                if (employee) {
+                    await this.employeeChangeLogRepository.save(this.employeeChangeLogRepository.create({
+                        employeeId: employee.id,
+                        fieldName: "Status",
+                        oldValue: "Inactive",
+                        newValue: "Active",
+                        changedBy: Number(adminUserId) || null,
+                    }));
+                }
 
                 return { success: true, message: "User has been enabled successfully" };
             } else {
@@ -198,7 +210,17 @@ export class UserManagementService {
                     updatedBy: adminUserId,
                     updatedAt: new Date(),
                 });
+                const employee = await this.employeeRepository.findOne({ where: { userId } });
                 await this.employeeRepository.update({ userId }, { isActive: false });
+                if (employee) {
+                    await this.employeeChangeLogRepository.save(this.employeeChangeLogRepository.create({
+                        employeeId: employee.id,
+                        fieldName: "Status",
+                        oldValue: "Active",
+                        newValue: "Inactive",
+                        changedBy: Number(adminUserId) || null,
+                    }));
+                }
 
                 return { success: true, message: "User has been disabled successfully" };
             }
