@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import "reflect-metadata";
 import express from "express";
+import qs from "qs";
 import { scheduleGetReservation } from "./utils/scheduler.util";
 import { createRouting } from "./utils/router.util";
 import { initDatabase } from "./utils/database.util";
@@ -27,6 +28,9 @@ const main = async () => {
   await initDatabase();
 
   const app = express();
+  // Increase qs arrayLimit so repeated query params (e.g. 47 listingMapId values)
+  // are parsed as arrays instead of plain objects (default limit is 20)
+  app.set('query parser', (str: string) => qs.parse(str, { arrayLimit: 1000 }));
   app.use(cors());
 
   // JSON parser with special webhook exception

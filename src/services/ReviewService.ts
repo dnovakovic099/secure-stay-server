@@ -383,10 +383,11 @@ export class ReviewService {
         return Array.from(new Set(statuses));
     }
 
-    private normalizePropertyTypeFilters(values?: string[] | null) {
+    private normalizePropertyTypeFilters(values?: string[] | string | null) {
+        const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
         return Array.from(
             new Set(
-                (values || [])
+                arr
                     .map((value) => String(value || '').trim().toLowerCase())
                     .flatMap((value) => {
                         if (!value) return [];
@@ -402,10 +403,11 @@ export class ReviewService {
         );
     }
 
-    private normalizeServiceTypeFilters(values?: string[] | null) {
+    private normalizeServiceTypeFilters(values?: string[] | string | null) {
+        const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
         return Array.from(
             new Set(
-                (values || [])
+                arr
                     .map((value) => String(value || '').trim().toLowerCase())
                     .flatMap((value) => {
                         if (!value) return [];
@@ -1188,12 +1190,43 @@ export class ReviewService {
      */
     async getReviewsForCheckout(filters: Filter, userId: string) {
         const {
-            page, limit, listingMapId, guestName,
-            actionItemsStatus, issuesStatus, channel,
-            todayDate, status, isActive, tab, keyword,
-            propertyType, serviceType, integration, fromDate, toDate, dateType,
-            sentiment, visibility, operationalFlags, owner, isClaimOnly, refundStatus, rating,
+            page, limit,
+            listingMapId: rawListingMapId,
+            guestName,
+            actionItemsStatus: rawActionItemsStatus,
+            issuesStatus: rawIssuesStatus,
+            channel: rawChannel,
+            todayDate, status: rawStatus, isActive, tab, keyword,
+            propertyType, serviceType,
+            integration: rawIntegration,
+            fromDate, toDate, dateType,
+            sentiment: rawSentiment,
+            visibility: rawVisibility,
+            operationalFlags: rawOperationalFlags,
+            owner: rawOwner,
+            isClaimOnly,
+            refundStatus: rawRefundStatus,
+            rating: rawRating,
         } = filters;
+
+        // qs parses a single repeated query param as a string, not an array.
+        // Normalize every array filter here so the rest of the function can
+        // safely call .map(), .forEach(), and TypeORM IN bindings on them.
+        const toArr = <T>(v: T | T[] | null | undefined): T[] =>
+            v == null || (v as any) === '' ? [] : Array.isArray(v) ? v : [v as T];
+        const listingMapId = toArr(rawListingMapId);
+        const channel = toArr(rawChannel);
+        const integration = toArr(rawIntegration);
+        const status = toArr(rawStatus);
+        const sentiment = toArr(rawSentiment);
+        const visibility = toArr(rawVisibility);
+        const operationalFlags = toArr(rawOperationalFlags);
+        const owner = toArr(rawOwner);
+        const refundStatus = toArr(rawRefundStatus);
+        const rating = toArr(rawRating);
+        const actionItemsStatus = toArr(rawActionItemsStatus);
+        const issuesStatus = toArr(rawIssuesStatus);
+
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
 
@@ -1397,12 +1430,15 @@ export class ReviewService {
             query.andWhere("reviewCheckout.status IN (:...statusFilter)", { statusFilter: expandedStatuses });
         }
 
-        // Sentiment filter — subquery from guest_analysis
+        // Sentiment filter — subquery from guest_analysis (latest analysis per reservation only)
+        // A reservation can have multiple analyses (different bookingPhase or re-analyses). We must
+        // match only the most recent one so the filter agrees with what the table displays.
         if (sentiment && (sentiment as string[]).length > 0) {
             const sentimentRows = await this.guestAnalysisRepo
-                .createQueryBuilder('analysis')
-                .select('DISTINCT analysis.reservationId', 'reservationId')
-                .where('analysis.sentiment IN (:...sentiment)', { sentiment })
+                .createQueryBuilder('a')
+                .select('DISTINCT a.reservationId', 'reservationId')
+                .where('a.sentiment IN (:...sentiment)', { sentiment })
+                .andWhere('a.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = a.reservationId)')
                 .getRawMany();
             const sentimentIds = sentimentRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
             query.andWhere(
@@ -1425,7 +1461,7 @@ export class ReviewService {
             );
         }
 
-        // Operational flags filter — subquery from guest_analysis using JSON flag search
+        // Operational flags filter — subquery from guest_analysis using JSON flag search (latest analysis per reservation only)
         if (operationalFlags && (operationalFlags as string[]).length > 0) {
             const flagList = operationalFlags as string[];
             const flagQb = this.guestAnalysisRepo.createQueryBuilder('analysis')
@@ -1435,6 +1471,7 @@ export class ReviewService {
                     qb.orWhere(`CAST(analysis.flags AS CHAR) LIKE :flagPattern${index}`, { [`flagPattern${index}`]: `%${flag}%` });
                 });
             }));
+            flagQb.andWhere('analysis.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = analysis.reservationId)');
             const flagRows = await flagQb.getRawMany();
             const flagIds = flagRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
             query.andWhere(

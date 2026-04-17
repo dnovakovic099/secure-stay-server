@@ -109,46 +109,46 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             'any.required': 'todayDate is required'
         }),
         listingMapId: Joi.alternatives().try(
-            Joi.number().integer(),
-            Joi.array().items(Joi.number().integer()).min(1)
-        ).optional().allow("", null),
+            Joi.array().items(Joi.string()),
+            Joi.string()
+        ).optional(),
         guestName: Joi.string().allow(''),
         page: Joi.number().required(),
         limit: Joi.number().required(),
         propertyType: Joi.alternatives().try(
-            Joi.string(),
-            Joi.array().items(Joi.string()).min(1)
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         serviceType: Joi.alternatives().try(
-            Joi.string(),
-            Joi.array().items(Joi.string()).min(1)
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         actionItems: Joi.alternatives().try(
-            Joi.string().valid('incomplete', 'completed', 'expired', 'in progress'),
-            Joi.array().items(Joi.string().valid('incomplete', 'completed', 'expired', 'in progress'))
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         issues: Joi.alternatives().try(
-            Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New"),
-            Joi.array().items(Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New"))
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         channel: Joi.alternatives().try(
-            Joi.string(),
-            Joi.array().items(Joi.string())
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         keyword: Joi.string().optional(),
         status: Joi.alternatives().try(
-            Joi.string(),
-            Joi.array().items(Joi.string()).min(1)
-        ).optional().allow("", null),
+            Joi.array().items(Joi.string()),
+            Joi.string()
+        ).optional(),
         isActive: Joi.boolean().optional(),
         tab: Joi.string().optional().valid("today", "active", "closed", "all"),
         integration: Joi.alternatives().try(
-            Joi.string(),
-            Joi.array().items(Joi.string())
+            Joi.array().items(Joi.string()),
+            Joi.string()
         ).optional(),
         fromDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
         toDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        dateType: Joi.string().optional().valid("submittedAt", "updatedAt", "arrivalDate", "departureDate"),
+        dateType: Joi.string().optional().valid("submittedAt", "updatedAt", "arrivalDate", "departureDate", "refundedAt"),
         sentiment: Joi.alternatives().try(
             Joi.string(),
             Joi.array().items(Joi.string())
@@ -182,7 +182,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
 
     const { error } = schema.validate(request.query);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
 };
