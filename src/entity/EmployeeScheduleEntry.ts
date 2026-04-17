@@ -28,6 +28,12 @@ export class EmployeeScheduleEntry {
     @Column({ name: 'shift_end', type: 'time', nullable: true })
     shiftEnd: string | null;
 
+    @Column({ name: 'shift_start_at', type: 'datetime', nullable: true })
+    shiftStartAt: Date | null;
+
+    @Column({ name: 'shift_end_at', type: 'datetime', nullable: true })
+    shiftEndAt: Date | null;
+
     @Column({ name: 'break_duration', type: 'int', nullable: true })
     breakDuration: number | null;
 
