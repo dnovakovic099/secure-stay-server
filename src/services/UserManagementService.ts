@@ -3,6 +3,7 @@ import { appDatabase } from "../utils/database.util";
 import { UsersEntity } from "../entity/Users";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
+import { Employee } from "../entity/Employee";
 import { supabaseAdmin } from "../utils/supabase";
 import { Like, In } from "typeorm";
 import logger from "../utils/logger.utils";
@@ -27,6 +28,7 @@ export class UserManagementService {
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private departmentRepository = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
+    private employeeRepository = appDatabase.getRepository(Employee);
 
     /**
      * Get all users with pagination and filters
@@ -179,6 +181,7 @@ export class UserManagementService {
                     updatedBy: adminUserId,
                     updatedAt: new Date(),
                 });
+                await this.employeeRepository.update({ userId }, { isActive: true });
 
                 return { success: true, message: "User has been enabled successfully" };
             } else {
@@ -195,6 +198,7 @@ export class UserManagementService {
                     updatedBy: adminUserId,
                     updatedAt: new Date(),
                 });
+                await this.employeeRepository.update({ userId }, { isActive: false });
 
                 return { success: true, message: "User has been disabled successfully" };
             }
