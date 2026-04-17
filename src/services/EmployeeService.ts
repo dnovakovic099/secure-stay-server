@@ -212,7 +212,7 @@ export class EmployeeService {
         }
 
         if (filters.isActive !== undefined) {
-            queryBuilder.andWhere('employee.isActive = :isActive', { isActive: filters.isActive });
+            queryBuilder.andWhere('user.isActive = :isActive', { isActive: filters.isActive });
         }
 
         // Sorting - whitelist allowed fields
@@ -238,6 +238,9 @@ export class EmployeeService {
         // Attach profile photo FileInfo
         const fileInfoRepo = appDatabase.getRepository(FileInfo);
         employees = await Promise.all(employees.map(async (emp: any) => {
+            if (emp.user) {
+                emp.isActive = !!emp.user.isActive;
+            }
             if (emp.profilePhoto && !isNaN(Number(emp.profilePhoto))) {
                 const fileInfo = await fileInfoRepo.findOne({ where: { id: Number(emp.profilePhoto) } });
                 if (fileInfo) {
@@ -271,6 +274,10 @@ export class EmployeeService {
             if (fileInfo) {
                 employee.profilePhotoInfo = fileInfo;
             }
+        }
+
+        if (employee?.user) {
+            employee.isActive = !!employee.user.isActive;
         }
 
         return employee;
