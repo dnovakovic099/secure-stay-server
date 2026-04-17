@@ -38,6 +38,7 @@ const employeePhotoUpload = multer({
 
 // Get all employees
 router.get('/', verifySession, employeeController.getAllEmployees);
+router.get('/schedule-overrides', verifySession, employeeController.getScheduleOverrides);
 
 // Get departments list
 router.get('/departments', verifySession, employeeController.getDepartments);
@@ -57,6 +58,8 @@ router.post('/:id/photo', verifySession, employeePhotoUpload.single('photo'), em
 // Update employee
 router.put('/:id', verifySession, employeeController.updateEmployee);
 router.patch('/:id', verifySession, employeeController.updateEmployee);
+router.put('/:id/schedule-overrides', verifySession, employeeController.upsertScheduleOverride);
+router.delete('/:id/schedule-overrides', verifySession, employeeController.clearScheduleOverride);
 
 // Delete employee
 router.delete('/:id', verifySession, employeeController.deleteEmployee);
