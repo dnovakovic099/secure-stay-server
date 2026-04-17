@@ -67,6 +67,8 @@ interface UpsertScheduleOverrideDto {
     shiftType: EmployeeScheduleShiftType;
     shiftStart?: string | null;
     shiftEnd?: string | null;
+    shiftStartAt?: string | null;
+    shiftEndAt?: string | null;
     notes?: string | null;
 }
 
@@ -139,6 +141,8 @@ export class EmployeeService {
                     \`date\` DATE NOT NULL,
                     shift_start TIME NULL,
                     shift_end TIME NULL,
+                    shift_start_at DATETIME NULL,
+                    shift_end_at DATETIME NULL,
                     break_duration INT NULL,
                     shift_type ENUM('Regular', 'Off', 'Holiday') NOT NULL DEFAULT 'Regular',
                     notes TEXT NULL,
@@ -156,6 +160,32 @@ export class EmployeeService {
             await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN shift_start TIME NULL`);
             await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN shift_end TIME NULL`);
             await appDatabase.query(`ALTER TABLE employee_schedules MODIFY COLUMN notes TEXT NULL`);
+            try {
+                await appDatabase.query(`SELECT shift_start_at FROM employee_schedules LIMIT 1`);
+            } catch {
+                await appDatabase.query(`ALTER TABLE employee_schedules ADD COLUMN shift_start_at DATETIME NULL AFTER shift_end`);
+            }
+            try {
+                await appDatabase.query(`SELECT shift_end_at FROM employee_schedules LIMIT 1`);
+            } catch {
+                await appDatabase.query(`ALTER TABLE employee_schedules ADD COLUMN shift_end_at DATETIME NULL AFTER shift_start_at`);
+            }
+            await appDatabase.query(`
+                UPDATE employee_schedules
+                SET shift_start_at = CASE
+                        WHEN shift_start_at IS NULL AND shift_start IS NOT NULL THEN STR_TO_DATE(CONCAT(\`date\`, ' ', shift_start), '%Y-%m-%d %H:%i:%s')
+                        ELSE shift_start_at
+                    END,
+                    shift_end_at = CASE
+                        WHEN shift_end_at IS NULL AND shift_end IS NOT NULL THEN
+                            CASE
+                                WHEN shift_start IS NOT NULL AND TIME_TO_SEC(shift_end) <= TIME_TO_SEC(shift_start)
+                                    THEN DATE_ADD(STR_TO_DATE(CONCAT(\`date\`, ' ', shift_end), '%Y-%m-%d %H:%i:%s'), INTERVAL 1 DAY)
+                                ELSE STR_TO_DATE(CONCAT(\`date\`, ' ', shift_end), '%Y-%m-%d %H:%i:%s')
+                            END
+                        ELSE shift_end_at
+                    END
+            `);
 
             // Cleanup soft-deleted employee numbers to prevent conflicts with active ones
             await appDatabase.query(`UPDATE employees SET employee_number = NULL, employee_number_seq = NULL WHERE deleted_at IS NOT NULL`);
@@ -239,6 +269,8 @@ export class EmployeeService {
                         \`date\` DATE NOT NULL,
                         shift_start TIME NULL,
                         shift_end TIME NULL,
+                        shift_start_at DATETIME NULL,
+                        shift_end_at DATETIME NULL,
                         break_duration INT NULL,
                         shift_type ENUM('Regular', 'Off', 'Holiday') NOT NULL DEFAULT 'Regular',
                         notes TEXT NULL,
@@ -514,10 +546,24 @@ export class EmployeeService {
             return entry.notes ? `${entry.shiftType} (${entry.notes})` : entry.shiftType || 'Off';
         }
 
-        const start = entry.shiftStart || '';
-        const end = entry.shiftEnd || '';
+        const start = entry.shiftStartAt ? entry.shiftStartAt.toISOString() : entry.shiftStart || '';
+        const end = entry.shiftEndAt ? entry.shiftEndAt.toISOString() : entry.shiftEnd || '';
         const range = start && end ? `${start}-${end}` : 'Regular';
         return entry.notes ? `${range} (${entry.notes})` : range;
+    }
+
+    private toDate(value?: string | null): Date | null {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    private toTimeStringFromDate(date: Date | null): string | null {
+        if (!date) return null;
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
     }
 
     async getScheduleOverrides(filters: { startDate: string; endDate: string; employeeId?: number }) {
@@ -532,12 +578,26 @@ export class EmployeeService {
             where.employeeId = filters.employeeId;
         }
 
-        return this.scheduleRepo.find({
+        const rows = await this.scheduleRepo.find({
             where,
             order: {
                 date: 'ASC',
                 employeeId: 'ASC',
             },
+        });
+
+        return rows.map((row) => {
+            if (!row.shiftStartAt && row.shiftStart) {
+                row.shiftStartAt = this.toDate(`${row.date}T${row.shiftStart}`);
+            }
+            if (!row.shiftEndAt && row.shiftEnd) {
+                const fallbackEnd = this.toDate(`${row.date}T${row.shiftEnd}`);
+                if (fallbackEnd && row.shiftStart && row.shiftEnd && row.shiftEnd <= row.shiftStart) {
+                    fallbackEnd.setDate(fallbackEnd.getDate() + 1);
+                }
+                row.shiftEndAt = fallbackEnd;
+            }
+            return row;
         });
     }
 
@@ -556,8 +616,15 @@ export class EmployeeService {
             throw new Error('Date is required');
         }
 
-        if (dto.shiftType === EmployeeScheduleShiftType.REGULAR && (!dto.shiftStart || !dto.shiftEnd)) {
-            throw new Error('Shift start and end are required for a regular override');
+        const shiftStartAt = this.toDate(dto.shiftStartAt || null);
+        const shiftEndAt = this.toDate(dto.shiftEndAt || null);
+
+        if (dto.shiftType === EmployeeScheduleShiftType.REGULAR && (!shiftStartAt || !shiftEndAt)) {
+            throw new Error('Shift start and end datetimes are required for a regular override');
+        }
+
+        if (shiftStartAt && shiftEndAt && shiftStartAt >= shiftEndAt) {
+            throw new Error('Shift start must be before shift end');
         }
 
         let entry = await this.scheduleRepo.findOne({
@@ -578,9 +645,12 @@ export class EmployeeService {
             });
         }
 
+        entry.date = shiftStartAt ? shiftStartAt.toISOString().slice(0, 10) : dto.date;
         entry.shiftType = dto.shiftType;
-        entry.shiftStart = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? (dto.shiftStart || null) : null;
-        entry.shiftEnd = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? (dto.shiftEnd || null) : null;
+        entry.shiftStartAt = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? shiftStartAt : null;
+        entry.shiftEndAt = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? shiftEndAt : null;
+        entry.shiftStart = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? this.toTimeStringFromDate(shiftStartAt) : null;
+        entry.shiftEnd = dto.shiftType === EmployeeScheduleShiftType.REGULAR ? this.toTimeStringFromDate(shiftEndAt) : null;
         entry.notes = dto.notes || null;
         entry.createdBy = changedBy !== undefined ? String(changedBy) : entry.createdBy || null;
 
@@ -588,7 +658,7 @@ export class EmployeeService {
 
         await this.logEmployeeChange(
             employeeId,
-            `Schedule Override (${dto.date})`,
+            `Schedule Override (${entry.date})`,
             previousSummary,
             this.describeScheduleOverride(saved),
             changedBy
