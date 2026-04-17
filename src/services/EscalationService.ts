@@ -158,7 +158,7 @@ export class EscalationService {
         try {
             const settings = await this.settingsService.resolveSettingsForEvent(event);
             if (settings?.isActive === false) {
-                logger.info(`[EscalationService] Escalation setting inactive for event ${event.id} (${settings.settingKey})`);
+                // logger.info(`[EscalationService] Escalation setting inactive for event ${event.id} (${settings.settingKey})`);
                 return false;
             }
         } catch (error) {
