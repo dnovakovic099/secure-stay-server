@@ -226,7 +226,7 @@ export class EmployeeController {
     upsertScheduleOverride = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { date, shiftType, shiftStart, shiftEnd, notes } = req.body;
+            const { date, shiftType, shiftStart, shiftEnd, shiftStartAt, shiftEndAt, notes } = req.body;
 
             if (!date || !shiftType) {
                 return res.status(400).json({ error: 'date and shiftType are required' });
@@ -244,6 +244,8 @@ export class EmployeeController {
                     shiftType,
                     shiftStart,
                     shiftEnd,
+                    shiftStartAt,
+                    shiftEndAt,
                     notes,
                 },
                 updatedBy
@@ -254,7 +256,11 @@ export class EmployeeController {
             if (error.message === 'Employee not found') {
                 return res.status(404).json({ error: error.message });
             }
-            if (error.message === 'Date is required' || error.message === 'Shift start and end are required for a regular override') {
+            if (
+                error.message === 'Date is required' ||
+                error.message === 'Shift start and end datetimes are required for a regular override' ||
+                error.message === 'Shift start must be before shift end'
+            ) {
                 return res.status(400).json({ error: error.message });
             }
             next(error);
