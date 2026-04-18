@@ -7,6 +7,7 @@ const baseSchema = Joi.object({
     providerName: Joi.string().allow(null, ""),
     accountName: Joi.string().allow(null, ""),
     username: Joi.string().allow(null, ""),
+    website: Joi.string().allow(null, ""),
     password: Joi.string().allow(null, ""),
     lastpass: Joi.boolean().optional(),
     notes: Joi.string().allow(null, ""),

@@ -28,6 +28,9 @@ export class UtilityProvider {
     @Column({ type: "varchar", length: 255, nullable: true })
     username: string | null;
 
+    @Column({ type: "varchar", length: 500, nullable: true })
+    website: string | null;
+
     @Column({ type: "text", nullable: true })
     password: string | null;
 
