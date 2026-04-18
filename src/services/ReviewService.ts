@@ -1447,19 +1447,86 @@ export class ReviewService {
             );
         }
 
-        // Visibility filter — match review.visibility (linked review) OR reviewCheckout.visibility (no review yet)
+        // Visibility filter
+        // The frontend derives effective visibility from stored review.visibility using the same rules as applyAutoVisibility:
+        //   • "Visible"         → review.visibility = 'Visible'
+        //                          OR review.visibility IN ('Awaiting Review','No Review') AND review.rating > 0
+        //                          OR reviewCheckout.visibility = 'Visible'
+        //   • "Awaiting Review" → review.visibility = 'Awaiting Review' AND (review.rating IS NULL OR review.rating = 0)
+        //                          OR reviewCheckout.visibility = 'Awaiting Review'
+        //   • "No Review"       → review.visibility = 'No Review' AND (review.rating IS NULL OR review.rating = 0)
+        //                          OR reviewCheckout.visibility = 'No Review'
+        //   • "Removed"         → review.visibility = 'Removed' OR review.isHidden = 1
+        //   • all others        → review.visibility = value OR reviewCheckout.visibility = value
         if (visibility && (visibility as string[]).length > 0) {
-            const visibilityRows = await this.reviewRepository
-                .createQueryBuilder('review')
-                .select('DISTINCT review.reservationId', 'reservationId')
-                .where('review.visibility IN (:...visibility)', { visibility })
-                .getRawMany();
-            const visibilityIds = visibilityRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            const visibilityList = visibility as string[];
+
+            const reviewQb = this.reviewRepository.createQueryBuilder('review').select('DISTINCT review.reservationId', 'reservationId');
+            const reviewConditions: string[] = [];
+            const reviewParams: Record<string, any> = {};
+
+            if (visibilityList.includes('Visible')) {
+                reviewConditions.push("(review.visibility = 'Visible')");
+                reviewConditions.push("(review.visibility IN ('Awaiting Review','No Review') AND review.rating IS NOT NULL AND review.rating > 0)");
+            }
+            if (visibilityList.includes('Awaiting Review')) {
+                reviewConditions.push("(review.visibility = 'Awaiting Review' AND (review.rating IS NULL OR review.rating = 0))");
+            }
+            if (visibilityList.includes('No Review')) {
+                reviewConditions.push("(review.visibility = 'No Review' AND (review.rating IS NULL OR review.rating = 0))");
+            }
+            if (visibilityList.includes('Removed')) {
+                reviewConditions.push("(review.visibility = 'Removed' OR review.isHidden = 1)");
+            }
+            // For other values (Submitted, Keep, Archived, etc.) match explicitly
+            const otherValues = visibilityList.filter(v => !['Visible', 'Awaiting Review', 'No Review', 'Removed'].includes(v));
+            if (otherValues.length > 0) {
+                reviewConditions.push('review.visibility IN (:...otherVisibility)');
+                reviewParams.otherVisibility = otherValues;
+            }
+
+            let visibilityIds: number[] = [];
+            if (reviewConditions.length > 0) {
+                const combinedCondition = reviewConditions.map(c => `(${c})`).join(' OR ');
+                reviewQb.where(`(${combinedCondition})`, reviewParams);
+                const rows = await reviewQb.getRawMany();
+                visibilityIds = rows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            }
+
+            // Also match checkout-level visibility (rows without a linked review)
+            const checkoutVisibilityConditions: string[] = [];
+            if (visibilityList.includes('Visible')) {
+                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Visible'");
+            }
+            if (visibilityList.includes('Awaiting Review')) {
+                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Awaiting Review'");
+                checkoutVisibilityConditions.push("reviewCheckout.visibility IS NULL");
+            }
+            if (visibilityList.includes('No Review')) {
+                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'No Review'");
+            }
+            const otherCheckoutValues = visibilityList.filter(v => !['Visible', 'Awaiting Review', 'No Review'].includes(v));
+            if (otherCheckoutValues.length > 0) {
+                checkoutVisibilityConditions.push(`reviewCheckout.visibility IN (:...rcOtherVisibility)`);
+            }
+
             query.andWhere(new Brackets((qb) => {
+                let started = false;
                 if (visibilityIds.length > 0) {
                     qb.where('reservationInfo.id IN (:...visibilityIds)', { visibilityIds });
+                    started = true;
                 }
-                qb.orWhere('reviewCheckout.visibility IN (:...rcVisibility)', { rcVisibility: visibility });
+                checkoutVisibilityConditions.forEach((cond) => {
+                    const params = cond.includes(':...rcOtherVisibility')
+                        ? { rcOtherVisibility: otherCheckoutValues }
+                        : {};
+                    if (!started) { qb.where(cond, params); started = true; }
+                    else { qb.orWhere(cond, params); }
+                });
+                // If nothing matched at all, return no results
+                if (!started) {
+                    qb.where('1 = 0');
+                }
             }));
         }
 
