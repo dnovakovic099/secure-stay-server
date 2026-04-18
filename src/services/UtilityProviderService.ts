@@ -71,6 +71,7 @@ export class UtilityProviderService {
             providerType: body.providerType?.trim(),
             customProviderLabel: body.customProviderLabel?.trim() || null,
             providerName: body.providerName?.trim() || null,
+            accountName: body.accountName?.trim() || null,
             username: body.username?.trim() || null,
             password: body.password || null,
             lastpass: Boolean(body.lastpass),
@@ -102,6 +103,7 @@ export class UtilityProviderService {
         existing.providerType = body.providerType?.trim() || existing.providerType;
         existing.customProviderLabel = body.customProviderLabel !== undefined ? body.customProviderLabel?.trim() || null : existing.customProviderLabel;
         existing.providerName = body.providerName !== undefined ? body.providerName?.trim() || null : existing.providerName;
+        existing.accountName = body.accountName !== undefined ? body.accountName?.trim() || null : existing.accountName;
         existing.username = body.username !== undefined ? body.username?.trim() || null : existing.username;
         existing.password = body.password !== undefined ? body.password || null : existing.password;
         existing.lastpass = body.lastpass !== undefined ? Boolean(body.lastpass) : existing.lastpass;
@@ -152,6 +154,7 @@ export class UtilityProviderService {
                 utility.providerType,
                 utility.customProviderLabel,
                 utility.providerName,
+                utility.accountName,
                 utility.username,
                 utility.notes,
                 ...(utility.propertyLinks || []).flatMap((link) => [String(link.propertyId), link.accountNumber, link.propertyNotes]),

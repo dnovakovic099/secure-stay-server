@@ -22,6 +22,9 @@ export class UtilityProvider {
     @Column({ type: "varchar", length: 255, nullable: true })
     providerName: string | null;
 
+    @Column({ type: "varchar", length: 255, nullable: true, name: "account_name" })
+    accountName: string | null;
+
     @Column({ type: "varchar", length: 255, nullable: true })
     username: string | null;
 
