@@ -7,6 +7,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { AssigneeEntity } from "../entity/AssigneeInfo";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { GuestAnalysisService } from "./GuestAnalysisService";
 import {
     buildResolutionsCheckoutMessage,
@@ -40,9 +41,7 @@ export class ResolutionsTeamSlackService {
     private listingRepo = appDatabase.getRepository(Listing);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private assigneeRepo = appDatabase.getRepository(AssigneeEntity);
-
-    /** Cached Anj Slack user ID — looked up once per process lifetime */
-    private static anjSlackUserId: string | null | undefined = undefined;
+    private reviewDiscussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -58,35 +57,7 @@ export class ResolutionsTeamSlackService {
     }
 
     async getAnjSlackUserId(): Promise<string | null> {
-        if (ResolutionsTeamSlackService.anjSlackUserId !== undefined) {
-            return ResolutionsTeamSlackService.anjSlackUserId;
-        }
-
-        const email = process.env.ANJ_SLACK_EMAIL;
-        if (!email) {
-            logger.warn("[ResolutionsTeam] ANJ_SLACK_EMAIL env var not set — Anj will not be tagged");
-            ResolutionsTeamSlackService.anjSlackUserId = null;
-            return null;
-        }
-
-        try {
-            const response = await axios.get("https://slack.com/api/users.lookupByEmail", {
-                headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
-                params: { email },
-            });
-            if (response.data.ok && response.data.user?.id) {
-                ResolutionsTeamSlackService.anjSlackUserId = response.data.user.id;
-                logger.info(`[ResolutionsTeam] Anj Slack ID resolved: ${ResolutionsTeamSlackService.anjSlackUserId}`);
-            } else {
-                logger.warn(`[ResolutionsTeam] Could not resolve Anj Slack ID for ${email}: ${response.data.error}`);
-                ResolutionsTeamSlackService.anjSlackUserId = null;
-            }
-        } catch (err) {
-            logger.error("[ResolutionsTeam] Error looking up Anj Slack ID:", err);
-            ResolutionsTeamSlackService.anjSlackUserId = null;
-        }
-
-        return ResolutionsTeamSlackService.anjSlackUserId;
+        return "U08END0JTBM";
     }
 
     private async getSlackUserDisplayName(userId: string): Promise<string> {
@@ -386,6 +357,7 @@ export class ResolutionsTeamSlackService {
 
             const rc = await this.reviewCheckoutRepo.findOne({
                 where: { id: reviewCheckoutId },
+                relations: ["reservationInfo"],
             });
             if (!rc) {
                 logger.error(
@@ -408,6 +380,39 @@ export class ResolutionsTeamSlackService {
             logger.info(
                 `[ResolutionsTeam] Synced Slack reply to reviewCheckout ${reviewCheckoutId}`
             );
+
+            // Also sync to review_discussion_messages for the "Updates & Discussions" feed
+            const reservationId = rc.reservationInfo?.id ?? null;
+            if (reservationId) {
+                // Dedup: skip if this Slack message was already saved to the discussion feed
+                const existingDiscussionMsg = await this.reviewDiscussionMessageRepo
+                    .createQueryBuilder("msg")
+                    .where("msg.reservationId = :reservationId", { reservationId })
+                    .andWhere(
+                        "JSON_UNQUOTE(JSON_EXTRACT(msg.metadata, '$.slackMessageTs')) = :ts",
+                        { ts: slackMessageTs }
+                    )
+                    .getOne();
+
+                if (!existingDiscussionMsg) {
+                    const discussionMsg = this.reviewDiscussionMessageRepo.create({
+                        reviewId: null,
+                        reservationId,
+                        parentMessageId: null,
+                        sourceType: "note",
+                        authorId: null,
+                        authorName: `${displayName} (via Slack)`,
+                        authorAvatar: null,
+                        content: text,
+                        mentions: [],
+                        metadata: { source: "slack", slackMessageTs },
+                    });
+                    await this.reviewDiscussionMessageRepo.save(discussionMsg);
+                    logger.info(
+                        `[ResolutionsTeam] Synced Slack reply to review_discussion_messages for reservation ${reservationId}`
+                    );
+                }
+            }
         } catch (err) {
             logger.error(
                 `[ResolutionsTeam] Failed to sync Slack reply to SS:`,

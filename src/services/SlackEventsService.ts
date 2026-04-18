@@ -4,6 +4,7 @@ import { ClientTicket } from "../entity/ClientTicket";
 import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { ThreadMessageEntity } from "../entity/ThreadMessage";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import sendSlackMessage from "../utils/sendSlackMsg";
@@ -38,6 +39,7 @@ export class SlackEventsService {
     private clientTicketUpdateRepo = appDatabase.getRepository(ClientTicketUpdates);
     private threadMessageRepo = appDatabase.getRepository(ThreadMessageEntity);
     private zapierEventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+    private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
 
     /**
      * Handle incoming message event from Slack Events API
@@ -70,7 +72,23 @@ export class SlackEventsService {
             });
 
             if (!slackMessageRecord) {
-                logger.debug(`[SlackEventsService] No tracking record found for thread_ts=${event.thread_ts} channel=${event.channel} — not a tracked entity`);
+                // Fallback: check if this thread belongs to a ReviewCheckout via slackThreadTs.
+                // This covers threads that were posted before the slack_messages tracking record
+                // was introduced, or where that record was not saved.
+                const rc = await this.reviewCheckoutRepo.findOne({
+                    where: { slackThreadTs: event.thread_ts },
+                });
+
+                if (!rc) {
+                    logger.debug(`[SlackEventsService] No tracking record found for thread_ts=${event.thread_ts} channel=${event.channel} — not a tracked entity`);
+                    return;
+                }
+
+                logger.info(`[SlackEventsService] Thread reply matched ReviewCheckout ${rc.id} via slackThreadTs fallback — channel=${event.channel} ts=${event.ts}`);
+                const resolutionsService = new ResolutionsTeamSlackService();
+                const slackUsers = await getSlackUsers();
+                const processedText = replaceSlackIdsWithMentions(event.text, slackUsers);
+                await resolutionsService.syncSlackReplyToSS(rc.id, event.user, processedText, event.ts);
                 return;
             }
 
@@ -289,9 +307,7 @@ export class SlackEventsService {
             // If this is a review_checkout thread, trigger AI guest analysis instead
             if (slackMsgRecord.entityType === 'review_checkout') {
                 const resolutionsService = new ResolutionsTeamSlackService();
-                const { ReviewCheckout } = await import('../entity/ReviewCheckout');
-                const rcRepo = appDatabase.getRepository(ReviewCheckout);
-                const rc = await rcRepo.findOne({
+                const rc = await this.reviewCheckoutRepo.findOne({
                     where: { id: slackMsgRecord.entityId },
                     relations: ['reservationInfo'],
                 });
