@@ -1716,6 +1716,19 @@ export class ReservationInfoService {
     return { reservations, total };
   }
 
+  async getCheckinReservations() {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const [reservations, total] = await this.reservationInfoRepository.findAndCount({
+      where: {
+        arrivalDate: Between(startOfDay(today), endOfDay(today)),
+        status: In(this.validStatus),
+      },
+      order: { arrivalDate: "ASC" },
+    });
+
+    return { reservations, total };
+  }
+
 
   async handleHostifyReservationEvent(event: any, reservationId: number) {
     if (!reservationId) {

@@ -7,6 +7,9 @@ import { Issue } from "../entity/Issue";
 import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 import { ReviewDetailEntity } from "../entity/ReviewDetail";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import logger from "../utils/logger.utils";
 
 type DiscussionFilter = "all" | "notes" | "system" | "ai" | "mentions";
 type DiscussionSort = "oldest" | "newest";
@@ -44,6 +47,7 @@ export class ReviewDiscussionService {
     private issueRepo = appDatabase.getRepository(Issue);
     private analysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reviewDetailRepo = appDatabase.getRepository(ReviewDetailEntity);
+    private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
 
     private normalizeFilter(filter?: string): DiscussionFilter {
         const value = String(filter || "all").toLowerCase();
@@ -518,6 +522,27 @@ export class ReviewDiscussionService {
         });
 
         const saved = await this.messageRepo.save(message);
+
+        // Fire-and-forget: post the new note to the Slack thread for this reservation (if one exists)
+        (async () => {
+            try {
+                const rc = await this.reviewCheckoutRepo.findOne({
+                    where: { reservationInfo: { id: Number(reservationId) } },
+                    select: ["id", "slackThreadTs"],
+                });
+                if (rc?.slackThreadTs) {
+                    const resolutionsService = new ResolutionsTeamSlackService();
+                    await resolutionsService.postActivityToThread(rc.id, {
+                        type: "comment",
+                        actor: userName,
+                        details: trimmedContent,
+                    });
+                }
+            } catch (err) {
+                logger.error("[ReviewDiscussion] Failed to post note to Slack thread:", err);
+            }
+        })();
+
         return this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId).then((feed) => {
             const match = feed.items.find((item) => item.id === String(saved.id))
                 || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(saved.id));

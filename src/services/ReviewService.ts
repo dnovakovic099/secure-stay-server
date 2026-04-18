@@ -1694,7 +1694,7 @@ export class ReviewService {
     async processReviewCheckout() {
         // Create review checkout entries for today's checkouts with default status "New"
         const reservationInfoService = new ReservationInfoService();
-        const { reservations } = await reservationInfoService.getCheckoutReservations();
+        const { reservations } = await reservationInfoService.getCheckinReservations();
 
         for (const reservation of reservations) {
             const listingId = reservation.listingMapId;
