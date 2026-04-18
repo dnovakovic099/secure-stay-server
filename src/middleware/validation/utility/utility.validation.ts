@@ -5,6 +5,7 @@ const baseSchema = Joi.object({
     providerType: Joi.string().required(),
     customProviderLabel: Joi.string().allow(null, ""),
     providerName: Joi.string().allow(null, ""),
+    accountName: Joi.string().allow(null, ""),
     username: Joi.string().allow(null, ""),
     password: Joi.string().allow(null, ""),
     lastpass: Joi.boolean().optional(),
@@ -20,6 +21,8 @@ const baseSchema = Joi.object({
         })
     ).min(1).optional(),
 });
+
+const managedOptionKindSchema = Joi.string().valid("providerName", "accountName", "username").required();
 
 export const validateCreateUtilityProvider = (request: Request, response: Response, next: NextFunction) => {
     const { error } = baseSchema.validate(request.body);
@@ -61,6 +64,34 @@ export const validateUtilityPaymentMethod = (request: Request, response: Respons
     });
 
     const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateUtilityManagedOption = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        label: Joi.string().trim().required(),
+        sortOrder: Joi.number().integer().min(0).optional(),
+        isActive: Joi.boolean().optional(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateGetUtilityManagedOptions = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        kind: managedOptionKindSchema,
+    });
+
+    const { error } = schema.validate(request.params);
     if (error) {
         return next(error);
     }

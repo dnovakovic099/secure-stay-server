@@ -1,6 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { UtilityProvider, UtilityProviderPropertyLink } from "../entity/UtilityProvider";
 import { UtilityPaymentMethod } from "../entity/UtilityPaymentMethod";
+import { UtilityManagedOption, UtilityManagedOptionKind } from "../entity/UtilityManagedOption";
 import CustomErrorHandler from "../middleware/customError.middleware";
 
 type UtilityQuery = {
@@ -12,6 +13,7 @@ type UtilityQuery = {
 export class UtilityProviderService {
     private utilityRepo = appDatabase.getRepository(UtilityProvider);
     private paymentMethodRepo = appDatabase.getRepository(UtilityPaymentMethod);
+    private managedOptionRepo = appDatabase.getRepository(UtilityManagedOption);
 
     private normalizePropertyLinks(
         propertyLinks?: Array<Partial<UtilityProviderPropertyLink> | null> | null,
@@ -167,6 +169,58 @@ export class UtilityProviderService {
     async getUtilityProvidersByListing(listingId: number) {
         const utilities = await this.getUtilityProviders({ listingId });
         return utilities;
+    }
+
+    async getUtilityManagedOptions(kind: UtilityManagedOptionKind) {
+        return this.managedOptionRepo.find({
+            where: { deletedAt: null as any, kind },
+            order: { sortOrder: "ASC", label: "ASC" },
+        });
+    }
+
+    async createUtilityManagedOption(kind: UtilityManagedOptionKind, body: Partial<UtilityManagedOption>, userId: string) {
+        const last = await this.managedOptionRepo.find({
+            where: { deletedAt: null as any, kind },
+            order: { sortOrder: "DESC" },
+            take: 1,
+        });
+
+        const entry = this.managedOptionRepo.create({
+            kind,
+            label: body.label?.trim(),
+            sortOrder: body.sortOrder ?? ((last[0]?.sortOrder ?? -1) + 1),
+            isActive: body.isActive ?? true,
+            createdBy: userId,
+            updatedBy: userId,
+        });
+
+        return this.managedOptionRepo.save(entry);
+    }
+
+    async updateUtilityManagedOption(kind: UtilityManagedOptionKind, id: number, body: Partial<UtilityManagedOption>, userId: string) {
+        const existing = await this.managedOptionRepo.findOne({ where: { id, kind } });
+        if (!existing) {
+            throw CustomErrorHandler.notFound("Utility managed option not found");
+        }
+
+        existing.label = body.label !== undefined ? body.label?.trim() || existing.label : existing.label;
+        existing.sortOrder = body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder;
+        existing.isActive = body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive;
+        existing.updatedBy = userId;
+
+        return this.managedOptionRepo.save(existing);
+    }
+
+    async deleteUtilityManagedOption(kind: UtilityManagedOptionKind, id: number, userId: string) {
+        const existing = await this.managedOptionRepo.findOne({ where: { id, kind } });
+        if (!existing) {
+            throw CustomErrorHandler.notFound("Utility managed option not found");
+        }
+
+        existing.deletedBy = userId;
+        await this.managedOptionRepo.save(existing);
+        await this.managedOptionRepo.softRemove(existing);
+        return { message: "Utility managed option deleted successfully" };
     }
 
     async getUtilityPaymentMethods() {

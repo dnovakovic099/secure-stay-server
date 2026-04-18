@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { UtilityProviderService } from "../services/UtilityProviderService";
+import { UtilityManagedOptionKind } from "../entity/UtilityManagedOption";
 
 interface CustomRequest extends Request {
     user?: {
@@ -8,6 +9,10 @@ interface CustomRequest extends Request {
 }
 
 export class UtilityProviderController {
+    private getManagedOptionKind(request: Request): UtilityManagedOptionKind {
+        return request.params.kind as UtilityManagedOptionKind;
+    }
+
     async createUtilityProvider(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const service = new UtilityProviderService();
@@ -70,6 +75,46 @@ export class UtilityProviderController {
         try {
             const service = new UtilityProviderService();
             const result = await service.getUtilityPaymentMethods();
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getUtilityManagedOptions(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const result = await service.getUtilityManagedOptions(this.getManagedOptionKind(request));
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async createUtilityManagedOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const created = await service.createUtilityManagedOption(this.getManagedOptionKind(request), request.body, request.user!.id);
+            return response.status(201).json(created);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateUtilityManagedOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const updated = await service.updateUtilityManagedOption(this.getManagedOptionKind(request), Number(request.params.id), request.body, request.user!.id);
+            return response.status(200).json(updated);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteUtilityManagedOption(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new UtilityProviderService();
+            const result = await service.deleteUtilityManagedOption(this.getManagedOptionKind(request), Number(request.params.id), request.user!.id);
             return response.status(200).json(result);
         } catch (error) {
             next(error);
