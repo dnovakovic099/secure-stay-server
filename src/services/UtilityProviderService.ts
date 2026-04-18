@@ -15,6 +15,89 @@ export class UtilityProviderService {
     private paymentMethodRepo = appDatabase.getRepository(UtilityPaymentMethod);
     private managedOptionRepo = appDatabase.getRepository(UtilityManagedOption);
 
+    private async ensureManagedOption(kind: UtilityManagedOptionKind, label: string | null | undefined, userId: string) {
+        const normalizedLabel = label?.trim();
+        if (!normalizedLabel) return;
+
+        const existing = await this.managedOptionRepo
+            .createQueryBuilder("option")
+            .where("option.deletedAt IS NULL")
+            .andWhere("option.kind = :kind", { kind })
+            .andWhere("LOWER(option.label) = LOWER(:label)", { label: normalizedLabel })
+            .getOne();
+
+        if (existing) {
+            if (!existing.isActive) {
+                existing.isActive = true;
+                existing.updatedBy = userId;
+                await this.managedOptionRepo.save(existing);
+            }
+            return;
+        }
+
+        const last = await this.managedOptionRepo.find({
+            where: { deletedAt: null as any, kind },
+            order: { sortOrder: "DESC" },
+            take: 1,
+        });
+
+        const created = this.managedOptionRepo.create({
+            kind,
+            label: normalizedLabel,
+            sortOrder: (last[0]?.sortOrder ?? -1) + 1,
+            isActive: true,
+            createdBy: userId,
+            updatedBy: userId,
+        });
+
+        await this.managedOptionRepo.save(created);
+    }
+
+    private async ensurePaymentMethod(label: string | null | undefined, userId: string) {
+        const normalizedLabel = label?.trim();
+        if (!normalizedLabel) return;
+
+        const existing = await this.paymentMethodRepo
+            .createQueryBuilder("payment_method")
+            .where("payment_method.deletedAt IS NULL")
+            .andWhere("LOWER(payment_method.label) = LOWER(:label)", { label: normalizedLabel })
+            .getOne();
+
+        if (existing) {
+            if (!existing.isActive) {
+                existing.isActive = true;
+                existing.updatedBy = userId;
+                await this.paymentMethodRepo.save(existing);
+            }
+            return;
+        }
+
+        const last = await this.paymentMethodRepo.find({
+            where: { deletedAt: null as any },
+            order: { sortOrder: "DESC" },
+            take: 1,
+        });
+
+        const created = this.paymentMethodRepo.create({
+            label: normalizedLabel,
+            sortOrder: (last[0]?.sortOrder ?? -1) + 1,
+            isActive: true,
+            createdBy: userId,
+            updatedBy: userId,
+        });
+
+        await this.paymentMethodRepo.save(created);
+    }
+
+    private async syncUtilityDerivedOptions(utility: Partial<UtilityProvider>, propertyLinks: UtilityProviderPropertyLink[], userId: string) {
+        await Promise.all([
+            this.ensureManagedOption("providerName", utility.providerName, userId),
+            this.ensureManagedOption("accountName", utility.accountName, userId),
+            this.ensureManagedOption("username", utility.username, userId),
+            ...propertyLinks.map((link) => this.ensurePaymentMethod(link.paymentMethod, userId)),
+        ]);
+    }
+
     private normalizePropertyLinks(
         propertyLinks?: Array<Partial<UtilityProviderPropertyLink> | null> | null,
         fallbackPropertyIds?: Array<number | string> | null
@@ -75,6 +158,7 @@ export class UtilityProviderService {
             providerName: body.providerName?.trim() || null,
             accountName: body.accountName?.trim() || null,
             username: body.username?.trim() || null,
+            website: body.website?.trim() || null,
             password: body.password || null,
             lastpass: Boolean(body.lastpass),
             notes: body.notes || null,
@@ -85,6 +169,7 @@ export class UtilityProviderService {
         });
 
         const created = await this.utilityRepo.save(utility);
+        await this.syncUtilityDerivedOptions(created, propertyLinks, userId);
         return this.normalizeUtility(created);
     }
 
@@ -107,6 +192,7 @@ export class UtilityProviderService {
         existing.providerName = body.providerName !== undefined ? body.providerName?.trim() || null : existing.providerName;
         existing.accountName = body.accountName !== undefined ? body.accountName?.trim() || null : existing.accountName;
         existing.username = body.username !== undefined ? body.username?.trim() || null : existing.username;
+        existing.website = body.website !== undefined ? body.website?.trim() || null : existing.website;
         existing.password = body.password !== undefined ? body.password || null : existing.password;
         existing.lastpass = body.lastpass !== undefined ? Boolean(body.lastpass) : existing.lastpass;
         existing.notes = body.notes !== undefined ? body.notes || null : existing.notes;
@@ -115,6 +201,7 @@ export class UtilityProviderService {
         existing.updatedBy = userId;
 
         const updated = await this.utilityRepo.save(existing);
+        await this.syncUtilityDerivedOptions(updated, propertyLinks, userId);
         return this.normalizeUtility(updated);
     }
 
@@ -172,10 +259,44 @@ export class UtilityProviderService {
     }
 
     async getUtilityManagedOptions(kind: UtilityManagedOptionKind) {
-        return this.managedOptionRepo.find({
+        const stored = await this.managedOptionRepo.find({
             where: { deletedAt: null as any, kind },
             order: { sortOrder: "ASC", label: "ASC" },
         });
+
+        const utilities = await this.utilityRepo.find({ where: { deletedAt: null as any } });
+        const derivedLabels = Array.from(
+            new Set(
+                utilities
+                    .map((utility) => {
+                        if (kind === "providerName") return utility.providerName;
+                        if (kind === "accountName") return utility.accountName;
+                        return utility.username;
+                    })
+                    .map((value) => value?.trim())
+                    .filter(Boolean) as string[]
+            )
+        );
+
+        const existingLabels = new Set(stored.map((option) => option.label.toLowerCase()));
+        const virtuals = derivedLabels
+            .filter((label) => !existingLabels.has(label.toLowerCase()))
+            .sort((a, b) => a.localeCompare(b))
+            .map((label, index) => ({
+                id: -1 * (index + 1),
+                kind,
+                label,
+                sortOrder: stored.length + index,
+                isActive: true,
+                createdAt: null,
+                updatedAt: null,
+                deletedAt: null,
+                createdBy: null,
+                updatedBy: null,
+                deletedBy: null,
+            }));
+
+        return [...stored, ...virtuals];
     }
 
     async createUtilityManagedOption(kind: UtilityManagedOptionKind, body: Partial<UtilityManagedOption>, userId: string) {
@@ -224,10 +345,38 @@ export class UtilityProviderService {
     }
 
     async getUtilityPaymentMethods() {
-        return this.paymentMethodRepo.find({
+        const stored = await this.paymentMethodRepo.find({
             where: { deletedAt: null as any },
             order: { sortOrder: "ASC", label: "ASC" },
         });
+
+        const utilities = await this.utilityRepo.find({ where: { deletedAt: null as any } });
+        const derivedLabels = Array.from(
+            new Set(
+                utilities
+                    .flatMap((utility) => (utility.propertyLinks || []).map((link) => link?.paymentMethod?.trim()))
+                    .filter(Boolean) as string[]
+            )
+        );
+
+        const existingLabels = new Set(stored.map((method) => method.label.toLowerCase()));
+        const virtuals = derivedLabels
+            .filter((label) => !existingLabels.has(label.toLowerCase()))
+            .sort((a, b) => a.localeCompare(b))
+            .map((label, index) => ({
+                id: -1 * (index + 1),
+                label,
+                sortOrder: stored.length + index,
+                isActive: true,
+                createdAt: null,
+                updatedAt: null,
+                deletedAt: null,
+                createdBy: null,
+                updatedBy: null,
+                deletedBy: null,
+            }));
+
+        return [...stored, ...virtuals];
     }
 
     async createUtilityPaymentMethod(body: Partial<UtilityPaymentMethod>, userId: string) {

@@ -1,0 +1,2 @@
+ALTER TABLE utility_provider
+ADD COLUMN IF NOT EXISTS website VARCHAR(500) NULL;
