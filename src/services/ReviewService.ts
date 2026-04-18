@@ -1447,7 +1447,7 @@ export class ReviewService {
             );
         }
 
-        // Visibility filter — subquery from review table
+        // Visibility filter — match review.visibility (linked review) OR reviewCheckout.visibility (no review yet)
         if (visibility && (visibility as string[]).length > 0) {
             const visibilityRows = await this.reviewRepository
                 .createQueryBuilder('review')
@@ -1455,10 +1455,12 @@ export class ReviewService {
                 .where('review.visibility IN (:...visibility)', { visibility })
                 .getRawMany();
             const visibilityIds = visibilityRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
-            query.andWhere(
-                visibilityIds.length > 0 ? 'reservationInfo.id IN (:...visibilityIds)' : '1 = 0',
-                visibilityIds.length > 0 ? { visibilityIds } : {}
-            );
+            query.andWhere(new Brackets((qb) => {
+                if (visibilityIds.length > 0) {
+                    qb.where('reservationInfo.id IN (:...visibilityIds)', { visibilityIds });
+                }
+                qb.orWhere('reviewCheckout.visibility IN (:...rcVisibility)', { rcVisibility: visibility });
+            }));
         }
 
         // Operational flags filter — subquery from guest_analysis using JSON flag search (latest analysis per reservation only)
