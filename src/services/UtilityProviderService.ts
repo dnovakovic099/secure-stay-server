@@ -300,6 +300,32 @@ export class UtilityProviderService {
     }
 
     async createUtilityManagedOption(kind: UtilityManagedOptionKind, body: Partial<UtilityManagedOption>, userId: string) {
+        const normalizedLabel = body.label?.trim();
+        if (!normalizedLabel) {
+            throw CustomErrorHandler.validationError("Utility managed option label is required");
+        }
+
+        const existing = await this.managedOptionRepo
+            .createQueryBuilder("option")
+            .where("option.kind = :kind", { kind })
+            .andWhere("LOWER(option.label) = LOWER(:label)", { label: normalizedLabel })
+            .getOne();
+
+        if (existing) {
+            if (existing.deletedAt) {
+                existing.deletedAt = null;
+                existing.deletedBy = null;
+            }
+            if (!existing.isActive) {
+                existing.isActive = true;
+            }
+            existing.updatedBy = userId;
+            if (body.sortOrder !== undefined) {
+                existing.sortOrder = Number(body.sortOrder);
+            }
+            return this.managedOptionRepo.save(existing);
+        }
+
         const last = await this.managedOptionRepo.find({
             where: { deletedAt: null as any, kind },
             order: { sortOrder: "DESC" },
@@ -308,7 +334,7 @@ export class UtilityProviderService {
 
         const entry = this.managedOptionRepo.create({
             kind,
-            label: body.label?.trim(),
+            label: normalizedLabel,
             sortOrder: body.sortOrder ?? ((last[0]?.sortOrder ?? -1) + 1),
             isActive: body.isActive ?? true,
             createdBy: userId,
