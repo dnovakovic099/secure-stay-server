@@ -15,7 +15,29 @@ export class UtilityProviderService {
     private paymentMethodRepo = appDatabase.getRepository(UtilityPaymentMethod);
     private managedOptionRepo = appDatabase.getRepository(UtilityManagedOption);
 
+    private async ensureManagedOptionTable() {
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS utility_managed_option (
+                id INT NOT NULL AUTO_INCREMENT,
+                kind VARCHAR(50) NOT NULL,
+                label VARCHAR(255) NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP NULL DEFAULT NULL,
+                created_by VARCHAR(255) NULL,
+                updated_by VARCHAR(255) NULL,
+                deleted_by VARCHAR(255) NULL,
+                PRIMARY KEY (id),
+                INDEX idx_utility_managed_option_kind (kind),
+                INDEX idx_utility_managed_option_deleted_at (deleted_at)
+            )
+        `);
+    }
+
     private async ensureManagedOption(kind: UtilityManagedOptionKind, label: string | null | undefined, userId: string) {
+        await this.ensureManagedOptionTable();
         const normalizedLabel = label?.trim();
         if (!normalizedLabel) return;
 
@@ -259,6 +281,7 @@ export class UtilityProviderService {
     }
 
     async getUtilityManagedOptions(kind: UtilityManagedOptionKind) {
+        await this.ensureManagedOptionTable();
         const stored = await this.managedOptionRepo.find({
             where: { deletedAt: null as any, kind },
             order: { sortOrder: "ASC", label: "ASC" },
@@ -300,6 +323,7 @@ export class UtilityProviderService {
     }
 
     async createUtilityManagedOption(kind: UtilityManagedOptionKind, body: Partial<UtilityManagedOption>, userId: string) {
+        await this.ensureManagedOptionTable();
         const normalizedLabel = body.label?.trim();
         if (!normalizedLabel) {
             throw CustomErrorHandler.validationError("Utility managed option label is required");
@@ -345,6 +369,7 @@ export class UtilityProviderService {
     }
 
     async updateUtilityManagedOption(kind: UtilityManagedOptionKind, id: number, body: Partial<UtilityManagedOption>, userId: string) {
+        await this.ensureManagedOptionTable();
         const existing = await this.managedOptionRepo.findOne({ where: { id, kind } });
         if (!existing) {
             throw CustomErrorHandler.notFound("Utility managed option not found");
@@ -359,6 +384,7 @@ export class UtilityProviderService {
     }
 
     async deleteUtilityManagedOption(kind: UtilityManagedOptionKind, id: number, userId: string) {
+        await this.ensureManagedOptionTable();
         const existing = await this.managedOptionRepo.findOne({ where: { id, kind } });
         if (!existing) {
             throw CustomErrorHandler.notFound("Utility managed option not found");
