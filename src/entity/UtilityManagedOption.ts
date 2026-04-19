@@ -13,27 +13,27 @@ export class UtilityManagedOption {
     @Column({ type: "varchar", length: 255 })
     label: string;
 
-    @Column({ type: "int", default: 0 })
+    @Column({ name: "sort_order", type: "int", default: 0 })
     sortOrder: number;
 
-    @Column({ type: "boolean", default: true })
+    @Column({ name: "is_active", type: "boolean", default: true })
     isActive: boolean;
 
-    @CreateDateColumn({ type: "timestamp" })
+    @CreateDateColumn({ name: "created_at", type: "timestamp" })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: "timestamp" })
+    @UpdateDateColumn({ name: "updated_at", type: "timestamp" })
     updatedAt: Date;
 
-    @DeleteDateColumn({ type: "timestamp", nullable: true })
+    @DeleteDateColumn({ name: "deleted_at", type: "timestamp", nullable: true })
     deletedAt: Date | null;
 
-    @Column({ nullable: true })
+    @Column({ name: "created_by", nullable: true })
     createdBy: string | null;
 
-    @Column({ nullable: true })
+    @Column({ name: "updated_by", nullable: true })
     updatedBy: string | null;
 
-    @Column({ nullable: true })
+    @Column({ name: "deleted_by", nullable: true })
     deletedBy: string | null;
 }
