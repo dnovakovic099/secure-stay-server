@@ -1953,6 +1953,21 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 // ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
 
 export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
+export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png";
+
+const RESOLUTIONS_STATUS_EMOJIS: Record<string, string> = {
+    New: "🔵",
+    "In Progress": "🟡",
+    Negotiating: "🟠",
+    Completed: "🟢",
+};
+
+const formatResolutionsStatusLabel = (status?: string | null) => {
+    const normalizedStatus = String(status || "").trim();
+    if (!normalizedStatus) return "—";
+    const emoji = RESOLUTIONS_STATUS_EMOJIS[normalizedStatus];
+    return emoji ? `${emoji} ${normalizedStatus}` : normalizedStatus;
+};
 
 export interface ResolutionsCheckoutMessageData {
     emoji: string;
@@ -1962,7 +1977,8 @@ export interface ResolutionsCheckoutMessageData {
     channelName: string;
     checkIn: string;
     checkOut: string;
-    payout: string;
+    totalPaid: string;
+    ownerRevenue: string;
     status: string;
     assignee: string;
     ssUrl: string;
@@ -1974,14 +1990,15 @@ export interface ResolutionsCheckoutMessageData {
 export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
     const {
         emoji, listingName, guestName, hostifyUrl, channelName,
-        checkIn, checkOut, payout, status, assignee, ssUrl,
+        checkIn, checkOut, totalPaid, ownerRevenue, status, assignee, ssUrl,
         reviewCheckoutId, statusOptions, assigneeOptions,
     } = data;
 
-    const headerText = `${emoji} *${listingName}* | <${hostifyUrl}|${guestName}> | ${channelName} | ${checkIn} → ${checkOut} | ${payout}`;
+    const guestText = hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
+    const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelName} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
     const statusSelectOptions = statusOptions.map((s) => ({
-        text: { type: 'plain_text' as const, text: s },
+        text: { type: 'plain_text' as const, text: formatResolutionsStatusLabel(s) },
         value: JSON.stringify({ reviewCheckoutId, newStatus: s }),
     }));
     const assigneeSelectOptions = [
@@ -2020,17 +2037,16 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                         ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
                         options: assigneeSelectOptions,
                     },
-                ],
-            },
-            {
-                type: 'context',
-                elements: [
-                    { type: 'mrkdwn', text: `<${ssUrl}|📋 View in SecureStay>` },
+                    {
+                        type: 'button',
+                        text: { type: 'plain_text', text: 'View in SecureStay' },
+                        url: ssUrl,
+                    },
                 ],
             },
         ],
         bot_name: 'Resolutions Team',
-        bot_icon: 'https://img.icons8.com/ios-filled/50/task.png',
+        bot_icon: RESOLUTIONS_TEAM_ICON_URL,
         unfurl_links: false,
         unfurl_media: false,
     };
@@ -2040,55 +2056,86 @@ export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 're
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
-    actor: string;
-    details: string;
+    actor?: string;
+    actorIconUrl?: string | null;
+    details?: string;
+    oldValue?: string | null;
+    newValue?: string | null;
     anjSlackId?: string;
 }
 
 export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
-    const { type, actor, details, anjSlackId } = data;
+    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId } = data;
+    const actorLabel = actor || 'SecureStay';
 
     let text = '';
+    let blocks: any[] = [];
+    let botName = 'Resolutions Team';
+    let botIcon = RESOLUTIONS_TEAM_ICON_URL;
+
     switch (type) {
         case 'status':
-            text = `🔄 *${actor}* changed status to *${details}*`;
+            text = `🔄 *${actorLabel}* changed status from *${oldValue || '—'}* → *${formatResolutionsStatusLabel(newValue || details)}*`;
             break;
         case 'assignee':
-            text = `👤 *${actor}* assigned to *${details || 'Unassigned'}*`;
+            text = `👤 *${actorLabel}* changed assignee from *${oldValue || 'Unassigned'}* → *${newValue || details || 'Unassigned'}*`;
             break;
         case 'visibility':
-            text = `👁 *${actor}* changed visibility to *${details}*`;
+            text = `👁 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
             break;
-        case 'resolution_notes':
-            text = `📝 *${actor}* updated resolution notes:\n${details}`;
+        case 'resolution_notes': {
+            const noteTitle = oldValue ? '*Resolutions Notes Updated:*' : '*Resolutions Notes Added:*';
+            const noteBody = oldValue
+                ? `${oldValue ? `_${oldValue}_` : '_—_'}\n${newValue || details || '—'}`
+                : `${newValue || details || '—'}`;
+            text = `📝 ${noteTitle}\n${noteBody}`;
             break;
+        }
         case 'comment':
-            text = `💬 *${actor}*: ${details}`;
+            text = `💬 ${details || '—'}`;
             break;
         case 'refund_request':
-            text = `💸 *Refund Request* — ${details}${anjSlackId ? ` | <@${anjSlackId}> please review` : ''}`;
+            text = `💸 *Refund Request* — ${details || '—'}${anjSlackId ? ` | <@${anjSlackId}> please review` : ''}`;
             break;
         case 'ai_analysis':
-            text = `🤖 *AI Analysis*\n${details}`;
+            text = `🤖 *AI Analysis*\n${details || '—'}`;
             break;
         default:
-            text = `ℹ️ *${actor}*: ${details}`;
+            text = `ℹ️ *${actorLabel}*: ${details || '—'}`;
+    }
+
+    if (type === 'comment') {
+        if (actorIconUrl) {
+            botName = actorLabel;
+            botIcon = actorIconUrl;
+            blocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
+        } else {
+            blocks = [
+                { type: 'section', text: { type: 'mrkdwn', text } },
+                { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
+            ];
+        }
+    } else {
+        if (actorIconUrl) {
+            botName = actorLabel;
+            botIcon = actorIconUrl;
+        }
+        blocks = [
+            { type: 'section', text: { type: 'mrkdwn', text } },
+            ...(type === 'resolution_notes' || type === 'refund_request' || type === 'ai_analysis'
+                ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] }]
+                : []),
+        ];
     }
 
     return {
         channel: RESOLUTIONS_TEAM_CHANNEL,
         text,
-        blocks: [
-            {
-                type: 'section',
-                text: { type: 'mrkdwn', text },
-            },
-        ],
-        bot_name: 'Resolutions Team',
-        bot_icon: 'https://img.icons8.com/ios-filled/50/task.png',
+        blocks,
+        bot_name: botName,
+        bot_icon: botIcon,
         unfurl_links: false,
         unfurl_media: false,
     };
 };
-
 

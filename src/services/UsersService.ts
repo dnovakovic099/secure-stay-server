@@ -753,14 +753,20 @@ export class UsersService {
         const remainingDepts = Object.values(departmentUsersMap)
             .filter(d => !addedDeptNames.has(d.name.toLowerCase()) && d.users.length > 0)
             .sort((a, b) => a.name.localeCompare(b.name));
-        
-        otherDepartments.push(...remainingDepts);
+
+        if (pageType !== 'resolutions') {
+            otherDepartments.push(...remainingDepts);
+        }
+
+        const visibleDepartments = pageType === 'resolutions'
+            ? priorityDepartments
+            : [...priorityDepartments, ...otherDepartments];
 
         return {
             priorityDepartments,
             otherDepartments,
             // Flat list for backward compatibility
-            allUsers: Object.values(departmentUsersMap)
+            allUsers: visibleDepartments
                 .flatMap(d => d.users)
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .filter((user, index, self) => 

@@ -1939,21 +1939,24 @@ export class ReviewService {
                 slackService.postActivityToThread(id, {
                     type: 'status',
                     actor: userId,
-                    details: data.status,
+                    oldValue: prevStatus,
+                    newValue: data.status,
                 }).catch((err) => logger.error('[ReviewService] Slack status activity post failed:', err));
             }
             if (data.assignee !== undefined && (data.assignee || null) !== prevAssignee) {
                 slackService.postActivityToThread(id, {
                     type: 'assignee',
                     actor: userId,
-                    details: data.assignee || '',
+                    oldValue: prevAssignee,
+                    newValue: data.assignee || '',
                 }).catch((err) => logger.error('[ReviewService] Slack assignee activity post failed:', err));
             }
-            if (data.comments !== undefined) {
+            if (data.comments !== undefined && (data.comments ?? null) !== (previousState.comments ?? null)) {
                 slackService.postActivityToThread(id, {
                     type: 'resolution_notes',
                     actor: userId,
-                    details: data.comments,
+                    oldValue: previousState.comments,
+                    newValue: data.comments ?? '',
                 }).catch((err) => logger.error('[ReviewService] Slack resolution notes activity post failed:', err));
             }
         }
