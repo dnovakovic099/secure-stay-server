@@ -25,6 +25,9 @@ router.get('/by-listing/:listingId', verifySession, reservationInfoController.ge
 
 router.get('/past-stays', verifySession, reservationInfoController.getPastReservationsByListingId);
 
+router.get('/:reservationId/history', verifySession, reservationInfoController.getReservationEditHistory);
+router.post('/:reservationId/history', verifySession, reservationInfoController.createReservationEditHistory);
+
 // IMPORTANT: This route must come LAST as it matches any path segment as :reservationId
 router.get('/:reservationId', verifySession, reservationInfoController.getReservation);
 

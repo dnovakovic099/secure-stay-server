@@ -20,12 +20,30 @@ import { categoryIds } from "../constant";
 import { RefundRequestSettingsService } from "./RefundRequestSettingsService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
+  private reservationHistoryService = new ReservationHistoryService();
+
+  private async logRefundRequestChanges(
+    reservationInfoId: number | null | undefined,
+    changedBy: string,
+    diff: ReservationHistoryDiff,
+    manager?: EntityManager
+  ) {
+    if (!reservationInfoId) return;
+    await this.reservationHistoryService.logChanges({
+      reservationInfoId: Number(reservationInfoId),
+      diff,
+      changedBy,
+      action: "UPDATE",
+      manager,
+    });
+  }
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
         const newRefundRequest = new RefundRequestEntity();
@@ -49,6 +67,15 @@ export class RefundRequestService {
     }
 
     async updateRefundRequest(transactionalEntityManager: EntityManager, refundRequest: Partial<RefundRequestEntity>, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
+        const previousState = {
+            explaination: refundRequest.explaination ?? null,
+            refundAmount: refundRequest.refundAmount ?? null,
+            requestedBy: refundRequest.requestedBy ?? null,
+            status: refundRequest.status ?? null,
+            notes: refundRequest.notes ?? null,
+            checkIn: refundRequest.checkIn ?? null,
+            checkOut: refundRequest.checkOut ?? null,
+        };
         refundRequest.reservationId = body.reservationId;
         refundRequest.listingId = body.listingId;
         refundRequest.guestName = body.guestName;
@@ -65,7 +92,17 @@ export class RefundRequestService {
         if (attachments.length > 0) {
             refundRequest.attachments = JSON.stringify(attachments);
         }
-        return await transactionalEntityManager.save(refundRequest);
+        const saved = await transactionalEntityManager.save(refundRequest);
+        await this.logRefundRequestChanges(saved.reservationId, userId, {
+            refundExplanation: { old: previousState.explaination, new: saved.explaination ?? null },
+            refundAmount: { old: previousState.refundAmount, new: saved.refundAmount ?? null },
+            requestedBy: { old: previousState.requestedBy, new: saved.requestedBy ?? null },
+            refundStatus: { old: previousState.status, new: saved.status ?? null },
+            refundNotes: { old: previousState.notes, new: saved.notes ?? null },
+            refundCheckIn: { old: previousState.checkIn, new: saved.checkIn ?? null },
+            refundCheckOut: { old: previousState.checkOut, new: saved.checkOut ?? null },
+        }, transactionalEntityManager);
+        return saved;
     }
 
   async saveRefundRequest(
@@ -377,6 +414,7 @@ export class RefundRequestService {
       const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
       const user = userInfo ? userInfo.firstName + " " + userInfo.lastName : userId;
 
+        const previousStatus = refundRequest.status;
         const isStatusChanged = refundRequest && refundRequest.status !== status;
         if (isStatusChanged) {
             const expenseService = new ExpenseService();
@@ -394,6 +432,11 @@ export class RefundRequestService {
         }
 
       await this.refundRequestRepo.save(refundRequest);
+      if (isStatusChanged) {
+        await this.logRefundRequestChanges(refundRequest.reservationId, userId, {
+          refundStatus: { old: previousStatus, new: status },
+        });
+      }
       if (slackMessageInfo && !isRequestFromSlack) {
         // 1. Update the original message to reflect the new status/buttons
         await updateSlackMessage(

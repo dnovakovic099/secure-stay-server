@@ -33,6 +33,7 @@ import { EscalationSettings } from "../entity/EscalationSettings";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -332,6 +333,21 @@ export class ReviewService {
     private issueRepo = appDatabase.getRepository(Issue);
     private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private reservationHistoryService = new ReservationHistoryService();
+
+    private async logReservationFieldChanges(
+        reservationInfoId: number | null | undefined,
+        changedBy: string,
+        diff: ReservationHistoryDiff
+    ) {
+        if (!reservationInfoId) return;
+        await this.reservationHistoryService.logChanges({
+            reservationInfoId: Number(reservationInfoId),
+            diff,
+            changedBy,
+            action: "UPDATE",
+        });
+    }
 
     private async getLatestReservationNotes(reservationIds: number[]) {
         if (!reservationIds.length) return new Map<number, ReviewDiscussionMessageEntity>();
@@ -805,11 +821,18 @@ export class ReviewService {
             throw CustomErrorHandler.notFound(`Review not found with id: ${id}`);
         }
 
+        const previousVisibility = review.visibility ?? null;
+        const previousHiddenState = review.isHidden;
         review.visibility = reviewVisibility;
         review.isHidden = reviewVisibility === 'Removed' ? 1 : 0;
         review.updatedAt = new Date();
         review.updatedBy = userId;
         await this.reviewRepository.save(review);
+
+        await this.logReservationFieldChanges(review.reservationId, userId, {
+            visibility: { old: previousVisibility, new: review.visibility ?? null },
+            isHidden: { old: previousHiddenState, new: review.isHidden },
+        });
 
         return review;
     }
@@ -1611,6 +1634,7 @@ export class ReviewService {
         const [reviewCheckoutList, total] = await query.getManyAndCount();
 
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
+        const latestReservationUpdates = await this.reservationHistoryService.getLatestUpdatesForReservations(reservationIds);
 
         // Collect all user IDs referenced in the data to avoid fetching ALL users
         const userIds = new Set<string>();
@@ -1623,6 +1647,10 @@ export class ReviewService {
                 if (update.createdBy) userIds.add(update.createdBy);
                 if (update.updatedBy) userIds.add(update.updatedBy);
             });
+            const latestReservationUpdate = latestReservationUpdates.get(Number(rc.reservationInfo?.id));
+            if (latestReservationUpdate?.changedBy && latestReservationUpdate.changedBy !== 'system') {
+                userIds.add(latestReservationUpdate.changedBy);
+            }
         });
 
         const issueServices = new IssuesService();
@@ -1694,6 +1722,7 @@ export class ReviewService {
                     timeZoneName: listingTagMap.get(Number(r.listingMapId))?.timeZoneName ?? 'America/New_York',
                 }));
             const reservationId = Number(rc.reservationInfo?.id);
+            const latestReservationUpdate = latestReservationUpdates.get(reservationId);
             const latestUpdate = latestNotesByReservation.get(reservationId) || null;
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
             const ownerRevenue = rc.reservationInfo?.owner_revenue ?? null;
@@ -1706,8 +1735,19 @@ export class ReviewService {
                 assignee: rc.assignee || null,
                 assigneeName: rc.assignee ? (userMap.get(rc.assignee) || rc.assignee) : null,
                 createdBy: userMap.get(rc.createdBy) || rc.createdBy,
-                updatedBy: userMap.get(rc.updatedBy) || rc.updatedBy,
+                updatedBy: latestReservationUpdate?.changedBy === 'system'
+                    ? 'System'
+                    : (latestReservationUpdate?.changedBy
+                        ? (userMap.get(latestReservationUpdate.changedBy) || latestReservationUpdate.changedBy)
+                        : (userMap.get(rc.updatedBy) || rc.updatedBy)),
                 deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
+                createdByName: userMap.get(rc.createdBy) || rc.createdBy,
+                updatedByName: latestReservationUpdate?.changedBy === 'system'
+                    ? 'System'
+                    : (latestReservationUpdate?.changedBy
+                        ? (userMap.get(latestReservationUpdate.changedBy) || latestReservationUpdate.changedBy)
+                        : (userMap.get(rc.updatedBy) || rc.updatedBy)),
+                updatedAt: latestReservationUpdate?.changedAt || rc.updatedAt,
                 reservationInfo: {
                     ...rc.reservationInfo,
                     propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.tags),
@@ -1857,6 +1897,13 @@ export class ReviewService {
 
         const prevStatus = reviewCheckout.status;
         const prevAssignee = reviewCheckout.assignee;
+        const previousState = {
+            status: reviewCheckout.status ?? null,
+            comments: reviewCheckout.comments ?? null,
+            assignee: reviewCheckout.assignee ?? null,
+            isActive: reviewCheckout.isActive ?? null,
+            visibility: reviewCheckout.visibility ?? null,
+        };
 
         if (data.status !== undefined) {
             reviewCheckout.status = data.status;
@@ -1876,6 +1923,14 @@ export class ReviewService {
             reviewCheckout.visibility = data.visibility;
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
+
+        await this.logReservationFieldChanges(reviewCheckout.reservationInfo?.id, userId, {
+            status: { old: previousState.status, new: reviewCheckout.status ?? null },
+            resolutionNotes: { old: previousState.comments, new: reviewCheckout.comments ?? null },
+            assignee: { old: previousState.assignee, new: reviewCheckout.assignee ?? null },
+            isActive: { old: previousState.isActive, new: reviewCheckout.isActive ?? null },
+            visibility: { old: previousState.visibility, new: reviewCheckout.visibility ?? null },
+        });
 
         // Post activity to Slack thread (fire-and-forget, never blocks the main flow)
         if (reviewCheckout.slackThreadTs) {
