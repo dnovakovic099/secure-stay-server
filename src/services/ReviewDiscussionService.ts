@@ -534,7 +534,7 @@ export class ReviewDiscussionService {
                     const resolutionsService = new ResolutionsTeamSlackService();
                     await resolutionsService.postActivityToThread(rc.id, {
                         type: "comment",
-                        actor: userName,
+                        actor: userId,
                         details: trimmedContent,
                     });
                 }

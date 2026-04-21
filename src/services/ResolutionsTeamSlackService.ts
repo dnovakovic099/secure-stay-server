@@ -6,24 +6,30 @@ import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
-import { AssigneeEntity } from "../entity/AssigneeInfo";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+import { UsersEntity } from "../entity/Users";
+import { Employee } from "../entity/Employee";
+import { FileInfo } from "../entity/FileInfo";
 import { GuestAnalysisService } from "./GuestAnalysisService";
 import {
     buildResolutionsCheckoutMessage,
     buildResolutionsActivityMessage,
     RESOLUTIONS_TEAM_CHANNEL,
+    RESOLUTIONS_TEAM_ICON_URL,
     ResolutionsActivityType,
 } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 import { ReviewService } from "./ReviewService";
 import { formatCurrency } from "../helpers/helpers";
+import { UsersService } from "./UsersService";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
-    actor: string;
-    details: string;
+    actor?: string;
+    details?: string;
+    oldValue?: string | null;
+    newValue?: string | null;
 }
 
 const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
@@ -40,8 +46,11 @@ export class ResolutionsTeamSlackService {
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
-    private assigneeRepo = appDatabase.getRepository(AssigneeEntity);
     private reviewDiscussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
+    private usersRepo = appDatabase.getRepository(UsersEntity);
+    private employeeRepo = appDatabase.getRepository(Employee);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
+    private usersService = new UsersService();
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -58,6 +67,26 @@ export class ResolutionsTeamSlackService {
 
     async getAnjSlackUserId(): Promise<string | null> {
         return "U08END0JTBM";
+    }
+
+    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+        if (!fileInfo) return null;
+        const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
+        const baseUrl = (
+            configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
+                ? configuredBaseUrl
+                : "https://securestay.ai"
+        ).replace(/\/$/, "");
+
+        if (fileInfo.status === "uploaded" && fileInfo.driveFileId) {
+            return `${baseUrl}/getdriveimage/${fileInfo.driveFileId}`;
+        }
+
+        if (fileInfo.localPath && fileInfo.fileName) {
+            return `${baseUrl}/getimage/employees/${fileInfo.fileName}`;
+        }
+
+        return null;
     }
 
     private async getSlackUserDisplayName(userId: string): Promise<string> {
@@ -81,6 +110,71 @@ export class ResolutionsTeamSlackService {
         }
     }
 
+    private async getActorPresentation(actor?: string | null) {
+        const rawActor = String(actor || "").trim();
+        if (!rawActor) {
+            return { displayName: "SecureStay", iconUrl: null as string | null };
+        }
+
+        if (rawActor.toLowerCase() === "system") {
+            return { displayName: "System", iconUrl: null as string | null };
+        }
+
+        const slackMentionMatch = rawActor.match(/^<@([A-Z0-9]+)>$/i);
+        if (slackMentionMatch?.[1]) {
+            return {
+                displayName: await this.getSlackUserDisplayName(slackMentionMatch[1]),
+                iconUrl: null as string | null,
+            };
+        }
+
+        const user = await this.usersRepo.findOne({ where: { uid: rawActor } });
+        if (!user) {
+            return { displayName: rawActor, iconUrl: null as string | null };
+        }
+
+        const employee = await this.employeeRepo.findOne({
+            where: { userId: user.id, deletedAt: null as any },
+            select: ["userId", "preferredName", "profilePhoto"],
+        });
+        const preferredName = String(employee?.preferredName || "").trim();
+        const displayName = [preferredName || user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+            || user.email
+            || user.uid
+            || "SecureStay User";
+
+        const profilePhotoId = Number(employee?.profilePhoto);
+        const fileInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+            ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
+            : null;
+
+        return {
+            displayName,
+            iconUrl: this.buildEmployeePhotoUrl(fileInfo),
+        };
+    }
+
+    private getTotalPaidDisplay(reservation: ReservationInfoEntity) {
+        const totalPaidValue = reservation.airbnbTotalPaidAmount ?? reservation.totalPrice ?? null;
+        if (totalPaidValue === null || totalPaidValue === undefined || totalPaidValue === "") return "—";
+        return formatCurrency(Number(totalPaidValue));
+    }
+
+    private getOwnerRevenueDisplay(reservation: ReservationInfoEntity) {
+        if (reservation.owner_revenue === null || reservation.owner_revenue === undefined || reservation.owner_revenue === ("" as any)) {
+            return "—";
+        }
+        return formatCurrency(Number(reservation.owner_revenue));
+    }
+
+    private async getResolutionsAssigneeOptions() {
+        const assigneeData = await this.usersService.fetchUserListByDepartment("resolutions");
+        return assigneeData.allUsers.map((user) => ({
+            label: user.displayName || user.name,
+            value: user.uid,
+        }));
+    }
+
     private async updateRootMessage(
         reviewCheckout: ReviewCheckout,
         reservation: ReservationInfoEntity,
@@ -91,13 +185,15 @@ export class ResolutionsTeamSlackService {
         try {
             const { emoji } = this.getListingEmoji(listing?.tags);
             const reviewService = new ReviewService();
-            const [statusData, assignees] = await Promise.all([
+            const [statusData, assigneeOptions] = await Promise.all([
                 reviewService.getMitigationStatusOptions(),
-                this.assigneeRepo.find(),
+                this.getResolutionsAssigneeOptions(),
             ]);
 
-            const ssUrl = `https://securestay.ai/reviews?tab=Mitigation&reservationId=${reservation.id}`;
-            const hostifyUrl = `https://us.hostify.com/reservations/view/${reservation.id}`;
+            const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
+            const hostifyUrl = reservation.reservationId
+                ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
+                : "";
 
             const msgPayload = buildResolutionsCheckoutMessage({
                 emoji,
@@ -111,18 +207,14 @@ export class ResolutionsTeamSlackService {
                 checkOut: reservation.departureDate
                     ? format(new Date(reservation.departureDate), "MMM d")
                     : "",
-                payout: reservation.totalPrice
-                    ? formatCurrency(Number(reservation.totalPrice))
-                    : "N/A",
+                totalPaid: this.getTotalPaidDisplay(reservation),
+                ownerRevenue: this.getOwnerRevenueDisplay(reservation),
                 status: reviewCheckout.status || "New",
                 assignee: reviewCheckout.assignee || "",
                 ssUrl,
                 reviewCheckoutId: reviewCheckout.id,
                 statusOptions: statusData.options,
-                assigneeOptions: assignees.map((a) => ({
-                    label: a.assigneeName,
-                    value: a.assigneeName,
-                })),
+                assigneeOptions,
             });
 
             await axios.post(
@@ -192,9 +284,9 @@ export class ResolutionsTeamSlackService {
 
         // Get status options and assignees once
         const reviewService = new ReviewService();
-        const [statusData, assignees] = await Promise.all([
+        const [statusData, assigneeOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
-            this.assigneeRepo.find(),
+            this.getResolutionsAssigneeOptions(),
         ]);
 
         let posted = 0;
@@ -208,8 +300,10 @@ export class ResolutionsTeamSlackService {
             }
 
             try {
-                const hostifyUrl = `https://us.hostify.com/reservations/view/${reservation.reservationId}`;
-                const ssUrl = `https://securestay.ai/reviews?tab=Mitigation&reservationId=${reservation.id}`;
+                const hostifyUrl = reservation.reservationId
+                    ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
+                    : "";
+                const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
                 const msgPayload = buildResolutionsCheckoutMessage({
                     emoji,
@@ -223,18 +317,14 @@ export class ResolutionsTeamSlackService {
                     checkOut: reservation.departureDate
                         ? format(new Date(reservation.departureDate), "MMM d")
                         : "",
-                    payout: reservation.totalPrice
-                        ? formatCurrency(Number(reservation.totalPrice))
-                        : "N/A",
+                    totalPaid: this.getTotalPaidDisplay(reservation),
+                    ownerRevenue: this.getOwnerRevenueDisplay(reservation),
                     status: rc.status || "New",
                     assignee: rc.assignee || "",
                     ssUrl,
                     reviewCheckoutId: rc.id,
                     statusOptions: statusData.options,
-                    assigneeOptions: assignees.map((a) => ({
-                        label: a.assigneeName,
-                        value: a.assigneeName,
-                    })),
+                    assigneeOptions,
                 });
 
                 const result = await sendSlackMessage(msgPayload);
@@ -301,9 +391,12 @@ export class ResolutionsTeamSlackService {
             }
 
             const anjSlackId = await this.getAnjSlackUserId();
+            const actorPresentation = await this.getActorPresentation(activity.actor);
 
             const msgPayload = buildResolutionsActivityMessage({
                 ...activity,
+                actor: actorPresentation.displayName,
+                actorIconUrl: actorPresentation.iconUrl,
                 anjSlackId: anjSlackId || undefined,
             });
 

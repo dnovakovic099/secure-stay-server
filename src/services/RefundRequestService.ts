@@ -272,7 +272,7 @@ export class RefundRequestService {
           resolutionsService
             .postActivityToThread(rc.id, {
               type: 'refund_request',
-              actor: user || userId,
+              actor: userId || user,
               details: amountLabel,
             })
             .catch((err) => logger.error('[RefundRequestService] Slack refund thread post failed:', err));

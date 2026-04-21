@@ -66,8 +66,7 @@ export class UnifiedWebhookController {
         try {
             const payload = request.body.payload && JSON.parse(request.body.payload);
             const action = payload.actions[0];
-            const userMention = payload?.user?.id ? `<@${payload.user.id}>` : (payload?.user?.username ? `@${payload.user.username}` : 'user');
-            const user = userMention;
+            const user = payload?.user?.name || payload?.user?.username || payload?.user?.id || 'Slack User';
             const actionData = action.value && JSON.parse(action.value);
             const responseUrl = payload.response_url;
             let messageText = "";
