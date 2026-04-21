@@ -1,6 +1,10 @@
 import { NextFunction, Request, Response } from "express";
 import { ReservationInfoService } from "../services/ReservationInfoService";
 
+interface CustomRequest extends Request {
+    user?: any;
+}
+
 export class ReservationInfoController {
     async getAllReservations(request: Request, response: Response, next: NextFunction) {
         try {
@@ -157,5 +161,63 @@ export class ReservationInfoController {
             return next(error);
         }
     }
-}
 
+    async getReservationEditHistory(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const reservationId = Number(request.params.reservationId);
+
+            if (!reservationId || Number.isNaN(reservationId)) {
+                return response.status(400).json({
+                    status: false,
+                    message: "Valid reservation ID is required",
+                });
+            }
+
+            const result = await reservationInfoService.getReservationEditHistory(reservationId);
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createReservationEditHistory(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const reservationId = Number(request.params.reservationId);
+            const diff = request.body?.diff;
+
+            if (!reservationId || Number.isNaN(reservationId)) {
+                return response.status(400).json({
+                    status: false,
+                    message: "Valid reservation ID is required",
+                });
+            }
+
+            if (!diff || typeof diff !== "object") {
+                return response.status(400).json({
+                    status: false,
+                    message: "A diff payload is required",
+                });
+            }
+
+            const changedBy = request.user?.id || "system";
+            const result = await reservationInfoService.createReservationEditHistory(
+                reservationId,
+                changedBy,
+                diff,
+                request.body?.action || "UPDATE"
+            );
+
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+}

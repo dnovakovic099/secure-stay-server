@@ -27,6 +27,7 @@ import { GenericReport } from "../entity/GenericReport";
 import { Hostify } from "../client/Hostify";
 import { ReservationService } from "./ReservationService";
 import { VelocityAlertService } from "./VelocityAlertService";
+import { ReservationHistoryService } from "./ReservationHistoryService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -42,6 +43,7 @@ export class ReservationInfoService {
   private hostAwayClient = new HostAwayClient();
   private hostifyClient = new Hostify();
   private velocityAlertService = new VelocityAlertService();
+  private reservationHistoryService = new ReservationHistoryService();
 
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -1274,6 +1276,24 @@ export class ReservationInfoService {
       .getMany();
 
     return reservationLogs;
+  }
+
+  async getReservationEditHistory(reservationId: number) {
+    return this.reservationHistoryService.getReservationHistory(reservationId);
+  }
+
+  async createReservationEditHistory(
+    reservationId: number,
+    changedBy: string,
+    diff: Record<string, { old: any; new: any }>,
+    action: "INSERT" | "UPDATE" | "DELETE" = "UPDATE"
+  ) {
+    return this.reservationHistoryService.logChanges({
+      reservationInfoId: reservationId,
+      changedBy,
+      diff,
+      action,
+    });
   }
 
   async getListingIdsByStatementDurationType(durationType: string): Promise<number[]> {
