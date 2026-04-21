@@ -2,7 +2,7 @@ import { Request,Response} from "express";
 import { appDatabase } from "../utils/database.util";
 import { UsersEntity } from "../entity/Users";
 import { UsersInfoEntity } from "../entity/UserInfo";
-import { EntityManager, Like } from "typeorm";
+import { EntityManager, In, Like } from "typeorm";
 import { UserApiKeyEntity } from "../entity/UserApiKey";
 import { generateAPIKey } from "../helpers/helpers";
 import { HostAwayClient } from "../client/HostAwayClient";
@@ -21,6 +21,7 @@ import { AssignedTask } from "../entity/AssignedTask";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { Employee } from "../entity/Employee";
+import { FileInfo } from "../entity/FileInfo";
 
 // Priority departments per page type
 const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
@@ -50,6 +51,21 @@ export class UsersService {
     private liveIssuesRepo = appDatabase.getRepository(LiveIssue);
     private assignedTaskRepo = appDatabase.getRepository(AssignedTask);
     private employeeRepo = appDatabase.getRepository(Employee);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
+
+    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+        if (!fileInfo) return null;
+
+        if (fileInfo.status === 'uploaded' && fileInfo.driveFileId) {
+            return `${process.env.BASE_URL}/getdriveimage/${fileInfo.driveFileId}`;
+        }
+
+        if (fileInfo.localPath && fileInfo.fileName) {
+            return `${process.env.BASE_URL}/getimage/employees/${fileInfo.fileName}`;
+        }
+
+        return null;
+    }
 
 
     async createUser(request: Request, response: Response) {
@@ -611,16 +627,45 @@ export class UsersService {
         const userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
         const employees = await this.employeeRepo.find({
             where: { deletedAt: null as any },
-            select: ['userId', 'preferredName'],
+            select: ['userId', 'preferredName', 'profilePhoto'],
         });
-        const preferredNameByUserId = new Map(employees.map((employee) => [employee.userId, employee.preferredName || null]));
+        const profilePhotoIds = [...new Set(
+            employees
+                .map((employee) => Number(employee.profilePhoto))
+                .filter((photoId) => !Number.isNaN(photoId) && photoId > 0)
+        )];
+        const photoInfos = profilePhotoIds.length > 0
+            ? await this.fileInfoRepo.find({ where: { id: In(profilePhotoIds) } })
+            : [];
+        const photoInfoById = new Map(photoInfos.map((fileInfo) => [fileInfo.id, fileInfo]));
+        const employeeByUserId = new Map(
+            employees.map((employee) => [employee.userId, employee])
+        );
 
-        const buildDisplayName = (user: { id: number; firstName: string; lastName: string; email: string }) => {
-            const first = user.firstName || '';
-            const last = user.lastName || '';
-            const preferred = preferredNameByUserId.get(user.id);
-            const display = [first, preferred ? `"${preferred}"` : '', last].filter(Boolean).join(' ').trim();
-            return display || user.email;
+        const buildUserPayload = (user: { id: number; uid: string; firstName: string; lastName: string; email: string }) => {
+            const employee = employeeByUserId.get(user.id);
+            const firstName = (user.firstName || '').trim();
+            const lastName = (user.lastName || '').trim();
+            const preferredName = (employee?.preferredName || '').trim() || null;
+            const displayName = preferredName || firstName || user.email;
+            const fullNameTooltip = preferredName
+                ? [firstName, `"${preferredName}"`, lastName].filter(Boolean).join(' ').trim()
+                : [firstName, lastName].filter(Boolean).join(' ').trim() || user.email;
+            const profilePhotoId = Number(employee?.profilePhoto);
+            const photoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+                ? this.buildEmployeePhotoUrl(photoInfoById.get(profilePhotoId) || null)
+                : null;
+
+            return {
+                uid: user.uid,
+                name: displayName,
+                displayName,
+                fullNameTooltip,
+                firstName,
+                lastName,
+                preferredName,
+                photoUrl,
+            };
         };
 
         // Get all departments
@@ -639,7 +684,7 @@ export class UsersService {
             .getMany();
 
         // Build department -> users map
-        const departmentUsersMap: Record<string, { id: number; name: string; users: { uid: string; name: string }[] }> = {};
+        const departmentUsersMap: Record<string, { id: number; name: string; users: ReturnType<typeof buildUserPayload>[] }> = {};
 
         for (const dept of departments) {
             departmentUsersMap[dept.name] = {
@@ -660,13 +705,10 @@ export class UsersService {
         const usersInDepartments = new Set<string>();
         for (const ud of userDepartments) {
             const deptName = ud.department?.name;
-            const userName = buildDisplayName(ud.user as any);
+            const userPayload = buildUserPayload(ud.user as any);
             
             if (deptName && departmentUsersMap[deptName]) {
-                departmentUsersMap[deptName].users.push({
-                    uid: ud.user.uid,
-                    name: userName || ud.user.email,
-                });
+                departmentUsersMap[deptName].users.push(userPayload);
                 usersInDepartments.add(ud.user.uid);
             }
         }
@@ -678,11 +720,7 @@ export class UsersService {
         
         for (const user of allActiveUsers) {
             if (!usersInDepartments.has(user.uid)) {
-                const userName = buildDisplayName(user as any);
-                departmentUsersMap['Unassigned'].users.push({
-                    uid: user.uid,
-                    name: userName || user.email,
-                });
+                departmentUsersMap['Unassigned'].users.push(buildUserPayload(user as any));
             }
         }
 
@@ -697,8 +735,8 @@ export class UsersService {
         const priorityDeptNames = PAGE_DEPARTMENT_PRIORITIES[pageType] || PAGE_DEPARTMENT_PRIORITIES['default'];
 
         // Build response arrays
-        const priorityDepartments: { id: number; name: string; users: { uid: string; name: string }[] }[] = [];
-        const otherDepartments: { id: number; name: string; users: { uid: string; name: string }[] }[] = [];
+        const priorityDepartments: { id: number; name: string; users: ReturnType<typeof buildUserPayload>[] }[] = [];
+        const otherDepartments: { id: number; name: string; users: ReturnType<typeof buildUserPayload>[] }[] = [];
 
         // Add priority departments first (in specified order)
         for (const deptName of priorityDeptNames) {
