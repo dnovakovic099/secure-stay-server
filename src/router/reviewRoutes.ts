@@ -23,12 +23,18 @@ router.route('/reviewdiscussion/:reviewId')
     .get(verifySession, reviewController.getReviewDiscussion.bind(reviewController))
     .post(verifySession, reviewController.createReviewDiscussionMessage.bind(reviewController));
 
+router.route('/reviewdiscussion/:reviewId/:messageId')
+    .put(verifySession, reviewController.updateReviewDiscussionMessage.bind(reviewController));
+
 router.route('/reviewdiscussion/:reviewId/reactions')
     .post(verifySession, reviewController.toggleReviewDiscussionReaction.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId')
     .get(verifySession, reviewController.getReservationDiscussion.bind(reviewController))
     .post(verifySession, reviewController.createReservationDiscussionMessage.bind(reviewController));
+
+router.route('/reservationdiscussion/:reservationId/:messageId')
+    .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/reactions')
     .post(verifySession, reviewController.toggleReservationDiscussionReaction.bind(reviewController));
