@@ -626,7 +626,7 @@ export class ReviewDiscussionService {
                     actor: userId,
                     details: trimmedContent,
                 });
-                if (slackMessageTs) {
+                if (slackMessageTs && slackMessageTs !== rc.slackThreadTs) {
                     saved.metadata = {
                         ...(saved.metadata || {}),
                         source: "app",
@@ -679,7 +679,7 @@ export class ReviewDiscussionService {
             if (rc?.slackThreadTs) {
                 const resolutionsService = new ResolutionsTeamSlackService();
                 const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim();
-                if (slackMessageTs) {
+                if (slackMessageTs && slackMessageTs !== rc.slackThreadTs) {
                     await resolutionsService.updateActivityMessageInThread(rc.id, slackMessageTs, {
                         type: "comment",
                         actor: userId,

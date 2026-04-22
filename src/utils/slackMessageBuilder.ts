@@ -1953,7 +1953,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 // ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
 
 export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
-export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png";
+export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422";
 
 const RESOLUTIONS_STATUS_EMOJIS: Record<string, string> = {
     New: "🔵",
@@ -2084,11 +2084,11 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             text = `👁 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
             break;
         case 'resolution_notes': {
-            const noteTitle = oldValue ? '*Resolutions Notes Updated:*' : '*Resolutions Notes Added:*';
-            const noteBody = oldValue
-                ? `${oldValue ? `_${oldValue}_` : '_—_'}\n${newValue || details || '—'}`
-                : `${newValue || details || '—'}`;
-            text = `📝 ${noteTitle}\n${noteBody}`;
+            const previousNote = String(oldValue || '').trim() || '—';
+            const nextNote = String(newValue || details || '').trim() || '—';
+            text = oldValue
+                ? `📝 *Resolutions Notes Updated:*\n*From:*\n_${previousNote}_\n*To:*\n${nextNote}`
+                : `📝 *Resolutions Notes Added:*\n${nextNote}`;
             break;
         }
         case 'comment':
@@ -2120,12 +2120,30 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             botName = actorLabel;
             botIcon = actorIconUrl;
         }
-        blocks = [
-            { type: 'section', text: { type: 'mrkdwn', text } },
-            ...(type === 'resolution_notes' || type === 'refund_request' || type === 'ai_analysis'
-                ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] }]
-                : []),
-        ];
+        if (type === 'resolution_notes') {
+            const previousNote = String(oldValue || '').trim() || '—';
+            const nextNote = String(newValue || details || '').trim() || '—';
+
+            blocks = oldValue
+                ? [
+                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolutions Notes Updated:*' } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `*From:*\n_${previousNote}_` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `*To:*\n${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
+                ]
+                : [
+                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolutions Notes Added:*' } },
+                    { type: 'section', text: { type: 'mrkdwn', text: nextNote } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
+                ];
+        } else {
+            blocks = [
+                { type: 'section', text: { type: 'mrkdwn', text } },
+                ...(type === 'refund_request' || type === 'ai_analysis'
+                    ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] }]
+                    : []),
+            ];
+        }
     }
 
     return {
@@ -2138,4 +2156,3 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
         unfurl_media: false,
     };
 };
-
