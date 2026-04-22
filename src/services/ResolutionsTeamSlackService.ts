@@ -441,7 +441,7 @@ export class ResolutionsTeamSlackService {
                 select: ["id", "slackThreadTs", "slackChannelId"],
             });
 
-            if (!rc?.slackThreadTs || !rc.slackChannelId || !messageTs) {
+            if (!rc?.slackThreadTs || !rc.slackChannelId || !messageTs || messageTs === rc.slackThreadTs) {
                 return;
             }
 
