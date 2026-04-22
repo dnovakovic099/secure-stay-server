@@ -12,6 +12,7 @@ import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import logger from "../utils/logger.utils";
+import { getSlackUsers } from "../utils/getSlackUsers";
 
 type DiscussionFilter = "all" | "notes" | "system" | "ai" | "mentions";
 type DiscussionSort = "oldest" | "newest";
@@ -99,7 +100,7 @@ export class ReviewDiscussionService {
 
         const employee = await this.employeeRepo.findOne({
             where: { userId: user.id, deletedAt: null as any },
-            select: ["userId", "preferredName", "profilePhoto"],
+            select: ["userId", "preferredName", "profilePhoto", "slackUserId"],
         });
         const firstName = String(user.firstName || "").trim();
         const lastName = String(user.lastName || "").trim();
@@ -118,8 +119,16 @@ export class ReviewDiscussionService {
         const photoInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
             ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
             : null;
+        const slackUsers = await getSlackUsers();
+        const slackAvatarUrl = employee?.slackUserId
+            ? slackUsers.find((member: any) => member.id === employee.slackUserId)?.image || null
+            : null;
 
-        return { userName, mentionKeys: Array.from(mentionKeys), avatarUrl: this.buildEmployeePhotoUrl(photoInfo) };
+        return {
+            userName,
+            mentionKeys: Array.from(mentionKeys),
+            avatarUrl: this.buildEmployeePhotoUrl(photoInfo) || slackAvatarUrl,
+        };
     }
 
     private buildReactionSummary(

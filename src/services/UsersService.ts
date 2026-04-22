@@ -22,6 +22,7 @@ import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
+import { getSlackUsers } from "../utils/getSlackUsers";
 
 // Priority departments per page type
 const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
@@ -625,9 +626,11 @@ export class UsersService {
     async fetchUserListByDepartment(pageType: string = 'default') {
         const departmentRepo = appDatabase.getRepository(DepartmentEntity);
         const userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
+        const slackUsers = await getSlackUsers() as Array<{ id: string; image?: string | null }>;
+        const slackUserMap = new Map<string, { id: string; image?: string | null }>(slackUsers.map((user) => [user.id, user]));
         const employees = await this.employeeRepo.find({
             where: { deletedAt: null as any },
-            select: ['userId', 'preferredName', 'profilePhoto'],
+            select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId'],
         });
         const profilePhotoIds = [...new Set(
             employees
@@ -652,9 +655,13 @@ export class UsersService {
                 ? [firstName, `"${preferredName}"`, lastName].filter(Boolean).join(' ').trim()
                 : [firstName, lastName].filter(Boolean).join(' ').trim() || user.email;
             const profilePhotoId = Number(employee?.profilePhoto);
-            const photoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+            const employeePhotoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
                 ? this.buildEmployeePhotoUrl(photoInfoById.get(profilePhotoId) || null)
                 : null;
+            const slackPhotoUrl = employee?.slackUserId
+                ? slackUserMap.get(employee.slackUserId)?.image || null
+                : null;
+            const photoUrl = employeePhotoUrl || slackPhotoUrl;
 
             return {
                 uid: user.uid,
