@@ -8,6 +8,8 @@ import { GuestAnalysisEntity } from "../entity/GuestAnalysis";
 import { ReviewDetailEntity } from "../entity/ReviewDetail";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { Employee } from "../entity/Employee";
+import { FileInfo } from "../entity/FileInfo";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import logger from "../utils/logger.utils";
 
@@ -35,6 +37,7 @@ interface DiscussionItemDTO {
     replies: DiscussionItemDTO[];
     canReply: boolean;
     canReact: boolean;
+    canEdit: boolean;
 }
 
 const ALLOWED_REACTIONS: ReviewDiscussionReactionType[] = ["eyes", "heart", "check", "warning"];
@@ -48,6 +51,8 @@ export class ReviewDiscussionService {
     private analysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reviewDetailRepo = appDatabase.getRepository(ReviewDetailEntity);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private employeeRepo = appDatabase.getRepository(Employee);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private normalizeFilter(filter?: string): DiscussionFilter {
         const value = String(filter || "all").toLowerCase();
@@ -67,25 +72,53 @@ export class ReviewDiscussionService {
         return Array.from(new Set(matches.map((match) => match.toLowerCase())));
     }
 
+    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+        if (!fileInfo) return null;
+
+        if (fileInfo.status === "uploaded" && fileInfo.driveFileId) {
+            return `${process.env.BASE_URL}/getdriveimage/${fileInfo.driveFileId}`;
+        }
+
+        if (fileInfo.localPath && fileInfo.fileName) {
+            return `${process.env.BASE_URL}/getimage/employees/${fileInfo.fileName}`;
+        }
+
+        return null;
+    }
+
     private async getUserDisplay(userId: string) {
         const user = await this.userRepo.findOne({ where: { uid: userId } });
         if (!user) {
             return {
                 userName: userId || "SecureStay User",
                 mentionKeys: userId ? [`@${String(userId).toLowerCase()}`] : [],
+                avatarUrl: null as string | null,
             };
         }
 
-        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
-        const userName = fullName || user.email || user.uid || "SecureStay User";
+        const employee = await this.employeeRepo.findOne({
+            where: { userId: user.id, deletedAt: null as any },
+            select: ["userId", "preferredName", "profilePhoto"],
+        });
+        const firstName = String(user.firstName || "").trim();
+        const lastName = String(user.lastName || "").trim();
+        const preferredName = String(employee?.preferredName || "").trim();
+        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+        const userName = preferredName || firstName || user.email || user.uid || "SecureStay User";
         const mentionKeys = new Set<string>();
-        if (user.firstName) mentionKeys.add(`@${String(user.firstName).toLowerCase()}`);
-        if (user.lastName) mentionKeys.add(`@${String(user.lastName).toLowerCase()}`);
+        if (firstName) mentionKeys.add(`@${firstName.toLowerCase()}`);
+        if (lastName) mentionKeys.add(`@${lastName.toLowerCase()}`);
+        if (preferredName) mentionKeys.add(`@${preferredName.toLowerCase()}`);
         if (fullName) mentionKeys.add(`@${fullName.toLowerCase().replace(/\s+/g, ".")}`);
         if (user.email) mentionKeys.add(`@${user.email.toLowerCase().split("@")[0]}`);
         if (user.uid) mentionKeys.add(`@${user.uid.toLowerCase()}`);
 
-        return { userName, mentionKeys: Array.from(mentionKeys) };
+        const profilePhotoId = Number(employee?.profilePhoto);
+        const photoInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+            ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
+            : null;
+
+        return { userName, mentionKeys: Array.from(mentionKeys), avatarUrl: this.buildEmployeePhotoUrl(photoInfo) };
     }
 
     private buildReactionSummary(
@@ -101,6 +134,25 @@ export class ReviewDiscussionService {
                 reactedByCurrentUser: matched.some((item) => item.userId === currentUserId),
             };
         });
+    }
+
+    private canEditMessage(message: ReviewDiscussionMessageEntity, currentUserId: string) {
+        return (
+            message.sourceType === "note" &&
+            !!message.authorId &&
+            message.authorId === currentUserId &&
+            message.metadata?.source !== "slack"
+        );
+    }
+
+    private async findMessageDtoById(
+        fetchFeed: Promise<{ items: DiscussionItemDTO[] }>,
+        messageId: number
+    ) {
+        const feed = await fetchFeed;
+        return feed.items.find((item) => item.id === String(messageId))
+            || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(messageId))
+            || null;
     }
 
     private sortItems<T extends { createdAt: string }>(items: T[], sort: DiscussionSort) {
@@ -130,6 +182,7 @@ export class ReviewDiscussionService {
             replies: [],
             canReply: false,
             canReact: false,
+            canEdit: false,
         });
 
         if (reviewDetail?.createdAt) {
@@ -147,6 +200,7 @@ export class ReviewDiscussionService {
                 replies: [],
                 canReply: false,
                 canReact: false,
+                canEdit: false,
             });
         }
 
@@ -171,6 +225,7 @@ export class ReviewDiscussionService {
                     replies: [],
                     canReply: false,
                     canReact: false,
+                    canEdit: false,
                 });
             });
         }
@@ -199,6 +254,7 @@ export class ReviewDiscussionService {
                     replies: [],
                     canReply: false,
                     canReact: false,
+                    canEdit: false,
                 });
             });
         }
@@ -210,6 +266,35 @@ export class ReviewDiscussionService {
         const searchable = `${item.content} ${item.authorName}`.toLowerCase();
         return item.mentions.some((mention) => currentUserMentions.includes(mention)) ||
             currentUserMentions.some((mention) => searchable.includes(mention));
+    }
+
+    private async buildStoredMessageDto(
+        message: ReviewDiscussionMessageEntity,
+        reactions: ReviewDiscussionReactionEntity[],
+        currentUserId: string
+    ): Promise<DiscussionItemDTO> {
+        const isSlackSource = message.metadata?.source === "slack";
+        const authorDisplay = message.authorId && !isSlackSource
+            ? await this.getUserDisplay(message.authorId)
+            : null;
+
+        return {
+            id: String(message.id),
+            persistentId: message.id,
+            parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
+            sourceType: message.sourceType,
+            authorName: authorDisplay?.userName || message.authorName,
+            authorAvatar: authorDisplay?.avatarUrl || message.authorAvatar || undefined,
+            content: message.content,
+            mentions: message.mentions || [],
+            createdAt: message.createdAt.toISOString(),
+            metadata: message.metadata || null,
+            reactions: this.buildReactionSummary(message.id, reactions, currentUserId),
+            replies: [],
+            canReply: message.sourceType === "note" && !message.parentMessageId,
+            canReact: true,
+            canEdit: this.canEditMessage(message, currentUserId),
+        };
     }
 
     async getDiscussionFeed(reviewId: string, filter: string | undefined, sort: string | undefined, currentUserId: string) {
@@ -236,28 +321,15 @@ export class ReviewDiscussionService {
         const topLevel: DiscussionItemDTO[] = [];
         const replyMap = new Map<number, DiscussionItemDTO[]>();
 
-        storedMessages.forEach((message) => {
-            const dto: DiscussionItemDTO = {
-                id: String(message.id),
-                persistentId: message.id,
-                parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
-                sourceType: message.sourceType,
-                authorName: message.authorName,
-                authorAvatar: message.authorAvatar || undefined,
-                content: message.content,
-                mentions: message.mentions || [],
-                createdAt: message.createdAt.toISOString(),
-                metadata: message.metadata || null,
-                reactions: this.buildReactionSummary(message.id, reactions, currentUserId),
-                replies: [],
-                canReply: message.sourceType === "note" && !message.parentMessageId,
-                canReact: true,
-            };
+        const mappedMessages = await Promise.all(
+            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId))
+        );
 
-            if (message.parentMessageId) {
-                const bucket = replyMap.get(message.parentMessageId) || [];
+        mappedMessages.forEach((dto) => {
+            if (dto.parentMessageId) {
+                const bucket = replyMap.get(Number(dto.parentMessageId)) || [];
                 bucket.push(dto);
-                replyMap.set(message.parentMessageId, bucket);
+                replyMap.set(Number(dto.parentMessageId), bucket);
             } else {
                 topLevel.push(dto);
             }
@@ -309,25 +381,53 @@ export class ReviewDiscussionService {
             }
         }
 
-        const { userName } = await this.getUserDisplay(userId);
+        const { userName, avatarUrl } = await this.getUserDisplay(userId);
         const message = this.messageRepo.create({
             reviewId,
             parentMessageId,
             sourceType: "note",
             authorId: userId,
             authorName: userName,
-            authorAvatar: null,
+            authorAvatar: avatarUrl,
             content: trimmedContent,
             mentions: this.extractMentions(trimmedContent),
-            metadata: null,
+            metadata: { source: "app" },
         });
 
         const saved = await this.messageRepo.save(message);
-        return this.getDiscussionFeed(reviewId, "all", "oldest", userId).then((feed) => {
-            const match = feed.items.find((item) => item.id === String(saved.id))
-                || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(saved.id));
-            return match;
-        });
+        return this.findMessageDtoById(this.getDiscussionFeed(reviewId, "all", "oldest", userId), saved.id);
+    }
+
+    async updateMessage(reviewId: string, messageId: number, content: string, userId: string) {
+        const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
+        if (!review) {
+            throw CustomErrorHandler.notFound(`Review ${reviewId} not found`);
+        }
+
+        const message = await this.messageRepo.findOne({ where: { id: messageId, reviewId } });
+        if (!message) {
+            throw CustomErrorHandler.notFound(`Message ${messageId} not found`);
+        }
+
+        if (!this.canEditMessage(message, userId)) {
+            throw CustomErrorHandler.forbidden("This discussion entry cannot be edited");
+        }
+
+        const trimmedContent = String(content || "").trim();
+        if (!trimmedContent) {
+            throw CustomErrorHandler.validationError("Content is required");
+        }
+
+        message.content = trimmedContent;
+        message.mentions = this.extractMentions(trimmedContent);
+        message.metadata = {
+            ...(message.metadata || {}),
+            source: message.metadata?.source || "app",
+            editedAt: new Date().toISOString(),
+        };
+
+        const saved = await this.messageRepo.save(message);
+        return this.findMessageDtoById(this.getDiscussionFeed(reviewId, "all", "oldest", userId), saved.id);
     }
 
     async toggleReaction(reviewId: string, messageId: number, reaction: string, userId: string) {
@@ -389,6 +489,7 @@ export class ReviewDiscussionService {
                 replies: [],
                 canReply: false,
                 canReact: false,
+                canEdit: false,
             });
         });
 
@@ -414,6 +515,7 @@ export class ReviewDiscussionService {
                 replies: [],
                 canReply: false,
                 canReact: false,
+                canEdit: false,
             });
         });
 
@@ -439,28 +541,15 @@ export class ReviewDiscussionService {
         const topLevel: DiscussionItemDTO[] = [];
         const replyMap = new Map<number, DiscussionItemDTO[]>();
 
-        storedMessages.forEach((message) => {
-            const dto: DiscussionItemDTO = {
-                id: String(message.id),
-                persistentId: message.id,
-                parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
-                sourceType: message.sourceType,
-                authorName: message.authorName,
-                authorAvatar: message.authorAvatar || undefined,
-                content: message.content,
-                mentions: message.mentions || [],
-                createdAt: message.createdAt.toISOString(),
-                metadata: message.metadata || null,
-                reactions: this.buildReactionSummary(message.id, reactions, currentUserId),
-                replies: [],
-                canReply: message.sourceType === "note" && !message.parentMessageId,
-                canReact: true,
-            };
+        const mappedMessages = await Promise.all(
+            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId))
+        );
 
-            if (message.parentMessageId) {
-                const bucket = replyMap.get(message.parentMessageId) || [];
+        mappedMessages.forEach((dto) => {
+            if (dto.parentMessageId) {
+                const bucket = replyMap.get(Number(dto.parentMessageId)) || [];
                 bucket.push(dto);
-                replyMap.set(message.parentMessageId, bucket);
+                replyMap.set(Number(dto.parentMessageId), bucket);
             } else {
                 topLevel.push(dto);
             }
@@ -507,7 +596,7 @@ export class ReviewDiscussionService {
             }
         }
 
-        const { userName } = await this.getUserDisplay(userId);
+        const { userName, avatarUrl } = await this.getUserDisplay(userId);
         const message = this.messageRepo.create({
             reviewId: null,
             reservationId: Number(reservationId),
@@ -515,10 +604,10 @@ export class ReviewDiscussionService {
             sourceType: "note",
             authorId: userId,
             authorName: userName,
-            authorAvatar: null,
+            authorAvatar: avatarUrl,
             content: trimmedContent,
             mentions: this.extractMentions(trimmedContent),
-            metadata: null,
+            metadata: { source: "app" },
         });
 
         const saved = await this.messageRepo.save(message);
@@ -543,11 +632,39 @@ export class ReviewDiscussionService {
             }
         })();
 
-        return this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId).then((feed) => {
-            const match = feed.items.find((item) => item.id === String(saved.id))
-                || feed.items.flatMap((item) => item.replies).find((item) => item.id === String(saved.id));
-            return match;
+        return this.findMessageDtoById(this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId), saved.id);
+    }
+
+    async updateMessageByReservation(reservationId: string, messageId: number, content: string, userId: string) {
+        const message = await this.messageRepo.findOne({
+            where: { id: messageId, reservationId: Number(reservationId) },
         });
+        if (!message) {
+            throw CustomErrorHandler.notFound(`Message ${messageId} not found`);
+        }
+
+        if (!this.canEditMessage(message, userId)) {
+            throw CustomErrorHandler.forbidden("This discussion entry cannot be edited");
+        }
+
+        const trimmedContent = String(content || "").trim();
+        if (!trimmedContent) {
+            throw CustomErrorHandler.validationError("Content is required");
+        }
+
+        message.content = trimmedContent;
+        message.mentions = this.extractMentions(trimmedContent);
+        message.metadata = {
+            ...(message.metadata || {}),
+            source: message.metadata?.source || "app",
+            editedAt: new Date().toISOString(),
+        };
+
+        const saved = await this.messageRepo.save(message);
+        return this.findMessageDtoById(
+            this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId),
+            saved.id
+        );
     }
 
     async toggleReactionByReservation(reservationId: string, messageId: number, reaction: string, userId: string) {

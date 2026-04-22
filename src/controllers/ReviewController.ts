@@ -277,6 +277,21 @@ export class ReviewController {
         }
     }
 
+    async updateReviewDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.updateMessage(
+                request.params.reviewId,
+                Number(request.params.messageId),
+                request.body?.content,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async getReservationDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const service = new ReviewDiscussionService();
@@ -314,6 +329,21 @@ export class ReviewController {
                 request.params.reservationId,
                 Number(request.body?.messageId),
                 request.body?.reaction,
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateReservationDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.updateMessageByReservation(
+                request.params.reservationId,
+                Number(request.params.messageId),
+                request.body?.content,
                 request.user.id
             );
             return response.status(200).json({ success: true, data });
