@@ -376,7 +376,7 @@ export class ResolutionsTeamSlackService {
     async postActivityToThread(
         reviewCheckoutId: number,
         activity: ActivityPayload
-    ): Promise<void> {
+    ): Promise<string | null> {
         try {
             const rc = await this.reviewCheckoutRepo.findOne({
                 where: { id: reviewCheckoutId },
@@ -402,7 +402,7 @@ export class ResolutionsTeamSlackService {
 
             const channelId = rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL;
 
-            await sendSlackMessage(
+            const result = await sendSlackMessage(
                 { ...msgPayload, channel: channelId },
                 rc.slackThreadTs
             );
@@ -420,9 +420,63 @@ export class ResolutionsTeamSlackService {
             logger.info(
                 `[ResolutionsTeam] Posted ${activity.type} activity to thread ${rc.slackThreadTs}`
             );
+            return result?.ts || null;
         } catch (err) {
             logger.error(
                 `[ResolutionsTeam] Failed to post activity to thread for reviewCheckout ${reviewCheckoutId}:`,
+                err
+            );
+            return null;
+        }
+    }
+
+    async updateActivityMessageInThread(
+        reviewCheckoutId: number,
+        messageTs: string,
+        activity: ActivityPayload
+    ): Promise<void> {
+        try {
+            const rc = await this.reviewCheckoutRepo.findOne({
+                where: { id: reviewCheckoutId },
+                select: ["id", "slackThreadTs", "slackChannelId"],
+            });
+
+            if (!rc?.slackThreadTs || !rc.slackChannelId || !messageTs) {
+                return;
+            }
+
+            const actorPresentation = await this.getActorPresentation(activity.actor);
+            const msgPayload = buildResolutionsActivityMessage({
+                ...activity,
+                actor: actorPresentation.displayName,
+                actorIconUrl: actorPresentation.iconUrl,
+            });
+
+            const payload: Record<string, any> = {
+                channel: rc.slackChannelId,
+                ts: messageTs,
+                text: msgPayload.text,
+                blocks: msgPayload.blocks,
+                unfurl_links: false,
+                unfurl_media: false,
+            };
+
+            if (msgPayload.bot_name) {
+                payload.username = msgPayload.bot_name;
+            }
+            if (msgPayload.bot_icon) {
+                payload.icon_url = msgPayload.bot_icon;
+            }
+
+            await axios.post("https://slack.com/api/chat.update", payload, {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                },
+            });
+        } catch (err) {
+            logger.error(
+                `[ResolutionsTeam] Failed to update activity message ${messageTs} for reviewCheckout ${reviewCheckoutId}:`,
                 err
             );
         }
