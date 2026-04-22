@@ -2087,7 +2087,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const previousNote = String(oldValue || '').trim() || '—';
             const nextNote = String(newValue || details || '').trim() || '—';
             text = oldValue
-                ? `📝 *Resolutions Notes Updated:*\n*From:*\n_${previousNote}_\n*To:*\n${nextNote}`
+                ? `📝 *Resolutions Notes Updated:*\n*From:* _${previousNote}_\n*To:* ${nextNote}`
                 : `📝 *Resolutions Notes Added:*\n${nextNote}`;
             break;
         }
@@ -2127,8 +2127,8 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             blocks = oldValue
                 ? [
                     { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolutions Notes Updated:*' } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `*From:*\n_${previousNote}_` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `*To:*\n${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `*From:* _${previousNote}_` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `*To:* ${nextNote}` } },
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                 ]
                 : [
