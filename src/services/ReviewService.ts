@@ -34,6 +34,8 @@ import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
+import { Employee } from "../entity/Employee";
+import { FileInfo } from "../entity/FileInfo";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -123,6 +125,8 @@ export class ReviewService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
     private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
+    private employeeRepo = appDatabase.getRepository(Employee);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private badReviewRepo = appDatabase.getRepository(BadReviewEntity);
     private badReviewUpdatesRepo = appDatabase.getRepository(BadReviewUpdatesEntity);
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
@@ -355,9 +359,9 @@ export class ReviewService {
             where: {
                 reservationId: In(reservationIds),
                 sourceType: Equal("note"),
-                parentMessageId: IsNull(),
             },
             order: {
+                updatedAt: "DESC",
                 createdAt: "DESC",
             },
         });
@@ -368,6 +372,59 @@ export class ReviewService {
             latestByReservation.set(reservationId, message);
         });
         return latestByReservation;
+    }
+
+    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+        if (!fileInfo) return null;
+
+        const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
+        const baseUrl = (
+            configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
+                ? configuredBaseUrl
+                : "https://securestay.ai"
+        ).replace(/\/$/, "");
+
+        if (fileInfo.status === "uploaded" && fileInfo.driveFileId) {
+            return `${baseUrl}/getdriveimage/${fileInfo.driveFileId}`;
+        }
+
+        if (fileInfo.localPath && fileInfo.fileName) {
+            return `${baseUrl}/getimage/employees/${fileInfo.fileName}`;
+        }
+
+        return null;
+    }
+
+    private async buildLatestUpdatePayload(message: ReviewDiscussionMessageEntity | null) {
+        if (!message) return null;
+
+        let authorName = message.authorName;
+        let authorAvatar = message.authorAvatar;
+        if (message.authorId && message.metadata?.source !== "slack") {
+            const user = await this.usersRepo.findOne({ where: { uid: message.authorId } });
+            if (user) {
+                const employee = await this.employeeRepo.findOne({
+                    where: { userId: user.id, deletedAt: null as any },
+                    select: ["userId", "preferredName", "profilePhoto"],
+                });
+                const preferredName = String(employee?.preferredName || "").trim();
+                authorName = preferredName || String(user.firstName || "").trim() || user.email || user.uid || message.authorName;
+
+                const profilePhotoId = Number(employee?.profilePhoto);
+                const fileInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+                    ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
+                    : null;
+                authorAvatar = this.buildEmployeePhotoUrl(fileInfo) || authorAvatar;
+            }
+        }
+
+        return {
+            content: message.content,
+            createdAt: message.updatedAt || message.createdAt,
+            authorName,
+            authorAvatar,
+            authorId: message.authorId || null,
+        };
     }
 
     private async getLatestRefundRequests(reservationIds: number[]) {
@@ -696,7 +753,7 @@ export class ReviewService {
                 : [];
             const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
-            const reviewList = reviews.map((review, index) => {
+            const reviewList = await Promise.all(reviews.map(async (review, index) => {
                 const reservationInfo = reservationInfoList[index];
                 const reviewCheckout = reviewCheckoutMap.get(Number(review.reservationId));
                 if (!reservationInfo) {
@@ -711,7 +768,9 @@ export class ReviewService {
                 const integration = this.getReviewIntegration(review as any, reservationInfo as any);
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
                 const departureDate = this.normalizeReviewDate(reservationInfo?.departureDate || review.departureDate);
-                const latestUpdate = latestNotesByReservation.get(Number(review.reservationId)) || null;
+                const latestUpdate = await this.buildLatestUpdatePayload(
+                    latestNotesByReservation.get(Number(review.reservationId)) || null
+                );
                 const latestRefund = latestRefundsByReservation.get(Number(review.reservationId)) || null;
                 const ownerRevenue = reservationInfo?.owner_revenue ?? null;
                 const refundAmount = latestRefund?.refundAmount ?? null;
@@ -743,18 +802,14 @@ export class ReviewService {
                     assignee: reviewCheckout?.assignee || null,
                     assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
                     resolutionNotes: reviewCheckout?.comments || null,
-                    latestUpdate: latestUpdate ? {
-                        content: latestUpdate.content,
-                        createdAt: latestUpdate.createdAt,
-                        authorName: latestUpdate.authorName,
-                    } : null,
+                    latestUpdate,
                     refundAmount,
                     refundRequestId: latestRefund?.id ?? null,
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
                 };
-            });
+            }));
 
             return { reviewList, totalCount };
         } catch (error) {
@@ -1701,7 +1756,7 @@ export class ReviewService {
             : [];
         const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l]));
 
-        const transformedData = reviewCheckoutList.map(rc => {
+        const transformedData = await Promise.all(reviewCheckoutList.map(async (rc) => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
             const enrichedReview = matchedReview
                 ? {
@@ -1723,7 +1778,9 @@ export class ReviewService {
                 }));
             const reservationId = Number(rc.reservationInfo?.id);
             const latestReservationUpdate = latestReservationUpdates.get(reservationId);
-            const latestUpdate = latestNotesByReservation.get(reservationId) || null;
+            const latestUpdate = await this.buildLatestUpdatePayload(
+                latestNotesByReservation.get(reservationId) || null
+            );
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
             const ownerRevenue = rc.reservationInfo?.owner_revenue ?? null;
             const refundAmount = latestRefund?.refundAmount ?? null;
@@ -1756,11 +1813,7 @@ export class ReviewService {
                     issues: issues.filter(issue => Number(issue.reservation_id) == rc.reservationInfo?.id) || null,
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
                     aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
-                    latestUpdate: latestUpdate ? {
-                        content: latestUpdate.content,
-                        createdAt: latestUpdate.createdAt,
-                        authorName: latestUpdate.authorName,
-                    } : null,
+                    latestUpdate,
                     resolutionNotes: rc.comments || null,
                     refundAmount,
                     refundRequestId: latestRefund?.id ?? null,
@@ -1779,7 +1832,7 @@ export class ReviewService {
                 }),
                 reviews: enrichedReviews,
             };
-        });
+        }));
 
         return { result: transformedData, total };
     }

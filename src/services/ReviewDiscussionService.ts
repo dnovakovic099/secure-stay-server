@@ -25,6 +25,7 @@ interface ReactionSummary {
 interface DiscussionItemDTO {
     id: string;
     persistentId: number | null;
+    authorId?: string | null;
     parentMessageId: string | null;
     sourceType: ReviewDiscussionSourceType;
     authorName: string;
@@ -281,6 +282,7 @@ export class ReviewDiscussionService {
         return {
             id: String(message.id),
             persistentId: message.id,
+            authorId: message.authorId,
             parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
             sourceType: message.sourceType,
             authorName: authorDisplay?.userName || message.authorName,
@@ -610,27 +612,32 @@ export class ReviewDiscussionService {
             metadata: { source: "app" },
         });
 
-        const saved = await this.messageRepo.save(message);
+        let saved = await this.messageRepo.save(message);
 
-        // Fire-and-forget: post the new note to the Slack thread for this reservation (if one exists)
-        (async () => {
-            try {
-                const rc = await this.reviewCheckoutRepo.findOne({
-                    where: { reservationInfo: { id: Number(reservationId) } },
-                    select: ["id", "slackThreadTs"],
+        try {
+            const rc = await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: Number(reservationId) } },
+                select: ["id", "slackThreadTs"],
+            });
+            if (rc?.slackThreadTs) {
+                const resolutionsService = new ResolutionsTeamSlackService();
+                const slackMessageTs = await resolutionsService.postActivityToThread(rc.id, {
+                    type: "comment",
+                    actor: userId,
+                    details: trimmedContent,
                 });
-                if (rc?.slackThreadTs) {
-                    const resolutionsService = new ResolutionsTeamSlackService();
-                    await resolutionsService.postActivityToThread(rc.id, {
-                        type: "comment",
-                        actor: userId,
-                        details: trimmedContent,
-                    });
+                if (slackMessageTs) {
+                    saved.metadata = {
+                        ...(saved.metadata || {}),
+                        source: "app",
+                        slackMessageTs,
+                    };
+                    saved = await this.messageRepo.save(saved);
                 }
-            } catch (err) {
-                logger.error("[ReviewDiscussion] Failed to post note to Slack thread:", err);
             }
-        })();
+        } catch (err) {
+            logger.error("[ReviewDiscussion] Failed to post note to Slack thread:", err);
+        }
 
         return this.findMessageDtoById(this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId), saved.id);
     }
@@ -652,6 +659,8 @@ export class ReviewDiscussionService {
             throw CustomErrorHandler.validationError("Content is required");
         }
 
+        const previousContent = message.content;
+
         message.content = trimmedContent;
         message.mentions = this.extractMentions(trimmedContent);
         message.metadata = {
@@ -661,6 +670,32 @@ export class ReviewDiscussionService {
         };
 
         const saved = await this.messageRepo.save(message);
+
+        try {
+            const rc = await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: Number(reservationId) } },
+                select: ["id", "slackThreadTs"],
+            });
+            if (rc?.slackThreadTs) {
+                const resolutionsService = new ResolutionsTeamSlackService();
+                const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim();
+                if (slackMessageTs) {
+                    await resolutionsService.updateActivityMessageInThread(rc.id, slackMessageTs, {
+                        type: "comment",
+                        actor: userId,
+                        details: trimmedContent,
+                    });
+                }
+                await resolutionsService.postActivityToThread(rc.id, {
+                    type: "comment",
+                    actor: userId,
+                    details: `Edited note:\n_${previousContent || "—"}_\n${trimmedContent}`,
+                });
+            }
+        } catch (err) {
+            logger.error("[ReviewDiscussion] Failed to sync edited note to Slack thread:", err);
+        }
+
         return this.findMessageDtoById(
             this.getDiscussionFeedByReservation(reservationId, "all", "oldest", userId),
             saved.id
