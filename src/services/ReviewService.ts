@@ -1550,6 +1550,7 @@ export class ReviewService {
 
             if (visibilityList.includes('Visible')) {
                 reviewConditions.push("(review.visibility = 'Visible')");
+                reviewConditions.push("(review.visibility = 'Keep')");
                 reviewConditions.push("(review.visibility IN ('Awaiting Review','No Review') AND review.rating IS NOT NULL AND review.rating > 0)");
             }
             if (visibilityList.includes('Awaiting Review')) {
@@ -1580,6 +1581,7 @@ export class ReviewService {
             const checkoutVisibilityConditions: string[] = [];
             if (visibilityList.includes('Visible')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Visible'");
+                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Keep'");
             }
             if (visibilityList.includes('Awaiting Review')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Awaiting Review'");

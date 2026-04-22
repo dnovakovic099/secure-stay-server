@@ -13,6 +13,7 @@ import { FileInfo } from "../entity/FileInfo";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import logger from "../utils/logger.utils";
 import { getSlackUsers } from "../utils/getSlackUsers";
+import { generateSlackMessageLink } from "../helpers/helpers";
 
 type DiscussionFilter = "all" | "notes" | "system" | "ai" | "mentions";
 type DiscussionSort = "oldest" | "newest";
@@ -278,15 +279,24 @@ export class ReviewDiscussionService {
             currentUserMentions.some((mention) => searchable.includes(mention));
     }
 
+    private buildSlackPermalink(channelId?: string | null, messageTs?: string | null) {
+        const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
+        if (!workspaceUrl || !channelId || !messageTs) return null;
+        return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), channelId, messageTs);
+    }
+
     private async buildStoredMessageDto(
         message: ReviewDiscussionMessageEntity,
         reactions: ReviewDiscussionReactionEntity[],
-        currentUserId: string
+        currentUserId: string,
+        slackChannelId?: string | null
     ): Promise<DiscussionItemDTO> {
         const isSlackSource = message.metadata?.source === "slack";
         const authorDisplay = message.authorId && !isSlackSource
             ? await this.getUserDisplay(message.authorId)
             : null;
+        const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim() || null;
+        const slackPermalink = this.buildSlackPermalink(slackChannelId, slackMessageTs);
 
         return {
             id: String(message.id),
@@ -299,7 +309,10 @@ export class ReviewDiscussionService {
             content: message.content,
             mentions: message.mentions || [],
             createdAt: message.createdAt.toISOString(),
-            metadata: message.metadata || null,
+            metadata: {
+                ...(message.metadata || {}),
+                ...(slackPermalink ? { slackPermalink } : {}),
+            },
             reactions: this.buildReactionSummary(message.id, reactions, currentUserId),
             replies: [],
             canReply: message.sourceType === "note" && !message.parentMessageId,
@@ -322,6 +335,12 @@ export class ReviewDiscussionService {
             where: { reviewId },
             order: { createdAt: "ASC" },
         });
+        const reviewCheckout = review.reservationId
+            ? await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: Number(review.reservationId) } },
+                select: ["id", "slackChannelId"],
+            })
+            : null;
         const reactions = storedMessages.length
             ? await this.reactionRepo.find({
                 where: storedMessages.map((item) => ({ messageId: item.id })),
@@ -333,7 +352,7 @@ export class ReviewDiscussionService {
         const replyMap = new Map<number, DiscussionItemDTO[]>();
 
         const mappedMessages = await Promise.all(
-            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId))
+            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId, reviewCheckout?.slackChannelId || null))
         );
 
         mappedMessages.forEach((dto) => {
@@ -542,6 +561,10 @@ export class ReviewDiscussionService {
             where: { reservationId: Number(reservationId) },
             order: { createdAt: "ASC" },
         });
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+            where: { reservationInfo: { id: Number(reservationId) } },
+            select: ["id", "slackChannelId"],
+        });
         const reactions = storedMessages.length
             ? await this.reactionRepo.find({
                 where: storedMessages.map((item) => ({ messageId: item.id })),
@@ -553,7 +576,7 @@ export class ReviewDiscussionService {
         const replyMap = new Map<number, DiscussionItemDTO[]>();
 
         const mappedMessages = await Promise.all(
-            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId))
+            storedMessages.map((message) => this.buildStoredMessageDto(message, reactions, currentUserId, reviewCheckout?.slackChannelId || null))
         );
 
         mappedMessages.forEach((dto) => {
