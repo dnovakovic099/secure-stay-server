@@ -154,6 +154,41 @@ export class ResolutionsTeamSlackService {
         };
     }
 
+    private looksLikeInternalIdentifier(value: string) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+            || /^[A-Za-z0-9_-]{20,}$/.test(value);
+    }
+
+    private async getAssigneeActivityLabel(assigneeValue?: string | null) {
+        const rawValue = String(assigneeValue || "").trim();
+        if (!rawValue) {
+            return "Unassigned";
+        }
+
+        const user = await this.usersRepo.findOne({ where: { uid: rawValue } });
+        if (!user) {
+            return this.looksLikeInternalIdentifier(rawValue) ? "Unknown assignee" : rawValue;
+        }
+
+        const employee = await this.employeeRepo.findOne({
+            where: { userId: user.id, deletedAt: null as any },
+            select: ["userId", "preferredName", "slackUserId", "slackId"],
+        });
+
+        const displayName =
+            String(employee?.preferredName || "").trim()
+            || String(user.firstName || "").trim()
+            || user.email
+            || "Unknown assignee";
+
+        const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+        if (slackMemberId) {
+            return `<@${slackMemberId}>`;
+        }
+
+        return displayName;
+    }
+
     private getTotalPaidDisplay(reservation: ReservationInfoEntity) {
         const totalPaidValue = reservation.airbnbTotalPaidAmount ?? reservation.totalPrice ?? null;
         if (totalPaidValue === null || totalPaidValue === undefined || totalPaidValue === "") return "—";
@@ -392,11 +427,18 @@ export class ResolutionsTeamSlackService {
 
             const anjSlackId = await this.getAnjSlackUserId();
             const actorPresentation = await this.getActorPresentation(activity.actor);
+            const assigneeLabels = activity.type === "assignee"
+                ? {
+                    oldValue: await this.getAssigneeActivityLabel(activity.oldValue),
+                    newValue: await this.getAssigneeActivityLabel(activity.newValue || activity.details),
+                }
+                : {};
 
             const msgPayload = buildResolutionsActivityMessage({
                 ...activity,
                 actor: actorPresentation.displayName,
                 actorIconUrl: actorPresentation.iconUrl,
+                ...assigneeLabels,
                 anjSlackId: anjSlackId || undefined,
             });
 
@@ -446,10 +488,17 @@ export class ResolutionsTeamSlackService {
             }
 
             const actorPresentation = await this.getActorPresentation(activity.actor);
+            const assigneeLabels = activity.type === "assignee"
+                ? {
+                    oldValue: await this.getAssigneeActivityLabel(activity.oldValue),
+                    newValue: await this.getAssigneeActivityLabel(activity.newValue || activity.details),
+                }
+                : {};
             const msgPayload = buildResolutionsActivityMessage({
                 ...activity,
                 actor: actorPresentation.displayName,
                 actorIconUrl: actorPresentation.iconUrl,
+                ...assigneeLabels,
             });
 
             const payload: Record<string, any> = {
