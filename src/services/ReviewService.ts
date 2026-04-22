@@ -36,6 +36,7 @@ import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
+import { getSlackUsers } from "../utils/getSlackUsers";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -403,9 +404,10 @@ export class ReviewService {
         if (message.authorId && message.metadata?.source !== "slack") {
             const user = await this.usersRepo.findOne({ where: { uid: message.authorId } });
             if (user) {
+                const slackUsers = await getSlackUsers();
                 const employee = await this.employeeRepo.findOne({
                     where: { userId: user.id, deletedAt: null as any },
-                    select: ["userId", "preferredName", "profilePhoto"],
+                    select: ["userId", "preferredName", "profilePhoto", "slackUserId"],
                 });
                 const preferredName = String(employee?.preferredName || "").trim();
                 authorName = preferredName || String(user.firstName || "").trim() || user.email || user.uid || message.authorName;
@@ -414,7 +416,10 @@ export class ReviewService {
                 const fileInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
                     ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
                     : null;
-                authorAvatar = this.buildEmployeePhotoUrl(fileInfo) || authorAvatar;
+                const slackAvatarUrl = employee?.slackUserId
+                    ? slackUsers.find((member: any) => member.id === employee.slackUserId)?.image || null
+                    : null;
+                authorAvatar = this.buildEmployeePhotoUrl(fileInfo) || slackAvatarUrl || authorAvatar;
             }
         }
 
