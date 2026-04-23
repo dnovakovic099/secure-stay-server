@@ -127,7 +127,7 @@ export class UnifiedWebhookController {
                         messageText = `Your request to update Zapier event status is being processed...`;
                         await this.sendResponseInSlack(responseUrl, messageText);
                     } else {
-                        messageText = `Action not recognized.`;
+                        logger.warn(`Unhandled Slack interactivity pre-response action: ${action.action_id}`);
                     }
                     break;
                 }
@@ -323,8 +323,7 @@ export class UnifiedWebhookController {
                     break;
                 }
                 default: {
-                    messageText = `Action not recognized.`;
-                    await this.sendResponseInSlack(responseUrl, messageText);
+                    logger.warn(`Unhandled Slack interactivity action: ${action.action_id}`);
                     break;
                 }
             }

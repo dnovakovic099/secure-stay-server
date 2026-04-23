@@ -2095,8 +2095,8 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const previousNote = String(oldValue || '').trim() || '—';
             const nextNote = String(newValue || details || '').trim() || '—';
             text = oldValue
-                ? `📝 *Resolutions Notes Updated:*\n──────────\n*From:* ~${previousNote}~\n*To:* ${nextNote}`
-                : `📝 *Resolutions Notes Added:*\n──────────\n${nextNote}`;
+                ? `📝 *Edited Resolution Notes*\n──────────\n💬 ${nextNote}\n~${previousNote}~`
+                : `📝 *Resolution Notes Added*\n──────────\n💬 ${nextNote}`;
             break;
         }
         case 'comment':
@@ -2134,16 +2134,16 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
 
             blocks = oldValue
                 ? [
-                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolutions Notes Updated:*' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: '──────────' } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `*From:* ~${previousNote}~` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `*To:* ${nextNote}` } },
+                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Edited Resolution Notes*' } },
+                    { type: 'divider' },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~${previousNote}~` }] },
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                 ]
                 : [
-                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolutions Notes Added:*' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: '──────────' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: nextNote } },
+                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolution Notes Added*' } },
+                    { type: 'divider' },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                 ];
         } else {
