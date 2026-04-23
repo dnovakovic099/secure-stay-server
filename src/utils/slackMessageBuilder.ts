@@ -2095,14 +2095,14 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const previousNote = String(oldValue || '').trim() || '—';
             const nextNote = String(newValue || details || '').trim() || '—';
             text = oldValue
-                ? `📝 *Edited Resolution Notes:*\n▸ ${nextNote}\n~${previousNote}~\nUpdated By: ${actorLabel}\nResolution Notes Edited By: ${actorLabel}\n──────────`
-                : `📝 *Resolution Notes Added:*\n──────────\n💬 ${nextNote}`;
+                ? `Resolution Notes Edited By: ${actorLabel}\n📝 ${nextNote}\n~▸ ${previousNote}~\n──────────`
+                : `Resolution Notes Added By: ${actorLabel}\n📝 ${nextNote}\n──────────`;
             break;
         }
         case 'comment':
             text = oldValue
-                ? `💬 *Edited Notes:*\n▸ ${newValue || details || '—'}\n~${String(oldValue || '').trim() || '—'}~\nUpdated By: ${actorLabel}\nNotes Edited By: ${actorLabel}\n──────────`
-                : `💬 ${details || '—'}`;
+                ? `Notes Edited By: ${actorLabel}\n💬 ${newValue || details || '—'}\n~▸ ${String(oldValue || '').trim() || '—'}~\n──────────`
+                : `Notes Added By: ${actorLabel}\n💬 ${details || '—'}\n──────────`;
             break;
         case 'refund_request':
             text = `💸 *Refund Request* — ${details || '—'}${anjSlackId ? ` | <@${anjSlackId}> please review` : ''}`;
@@ -2120,27 +2120,28 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             botIcon = actorIconUrl;
             blocks = oldValue
                 ? [
-                    { type: 'section', text: { type: 'mrkdwn', text: '💬 *Edited Notes:*' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: `▸ ${newValue || details || '—'}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~${String(oldValue || '').trim() || '—'}~` }] },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Edited By: ${actorLabel}` }] },
-                    { type: 'divider' },
-                ]
-                : [{ type: 'section', text: { type: 'mrkdwn', text } }];
-        } else {
-            blocks = oldValue
-                ? [
-                    { type: 'section', text: { type: 'mrkdwn', text: '💬 *Edited Notes:*' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: `▸ ${newValue || details || '—'}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~${String(oldValue || '').trim() || '—'}~` }] },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Edited By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${newValue || details || '—'}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${String(oldValue || '').trim() || '—'}~` }] },
                     { type: 'divider' },
                 ]
                 : [
-                    { type: 'section', text: { type: 'mrkdwn', text } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Added By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${details || '—'}` } },
+                    { type: 'divider' },
+                ];
+        } else {
+            blocks = oldValue
+                ? [
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Edited By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${newValue || details || '—'}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${String(oldValue || '').trim() || '—'}~` }] },
+                    { type: 'divider' },
+                ]
+                : [
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Added By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${details || '—'}` } },
+                    { type: 'divider' },
                 ];
         }
     } else {
@@ -2154,18 +2155,15 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
 
             blocks = oldValue
                 ? [
-                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Edited Resolution Notes:*' } },
-                    { type: 'section', text: { type: 'mrkdwn', text: `▸ ${nextNote}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~${previousNote}~` }] },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Notes Edited By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `📝 ${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${previousNote}~` }] },
                     { type: 'divider' },
                 ]
                 : [
-                    { type: 'section', text: { type: 'mrkdwn', text: '📝 *Resolution Notes Added:*' } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Notes Added By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `📝 ${nextNote}` } },
                     { type: 'divider' },
-                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Updated By: ${actorLabel}` }] },
                 ];
         } else {
             blocks = [
