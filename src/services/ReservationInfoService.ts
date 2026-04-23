@@ -877,29 +877,36 @@ export class ReservationInfoService {
 
   /**
    * Get reservations for a specific listing:
-   * - Past 90 days checked-out reservations
-   * - Ongoing reservations
-   * - Future reservations
+   * Default: past 1 month + ongoing + future 1 month
+   * loadAll=true: all reservations (no date filter)
    * Used for refund request form guest name dropdown
    */
-  async getReservationsByListingId(listingId: number): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const past90DaysDate = new Date();
-    past90DaysDate.setDate(past90DaysDate.getDate() - 90);
-    const past90Days = format(past90DaysDate, 'yyyy-MM-dd');
-
-    const reservations = await this.reservationInfoRepository
+  async getReservationsByListingId(listingId: number, loadAll: boolean = false): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
+    const qb = this.reservationInfoRepository
       .createQueryBuilder('reservation')
       .where('reservation.listingMapId = :listingId', { listingId })
-      .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus })
-      .andWhere(
-        '(DATE(reservation.arrivalDate) >= :today' +
-        ' OR (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)' +
-        ' OR (DATE(reservation.departureDate) >= :past90Days AND DATE(reservation.departureDate) < :today))',
-        { today, past90Days }
-      )
-      .orderBy('reservation.arrivalDate', 'ASC')
-      .getMany();
+      .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus });
+
+    if (!loadAll) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const past1MonthDate = new Date();
+      past1MonthDate.setMonth(past1MonthDate.getMonth() - 1);
+      const past1Month = format(past1MonthDate, 'yyyy-MM-dd');
+      const future1MonthDate = new Date();
+      future1MonthDate.setMonth(future1MonthDate.getMonth() + 1);
+      const future1Month = format(future1MonthDate, 'yyyy-MM-dd');
+
+      qb.andWhere(
+        '(' +
+        '(DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)' +
+        ' OR (DATE(reservation.departureDate) >= :past1Month AND DATE(reservation.departureDate) < :today)' +
+        ' OR (DATE(reservation.arrivalDate) > :today AND DATE(reservation.arrivalDate) <= :future1Month)' +
+        ')',
+        { today, past1Month, future1Month }
+      );
+    }
+
+    const reservations = await qb.orderBy('reservation.arrivalDate', 'ASC').getMany();
 
     return reservations.map(r => ({
       id: r.id,

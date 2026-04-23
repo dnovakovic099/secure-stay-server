@@ -112,7 +112,8 @@ export class ReservationInfoController {
                 });
             }
 
-            const result = await reservationInfoService.getReservationsByListingId(listingId);
+            const loadAll = request.query.loadAll === 'true';
+            const result = await reservationInfoService.getReservationsByListingId(listingId, loadAll);
             return response.status(200).json({
                 status: true,
                 data: result
