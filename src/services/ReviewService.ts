@@ -100,6 +100,15 @@ interface FilterBadReviews {
     tab?: string | null | undefined;
 }
 
+interface DashboardFilters {
+    listingId?: Array<string | number> | null | undefined;
+    owner?: string[] | null | undefined;
+    channel?: Array<string | number> | null | undefined;
+    fromDate?: string | undefined;
+    toDate?: string | undefined;
+    dateType?: string | undefined;
+}
+
 export enum ReviewCheckoutStatus {
     NEW = "New",
     IN_PROGRESS = "In Progress",
@@ -524,6 +533,79 @@ export class ReviewService {
 
         if (current === null) return normalizedIncoming;
         return current.filter((value) => normalizedIncoming.includes(value));
+    }
+
+    private async resolveDashboardListingIds({
+        listingId,
+        owner,
+    }: Pick<DashboardFilters, 'listingId' | 'owner'>) {
+        let listingIds: number[] | null = null;
+
+        if ((!listingId || listingId.length === 0) && owner && owner.length > 0) {
+            const ownerNames = Array.isArray(owner) ? owner : [owner];
+            const results = await Promise.all(ownerNames.map((ownerName) => this.getListingIdsByOwnerName(ownerName)));
+            listingIds = this.mergeListingIds(listingIds, results.flat());
+        }
+
+        if (listingId && listingId.length > 0) {
+            listingIds = this.mergeListingIds(listingIds, listingId);
+        }
+
+        return listingIds;
+    }
+
+    private applyDashboardReviewFilters(query: any, filters: DashboardFilters, listingIds: number[] | null) {
+        if (listingIds !== null) {
+            query.andWhere('r.listingMapId IN (:...listingIds)', { listingIds: listingIds.length ? listingIds : [-1] });
+        }
+
+        if (filters.channel && filters.channel.length > 0) {
+            const channelIds = Array.from(new Set((filters.channel || []).map((value) => Number(value)).filter(Boolean)));
+            query.andWhere('r.channelId IN (:...channelIds)', { channelIds: channelIds.length ? channelIds : [-1] });
+        }
+
+        const allowedDateTypes = ['submittedAt', 'arrivalDate', 'departureDate', 'updatedAt'];
+        if (filters.fromDate && filters.toDate && filters.dateType && allowedDateTypes.includes(filters.dateType)) {
+            query.andWhere(`r.${filters.dateType} BETWEEN :fromDate AND :toDate`, {
+                fromDate: filters.fromDate,
+                toDate: filters.toDate,
+            });
+        }
+
+        return query;
+    }
+
+    private applyDashboardMitigationFilters(query: any, filters: DashboardFilters, listingIds: number[] | null) {
+        query.leftJoin('rc.reservationInfo', 'ri');
+
+        if (listingIds !== null) {
+            query.andWhere('ri.listingMapId IN (:...listingIds)', { listingIds: listingIds.length ? listingIds : [-1] });
+        }
+
+        if (filters.channel && filters.channel.length > 0) {
+            const channelIds = Array.from(new Set((filters.channel || []).map((value) => Number(value)).filter(Boolean)));
+            query.andWhere('ri.channelId IN (:...channelIds)', { channelIds: channelIds.length ? channelIds : [-1] });
+        }
+
+        if (filters.fromDate && filters.toDate) {
+            switch (filters.dateType) {
+                case 'arrivalDate':
+                    query.andWhere('ri.arrivalDate BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+                case 'departureDate':
+                    query.andWhere('ri.departureDate BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+                case 'updatedAt':
+                    query.andWhere('rc.updatedAt BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+                case 'submittedAt':
+                default:
+                    query.andWhere('rc.createdAt BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+            }
+        }
+
+        return query;
     }
 
     public async getReviews({
@@ -2640,19 +2722,24 @@ export class ReviewService {
         return await this.liveIssueUpdatesRepo.save(liveIssueUpdate);
     }
 
-    async getReviewsDashboardStats() {
+    async getReviewsDashboardStats(filters: DashboardFilters = {}) {
         const sixMonthsAgo = subMonths(new Date(), 6);
+        const listingIds = await this.resolveDashboardListingIds(filters);
 
         const [ratingDistribution, channelBreakdown, reviewMonthlyTrend, visibilityStats] = await Promise.all([
-            this.reviewRepository
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
                 .createQueryBuilder('r')
                 .select('r.rating', 'rating')
                 .addSelect('COUNT(*)', 'count')
                 .where('r.rating IS NOT NULL')
                 .groupBy('r.rating')
-                .orderBy('r.rating', 'ASC')
-                .getRawMany(),
-            this.reviewRepository
+                .orderBy('r.rating', 'ASC'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
                 .createQueryBuilder('r')
                 .select('r.channelName', 'channelName')
                 .addSelect('COUNT(*)', 'count')
@@ -2660,9 +2747,12 @@ export class ReviewService {
                 .where('r.rating IS NOT NULL')
                 .groupBy('r.channelName')
                 .orderBy('count', 'DESC')
-                .limit(8)
-                .getRawMany(),
-            this.reviewRepository
+                .limit(8),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
                 .createQueryBuilder('r')
                 .select("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'month')
                 .addSelect('COUNT(*)', 'count')
@@ -2670,44 +2760,60 @@ export class ReviewService {
                 .where('r.submittedAt >= :sixMonthsAgo', { sixMonthsAgo })
                 .andWhere('r.submittedAt IS NOT NULL')
                 .groupBy("DATE_FORMAT(r.submittedAt, '%Y-%m')")
-                .orderBy("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'ASC')
-                .getRawMany(),
-            this.reviewRepository
+                .orderBy("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'ASC'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
                 .createQueryBuilder('r')
                 .select('r.isHidden', 'isHidden')
                 .addSelect('COUNT(*)', 'count')
-                .groupBy('r.isHidden')
-                .getRawMany(),
+                .groupBy('r.isHidden'),
+                filters,
+                listingIds
+            ).getRawMany(),
         ]);
 
         const [mitigationByStatus, mitigationMonthlyTrend, checkoutCountsByListing] = await Promise.all([
-            this.reviewCheckoutRepo
+            this.applyDashboardMitigationFilters(
+                this.reviewCheckoutRepo
                 .createQueryBuilder('rc')
                 .select('rc.status', 'status')
                 .addSelect('COUNT(*)', 'count')
-                .groupBy('rc.status')
-                .getRawMany(),
-            this.reviewCheckoutRepo
+                .where('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
+                .groupBy('rc.status'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardMitigationFilters(
+                this.reviewCheckoutRepo
                 .createQueryBuilder('rc')
                 .select("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'month')
                 .addSelect('COUNT(*)', 'count')
                 .where('rc.createdAt >= :sixMonthsAgo', { sixMonthsAgo })
+                .andWhere('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
                 .groupBy("DATE_FORMAT(rc.createdAt, '%Y-%m')")
-                .orderBy("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'ASC')
-                .getRawMany(),
-            this.reviewCheckoutRepo
+                .orderBy("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'ASC'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardMitigationFilters(
+                this.reviewCheckoutRepo
                 .createQueryBuilder('rc')
-                .leftJoin('rc.reservationInfo', 'ri')
                 .select('ri.listingMapId', 'listingMapId')
                 .addSelect('COUNT(rc.id)', 'count')
-                .groupBy('ri.listingMapId')
-                .getRawMany(),
+                .where('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
+                .groupBy('ri.listingMapId'),
+                filters,
+                listingIds
+            ).getRawMany(),
         ]);
 
         // Property type distribution
-        const listingIds = checkoutCountsByListing.map(c => Number(c.listingMapId)).filter(Boolean);
-        const listings = listingIds.length > 0
-            ? await this.listingRepo.find({ where: { id: In(listingIds) }, select: ['id', 'tags'] })
+        const mitigationListingIds = checkoutCountsByListing.map(c => Number(c.listingMapId)).filter(Boolean);
+        const listings = mitigationListingIds.length > 0
+            ? await this.listingRepo.find({ where: { id: In(mitigationListingIds) }, select: ['id', 'tags'] })
             : [];
         const listingTagMap = new Map(listings.map(l => [Number(l.id), l.tags]));
         const propertyTypeCounts: Record<string, number> = {};
@@ -2730,7 +2836,7 @@ export class ReviewService {
         const mitigationStatusData = mitigationByStatus.map(s => ({ status: s.status, count: Number(s.count) }));
         const totalMitigation = mitigationStatusData.reduce((sum, s) => sum + s.count, 0);
         const closedMitigation = mitigationStatusData
-            .filter(s => s.status?.includes('Closed'))
+            .filter(s => s.status === ReviewCheckoutStatus.COMPLETED)
             .reduce((sum, s) => sum + s.count, 0);
         const openMitigation = totalMitigation - closedMitigation;
 
