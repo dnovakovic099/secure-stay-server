@@ -30,6 +30,7 @@ interface ActivityPayload {
     details?: string;
     oldValue?: string | null;
     newValue?: string | null;
+    rating?: number | null;
 }
 
 const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {

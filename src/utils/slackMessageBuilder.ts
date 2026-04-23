@@ -1953,7 +1953,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 // ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
 
 export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
-export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422b";
+export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422c";
 
 const RESOLUTIONS_STATUS_EMOJIS: Record<string, string> = {
     New: "🔵",
@@ -2052,7 +2052,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'comment' | 'refund_request' | 'ai_analysis';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2062,10 +2062,11 @@ export interface ResolutionsActivityData {
     oldValue?: string | null;
     newValue?: string | null;
     anjSlackId?: string;
+    rating?: number | null;
 }
 
 export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
-    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId } = data;
+    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, rating } = data;
     const actorLabel = actor || 'SecureStay';
 
     let text = '';
@@ -2080,6 +2081,13 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
         case 'assignee':
             text = `👤 *${actorLabel}* changed assignee from *${oldValue || 'Unassigned'}* → *${newValue || details || 'Unassigned'}*`;
             break;
+        case 'review_posted': {
+            const safeRating = Math.max(1, Math.min(5, Math.round(Number(rating || 0) > 5 ? Number(rating || 0) / 2 : Number(rating || 0))));
+            const stars = '⭐️'.repeat(safeRating || 1);
+            const reviewText = String(details || '').trim() || 'No review text provided.';
+            text = `${stars}\n_${reviewText}_`;
+            break;
+        }
         case 'visibility':
             text = `👁 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
             break;

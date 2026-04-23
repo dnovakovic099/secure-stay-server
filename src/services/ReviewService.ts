@@ -923,6 +923,33 @@ export class ReviewService {
         // else: between 14 days and VRBO threshold — leave as Awaiting Review
     }
 
+    private async postReviewPublishedToSlack(review: ReviewEntity) {
+        const reviewText = String(review.publicReview || "").trim();
+        const ratingValue = Number(review.rating);
+        if (!review.reservationId || !reviewText || !Number.isFinite(ratingValue)) {
+            return;
+        }
+
+        try {
+            const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: Number(review.reservationId) } },
+                select: ["id", "slackThreadTs"],
+            });
+
+            if (!reviewCheckout?.slackThreadTs) {
+                return;
+            }
+
+            await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+                type: "review_posted",
+                details: reviewText,
+                rating: ratingValue,
+            });
+        } catch (error) {
+            logger.error("[ReviewService] Failed to post review-published message to Slack:", error);
+        }
+    }
+
 
     // fetch all reviews from the hostaway and save it in the database
     public async syncReviews() {
@@ -953,6 +980,7 @@ export class ReviewService {
                 });
 
                 if (existingReview) {
+                    const hadPostedReview = Boolean(existingReview.publicReview && existingReview.rating);
                     // Update the existing review
                     existingReview.reviewerName = reviewData.reviewerName;
                     existingReview.channelId = reviewData.channelId;
@@ -971,6 +999,9 @@ export class ReviewService {
                     existingReview.reservationId = reviewData?.reservationId || null;
                     this.applyAutoVisibility(existingReview);
                     await this.reviewRepository.save(existingReview);
+                    if (!hadPostedReview && existingReview.publicReview && existingReview.rating) {
+                        await this.postReviewPublishedToSlack(existingReview);
+                    }
 
                     if (existingReview.rating != 10 && reviewData.rating == 10) {
                         await this.process5StarRatings(reviewData);
@@ -998,6 +1029,9 @@ export class ReviewService {
                     });
                     this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
+                    if (newReview.publicReview && newReview.rating) {
+                        await this.postReviewPublishedToSlack(newReview);
+                    }
 
                     //check if there is active claim of the reviewer
                     await this.checkForActiveClaim(newReview);
@@ -1063,6 +1097,9 @@ export class ReviewService {
                     });
                     this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
+                    if (newReview.publicReview && newReview.rating) {
+                        await this.postReviewPublishedToSlack(newReview);
+                    }
 
                     //check if there is active claim of the reviewer
                     await this.checkForActiveClaim(newReview);
