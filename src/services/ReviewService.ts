@@ -76,6 +76,7 @@ interface Filter {
     visibility?: string[] | null | undefined;
     operationalFlags?: string[] | null | undefined;
     owner?: string[] | null | undefined;
+    assignee?: string[] | null | undefined;
     isClaimOnly?: boolean | string | null | undefined;
     refundStatus?: string[] | null | undefined;
     rating?: number[] | null | undefined;
@@ -516,6 +517,15 @@ export class ReviewService {
         return current.filter((value) => normalizedIncoming.includes(value));
     }
 
+    private mergeNumberFilters(current: number[] | null, incoming: Array<number | string>) {
+        const normalizedIncoming = Array.from(
+            new Set((incoming || []).map((value) => Number(value)).filter(Boolean))
+        );
+
+        if (current === null) return normalizedIncoming;
+        return current.filter((value) => normalizedIncoming.includes(value));
+    }
+
     public async getReviews({
         fromDate,
         toDate,
@@ -524,6 +534,7 @@ export class ReviewService {
         limit,
         rating,
         owner,
+        assignee,
         claimResolutionStatus,
         status,
         isClaimOnly,
@@ -571,6 +582,8 @@ export class ReviewService {
                 listingIds = this.mergeListingIds(listingIds, ids);
             }
 
+            let filteredReservationIds: number[] | null = null;
+
             const condition: Record<string, any> = {
                 ...(listingIds !== null ? { listingMapId: In(listingIds.length > 0 ? listingIds : [-1]) } : {}),
                 ...(Array.isArray(rating) && rating.length > 0 ? { rating: In(rating) } : { rating: Not(IsNull()) }),
@@ -588,8 +601,23 @@ export class ReviewService {
                     }))
                     .getRawMany();
 
-                const reservationIds = integrationReservations.map((item: any) => Number(item.id)).filter(Boolean);
-                condition.reservationId = reservationIds.length > 0 ? In(reservationIds) : In([-1]);
+                const integrationReservationIds = integrationReservations.map((item: any) => Number(item.id)).filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, integrationReservationIds);
+            }
+
+            if (assignee && assignee.length > 0) {
+                const assigneeRows = await this.reviewCheckoutRepo.find({
+                    where: { assignee: In(assignee as string[]) },
+                    relations: ['reservationInfo'],
+                });
+                const assigneeReservationIds = assigneeRows
+                    .map((item) => Number(item.reservationInfo?.id))
+                    .filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, assigneeReservationIds);
+            }
+
+            if (filteredReservationIds !== null) {
+                condition.reservationId = In(filteredReservationIds.length > 0 ? filteredReservationIds : [-1]);
             }
 
             const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
@@ -1319,6 +1347,7 @@ export class ReviewService {
             todayDate, status: rawStatus, isActive, tab, keyword,
             propertyType, serviceType,
             integration: rawIntegration,
+            assignee: rawAssignee,
             fromDate, toDate, dateType,
             sentiment: rawSentiment,
             visibility: rawVisibility,
@@ -1337,6 +1366,7 @@ export class ReviewService {
         const listingMapId = toArr(rawListingMapId);
         const channel = toArr(rawChannel);
         const integration = toArr(rawIntegration);
+        const assignee = toArr(rawAssignee);
         const status = toArr(rawStatus);
         const sentiment = toArr(rawSentiment);
         const visibility = toArr(rawVisibility);
@@ -1440,6 +1470,10 @@ export class ReviewService {
                     .orWhere("reservationInfo.source IN (:...integration)", { integration })
                     .orWhere("reservationInfo.channelName IN (:...integration)", { integration });
             }));
+        }
+
+        if (assignee && assignee.length > 0) {
+            query.andWhere("reviewCheckout.assignee IN (:...assignee)", { assignee });
         }
 
         if (fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {

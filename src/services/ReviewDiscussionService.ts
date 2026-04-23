@@ -716,12 +716,16 @@ export class ReviewDiscussionService {
                         type: "comment",
                         actor: userId,
                         details: trimmedContent,
+                        oldValue: previousContent,
+                        newValue: trimmedContent,
                     });
                 }
                 await resolutionsService.postActivityToThread(rc.id, {
                     type: "comment",
                     actor: userId,
-                    details: `Edited note:\n_${previousContent || "—"}_\n${trimmedContent}`,
+                    oldValue: previousContent,
+                    newValue: trimmedContent,
+                    details: trimmedContent,
                 });
             }
         } catch (err) {

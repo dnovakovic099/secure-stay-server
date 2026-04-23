@@ -24,7 +24,7 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, dateType, channel, integration, sortField, sortDir } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, assignee, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, dateType, channel, integration, sortField, sortDir } = request.query;
 
             const { reviewList, totalCount } = await reviewService.getReviews({
                 fromDate,
@@ -34,6 +34,7 @@ export class ReviewController {
                 limit,
                 rating: this.normalizeNumberArrayParam(rating),
                 owner: this.normalizeArrayParam(owner),
+                assignee: this.normalizeArrayParam(assignee),
                 claimResolutionStatus,
                 status: this.normalizeArrayParam(status),
                 isClaimOnly,
