@@ -102,7 +102,7 @@ interface FilterBadReviews {
 
 interface DashboardFilters {
     listingId?: Array<string | number> | null | undefined;
-    owner?: string[] | null | undefined;
+    propertyType?: string[] | null | undefined;
     channel?: Array<string | number> | null | undefined;
     fromDate?: string | undefined;
     toDate?: string | undefined;
@@ -537,14 +537,15 @@ export class ReviewService {
 
     private async resolveDashboardListingIds({
         listingId,
-        owner,
-    }: Pick<DashboardFilters, 'listingId' | 'owner'>) {
+        propertyType,
+    }: Pick<DashboardFilters, 'listingId' | 'propertyType'>) {
         let listingIds: number[] | null = null;
 
-        if ((!listingId || listingId.length === 0) && owner && owner.length > 0) {
-            const ownerNames = Array.isArray(owner) ? owner : [owner];
-            const results = await Promise.all(ownerNames.map((ownerName) => this.getListingIdsByOwnerName(ownerName)));
-            listingIds = this.mergeListingIds(listingIds, results.flat());
+        const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
+        if (normalizedPropertyTypes.length > 0) {
+            const listingService = new ListingService();
+            const propertyTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map((listing) => listing.id);
+            listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
         }
 
         if (listingId && listingId.length > 0) {
@@ -566,10 +567,22 @@ export class ReviewService {
 
         const allowedDateTypes = ['submittedAt', 'arrivalDate', 'departureDate', 'updatedAt'];
         if (filters.fromDate && filters.toDate && filters.dateType && allowedDateTypes.includes(filters.dateType)) {
-            query.andWhere(`r.${filters.dateType} BETWEEN :fromDate AND :toDate`, {
-                fromDate: filters.fromDate,
-                toDate: filters.toDate,
-            });
+            if (filters.dateType === 'updatedAt') {
+                query.andWhere('r.updatedAt BETWEEN :fromDate AND :toDate', {
+                    fromDate: `${filters.fromDate} 00:00:00`,
+                    toDate: `${filters.toDate} 23:59:59`,
+                });
+            } else if (filters.dateType === 'submittedAt') {
+                query.andWhere('DATE(r.submittedAt) BETWEEN :fromDate AND :toDate', {
+                    fromDate: filters.fromDate,
+                    toDate: filters.toDate,
+                });
+            } else {
+                query.andWhere(`DATE(r.${filters.dateType}) BETWEEN :fromDate AND :toDate`, {
+                    fromDate: filters.fromDate,
+                    toDate: filters.toDate,
+                });
+            }
         }
 
         return query;
@@ -590,17 +603,23 @@ export class ReviewService {
         if (filters.fromDate && filters.toDate) {
             switch (filters.dateType) {
                 case 'arrivalDate':
-                    query.andWhere('ri.arrivalDate BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    query.andWhere('DATE(ri.arrivalDate) BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
                     break;
                 case 'departureDate':
-                    query.andWhere('ri.departureDate BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    query.andWhere('DATE(ri.departureDate) BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
                     break;
                 case 'updatedAt':
-                    query.andWhere('rc.updatedAt BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    query.andWhere('rc.updatedAt BETWEEN :fromDate AND :toDate', {
+                        fromDate: `${filters.fromDate} 00:00:00`,
+                        toDate: `${filters.toDate} 23:59:59`,
+                    });
                     break;
                 case 'submittedAt':
                 default:
-                    query.andWhere('rc.createdAt BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    query.andWhere('rc.createdAt BETWEEN :fromDate AND :toDate', {
+                        fromDate: `${filters.fromDate} 00:00:00`,
+                        toDate: `${filters.toDate} 23:59:59`,
+                    });
                     break;
             }
         }
