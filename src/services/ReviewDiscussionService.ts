@@ -720,13 +720,6 @@ export class ReviewDiscussionService {
                         newValue: trimmedContent,
                     });
                 }
-                await resolutionsService.postActivityToThread(rc.id, {
-                    type: "comment",
-                    actor: userId,
-                    oldValue: previousContent,
-                    newValue: trimmedContent,
-                    details: trimmedContent,
-                });
             }
         } catch (err) {
             logger.error("[ReviewDiscussion] Failed to sync edited note to Slack thread:", err);
