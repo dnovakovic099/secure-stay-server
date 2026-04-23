@@ -575,13 +575,13 @@ export class ReviewController {
     async getDashboardStats(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, owner, channel, dateType } = request.query;
+            const { fromDate, toDate, listingId, propertyType, channel, dateType } = request.query;
             const data = await reviewService.getReviewsDashboardStats({
                 fromDate: typeof fromDate === 'string' ? fromDate : undefined,
                 toDate: typeof toDate === 'string' ? toDate : undefined,
                 dateType: typeof dateType === 'string' ? dateType : undefined,
                 listingId: this.normalizeNumberArrayParam(listingId),
-                owner: this.normalizeArrayParam(owner),
+                propertyType: this.normalizeArrayParam(propertyType),
                 channel: this.normalizeArrayParam(channel),
             });
             return response.status(200).json({ success: true, data });
