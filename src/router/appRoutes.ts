@@ -56,6 +56,8 @@ import turnoverRoutes from "./turnoverRoutes";
 import hostifyRoutes from "./hostifyRoutes";
 import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
 import utilityProviderRoutes from "./utilityProviderRoutes";
+import rentalAgreementRoutes from "./rentalAgreementRoutes";
+import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
 
 const router = Router();
 
@@ -118,5 +120,7 @@ router.use('/ai', aiRoutes);
 router.use('/turnovers', turnoverRoutes);
 router.use('/hostify', hostifyRoutes);
 router.use('/utility-providers', utilityProviderRoutes);
+router.use('/rental-agreement', rentalAgreementRoutes);
+router.use('/rental-agreement-templates', rentalAgreementTemplateRoutes);
 
 export default router;
