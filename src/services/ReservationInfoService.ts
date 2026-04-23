@@ -877,16 +877,16 @@ export class ReservationInfoService {
 
   /**
    * Get reservations for a specific listing:
-   * - Past 15 days checked-out reservations
+   * - Past 90 days checked-out reservations
    * - Ongoing reservations
    * - Future reservations
    * Used for refund request form guest name dropdown
    */
   async getReservationsByListingId(listingId: number): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
     const today = format(new Date(), 'yyyy-MM-dd');
-    const past15DaysDate = new Date();
-    past15DaysDate.setDate(past15DaysDate.getDate() - 15);
-    const past15Days = format(past15DaysDate, 'yyyy-MM-dd');
+    const past90DaysDate = new Date();
+    past90DaysDate.setDate(past90DaysDate.getDate() - 90);
+    const past90Days = format(past90DaysDate, 'yyyy-MM-dd');
 
     const reservations = await this.reservationInfoRepository
       .createQueryBuilder('reservation')
@@ -895,8 +895,8 @@ export class ReservationInfoService {
       .andWhere(
         '(DATE(reservation.arrivalDate) >= :today' +
         ' OR (DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)' +
-        ' OR (DATE(reservation.departureDate) >= :past15Days AND DATE(reservation.departureDate) < :today))',
-        { today, past15Days }
+        ' OR (DATE(reservation.departureDate) >= :past90Days AND DATE(reservation.departureDate) < :today))',
+        { today, past90Days }
       )
       .orderBy('reservation.arrivalDate', 'ASC')
       .getMany();
