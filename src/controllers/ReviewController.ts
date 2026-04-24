@@ -590,4 +590,25 @@ export class ReviewController {
             return next(error);
         }
     }
+
+    async getDashboardDrilldown(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const { fromDate, toDate, listingId, propertyType, channel, dateType, dimension, value } = request.query;
+            const data = await reviewService.getReviewsDashboardDrilldown({
+                fromDate: typeof fromDate === 'string' ? fromDate : undefined,
+                toDate: typeof toDate === 'string' ? toDate : undefined,
+                dateType: typeof dateType === 'string' ? dateType : undefined,
+                listingId: this.normalizeNumberArrayParam(listingId),
+                propertyType: this.normalizeArrayParam(propertyType),
+                channel: this.normalizeArrayParam(channel),
+                dimension: typeof dimension === 'string' ? dimension : undefined,
+                value: typeof value === 'string' ? value : undefined,
+            });
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            logger.error("Error fetching review dashboard drilldown:", error);
+            return next(error);
+        }
+    }
 }

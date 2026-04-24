@@ -83,5 +83,6 @@ router.route('/bad-review')
     .get(verifySession, validateGetBadReview, reviewController.getBadReview.bind(reviewController))
 
 router.route('/dashboard').get(verifySession, reviewController.getDashboardStats.bind(reviewController));
+router.route('/dashboard/drilldown').get(verifySession, reviewController.getDashboardDrilldown.bind(reviewController));
 
 export default router;
