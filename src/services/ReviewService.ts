@@ -115,11 +115,22 @@ type DashboardDrilldownDimension =
     | 'review_month'
     | 'mitigation_status'
     | 'mitigation_month'
-    | 'mitigation_property_type';
+    | 'mitigation_property_type'
+    | 'mitigation_assignee';
 
 interface DashboardDrilldownFilters extends DashboardFilters {
     dimension?: DashboardDrilldownDimension | string | undefined;
     value?: string | undefined;
+}
+
+interface DashboardUserSummary {
+    uid: string | null;
+    displayName: string;
+    fullNameTooltip: string;
+    firstName: string;
+    lastName: string;
+    preferredName: string | null;
+    photoUrl: string | null;
 }
 
 export enum ReviewCheckoutStatus {
@@ -566,6 +577,110 @@ export class ReviewService {
         }
 
         return listingIds;
+    }
+
+    private applyDashboardReservationFilters(query: any, filters: DashboardFilters, listingIds: number[] | null) {
+        if (listingIds !== null) {
+            query.andWhere('ri.listingMapId IN (:...listingIds)', { listingIds: listingIds.length ? listingIds : [-1] });
+        }
+
+        if (filters.channel && filters.channel.length > 0) {
+            const channelIds = Array.from(new Set((filters.channel || []).map((value) => Number(value)).filter(Boolean)));
+            query.andWhere('ri.channelId IN (:...channelIds)', { channelIds: channelIds.length ? channelIds : [-1] });
+        }
+
+        if (filters.fromDate && filters.toDate) {
+            switch (filters.dateType) {
+                case 'arrivalDate':
+                    query.andWhere('DATE(ri.arrivalDate) BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+                case 'updatedAt':
+                case 'submittedAt':
+                case 'departureDate':
+                default:
+                    query.andWhere('DATE(ri.departureDate) BETWEEN :fromDate AND :toDate', { fromDate: filters.fromDate, toDate: filters.toDate });
+                    break;
+            }
+        }
+
+        return query;
+    }
+
+    private async buildDashboardUserSummaryMap(userIds: Array<string | null | undefined>) {
+        const normalizedUserIds = Array.from(new Set(userIds.map((value) => String(value || '').trim()).filter(Boolean)));
+        if (!normalizedUserIds.length) return new Map<string, DashboardUserSummary>();
+
+        const users = await this.usersRepo.find({
+            where: { uid: In(normalizedUserIds as any) },
+            select: ['id', 'uid', 'firstName', 'lastName', 'email'],
+        });
+        const userByUid = new Map(users.map((user) => [user.uid, user]));
+        const employees = users.length > 0
+            ? await this.employeeRepo.find({
+                where: { userId: In(users.map((user) => user.id)), deletedAt: null as any },
+                select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId'],
+            })
+            : [];
+        const employeeByUserId = new Map(employees.map((employee) => [employee.userId, employee]));
+
+        const profilePhotoIds = Array.from(new Set(
+            employees
+                .map((employee) => Number(employee.profilePhoto))
+                .filter((photoId) => !Number.isNaN(photoId) && photoId > 0)
+        ));
+        const photoInfos = profilePhotoIds.length > 0
+            ? await this.fileInfoRepo.find({ where: { id: In(profilePhotoIds) } })
+            : [];
+        const photoInfoById = new Map(photoInfos.map((fileInfo) => [fileInfo.id, fileInfo]));
+
+        const slackUsers = await getSlackUsers() as Array<{ id: string; image?: string | null }>;
+        const slackUserById = new Map(slackUsers.map((user) => [user.id, user]));
+
+        const summaryMap = new Map<string, DashboardUserSummary>();
+        normalizedUserIds.forEach((uid) => {
+            const user = userByUid.get(uid);
+            if (!user) {
+                summaryMap.set(uid, {
+                    uid,
+                    displayName: uid,
+                    fullNameTooltip: uid,
+                    firstName: '',
+                    lastName: '',
+                    preferredName: null,
+                    photoUrl: null,
+                });
+                return;
+            }
+
+            const employee = employeeByUserId.get(user.id);
+            const firstName = String(user.firstName || '').trim();
+            const lastName = String(user.lastName || '').trim();
+            const preferredName = String(employee?.preferredName || '').trim() || null;
+            const displayName = preferredName || firstName || user.email || uid;
+            const fullNameTooltip = preferredName
+                ? [firstName, `"${preferredName}"`, lastName].filter(Boolean).join(' ').trim()
+                : [firstName, lastName].filter(Boolean).join(' ').trim() || user.email || uid;
+
+            const profilePhotoId = Number(employee?.profilePhoto);
+            const employeePhotoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+                ? this.buildEmployeePhotoUrl(photoInfoById.get(profilePhotoId) || null)
+                : null;
+            const slackPhotoUrl = employee?.slackUserId
+                ? slackUserById.get(employee.slackUserId)?.image || null
+                : null;
+
+            summaryMap.set(uid, {
+                uid,
+                displayName,
+                fullNameTooltip,
+                firstName,
+                lastName,
+                preferredName,
+                photoUrl: employeePhotoUrl || slackPhotoUrl,
+            });
+        });
+
+        return summaryMap;
     }
 
     private applyDashboardReviewFilters(query: any, filters: DashboardFilters, listingIds: number[] | null) {
@@ -2773,13 +2888,15 @@ export class ReviewService {
             this.applyDashboardReviewFilters(
                 this.reviewRepository
                 .createQueryBuilder('r')
-                .select('r.channelName', 'channelName')
-                .addSelect('COUNT(*)', 'count')
+                .select('r.channelId', 'channelId')
+                .addSelect('r.channelName', 'channelName')
+                .addSelect('COUNT(DISTINCT IFNULL(NULLIF(r.reservationId, 0), CONCAT(\'review-\', r.id)))', 'count')
                 .addSelect('ROUND(AVG(r.rating), 2)', 'avgRating')
                 .where('r.rating IS NOT NULL')
-                .groupBy('r.channelName')
+                .groupBy('r.channelId')
+                .addGroupBy('r.channelName')
                 .orderBy('count', 'DESC')
-                .limit(8),
+                .limit(50),
                 filters,
                 listingIds
             ).getRawMany(),
@@ -2842,6 +2959,30 @@ export class ReviewService {
             ).getRawMany(),
         ]);
 
+        const [reservationChannelBreakdown, mitigationAssigneeBreakdown] = await Promise.all([
+            this.applyDashboardReservationFilters(
+                this.reservationInfoRepo
+                    .createQueryBuilder('ri')
+                    .select('ri.channelId', 'channelId')
+                    .addSelect('ri.channelName', 'channelName')
+                    .addSelect('COUNT(DISTINCT ri.id)', 'totalReservations')
+                    .groupBy('ri.channelId')
+                    .addGroupBy('ri.channelName'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardMitigationFilters(
+                this.reviewCheckoutRepo
+                    .createQueryBuilder('rc')
+                    .select('rc.assignee', 'assignee')
+                    .addSelect('COUNT(*)', 'count')
+                    .where('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
+                    .groupBy('rc.assignee'),
+                filters,
+                listingIds
+            ).getRawMany(),
+        ]);
+
         // Property type distribution
         const mitigationListingIds = checkoutCountsByListing.map(c => Number(c.listingMapId)).filter(Boolean);
         const listings = mitigationListingIds.length > 0
@@ -2857,7 +2998,11 @@ export class ReviewService {
         // Compute summary stats
         const totalVisible = Number(visibilityStats.find(v => String(v.isHidden) === '0')?.count || 0);
         const totalHidden = Number(visibilityStats.find(v => String(v.isHidden) === '1')?.count || 0);
-        const ratingDist = ratingDistribution.map(r => ({ rating: Number(r.rating), count: Number(r.count) }));
+        const ratingMap = new Map<number, number>(ratingDistribution.map((row) => [Number(row.rating), Number(row.count)]));
+        const ratingDist: Array<{ rating: number; count: number }> = [1, 2, 3, 4, 5].map((rating) => ({
+            rating,
+            count: ratingMap.get(rating) || 0,
+        }));
         const totalRated = ratingDist.reduce((sum, r) => sum + r.count, 0);
         const fiveStarCount = ratingDist.find(r => r.rating === 5)?.count || 0;
         const lowRatingCount = ratingDist.filter(r => r.rating <= 3).reduce((sum, r) => sum + r.count, 0);
@@ -2872,6 +3017,60 @@ export class ReviewService {
             .reduce((sum, s) => sum + s.count, 0);
         const openMitigation = totalMitigation - closedMitigation;
 
+        const reservationChannelMap = new Map(
+            reservationChannelBreakdown.map((row) => [
+                `${Number(row.channelId || 0)}::${String(row.channelName || '').trim()}`,
+                Number(row.totalReservations || 0),
+            ])
+        );
+
+        const channelData = channelBreakdown
+            .map((channelRow) => {
+                const key = `${Number(channelRow.channelId || 0)}::${String(channelRow.channelName || '').trim()}`;
+                const reviewedReservations = Number(channelRow.count);
+                const totalReservations = reservationChannelMap.get(key) || reviewedReservations;
+                return {
+                    channelId: Number(channelRow.channelId || 0) || null,
+                    channelName: channelRow.channelName || 'Unknown',
+                    count: reviewedReservations,
+                    reviewedReservations,
+                    totalReservations,
+                    avgRating: parseFloat(Number(channelRow.avgRating).toFixed(2)),
+                };
+            })
+            .filter((entry) => entry.reviewedReservations > 0);
+
+        const assigneeSummaryMap = await this.buildDashboardUserSummaryMap(
+            mitigationAssigneeBreakdown.map((row) => String(row.assignee || '').trim() || null)
+        );
+        const assigneeDistribution = mitigationAssigneeBreakdown.map((row) => {
+            const assigneeUid = String(row.assignee || '').trim() || null;
+            if (!assigneeUid) {
+                return {
+                    uid: null,
+                    displayName: 'Unassigned',
+                    fullNameTooltip: 'Unassigned',
+                    firstName: '',
+                    lastName: '',
+                    preferredName: null,
+                    photoUrl: null,
+                    count: Number(row.count || 0),
+                };
+            }
+
+            const summary = assigneeSummaryMap.get(assigneeUid);
+            return {
+                uid: assigneeUid,
+                displayName: summary?.displayName || assigneeUid,
+                fullNameTooltip: summary?.fullNameTooltip || assigneeUid,
+                firstName: summary?.firstName || '',
+                lastName: summary?.lastName || '',
+                preferredName: summary?.preferredName || null,
+                photoUrl: summary?.photoUrl || null,
+                count: Number(row.count || 0),
+            };
+        }).sort((left, right) => right.count - left.count);
+
         return {
             reviews: {
                 total: totalVisible + totalHidden,
@@ -2881,11 +3080,7 @@ export class ReviewService {
                 fiveStarCount,
                 lowRatingCount,
                 ratingDistribution: ratingDist,
-                channelBreakdown: channelBreakdown.map(c => ({
-                    channelName: c.channelName || 'Unknown',
-                    count: Number(c.count),
-                    avgRating: parseFloat(Number(c.avgRating).toFixed(2)),
-                })),
+                channelBreakdown: channelData,
                 monthlyTrend: reviewMonthlyTrend.map(m => ({
                     month: m.month,
                     count: Number(m.count),
@@ -2899,6 +3094,7 @@ export class ReviewService {
                 byStatus: mitigationStatusData,
                 monthlyTrend: mitigationMonthlyTrend.map(m => ({ month: m.month, count: Number(m.count) })),
                 propertyTypeDistribution: Object.entries(propertyTypeCounts).map(([type, count]) => ({ type, count })),
+                assigneeDistribution,
             },
         };
     }
@@ -2918,6 +3114,7 @@ export class ReviewService {
             'mitigation_status',
             'mitigation_month',
             'mitigation_property_type',
+            'mitigation_assignee',
         ];
 
         if (!allowedDimensions.includes(dimension)) {
@@ -3036,6 +3233,16 @@ export class ReviewService {
                     statusValue: value,
                 });
                 title = `Mitigation Status: ${value}`;
+                break;
+            case 'mitigation_assignee':
+                if (value === '__unassigned__') {
+                    mitigationQuery.andWhere('(rc.assignee IS NULL OR TRIM(rc.assignee) = "")');
+                    title = 'Unassigned Mitigation Records';
+                } else {
+                    mitigationQuery.andWhere('rc.assignee = :assigneeValue', { assigneeValue: value });
+                    const assigneeSummaryMap = await this.buildDashboardUserSummaryMap([value]);
+                    title = `${assigneeSummaryMap.get(value)?.displayName || value} Mitigation Records`;
+                }
                 break;
             case 'mitigation_month':
                 mitigationQuery.andWhere("DATE_FORMAT(rc.createdAt, '%Y-%m') = :month", { month: value });
