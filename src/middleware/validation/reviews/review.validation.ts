@@ -59,6 +59,10 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             'updatedAt'
         ),
         sortDir: Joi.string().optional().valid('ASC', 'DESC'),
+        assignee: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional().allow(null, ""),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
@@ -178,6 +182,10 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional(),
+        assignee: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional().allow(null, ""),
     });
 
     const { error } = schema.validate(request.query);
