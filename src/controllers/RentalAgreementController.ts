@@ -6,6 +6,24 @@ interface CustomRequest extends Request {
 }
 
 export class RentalAgreementController {
+    async getAdminOverview(req: CustomRequest, res: Response) {
+        try {
+            const result = await rentalAgreementSigningService.getAdminOverview({
+                search: req.query.search as string | undefined,
+                signingStatus: req.query.signingStatus as string | undefined,
+                pdfStatus: req.query.pdfStatus as string | undefined,
+                fromDate: req.query.fromDate as string | undefined,
+                toDate: req.query.toDate as string | undefined,
+                sort: req.query.sort as string | undefined,
+                page: req.query.page ? Number(req.query.page) : undefined,
+                limit: req.query.limit ? Number(req.query.limit) : undefined,
+            });
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
     // PUBLIC — no auth — guest fetches the agreement for their reservation
     async getAgreementForGuest(req: Request, res: Response, next: NextFunction) {
         try {
@@ -77,6 +95,78 @@ export class RentalAgreementController {
             res.json({ success: true, data: { downloadUrl } });
         } catch (err: any) {
             res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async downloadSigningFile(req: CustomRequest, res: Response) {
+        try {
+            const signingId = Number(req.params.id);
+            const target = await rentalAgreementSigningService.getAdminDownloadTarget(signingId);
+            if (!target) {
+                return res.status(404).json({ success: false, message: "Signing not found" });
+            }
+            if (target.localPath) {
+                return res.download(target.localPath, target.fileName);
+            }
+            if (target.redirectUrl) {
+                return res.redirect(target.redirectUrl);
+            }
+            return res.status(409).json({
+                success: false,
+                message: target.pdfStatus === "pdf_failed"
+                    ? "PDF generation failed. Please retry PDF generation."
+                    : "PDF is still being prepared.",
+                data: { pdfStatus: target.pdfStatus },
+            });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async downloadGuestSigningFile(req: Request, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const target = await rentalAgreementSigningService.getGuestDownloadTarget(hostifyReservationId);
+            if (!target) {
+                return res.status(404).json({ success: false, message: "Agreement not found" });
+            }
+            if (target.localPath) {
+                return res.download(target.localPath, target.fileName);
+            }
+            if (target.redirectUrl) {
+                return res.redirect(target.redirectUrl);
+            }
+            return res.status(409).json({
+                success: false,
+                message: target.pdfStatus === "pdf_failed"
+                    ? "The signed agreement exists, but the PDF is not available yet."
+                    : "PDF is still being prepared.",
+                data: { pdfStatus: target.pdfStatus },
+            });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async sendAgreement(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const result = await rentalAgreementSigningService.sendAgreement(hostifyReservationId);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 400;
+            res.status(status).json({ success: false, message: err.message });
+        }
+    }
+
+    async retryPdfGeneration(req: CustomRequest, res: Response) {
+        try {
+            const signingId = Number(req.params.id);
+            const result = await rentalAgreementSigningService.retryPdfGeneration(signingId);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Signing not found" || err.message === "Reservation not found" ? 404 : 400;
+            res.status(status).json({ success: false, message: err.message });
         }
     }
 }

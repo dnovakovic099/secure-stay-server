@@ -29,7 +29,7 @@ export const sendSupportEmail = async (
 ): Promise<any> => {
     try {
         const info = await supportTransporter.sendMail({
-            from: process.env.SUPPORT_EMAIL,
+            from: process.env.SUPPORT_EMAIL || "support@luxurylodgingpm.com",
             to,
             subject,
             html,
