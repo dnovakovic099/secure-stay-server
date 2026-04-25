@@ -24,6 +24,7 @@ interface SearchFilters {
   numberOfPets?: number;   // Number of pets for fee calculation
   propertyType?: string[];
   amenities?: string[];
+  matchReference?: boolean;
 }
 
 interface PricingInfo {
@@ -52,8 +53,12 @@ interface PropertyWithDistance {
   currencyCode?: string;
   isPetFriendly?: boolean;
   pricing?: PricingInfo;  // Full computed pricing when dates provided
-  propertyType?: string | null;
+  structureType?: string | null;
+  ownershipType?: string | null;
   amenities?: string[];
+  amenityMatchPercentage?: number;
+  matchedAmenities?: string[];
+  missingAmenities?: string[];
   distance?: {
     text: string;
     value: number;
@@ -106,6 +111,10 @@ export class MapsService {
     return null;
   }
 
+  private getListingStructureType(listing: Listing): string | null {
+    return listing.propertyType || null;
+  }
+
   /**
    * Get all unique states from city_state_info table
    */
@@ -138,7 +147,7 @@ export class MapsService {
   /**
    * Get all listings that can serve as reference properties
    */
-  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; city: string; state: string; propertyType: string | null; amenities: string[]; tags: string | null; }[]> {
+  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; city: string; state: string; structureType: string | null; ownershipType: string | null; amenities: string[]; tags: string | null; }[]> {
     const queryBuilder = this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
@@ -161,7 +170,8 @@ export class MapsService {
       city: listing.city,
       state: listing.state,
       tags: listing.tags || null,
-      propertyType: this.getListingPropertyType(listing.tags),
+      structureType: this.getListingStructureType(listing),
+      ownershipType: this.getListingPropertyType(listing.tags),
       amenities: (listing.listingAmenities || [])
         .map((item) => item.amenityName)
         .filter((item): item is string => !!item),
@@ -213,6 +223,7 @@ export class MapsService {
     const queryBuilder = this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.images", "images")
+      .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .where("listing.deletedAt IS NULL");
 
     // Apply state filter (exact match using state name)
@@ -264,13 +275,6 @@ export class MapsService {
     }
 
     const hasAmenityFilters = !!(filters.amenities && filters.amenities.length > 0);
-
-    if (hasAmenityFilters) {
-      // Only join amenities when we actually need to filter by them.
-      // Joining another one-to-many relation into the paginated explorer query can
-      // make the search path brittle and much heavier than necessary.
-      queryBuilder.leftJoinAndSelect("listing.listingAmenities", "listingAmenities");
-    }
 
     // Limit results to prevent slow queries - get max 100 listings
     queryBuilder.take(100);
@@ -394,12 +398,11 @@ export class MapsService {
         currencyCode: listing.currencyCode || "USD",
         isPetFriendly,
         pricing: pricing || { priceAvailable: false },
-        propertyType: this.getListingPropertyType(listing.tags),
-        amenities: hasAmenityFilters
-          ? (listing.listingAmenities || [])
-              .map((item) => item.amenityName)
-              .filter((item): item is string => !!item)
-          : undefined,
+        structureType: this.getListingStructureType(listing),
+        ownershipType: this.getListingPropertyType(listing.tags),
+        amenities: (listing.listingAmenities || [])
+          .map((item) => item.amenityName)
+          .filter((item): item is string => !!item),
       };
     });
 
@@ -486,7 +489,8 @@ export class MapsService {
           currencyCode: referenceProperty.currencyCode || "USD",
           isPetFriendly: refPetFriendly,
           pricing: refPricing || { priceAvailable: false },
-          propertyType: this.getListingPropertyType(referenceProperty.tags),
+          structureType: this.getListingStructureType(referenceProperty),
+          ownershipType: this.getListingPropertyType(referenceProperty.tags),
           amenities: (referenceProperty.listingAmenities || [])
             .map((item) => item.amenityName)
             .filter((item): item is string => !!item),
@@ -502,8 +506,50 @@ export class MapsService {
           return true;
         });
 
-        metadata.totalFound = dedupedResults.length;
-        return { properties: dedupedResults, metadata };
+        const referenceAmenities = new Set(
+          refProp.amenities
+            ?.map((item) => this.normalizeAmenityFilter(item))
+            .filter((item): item is string => !!item) || []
+        );
+
+        let enrichedResults = dedupedResults.map((property) => {
+          if (property.isReference) {
+            return {
+              ...property,
+              amenityMatchPercentage: 100,
+              matchedAmenities: property.amenities || [],
+              missingAmenities: [],
+            };
+          }
+
+          const propertyAmenities = new Set(
+            (property.amenities || [])
+              .map((item) => this.normalizeAmenityFilter(item))
+              .filter((item): item is string => !!item)
+          );
+
+          const matchedAmenities = Array.from(referenceAmenities).filter((item) => propertyAmenities.has(item));
+          const missingAmenities = Array.from(referenceAmenities).filter((item) => !propertyAmenities.has(item));
+          const amenityMatchPercentage = referenceAmenities.size > 0
+            ? Math.round((matchedAmenities.length / referenceAmenities.size) * 100)
+            : null;
+
+          return {
+            ...property,
+            amenityMatchPercentage: amenityMatchPercentage ?? undefined,
+            matchedAmenities,
+            missingAmenities,
+          };
+        });
+
+        if (filters.matchReference && referenceAmenities.size > 0) {
+          enrichedResults = enrichedResults.filter((property) =>
+            property.isReference || (property.amenityMatchPercentage || 0) >= 75
+          );
+        }
+
+        metadata.totalFound = enrichedResults.length;
+        return { properties: enrichedResults, metadata };
       }
     }
 
