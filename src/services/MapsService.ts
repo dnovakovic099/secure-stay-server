@@ -147,13 +147,14 @@ export class MapsService {
   /**
    * Get all listings that can serve as reference properties
    */
-  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; city: string; state: string; structureType: string | null; ownershipType: string | null; amenities: string[]; tags: string | null; }[]> {
+  async getListingsForReference(userId?: string): Promise<{ id: number; internalListingName: string; address: string; city: string; state: string; structureType: string | null; ownershipType: string | null; amenities: string[]; tags: string | null; }[]> {
     const queryBuilder = this.listingRepository
       .createQueryBuilder("listing")
       .leftJoinAndSelect("listing.listingAmenities", "listingAmenities")
       .select([
         "listing.id",
         "listing.internalListingName",
+        "listing.address",
         "listing.city",
         "listing.state",
         "listing.tags",
@@ -167,6 +168,7 @@ export class MapsService {
     return listings.map((listing) => ({
       id: listing.id,
       internalListingName: listing.internalListingName,
+      address: listing.address,
       city: listing.city,
       state: listing.state,
       tags: listing.tags || null,
