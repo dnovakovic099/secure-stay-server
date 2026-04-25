@@ -57,6 +57,7 @@ type RentalAgreementOverviewRow = {
     signedByEmail: string | null;
     pdfStatus: string | null;
     pdfDownloadAvailable: boolean;
+    pdfViewUrl: string | null;
 };
 
 export class RentalAgreementSigningService {
@@ -134,8 +135,9 @@ export class RentalAgreementSigningService {
         return `/rental-agreement/signings/${signingId}/file`;
     }
 
-    private buildGuestDownloadPath(hostifyReservationId: string) {
-        return `/rental-agreement/guest/${hostifyReservationId}/download`;
+    private buildGuestDownloadPath(hostifyReservationId: string, baseUrl?: string) {
+        const path = `/rental-agreement/guest/${hostifyReservationId}/download`;
+        return baseUrl ? `${baseUrl}${path}` : path;
     }
 
     private async getReservationAndListing(hostifyReservationId: string): Promise<{ reservationInfo: ReservationInfoEntity; listing: Listing | null }> {
@@ -196,6 +198,7 @@ export class RentalAgreementSigningService {
     private buildOverviewRow(
         raw: any,
         pdfDownloadAvailable: boolean,
+        fileInfo: FileInfo | null,
     ): RentalAgreementOverviewRow {
         return {
             reservationInfoId: Number(raw.reservationInfoId),
@@ -217,6 +220,7 @@ export class RentalAgreementSigningService {
             signedByEmail: raw.signedByEmail || null,
             pdfStatus: raw.pdfStatus || null,
             pdfDownloadAvailable,
+            pdfViewUrl: fileInfo?.webViewLink || null,
         };
     }
 
@@ -313,7 +317,7 @@ export class RentalAgreementSigningService {
         return { signingId: saved.id };
     }
 
-    async getSigningStatus(hostifyReservationId: string): Promise<{
+    async getSigningStatus(hostifyReservationId: string, baseUrl?: string): Promise<{
         pdfStatus: string;
         downloadUrl: string | null;
     }> {
@@ -324,7 +328,7 @@ export class RentalAgreementSigningService {
 
         const fileInfo = await this.getFileInfoForSigning(signing);
         const downloadUrl = this.isDownloadArtifactAvailable(fileInfo)
-            ? this.buildGuestDownloadPath(hostifyReservationId)
+            ? this.buildGuestDownloadPath(hostifyReservationId, baseUrl)
             : null;
 
         return { pdfStatus: signing.pdfStatus, downloadUrl };
@@ -479,7 +483,7 @@ export class RentalAgreementSigningService {
 
         const records = rawRows.map((row) => {
             const fileInfo = row.fileInfoId ? fileInfoMap.get(Number(row.fileInfoId)) || null : null;
-            return this.buildOverviewRow(row, this.isDownloadArtifactAvailable(fileInfo));
+            return this.buildOverviewRow(row, this.isDownloadArtifactAvailable(fileInfo), fileInfo);
         });
 
         const buildSummaryCard = async (label: string, start: Date, end: Date): Promise<RentalAgreementSummaryCard> => {
@@ -579,17 +583,18 @@ export class RentalAgreementSigningService {
     async getAdminDownloadTarget(signingId: number): Promise<{
         fileName: string;
         localPath: string | null;
-        redirectUrl: string | null;
+        driveFileId: string | null;
         pdfStatus: string;
     } | null> {
         const { signing } = await this.getSigningWithFile(signingId);
         if (!signing) return null;
 
         const { signing: refreshedSigning, fileInfo } = await this.regeneratePdfIfNeeded(signing);
+
         return {
             fileName: fileInfo?.fileName || `rental-agreement-${signingId}.pdf`,
             localPath: fileInfo?.localPath && fs.existsSync(fileInfo.localPath) ? fileInfo.localPath : null,
-            redirectUrl: fileInfo?.webContentLink || null,
+            driveFileId: fileInfo?.driveFileId || null,
             pdfStatus: refreshedSigning.pdfStatus,
         };
     }
@@ -597,17 +602,18 @@ export class RentalAgreementSigningService {
     async getGuestDownloadTarget(hostifyReservationId: string): Promise<{
         fileName: string;
         localPath: string | null;
-        redirectUrl: string | null;
+        driveFileId: string | null;
         pdfStatus: string;
     } | null> {
         const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
         if (!signing) return null;
 
         const { signing: refreshedSigning, fileInfo } = await this.regeneratePdfIfNeeded(signing);
+
         return {
             fileName: fileInfo?.fileName || `rental-agreement-${hostifyReservationId}.pdf`,
             localPath: fileInfo?.localPath && fs.existsSync(fileInfo.localPath) ? fileInfo.localPath : null,
-            redirectUrl: fileInfo?.webContentLink || null,
+            driveFileId: fileInfo?.driveFileId || null,
             pdfStatus: refreshedSigning.pdfStatus,
         };
     }
