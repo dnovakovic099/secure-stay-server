@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { rentalAgreementSigningService } from "../services/RentalAgreementSigningService";
+import { drive } from "../utils/drive";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -66,7 +67,11 @@ export class RentalAgreementController {
     async getSigningStatus(req: Request, res: Response, next: NextFunction) {
         try {
             const { hostifyReservationId } = req.params;
-            const result = await rentalAgreementSigningService.getSigningStatus(hostifyReservationId);
+            const protocol = req.protocol;
+            const host = req.get("host");
+            const baseUrl = `${protocol}://${host}`;
+
+            const result = await rentalAgreementSigningService.getSigningStatus(hostifyReservationId, baseUrl);
             res.json({ success: true, data: result });
         } catch (err: any) {
             res.status(500).json({ success: false, message: err.message });
@@ -108,8 +113,14 @@ export class RentalAgreementController {
             if (target.localPath) {
                 return res.download(target.localPath, target.fileName);
             }
-            if (target.redirectUrl) {
-                return res.redirect(target.redirectUrl);
+            if (target.driveFileId) {
+                res.setHeader("Content-Type", "application/pdf");
+                res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
+                const driveRes = await drive.files.get(
+                    { fileId: target.driveFileId, alt: "media" },
+                    { responseType: "stream" }
+                );
+                return (driveRes.data as NodeJS.ReadableStream).pipe(res);
             }
             return res.status(409).json({
                 success: false,
@@ -133,8 +144,14 @@ export class RentalAgreementController {
             if (target.localPath) {
                 return res.download(target.localPath, target.fileName);
             }
-            if (target.redirectUrl) {
-                return res.redirect(target.redirectUrl);
+            if (target.driveFileId) {
+                res.setHeader("Content-Type", "application/pdf");
+                res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
+                const driveRes = await drive.files.get(
+                    { fileId: target.driveFileId, alt: "media" },
+                    { responseType: "stream" }
+                );
+                return (driveRes.data as NodeJS.ReadableStream).pipe(res);
             }
             return res.status(409).json({
                 success: false,
