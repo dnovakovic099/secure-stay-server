@@ -18,10 +18,72 @@ export class RentalAgreementController {
                 sort: req.query.sort as string | undefined,
                 page: req.query.page ? Number(req.query.page) : undefined,
                 limit: req.query.limit ? Number(req.query.limit) : undefined,
+                statusTab: req.query.statusTab as string | undefined,
+                bucket: req.query.bucket as string | undefined,
+                editedOnly: req.query.editedOnly as string | undefined,
             });
             res.json({ success: true, data: result });
         } catch (err: any) {
             res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async getPreviewContext(req: CustomRequest, res: Response) {
+        try {
+            const result = await rentalAgreementSigningService.getLatestPreviewContext();
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async getReservationDocument(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const result = await rentalAgreementSigningService.getReservationDocumentForAdmin(hostifyReservationId);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 500;
+            res.status(status).json({ success: false, message: err.message });
+        }
+    }
+
+    async updateReservationDocument(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const userId = req.user?.email || req.user?.id;
+            const result = await rentalAgreementSigningService.upsertReservationDocumentForAdmin(hostifyReservationId, req.body || {}, userId);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 500;
+            res.status(status).json({ success: false, message: err.message });
+        }
+    }
+
+    async updateReservationOverride(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const userId = req.user?.email || req.user?.id;
+            const result = await rentalAgreementSigningService.setReservationOverride(
+                hostifyReservationId,
+                Boolean(req.body?.isOverridden),
+                userId,
+            );
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 500;
+            res.status(status).json({ success: false, message: err.message });
+        }
+    }
+
+    async getSendPreview(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const result = await rentalAgreementSigningService.getManualSendPreview(hostifyReservationId);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 500;
+            res.status(status).json({ success: false, message: err.message });
         }
     }
 
@@ -168,7 +230,11 @@ export class RentalAgreementController {
     async sendAgreement(req: CustomRequest, res: Response) {
         try {
             const { hostifyReservationId } = req.params;
-            const result = await rentalAgreementSigningService.sendAgreement(hostifyReservationId);
+            const result = await rentalAgreementSigningService.sendAgreement(hostifyReservationId, {
+                recipientEmail: req.body?.recipientEmail,
+                subject: req.body?.subject,
+                bodyHtml: req.body?.bodyHtml,
+            });
             res.json({ success: true, data: result });
         } catch (err: any) {
             const status = err.message === "Reservation not found" ? 404 : 400;

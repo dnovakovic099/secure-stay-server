@@ -2,7 +2,7 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import puppeteer from "puppeteer";
-import { addDays, endOfDay, format, startOfDay } from "date-fns";
+import { addDays, endOfDay, format, startOfDay, subDays } from "date-fns";
 import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { RentalAgreementSigning } from "../entity/RentalAgreementSigning";
@@ -13,11 +13,13 @@ import { Listing } from "../entity/Listing";
 import { PUPPETEER_LAUNCH_OPTIONS } from "../constants";
 import { rentalAgreementTemplateService } from "./RentalAgreementTemplateService";
 import { sendSupportEmail } from "../utils/sendSupportEmail";
+import { RentalAgreementReservationDocument } from "../entity/RentalAgreementReservationDocument";
 
 const signingRepo = () => appDatabase.getRepository(RentalAgreementSigning);
 const fileInfoRepo = () => appDatabase.getRepository(FileInfo);
 const reservationInfoRepo = () => appDatabase.getRepository(ReservationInfoEntity);
 const listingRepo = () => appDatabase.getRepository(Listing);
+const reservationDocumentRepo = () => appDatabase.getRepository(RentalAgreementReservationDocument);
 
 type RentalAgreementAdminFilters = {
     search?: string;
@@ -28,6 +30,9 @@ type RentalAgreementAdminFilters = {
     sort?: string;
     page?: number;
     limit?: number;
+    statusTab?: string;
+    bucket?: string;
+    editedOnly?: string | boolean;
 };
 
 type RentalAgreementSummaryCard = {
@@ -35,6 +40,7 @@ type RentalAgreementSummaryCard = {
     total: number;
     signed: number;
     unsigned: number;
+    overridden: number;
 };
 
 type RentalAgreementOverviewRow = {
@@ -58,6 +64,57 @@ type RentalAgreementOverviewRow = {
     pdfStatus: string | null;
     pdfDownloadAvailable: boolean;
     pdfViewUrl: string | null;
+    isEdited: boolean;
+    isOverridden: boolean;
+    agreementStatus: "signed" | "overridden" | "not_yet_signed";
+};
+
+type RentalAgreementTemplateContext = {
+    guestName: string;
+    guestFirstName: string;
+    guestLastName: string;
+    guestEmail: string;
+    guestPhone: string;
+    channel: string;
+    petCount: string;
+    checkInDate: string;
+    checkOutDate: string;
+    propertyName: string;
+    propertyFullAddress: string;
+    checkInTime: string;
+    checkOutTime: string;
+    nights: string;
+    numberOfGuests: string;
+    totalPrice: string;
+    currency: string;
+    reservationId: string;
+};
+
+type AgreementSnapshot = {
+    headerHtml: string;
+    bodyHtml: string;
+    footerHtml: string;
+    emailSubject: string;
+    emailBodyHtml: string;
+    isEdited: boolean;
+    isOverridden: boolean;
+    sourceTemplateId: number | null;
+};
+
+type PreviewReservationContext = {
+    hostifyReservationId: string;
+    reservationCode: string;
+    guestName: string;
+    guestEmail: string;
+    guestPhone: string;
+    channel: string;
+    petCount: number;
+    propertyName: string;
+    propertyAddress: string;
+    arrivalDate: string | null;
+    departureDate: string | null;
+    checkInTime: string;
+    checkOutTime: string;
 };
 
 export class RentalAgreementSigningService {
@@ -68,7 +125,7 @@ export class RentalAgreementSigningService {
         "inquirytimedout", "inquirynotpossible",
         "denied", "no_show", "awaiting_payment",
         "declined_inq", "preapproved", "offer",
-        "withdrawn", "timedout", "not_possible", "deleted"
+        "withdrawn", "timedout", "not_possible", "deleted",
     ];
 
     private getFrontendBaseUrl() {
@@ -106,7 +163,7 @@ export class RentalAgreementSigningService {
         return listingRepo().findOne({ where: { id: reservationInfo.listingMapId } });
     }
 
-    private buildTemplateContext(info: ReservationInfoEntity, listing: Listing | null) {
+    private buildTemplateContext(info: ReservationInfoEntity, listing: Listing | null): RentalAgreementTemplateContext {
         const propertyName = info.listingName || listing?.internalListingName || listing?.name || "";
         const propertyFullAddress = listing?.address || "";
         const checkInTime = this.formatHourValue(info.checkInTime ?? listing?.checkInTimeStart);
@@ -117,6 +174,9 @@ export class RentalAgreementSigningService {
             guestFirstName: info.guestFirstName || "",
             guestLastName: info.guestLastName || "",
             guestEmail: info.guestEmail || "",
+            guestPhone: info.phone || "",
+            channel: info.channelName || "",
+            petCount: String(info.pets || 0),
             checkInDate: this.formatDateValue(info.arrivalDate),
             checkOutDate: this.formatDateValue(info.departureDate),
             propertyName,
@@ -131,13 +191,115 @@ export class RentalAgreementSigningService {
         };
     }
 
+    private resolveTemplateString(html: string | null | undefined, context: RentalAgreementTemplateContext): string {
+        const source = String(html || "");
+        const tokenMap: Record<string, string> = {
+            guestName: context.guestName,
+            guestFirstName: context.guestFirstName,
+            guestLastName: context.guestLastName,
+            guestEmail: context.guestEmail,
+            guestPhone: context.guestPhone,
+            channel: context.channel,
+            petCount: context.petCount,
+            checkInDate: context.checkInDate,
+            checkOutDate: context.checkOutDate,
+            propertyName: context.propertyName,
+            propertyFullAddress: context.propertyFullAddress,
+            checkInTime: context.checkInTime,
+            checkOutTime: context.checkOutTime,
+            nights: context.nights,
+            numberOfGuests: context.numberOfGuests,
+            totalPrice: context.totalPrice,
+            currency: context.currency,
+            reservationId: context.reservationId,
+        };
+
+        return source.replace(/\{\{(\w+)\}\}/g, (_, token) => tokenMap[token] ?? "");
+    }
+
+    private resolveTemplate(bodyHtml: string, info: ReservationInfoEntity, listing: Listing | null = null): string {
+        return this.resolveTemplateString(bodyHtml, this.buildTemplateContext(info, listing));
+    }
+
+    private normalizeHtmlBlock(value: string | null | undefined) {
+        return String(value || "").trim();
+    }
+
+    private combineAgreementSections(headerHtml: string, bodyHtml: string, footerHtml: string) {
+        return `
+            <div class="agreement-sections">
+                ${headerHtml ? `<div class="agreement-header-block">${headerHtml}</div>` : ""}
+                <div class="agreement-body-block">${bodyHtml}</div>
+                ${footerHtml ? `<div class="agreement-footer-block">${footerHtml}</div>` : ""}
+            </div>
+        `;
+    }
+
+    private buildDefaultEmailSubject(info: ReservationInfoEntity, listing: Listing | null) {
+        const propertyName = info.listingName || listing?.internalListingName || listing?.name || "your stay";
+        return `Rental Agreement for ${propertyName}`;
+    }
+
+    private buildDefaultEmailBody(info: ReservationInfoEntity, listing: Listing | null, signingUrl: string) {
+        const propertyName = info.listingName || listing?.internalListingName || listing?.name || "your stay";
+        const checkInDate = this.formatDateValue(info.arrivalDate);
+        return `
+            <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+                <p>Hello ${info.guestFirstName || info.guestName || "Guest"},</p>
+                <p>Your rental agreement for <strong>${propertyName}</strong>${checkInDate ? ` starting on <strong>${checkInDate}</strong>` : ""} is ready to review and sign.</p>
+                <p>
+                    <a href="{{signingLink}}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
+                        Review &amp; Sign Agreement
+                    </a>
+                </p>
+                <p>If the button above does not work, you can copy and paste this link into your browser:</p>
+                <p><a href="{{signingLink}}">{{signingLink}}</a></p>
+                <p>Thank you,<br/>Luxury Lodging PM</p>
+            </div>
+        `.replace(/\{\{signingLink\}\}/g, signingUrl);
+    }
+
+    private buildBucketWhere(bucket: string | undefined) {
+        const today = startOfDay(new Date());
+        const tomorrow = addDays(today, 1);
+        const nextSevenEnd = addDays(today, 6);
+
+        switch (bucket) {
+            case "ongoingStay":
+                return {
+                    sql: "reservation.arrivalDate < :today AND reservation.departureDate >= :today",
+                    params: { today: format(today, "yyyy-MM-dd") },
+                };
+            case "checkingInToday":
+                return {
+                    sql: "reservation.arrivalDate = :today",
+                    params: { today: format(today, "yyyy-MM-dd") },
+                };
+            case "checkingInTomorrow":
+                return {
+                    sql: "reservation.arrivalDate = :tomorrow",
+                    params: { tomorrow: format(tomorrow, "yyyy-MM-dd") },
+                };
+            case "checkingInNext7Days":
+                return {
+                    sql: "reservation.arrivalDate BETWEEN :today AND :nextSevenEnd",
+                    params: {
+                        today: format(today, "yyyy-MM-dd"),
+                        nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
+                    },
+                };
+            default:
+                return null;
+        }
+    }
+
     private buildDirectDownloadPath(signingId: number) {
         return `/rental-agreement/signings/${signingId}/file`;
     }
 
     private buildGuestDownloadPath(hostifyReservationId: string, baseUrl?: string) {
-        const path = `/rental-agreement/guest/${hostifyReservationId}/download`;
-        return baseUrl ? `${baseUrl}${path}` : path;
+        const downloadPath = `/rental-agreement/guest/${hostifyReservationId}/download`;
+        return baseUrl ? `${baseUrl}${downloadPath}` : downloadPath;
     }
 
     private async getReservationAndListing(hostifyReservationId: string): Promise<{ reservationInfo: ReservationInfoEntity; listing: Listing | null }> {
@@ -166,6 +328,67 @@ export class RentalAgreementSigningService {
         return fileInfoRepo().findOne({ where: { id: signing.fileInfoId } });
     }
 
+    private async getReservationDocument(hostifyReservationId: string) {
+        return reservationDocumentRepo().findOne({
+            where: { hostifyReservationId },
+        });
+    }
+
+    private async buildAgreementSnapshot(hostifyReservationId: string, info: ReservationInfoEntity, listing: Listing | null) {
+        const template = await rentalAgreementTemplateService.getDefault();
+        if (!template) throw new Error("No active rental agreement template configured");
+
+        const reservationDocument = await this.getReservationDocument(hostifyReservationId);
+        const signingUrl = `${this.getFrontendBaseUrl()}/rental-agreement/${hostifyReservationId}`;
+
+        if (reservationDocument) {
+            return {
+                template,
+                reservationDocument,
+                snapshot: {
+                    headerHtml: this.normalizeHtmlBlock(reservationDocument.headerHtml),
+                    bodyHtml: this.normalizeHtmlBlock(reservationDocument.bodyHtml),
+                    footerHtml: this.normalizeHtmlBlock(reservationDocument.footerHtml),
+                    emailSubject: reservationDocument.emailSubject || this.buildDefaultEmailSubject(info, listing),
+                    emailBodyHtml: reservationDocument.emailBodyHtml || this.buildDefaultEmailBody(info, listing, signingUrl),
+                    isEdited: Boolean(reservationDocument.isEdited),
+                    isOverridden: Boolean(reservationDocument.isOverridden),
+                    sourceTemplateId: reservationDocument.sourceTemplateId || null,
+                } as AgreementSnapshot,
+            };
+        }
+
+        return {
+            template,
+            reservationDocument: null,
+            snapshot: {
+                headerHtml: this.normalizeHtmlBlock(template.headerHtml),
+                bodyHtml: this.normalizeHtmlBlock(template.bodyHtml),
+                footerHtml: this.normalizeHtmlBlock(template.footerHtml),
+                emailSubject: this.buildDefaultEmailSubject(info, listing),
+                emailBodyHtml: this.buildDefaultEmailBody(info, listing, signingUrl),
+                isEdited: false,
+                isOverridden: false,
+                sourceTemplateId: template.id,
+            } as AgreementSnapshot,
+        };
+    }
+
+    private renderAgreementSnapshot(snapshot: AgreementSnapshot, info: ReservationInfoEntity, listing: Listing | null) {
+        const context = this.buildTemplateContext(info, listing);
+        const resolvedHeaderHtml = this.resolveTemplateString(snapshot.headerHtml, context);
+        const resolvedBodyHtml = this.resolveTemplateString(snapshot.bodyHtml, context);
+        const resolvedFooterHtml = this.resolveTemplateString(snapshot.footerHtml, context);
+
+        return {
+            context,
+            resolvedHeaderHtml,
+            resolvedBodyHtml,
+            resolvedFooterHtml,
+            renderedHtml: this.combineAgreementSections(resolvedHeaderHtml, resolvedBodyHtml, resolvedFooterHtml),
+        };
+    }
+
     private isDownloadArtifactAvailable(fileInfo: FileInfo | null): boolean {
         if (!fileInfo) return false;
         if (fileInfo.webContentLink) return true;
@@ -185,8 +408,8 @@ export class RentalAgreementSigningService {
         await signingRepo().update(signing.id, { pdfStatus: "pending_pdf" });
         try {
             await this.generateAndUploadPdf(signing.id, reservationInfo);
-        } catch (error) {
-            // Keep the signed agreement intact and surface retry status separately.
+        } catch (_) {
+            // Keep signed state intact and leave retry available.
         }
 
         const refreshedSigning = await signingRepo().findOne({ where: { id: signing.id } });
@@ -200,6 +423,10 @@ export class RentalAgreementSigningService {
         pdfDownloadAvailable: boolean,
         fileInfo: FileInfo | null,
     ): RentalAgreementOverviewRow {
+        const isSigned = Boolean(raw.signingId);
+        const isOverridden = Boolean(raw.isOverridden);
+        const agreementStatus = isSigned ? "signed" : isOverridden ? "overridden" : "not_yet_signed";
+
         return {
             reservationInfoId: Number(raw.reservationInfoId),
             hostifyReservationId: String(raw.hostifyReservationId || raw.reservationInfoId),
@@ -214,47 +441,35 @@ export class RentalAgreementSigningService {
             checkInTime: this.formatHourValue(raw.checkInTime ?? raw.listingCheckInTime),
             checkOutTime: this.formatHourValue(raw.checkOutTime ?? raw.listingCheckOutTime),
             signingId: raw.signingId ? Number(raw.signingId) : null,
-            isSigned: Boolean(raw.signingId),
+            isSigned,
             signedAt: raw.signedAt ? new Date(raw.signedAt).toISOString() : null,
             signedByName: raw.signedByName || null,
             signedByEmail: raw.signedByEmail || null,
             pdfStatus: raw.pdfStatus || null,
             pdfDownloadAvailable,
             pdfViewUrl: fileInfo?.webViewLink || null,
+            isEdited: Boolean(raw.isEdited),
+            isOverridden,
+            agreementStatus,
         };
-    }
-
-    // Resolve {{placeholder}} tokens in template body using reservation data
-    resolveTemplate(bodyHtml: string, info: ReservationInfoEntity, listing: Listing | null = null): string {
-        const context = this.buildTemplateContext(info, listing);
-        return bodyHtml
-            .replace(/\{\{guestName\}\}/g, context.guestName)
-            .replace(/\{\{guestFirstName\}\}/g, context.guestFirstName)
-            .replace(/\{\{guestLastName\}\}/g, context.guestLastName)
-            .replace(/\{\{guestEmail\}\}/g, context.guestEmail)
-            .replace(/\{\{checkInDate\}\}/g, context.checkInDate)
-            .replace(/\{\{checkOutDate\}\}/g, context.checkOutDate)
-            .replace(/\{\{propertyName\}\}/g, context.propertyName)
-            .replace(/\{\{propertyFullAddress\}\}/g, context.propertyFullAddress)
-            .replace(/\{\{checkInTime\}\}/g, context.checkInTime)
-            .replace(/\{\{checkOutTime\}\}/g, context.checkOutTime)
-            .replace(/\{\{nights\}\}/g, context.nights)
-            .replace(/\{\{numberOfGuests\}\}/g, context.numberOfGuests)
-            .replace(/\{\{totalPrice\}\}/g, context.totalPrice)
-            .replace(/\{\{currency\}\}/g, context.currency)
-            .replace(/\{\{reservationId\}\}/g, context.reservationId);
     }
 
     async getAgreementForGuest(hostifyReservationId: string): Promise<{
         reservationInfo: ReservationInfoEntity;
-        template: RentalAgreementTemplate;
+        template: {
+            id: number | null;
+            name: string;
+            headerHtml: string;
+            bodyHtml: string;
+            footerHtml: string;
+            isEdited: boolean;
+            isOverridden: boolean;
+        };
         alreadySigned: boolean;
         signing?: Pick<RentalAgreementSigning, "pdfStatus" | "fileInfoId">;
     }> {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
-
-        const template = await rentalAgreementTemplateService.getDefault();
-        if (!template) throw new Error("No active rental agreement template configured");
+        const { template, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
 
         const existingSigning = await signingRepo().findOne({
             where: { hostifyReservationId },
@@ -267,7 +482,15 @@ export class RentalAgreementSigningService {
                 checkInTimeDisplay: this.formatHourValue(reservationInfo.checkInTime ?? listing?.checkInTimeStart),
                 checkOutTimeDisplay: this.formatHourValue(reservationInfo.checkOutTime ?? listing?.checkOutTime),
             } as ReservationInfoEntity,
-            template,
+            template: {
+                id: template.id,
+                name: template.name || "Rental Agreement",
+                headerHtml: snapshot.headerHtml,
+                bodyHtml: snapshot.bodyHtml,
+                footerHtml: snapshot.footerHtml,
+                isEdited: snapshot.isEdited,
+                isOverridden: snapshot.isOverridden,
+            },
             alreadySigned: !!existingSigning,
             ...(existingSigning && {
                 signing: { pdfStatus: existingSigning.pdfStatus, fileInfoId: existingSigning.fileInfoId },
@@ -287,11 +510,8 @@ export class RentalAgreementSigningService {
         if (existing) throw new Error("Agreement already signed for this reservation");
 
         const { reservationInfo, listing } = await this.getReservationAndListing(data.hostifyReservationId);
-
-        const template = await rentalAgreementTemplateService.getDefault();
-        if (!template) throw new Error("No active rental agreement template configured");
-
-        const renderedHtml = this.resolveTemplate(template.bodyHtml, reservationInfo, listing);
+        const { template, snapshot } = await this.buildAgreementSnapshot(data.hostifyReservationId, reservationInfo, listing);
+        const { renderedHtml } = this.renderAgreementSnapshot(snapshot, reservationInfo, listing);
 
         const signing = signingRepo().create({
             hostifyReservationId: data.hostifyReservationId,
@@ -308,8 +528,6 @@ export class RentalAgreementSigningService {
         });
 
         const saved = await signingRepo().save(signing);
-
-        // Fire and forget — don't block the HTTP response
         this.generateAndUploadPdf(saved.id, reservationInfo).catch((err) => {
             console.error(`[RentalAgreement] PDF generation failed for signing ${saved.id}:`, err);
         });
@@ -362,6 +580,7 @@ export class RentalAgreementSigningService {
 
     async getAdminOverview(filters: RentalAgreementAdminFilters): Promise<{
         summary: {
+            ongoingStay: RentalAgreementSummaryCard;
             checkingInToday: RentalAgreementSummaryCard;
             checkingInTomorrow: RentalAgreementSummaryCard;
             checkingInNext7Days: RentalAgreementSummaryCard;
@@ -375,17 +594,21 @@ export class RentalAgreementSigningService {
         const limit = Math.min(200, Math.max(10, Number(filters.limit) || 50));
         const search = String(filters.search || "").trim();
         const signingStatus = String(filters.signingStatus || "all");
+        const statusTab = String(filters.statusTab || "all");
         const pdfStatus = String(filters.pdfStatus || "all");
         const sort = String(filters.sort || "checkInAsc");
+        const editedOnly = String(filters.editedOnly || "false") === "true";
+        const bucket = String(filters.bucket || "");
 
         const today = startOfDay(new Date());
-        const fromDate = filters.fromDate ? startOfDay(new Date(filters.fromDate)) : today;
-        const toDate = filters.toDate ? endOfDay(new Date(filters.toDate)) : null;
+        const fromDate = filters.fromDate ? startOfDay(new Date(filters.fromDate)) : subDays(today, 14);
+        const toDate = filters.toDate ? endOfDay(new Date(filters.toDate)) : endOfDay(addDays(today, 7));
 
         const qb = reservationInfoRepo()
             .createQueryBuilder("reservation")
             .leftJoin(RentalAgreementSigning, "signing", "signing.reservationInfoId = reservation.id")
             .leftJoin(Listing, "listing", "listing.id = reservation.listingMapId")
+            .leftJoin(RentalAgreementReservationDocument, "document", "document.hostifyReservationId = reservation.id")
             .select([
                 "reservation.id AS reservationInfoId",
                 "reservation.id AS hostifyReservationId",
@@ -407,14 +630,19 @@ export class RentalAgreementSigningService {
                 "signing.signedByEmail AS signedByEmail",
                 "signing.pdfStatus AS pdfStatus",
                 "signing.fileInfoId AS fileInfoId",
+                "document.isEdited AS isEdited",
+                "document.isOverridden AS isOverridden",
             ])
             .where("reservation.arrivalDate IS NOT NULL")
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
-            })
-            .andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+            });
 
-        if (toDate) {
+        const bucketWhere = this.buildBucketWhere(bucket);
+        if (bucketWhere) {
+            qb.andWhere(bucketWhere.sql, bucketWhere.params);
+        } else {
+            qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
             qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
         }
 
@@ -429,6 +657,18 @@ export class RentalAgreementSigningService {
             qb.andWhere("signing.id IS NOT NULL");
         } else if (signingStatus === "unsigned") {
             qb.andWhere("signing.id IS NULL");
+        }
+
+        if (statusTab === "signed") {
+            qb.andWhere("signing.id IS NOT NULL");
+        } else if (statusTab === "overridden") {
+            qb.andWhere("COALESCE(document.isOverridden, 0) = 1");
+        } else if (statusTab === "not_yet_signed") {
+            qb.andWhere("signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0");
+        }
+
+        if (editedOnly) {
+            qb.andWhere("COALESCE(document.isEdited, 0) = 1");
         }
 
         if (pdfStatus === "ready") {
@@ -486,43 +726,56 @@ export class RentalAgreementSigningService {
             return this.buildOverviewRow(row, this.isDownloadArtifactAvailable(fileInfo), fileInfo);
         });
 
-        const buildSummaryCard = async (label: string, start: Date, end: Date): Promise<RentalAgreementSummaryCard> => {
+        const buildSummaryCard = async (
+            label: string,
+            whereSql: string,
+            whereParams: Record<string, string>,
+        ): Promise<RentalAgreementSummaryCard> => {
             const raw = await reservationInfoRepo()
                 .createQueryBuilder("reservation")
                 .leftJoin(RentalAgreementSigning, "signing", "signing.reservationInfoId = reservation.id")
+                .leftJoin(RentalAgreementReservationDocument, "document", "document.hostifyReservationId = reservation.id")
                 .select("COUNT(DISTINCT reservation.id)", "total")
                 .addSelect("COUNT(DISTINCT CASE WHEN signing.id IS NOT NULL THEN reservation.id END)", "signed")
-                .where("reservation.arrivalDate BETWEEN :start AND :end", {
-                    start: format(start, "yyyy-MM-dd"),
-                    end: format(end, "yyyy-MM-dd"),
-                })
+                .addSelect("COUNT(DISTINCT CASE WHEN signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0 THEN reservation.id END)", "unsigned")
+                .addSelect("COUNT(DISTINCT CASE WHEN COALESCE(document.isOverridden, 0) = 1 THEN reservation.id END)", "overridden")
+                .where(whereSql, whereParams)
                 .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                     excludedStatuses: this.excludedReservationStatuses,
                 })
                 .getRawOne();
 
-            const totalCount = Number(raw?.total || 0);
-            const signedCount = Number(raw?.signed || 0);
             return {
                 label,
-                total: totalCount,
-                signed: signedCount,
-                unsigned: Math.max(0, totalCount - signedCount),
+                total: Number(raw?.total || 0),
+                signed: Number(raw?.signed || 0),
+                unsigned: Number(raw?.unsigned || 0),
+                overridden: Number(raw?.overridden || 0),
             };
         };
 
         const tomorrow = addDays(today, 1);
-        const nextSevenStart = today;
         const nextSevenEnd = addDays(today, 6);
 
-        const [checkingInToday, checkingInTomorrow, checkingInNext7Days] = await Promise.all([
-            buildSummaryCard("Checking In Today", today, today),
-            buildSummaryCard("Checking In Tomorrow", tomorrow, tomorrow),
-            buildSummaryCard("Next 7 Days", nextSevenStart, nextSevenEnd),
+        const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days] = await Promise.all([
+            buildSummaryCard("Ongoing Stay", "reservation.arrivalDate < :today AND reservation.departureDate >= :today", {
+                today: format(today, "yyyy-MM-dd"),
+            }),
+            buildSummaryCard("Checking In Today", "reservation.arrivalDate = :today", {
+                today: format(today, "yyyy-MM-dd"),
+            }),
+            buildSummaryCard("Checking In Tomorrow", "reservation.arrivalDate = :tomorrow", {
+                tomorrow: format(tomorrow, "yyyy-MM-dd"),
+            }),
+            buildSummaryCard("Next 7 Days", "reservation.arrivalDate BETWEEN :today AND :nextSevenEnd", {
+                today: format(today, "yyyy-MM-dd"),
+                nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
+            }),
         ]);
 
         return {
             summary: {
+                ongoingStay,
                 checkingInToday,
                 checkingInTomorrow,
                 checkingInNext7Days,
@@ -534,35 +787,165 @@ export class RentalAgreementSigningService {
         };
     }
 
-    async sendAgreement(hostifyReservationId: string): Promise<{ recipientEmail: string }> {
+    async getLatestPreviewContext() {
+        const reservationInfo = await reservationInfoRepo()
+            .createQueryBuilder("reservation")
+            .where("reservation.arrivalDate >= :today", {
+                today: format(startOfDay(new Date()), "yyyy-MM-dd"),
+            })
+            .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
+                excludedStatuses: this.excludedReservationStatuses,
+            })
+            .orderBy("reservation.arrivalDate", "ASC")
+            .addOrderBy("reservation.id", "ASC")
+            .getOne();
+
+        if (!reservationInfo) {
+            return { reservation: null };
+        }
+
+        const listing = await this.getListingForReservation(reservationInfo);
+        const previewReservation: PreviewReservationContext = {
+            hostifyReservationId: String(reservationInfo.id),
+            reservationCode: reservationInfo.reservationId || "",
+            guestName: reservationInfo.guestName || "",
+            guestEmail: reservationInfo.guestEmail || "",
+            guestPhone: reservationInfo.phone || "",
+            channel: reservationInfo.channelName || "",
+            petCount: reservationInfo.pets || 0,
+            propertyName: reservationInfo.listingName || listing?.internalListingName || listing?.name || "",
+            propertyAddress: listing?.address || "",
+            arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
+            departureDate: reservationInfo.departureDate ? new Date(reservationInfo.departureDate).toISOString() : null,
+            checkInTime: this.formatHourValue(reservationInfo.checkInTime ?? listing?.checkInTimeStart),
+            checkOutTime: this.formatHourValue(reservationInfo.checkOutTime ?? listing?.checkOutTime),
+        };
+
+        return {
+            reservation: previewReservation,
+        };
+    }
+
+    async getReservationDocumentForAdmin(hostifyReservationId: string) {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
-        const recipientEmail = String(reservationInfo.guestEmail || "").trim();
+        const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+        const rendered = this.renderAgreementSnapshot(snapshot, reservationInfo, listing);
+
+        return {
+            templateId: template.id,
+            sourceTemplateId: snapshot.sourceTemplateId,
+            reservationInfo: {
+                id: reservationInfo.id,
+                guestName: reservationInfo.guestName || "",
+                guestEmail: reservationInfo.guestEmail || "",
+                listingName: reservationInfo.listingName || listing?.internalListingName || listing?.name || "",
+                propertyFullAddress: listing?.address || "",
+                arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
+                departureDate: reservationInfo.departureDate ? new Date(reservationInfo.departureDate).toISOString() : null,
+            },
+            document: {
+                id: reservationDocument?.id || null,
+                headerHtml: snapshot.headerHtml,
+                bodyHtml: snapshot.bodyHtml,
+                footerHtml: snapshot.footerHtml,
+                emailSubject: snapshot.emailSubject,
+                emailBodyHtml: snapshot.emailBodyHtml,
+                isEdited: snapshot.isEdited,
+                isOverridden: snapshot.isOverridden,
+            },
+            preview: {
+                renderedHtml: rendered.renderedHtml,
+                context: rendered.context,
+            },
+        };
+    }
+
+    async upsertReservationDocumentForAdmin(
+        hostifyReservationId: string,
+        payload: Partial<Pick<RentalAgreementReservationDocument, "headerHtml" | "bodyHtml" | "footerHtml" | "emailSubject" | "emailBodyHtml">>,
+        userId?: string,
+    ) {
+        const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
+        const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+
+        const nextDocument = reservationDocument || reservationDocumentRepo().create({
+            hostifyReservationId,
+            reservationInfoId: reservationInfo.id,
+            sourceTemplateId: template?.id || null,
+            isEdited: false,
+            isOverridden: false,
+        });
+
+        nextDocument.headerHtml = payload.headerHtml ?? snapshot.headerHtml;
+        nextDocument.bodyHtml = payload.bodyHtml ?? snapshot.bodyHtml;
+        nextDocument.footerHtml = payload.footerHtml ?? snapshot.footerHtml;
+        nextDocument.emailSubject = payload.emailSubject ?? snapshot.emailSubject;
+        nextDocument.emailBodyHtml = payload.emailBodyHtml ?? snapshot.emailBodyHtml;
+        nextDocument.isEdited = true;
+        nextDocument.lastEditedAt = new Date();
+        nextDocument.lastEditedBy = userId || null;
+        nextDocument.sourceTemplateId = template?.id || nextDocument.sourceTemplateId || null;
+
+        await reservationDocumentRepo().save(nextDocument);
+        return this.getReservationDocumentForAdmin(hostifyReservationId);
+    }
+
+    async setReservationOverride(hostifyReservationId: string, isOverridden: boolean, userId?: string) {
+        const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
+        const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+
+        const nextDocument = reservationDocument || reservationDocumentRepo().create({
+            hostifyReservationId,
+            reservationInfoId: reservationInfo.id,
+            sourceTemplateId: template?.id || null,
+            headerHtml: snapshot.headerHtml,
+            bodyHtml: snapshot.bodyHtml,
+            footerHtml: snapshot.footerHtml,
+            emailSubject: snapshot.emailSubject,
+            emailBodyHtml: snapshot.emailBodyHtml,
+            isEdited: snapshot.isEdited,
+        });
+
+        nextDocument.isOverridden = isOverridden;
+        nextDocument.overriddenAt = isOverridden ? new Date() : null;
+        nextDocument.overriddenBy = isOverridden ? (userId || null) : null;
+
+        await reservationDocumentRepo().save(nextDocument);
+        return this.getReservationDocumentForAdmin(hostifyReservationId);
+    }
+
+    async getManualSendPreview(hostifyReservationId: string) {
+        const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
+        const { snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+        const signingUrl = `${this.getFrontendBaseUrl()}/rental-agreement/${hostifyReservationId}`;
+
+        return {
+            recipientEmail: reservationInfo.guestEmail || "",
+            senderEmail: process.env.SUPPORT_EMAIL || "support@luxurylodgingpm.com",
+            subject: snapshot.emailSubject || this.buildDefaultEmailSubject(reservationInfo, listing),
+            bodyHtml: (snapshot.emailBodyHtml || this.buildDefaultEmailBody(reservationInfo, listing, signingUrl)).replace(/\{\{signingLink\}\}/g, signingUrl),
+        };
+    }
+
+    async sendAgreement(
+        hostifyReservationId: string,
+        options?: { recipientEmail?: string; subject?: string; bodyHtml?: string },
+    ): Promise<{ recipientEmail: string; subject: string }> {
+        const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
+        const preview = await this.getManualSendPreview(hostifyReservationId);
+        const recipientEmail = String(options?.recipientEmail || preview.recipientEmail || "").trim();
         if (!recipientEmail) throw new Error("Reservation does not have a guest email");
 
         const signingUrl = `${this.getFrontendBaseUrl()}/rental-agreement/${hostifyReservationId}`;
-        const propertyName = reservationInfo.listingName || listing?.internalListingName || listing?.name || "your stay";
-        const checkInDate = this.formatDateValue(reservationInfo.arrivalDate);
+        const subject = String(options?.subject || preview.subject || "").trim() || this.buildDefaultEmailSubject(reservationInfo, listing);
+        let bodyHtml = String(options?.bodyHtml || preview.bodyHtml || "").trim();
+        if (!bodyHtml) {
+            bodyHtml = this.buildDefaultEmailBody(reservationInfo, listing, signingUrl);
+        }
+        bodyHtml = bodyHtml.replace(/\{\{signingLink\}\}/g, signingUrl);
 
-        await sendSupportEmail(
-            recipientEmail,
-            `Rental Agreement for ${propertyName}`,
-            `
-                <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-                    <p>Hello ${reservationInfo.guestFirstName || reservationInfo.guestName || "Guest"},</p>
-                    <p>Your rental agreement for <strong>${propertyName}</strong>${checkInDate ? ` starting on <strong>${checkInDate}</strong>` : ""} is ready to review and sign.</p>
-                    <p>
-                        <a href="${signingUrl}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
-                            Review & Sign Agreement
-                        </a>
-                    </p>
-                    <p>If the button above does not work, you can copy and paste this link into your browser:</p>
-                    <p><a href="${signingUrl}">${signingUrl}</a></p>
-                    <p>Thank you,<br/>Luxury Lodging PM</p>
-                </div>
-            `,
-        );
-
-        return { recipientEmail };
+        await sendSupportEmail(recipientEmail, subject, bodyHtml);
+        return { recipientEmail, subject };
     }
 
     async retryPdfGeneration(signingId: number): Promise<{ pdfStatus: string }> {
@@ -630,6 +1013,7 @@ export class RentalAgreementSigningService {
   body { font-family: Arial, sans-serif; margin: 40px; color: #333; line-height: 1.6; }
   h2 { text-align: center; margin-bottom: 4px; }
   .property-name { text-align: center; color: #555; margin-top: 0; margin-bottom: 30px; }
+  .agreement-header-block, .agreement-footer-block { margin-bottom: 24px; }
   .agreement-body { border-top: 1px solid #ddd; padding-top: 20px; }
   .sig-section { margin-top: 40px; border-top: 2px solid #333; padding-top: 20px; }
   .sig-img { max-width: 300px; border: 1px solid #ccc; display: block; margin-top: 10px; }
@@ -653,14 +1037,12 @@ export class RentalAgreementSigningService {
             await browser.close();
             browser = null;
 
-            // Write to temp file (FileInfoSubscriber will stream it from disk)
             const reservationId = signing.hostifyReservationId;
             const pdfName = `rental-agreement-reservation-${reservationId}.pdf`;
             const tempFileName = `rental-agreement-${reservationId}-${Date.now()}.pdf`;
             const tempPath = path.join(os.tmpdir(), tempFileName);
             fs.writeFileSync(tempPath, pdfBuffer);
 
-            // Save FileInfo — FileInfoSubscriber auto-queues the Drive upload
             const fileInfo = fileInfoRepo().create({
                 entityType: "rental-agreements",
                 entityId: signingId,
