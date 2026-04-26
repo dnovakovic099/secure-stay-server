@@ -1171,8 +1171,8 @@ export class RentalAgreementSigningService {
 
             browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
             const page = await browser.newPage();
-            await page.setContent(html, { waitUntil: "networkidle0" });
-            const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, timeout: 0 });
+            await page.setContent(html, { waitUntil: "domcontentloaded" });
+            const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
             await browser.close();
             browser = null;
 
