@@ -209,13 +209,24 @@ export class RentalAgreementController {
                 return res.download(target.localPath, target.fileName);
             }
             if (target.driveFileId) {
-                res.setHeader("Content-Type", "application/pdf");
-                res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
-                const driveRes = await drive.files.get(
-                    { fileId: target.driveFileId, alt: "media" },
-                    { responseType: "stream" }
-                );
-                return (driveRes.data as NodeJS.ReadableStream).pipe(res);
+                try {
+                    const driveRes = await drive.files.get(
+                        { fileId: target.driveFileId, alt: "media" },
+                        { responseType: "stream" }
+                    );
+                    res.setHeader("Content-Type", "application/pdf");
+                    res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
+                    res.setHeader("Content-Length", driveRes.headers["content-length"]);
+                    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+                    res.setHeader("Pragma", "no-cache");
+                    return (driveRes.data as NodeJS.ReadableStream).pipe(res);
+                } catch (driveErr: any) {
+                    console.error(`[RentalAgreement] Drive API error for fileId=${target.driveFileId}:`, driveErr?.response?.data || driveErr.message);
+                    return res.status(502).json({
+                        success: false,
+                        message: "Failed to retrieve file from Google Drive.",
+                    });
+                }
             }
             return res.status(409).json({
                 success: false,
