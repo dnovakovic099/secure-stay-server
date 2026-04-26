@@ -15,6 +15,7 @@ export class RentalAgreementController {
                 pdfStatus: req.query.pdfStatus as string | undefined,
                 fromDate: req.query.fromDate as string | undefined,
                 toDate: req.query.toDate as string | undefined,
+                dateType: req.query.dateType as string | undefined,
                 sort: req.query.sort as string | undefined,
                 page: req.query.page ? Number(req.query.page) : undefined,
                 limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -68,6 +69,7 @@ export class RentalAgreementController {
                 hostifyReservationId,
                 Boolean(req.body?.isOverridden),
                 userId,
+                req.body?.overrideReason,
             );
             res.json({ success: true, data: result });
         } catch (err: any) {
