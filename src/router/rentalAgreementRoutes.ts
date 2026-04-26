@@ -13,6 +13,11 @@ router.get("/guest/:hostifyReservationId/download", controller.downloadGuestSign
 
 // Admin routes — require JWT
 router.get("/admin/overview", verifySession, controller.getAdminOverview.bind(controller));
+router.get("/admin/preview-context", verifySession, controller.getPreviewContext.bind(controller));
+router.get("/admin/reservation/:hostifyReservationId/document", verifySession, controller.getReservationDocument.bind(controller));
+router.put("/admin/reservation/:hostifyReservationId/document", verifySession, controller.updateReservationDocument.bind(controller));
+router.post("/admin/reservation/:hostifyReservationId/override", verifySession, controller.updateReservationOverride.bind(controller));
+router.get("/signings/reservation/:hostifyReservationId/send-preview", verifySession, controller.getSendPreview.bind(controller));
 router.get("/signings/reservation/:hostifyReservationId", verifySession, controller.getSigningsByReservation.bind(controller));
 router.get("/signings/:id/download", verifySession, controller.getDownloadUrl.bind(controller));
 router.get("/signings/:id/file", verifySession, controller.downloadSigningFile.bind(controller));

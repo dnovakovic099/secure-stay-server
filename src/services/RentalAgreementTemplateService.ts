@@ -31,7 +31,9 @@ export class RentalAgreementTemplateService {
             await templateRepo().update({ isDefault: true }, { isDefault: false });
         }
         const template = templateRepo().create({
+            headerHtml: data.headerHtml || "",
             ...data,
+            footerHtml: data.footerHtml || "",
             createdBy: userId,
             updatedBy: userId,
         });

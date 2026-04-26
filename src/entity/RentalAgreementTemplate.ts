@@ -21,6 +21,12 @@ export class RentalAgreementTemplate {
     @Column({ type: "longtext" })
     bodyHtml: string;
 
+    @Column({ type: "longtext", nullable: true })
+    headerHtml: string | null;
+
+    @Column({ type: "longtext", nullable: true })
+    footerHtml: string | null;
+
     @Column({ default: true })
     isActive: boolean;
 
