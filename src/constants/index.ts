@@ -11,8 +11,8 @@ export const USER_AGENTS = [
 ];
 
 export const PUPPETEER_LAUNCH_OPTIONS = {
-  headless: true, // set to true for headless mode
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome",
+  headless: true,
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
   args: [
     "--disable-setuid-sandbox",
     "--no-sandbox",
@@ -21,6 +21,12 @@ export const PUPPETEER_LAUNCH_OPTIONS = {
     "--font-render-hinting=none",
     "--force-color-profile=srgb",
     "--disable-software-rasterizer",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-sync",
+    "--disable-translate",
+    "--single-process",
   ],
   defaultViewport: null,
 };
