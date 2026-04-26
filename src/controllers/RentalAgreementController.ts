@@ -16,6 +16,7 @@ export class RentalAgreementController {
                 fromDate: req.query.fromDate as string | undefined,
                 toDate: req.query.toDate as string | undefined,
                 dateType: req.query.dateType as string | undefined,
+                channel: req.query.channel as string | undefined,
                 sort: req.query.sort as string | undefined,
                 page: req.query.page ? Number(req.query.page) : undefined,
                 limit: req.query.limit ? Number(req.query.limit) : undefined,

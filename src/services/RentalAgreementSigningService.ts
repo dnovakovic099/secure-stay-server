@@ -28,6 +28,7 @@ type RentalAgreementAdminFilters = {
     fromDate?: string;
     toDate?: string;
     dateType?: string;
+    channel?: string;
     sort?: string;
     page?: number;
     limit?: number;
@@ -682,13 +683,14 @@ export class RentalAgreementSigningService {
         const statusTab = String(filters.statusTab || "all");
         const pdfStatus = String(filters.pdfStatus || "all");
         const dateType = String(filters.dateType || "checkIn");
+        const channel = String(filters.channel || "").trim();
         const sort = String(filters.sort || "checkInAsc");
         const editedOnly = String(filters.editedOnly || "false") === "true";
         const bucket = String(filters.bucket || "");
 
         const today = startOfDay(new Date());
-        const fromDate = filters.fromDate ? startOfDay(new Date(filters.fromDate)) : subDays(today, 14);
-        const toDate = filters.toDate ? endOfDay(new Date(filters.toDate)) : endOfDay(addDays(today, 7));
+        const fromDate = filters.fromDate ? startOfDay(new Date(filters.fromDate)) : null;
+        const toDate = filters.toDate ? endOfDay(new Date(filters.toDate)) : null;
 
         const qb = reservationInfoRepo()
             .createQueryBuilder("reservation")
@@ -733,7 +735,7 @@ export class RentalAgreementSigningService {
         const bucketWhere = this.buildBucketWhere(bucket);
         if (bucketWhere) {
             qb.andWhere(bucketWhere.sql, bucketWhere.params);
-        } else {
+        } else if (fromDate && toDate) {
             if (dateType === "checkOut") {
                 qb.andWhere("reservation.departureDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("reservation.departureDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
@@ -749,6 +751,12 @@ export class RentalAgreementSigningService {
                 qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             }
+        }
+
+        if (channel) {
+            qb.andWhere("LOWER(COALESCE(reservation.channelName, '')) = :channel", {
+                channel: channel.toLowerCase(),
+            });
         }
 
         if (search) {
