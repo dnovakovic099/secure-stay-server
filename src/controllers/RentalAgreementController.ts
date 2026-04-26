@@ -178,13 +178,20 @@ export class RentalAgreementController {
                 return res.download(target.localPath, target.fileName);
             }
             if (target.driveFileId) {
-                res.setHeader("Content-Type", "application/pdf");
-                res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
-                const driveRes = await drive.files.get(
-                    { fileId: target.driveFileId, alt: "media" },
-                    { responseType: "stream" }
-                );
-                return (driveRes.data as NodeJS.ReadableStream).pipe(res);
+                try {
+                    const [driveRes] = await drive.files.get(
+                        { fileId: target.driveFileId, alt: "media" },
+                        { responseType: "arraybuffer" }
+                    ) as any;
+                    const buffer = Buffer.from(driveRes as ArrayBuffer);
+                    res.setHeader("Content-Type", "application/pdf");
+                    res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
+                    res.setHeader("Content-Length", buffer.length);
+                    return res.send(buffer);
+                } catch (driveErr: any) {
+                    console.error(`[RentalAgreement] Admin download Drive API error:`, driveErr?.response?.data || driveErr.message);
+                    return res.status(502).json({ success: false, message: "Failed to retrieve file from Google Drive." });
+                }
             }
             return res.status(409).json({
                 success: false,
@@ -210,16 +217,17 @@ export class RentalAgreementController {
             }
             if (target.driveFileId) {
                 try {
-                    const driveRes = await drive.files.get(
+                    // Fetch file content from Google Drive as a buffer
+                    const [driveRes] = await drive.files.get(
                         { fileId: target.driveFileId, alt: "media" },
-                        { responseType: "stream" }
-                    );
+                        { responseType: "arraybuffer" }
+                    ) as any;
+
+                    const buffer = Buffer.from(driveRes as ArrayBuffer);
                     res.setHeader("Content-Type", "application/pdf");
                     res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
-                    res.setHeader("Content-Length", driveRes.headers["content-length"]);
-                    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
-                    res.setHeader("Pragma", "no-cache");
-                    return (driveRes.data as NodeJS.ReadableStream).pipe(res);
+                    res.setHeader("Content-Length", buffer.length);
+                    return res.send(buffer);
                 } catch (driveErr: any) {
                     console.error(`[RentalAgreement] Drive API error for fileId=${target.driveFileId}:`, driveErr?.response?.data || driveErr.message);
                     return res.status(502).json({
