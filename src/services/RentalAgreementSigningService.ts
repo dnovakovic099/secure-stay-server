@@ -27,6 +27,7 @@ type RentalAgreementAdminFilters = {
     pdfStatus?: string;
     fromDate?: string;
     toDate?: string;
+    dateType?: string;
     sort?: string;
     page?: number;
     limit?: number;
@@ -66,6 +67,14 @@ type RentalAgreementOverviewRow = {
     pdfViewUrl: string | null;
     isEdited: boolean;
     isOverridden: boolean;
+    overrideReason: string | null;
+    propertyType: string | null;
+    serviceType: string | null;
+    viewedAt: string | null;
+    firstViewedAt: string | null;
+    lastViewedAt: string | null;
+    overriddenBy: string | null;
+    lastEditedBy: string | null;
     agreementStatus: "signed" | "overridden" | "not_yet_signed";
 };
 
@@ -98,6 +107,7 @@ type AgreementSnapshot = {
     emailBodyHtml: string;
     isEdited: boolean;
     isOverridden: boolean;
+    overrideReason: string | null;
     sourceTemplateId: number | null;
 };
 
@@ -259,6 +269,47 @@ export class RentalAgreementSigningService {
         `.replace(/\{\{signingLink\}\}/g, signingUrl);
     }
 
+    private buildDefaultHeaderTemplate() {
+        return `
+            <h1 style="margin:0;font-size:44px;font-weight:800;line-height:1.1;">Rental Agreement</h1>
+            <p style="margin:18px 0 0;font-size:24px;font-weight:600;line-height:1.3;">{{propertyName}}</p>
+            <div style="margin-top:30px;font-size:18px;line-height:1.7;">
+                <span><strong>Guest:</strong> {{guestName}}</span>
+                <span style="margin-left:32px;"><strong>Check-in:</strong> {{checkInDate}}</span>
+                <span style="margin-left:32px;"><strong>Check-out:</strong> {{checkOutDate}}</span>
+            </div>
+        `;
+    }
+
+    private buildDefaultFooterTemplate() {
+        return `
+            <h3 style="margin:0 0 14px;font-size:24px;font-weight:800;color:#1f3c68;">Sign Below</h3>
+            <p style="margin:0;font-size:18px;line-height:1.6;color:#5f6b7a;">
+                By signing below, you confirm that you have read and agree to the rental agreement above.
+            </p>
+        `;
+    }
+
+    private extractPropertyTypeFromTags(tags?: string | null): string | null {
+        const parts = String(tags || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+        for (const part of parts) {
+            if (part === "own") return "Own";
+            if (part === "arb") return "Arb";
+            if (part === "pm") return "PM";
+        }
+        return null;
+    }
+
+    private extractServiceTypeFromTags(tags?: string | null): string | null {
+        const parts = String(tags || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+        for (const part of parts) {
+            if (part === "full") return "Full";
+            if (part === "pro") return "Pro";
+            if (part === "launch") return "Launch";
+        }
+        return null;
+    }
+
     private buildBucketWhere(bucket: string | undefined) {
         const today = startOfDay(new Date());
         const tomorrow = addDays(today, 1);
@@ -334,6 +385,29 @@ export class RentalAgreementSigningService {
         });
     }
 
+    private async markAgreementViewed(hostifyReservationId: string, reservationInfo: ReservationInfoEntity, templateId: number | null) {
+        const existing = await this.getReservationDocument(hostifyReservationId);
+        const now = new Date();
+        if (!existing) {
+            const reservationDocument = reservationDocumentRepo().create({
+                hostifyReservationId,
+                reservationInfoId: reservationInfo.id,
+                sourceTemplateId: templateId,
+                firstViewedAt: now,
+                lastViewedAt: now,
+            });
+            await reservationDocumentRepo().save(reservationDocument);
+            return;
+        }
+
+        existing.firstViewedAt = existing.firstViewedAt || now;
+        existing.lastViewedAt = now;
+        if (!existing.sourceTemplateId && templateId) {
+            existing.sourceTemplateId = templateId;
+        }
+        await reservationDocumentRepo().save(existing);
+    }
+
     private async buildAgreementSnapshot(hostifyReservationId: string, info: ReservationInfoEntity, listing: Listing | null) {
         const template = await rentalAgreementTemplateService.getDefault();
         if (!template) throw new Error("No active rental agreement template configured");
@@ -346,13 +420,14 @@ export class RentalAgreementSigningService {
                 template,
                 reservationDocument,
                 snapshot: {
-                    headerHtml: this.normalizeHtmlBlock(reservationDocument.headerHtml),
-                    bodyHtml: this.normalizeHtmlBlock(reservationDocument.bodyHtml),
-                    footerHtml: this.normalizeHtmlBlock(reservationDocument.footerHtml),
+                    headerHtml: this.normalizeHtmlBlock(reservationDocument.headerHtml) || this.normalizeHtmlBlock(template.headerHtml) || this.buildDefaultHeaderTemplate(),
+                    bodyHtml: this.normalizeHtmlBlock(reservationDocument.bodyHtml) || this.normalizeHtmlBlock(template.bodyHtml),
+                    footerHtml: this.normalizeHtmlBlock(reservationDocument.footerHtml) || this.normalizeHtmlBlock(template.footerHtml) || this.buildDefaultFooterTemplate(),
                     emailSubject: reservationDocument.emailSubject || this.buildDefaultEmailSubject(info, listing),
                     emailBodyHtml: reservationDocument.emailBodyHtml || this.buildDefaultEmailBody(info, listing, signingUrl),
                     isEdited: Boolean(reservationDocument.isEdited),
                     isOverridden: Boolean(reservationDocument.isOverridden),
+                    overrideReason: reservationDocument.overrideReason || null,
                     sourceTemplateId: reservationDocument.sourceTemplateId || null,
                 } as AgreementSnapshot,
             };
@@ -362,13 +437,14 @@ export class RentalAgreementSigningService {
             template,
             reservationDocument: null,
             snapshot: {
-                headerHtml: this.normalizeHtmlBlock(template.headerHtml),
+                headerHtml: this.normalizeHtmlBlock(template.headerHtml) || this.buildDefaultHeaderTemplate(),
                 bodyHtml: this.normalizeHtmlBlock(template.bodyHtml),
-                footerHtml: this.normalizeHtmlBlock(template.footerHtml),
+                footerHtml: this.normalizeHtmlBlock(template.footerHtml) || this.buildDefaultFooterTemplate(),
                 emailSubject: this.buildDefaultEmailSubject(info, listing),
                 emailBodyHtml: this.buildDefaultEmailBody(info, listing, signingUrl),
                 isEdited: false,
                 isOverridden: false,
+                overrideReason: null,
                 sourceTemplateId: template.id,
             } as AgreementSnapshot,
         };
@@ -450,6 +526,14 @@ export class RentalAgreementSigningService {
             pdfViewUrl: fileInfo?.webViewLink || null,
             isEdited: Boolean(raw.isEdited),
             isOverridden,
+            overrideReason: raw.overrideReason || null,
+            propertyType: raw.propertyType || null,
+            serviceType: raw.serviceType || null,
+            viewedAt: raw.lastViewedAt ? new Date(raw.lastViewedAt).toISOString() : raw.firstViewedAt ? new Date(raw.firstViewedAt).toISOString() : null,
+            firstViewedAt: raw.firstViewedAt ? new Date(raw.firstViewedAt).toISOString() : null,
+            lastViewedAt: raw.lastViewedAt ? new Date(raw.lastViewedAt).toISOString() : null,
+            overriddenBy: raw.overriddenBy || null,
+            lastEditedBy: raw.lastEditedBy || null,
             agreementStatus,
         };
     }
@@ -470,6 +554,7 @@ export class RentalAgreementSigningService {
     }> {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
         const { template, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+        await this.markAgreementViewed(hostifyReservationId, reservationInfo, template.id);
 
         const existingSigning = await signingRepo().findOne({
             where: { hostifyReservationId },
@@ -596,6 +681,7 @@ export class RentalAgreementSigningService {
         const signingStatus = String(filters.signingStatus || "all");
         const statusTab = String(filters.statusTab || "all");
         const pdfStatus = String(filters.pdfStatus || "all");
+        const dateType = String(filters.dateType || "checkIn");
         const sort = String(filters.sort || "checkInAsc");
         const editedOnly = String(filters.editedOnly || "false") === "true";
         const bucket = String(filters.bucket || "");
@@ -632,6 +718,12 @@ export class RentalAgreementSigningService {
                 "signing.fileInfoId AS fileInfoId",
                 "document.isEdited AS isEdited",
                 "document.isOverridden AS isOverridden",
+                "document.overrideReason AS overrideReason",
+                "document.firstViewedAt AS firstViewedAt",
+                "document.lastViewedAt AS lastViewedAt",
+                "document.overriddenBy AS overriddenBy",
+                "document.lastEditedBy AS lastEditedBy",
+                "listing.tags AS listingTags",
             ])
             .where("reservation.arrivalDate IS NOT NULL")
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
@@ -642,8 +734,21 @@ export class RentalAgreementSigningService {
         if (bucketWhere) {
             qb.andWhere(bucketWhere.sql, bucketWhere.params);
         } else {
-            qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-            qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            if (dateType === "checkOut") {
+                qb.andWhere("reservation.departureDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("reservation.departureDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            } else if (dateType === "signed") {
+                qb.andWhere("signing.signedAt IS NOT NULL");
+                qb.andWhere("DATE(signing.signedAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("DATE(signing.signedAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            } else if (dateType === "viewed") {
+                qb.andWhere("COALESCE(document.lastViewedAt, document.firstViewedAt) IS NOT NULL");
+                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            } else {
+                qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            }
         }
 
         if (search) {
@@ -723,7 +828,12 @@ export class RentalAgreementSigningService {
 
         const records = rawRows.map((row) => {
             const fileInfo = row.fileInfoId ? fileInfoMap.get(Number(row.fileInfoId)) || null : null;
-            return this.buildOverviewRow(row, this.isDownloadArtifactAvailable(fileInfo), fileInfo);
+            const enrichedRow = {
+                ...row,
+                propertyType: this.extractPropertyTypeFromTags(row.listingTags),
+                serviceType: this.extractServiceTypeFromTags(row.listingTags),
+            };
+            return this.buildOverviewRow(enrichedRow, this.isDownloadArtifactAvailable(fileInfo), fileInfo);
         });
 
         const buildSummaryCard = async (
@@ -830,6 +940,8 @@ export class RentalAgreementSigningService {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
         const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
         const rendered = this.renderAgreementSnapshot(snapshot, reservationInfo, listing);
+        const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
+        const fileInfo = signing ? await this.getFileInfoForSigning(signing) : null;
 
         return {
             templateId: template.id,
@@ -852,17 +964,37 @@ export class RentalAgreementSigningService {
                 emailBodyHtml: snapshot.emailBodyHtml,
                 isEdited: snapshot.isEdited,
                 isOverridden: snapshot.isOverridden,
+                overrideReason: snapshot.overrideReason,
+                firstViewedAt: reservationDocument?.firstViewedAt ? reservationDocument.firstViewedAt.toISOString() : null,
+                lastViewedAt: reservationDocument?.lastViewedAt ? reservationDocument.lastViewedAt.toISOString() : null,
+                overriddenBy: reservationDocument?.overriddenBy || null,
+                lastEditedBy: reservationDocument?.lastEditedBy || null,
             },
             preview: {
+                headerHtml: rendered.resolvedHeaderHtml,
+                bodyHtml: rendered.resolvedBodyHtml,
+                footerHtml: rendered.resolvedFooterHtml,
                 renderedHtml: rendered.renderedHtml,
                 context: rendered.context,
             },
+            signing: signing ? {
+                id: signing.id,
+                signedAt: signing.signedAt ? signing.signedAt.toISOString() : null,
+                signedByName: signing.signedByName || null,
+                signedByEmail: signing.signedByEmail || null,
+                pdfStatus: signing.pdfStatus || null,
+                pdfDownloadAvailable: this.isDownloadArtifactAvailable(fileInfo),
+                pdfViewUrl: fileInfo?.webViewLink || null,
+            } : null,
         };
     }
 
     async upsertReservationDocumentForAdmin(
         hostifyReservationId: string,
-        payload: Partial<Pick<RentalAgreementReservationDocument, "headerHtml" | "bodyHtml" | "footerHtml" | "emailSubject" | "emailBodyHtml">>,
+        payload: Partial<Pick<RentalAgreementReservationDocument, "headerHtml" | "bodyHtml" | "footerHtml" | "emailSubject" | "emailBodyHtml">> & {
+            markAsOverridden?: boolean;
+            overrideReason?: string | null;
+        },
         userId?: string,
     ) {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
@@ -885,12 +1017,18 @@ export class RentalAgreementSigningService {
         nextDocument.lastEditedAt = new Date();
         nextDocument.lastEditedBy = userId || null;
         nextDocument.sourceTemplateId = template?.id || nextDocument.sourceTemplateId || null;
+        if (payload.markAsOverridden) {
+            nextDocument.isOverridden = true;
+            nextDocument.overriddenAt = new Date();
+            nextDocument.overriddenBy = userId || null;
+            nextDocument.overrideReason = payload.overrideReason || nextDocument.overrideReason || "Edited from internal agreement detail";
+        }
 
         await reservationDocumentRepo().save(nextDocument);
         return this.getReservationDocumentForAdmin(hostifyReservationId);
     }
 
-    async setReservationOverride(hostifyReservationId: string, isOverridden: boolean, userId?: string) {
+    async setReservationOverride(hostifyReservationId: string, isOverridden: boolean, userId?: string, overrideReason?: string | null) {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
         const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
 
@@ -909,6 +1047,7 @@ export class RentalAgreementSigningService {
         nextDocument.isOverridden = isOverridden;
         nextDocument.overriddenAt = isOverridden ? new Date() : null;
         nextDocument.overriddenBy = isOverridden ? (userId || null) : null;
+        nextDocument.overrideReason = isOverridden ? (String(overrideReason || "").trim() || nextDocument.overrideReason || "Manual override") : null;
 
         await reservationDocumentRepo().save(nextDocument);
         return this.getReservationDocumentForAdmin(hostifyReservationId);

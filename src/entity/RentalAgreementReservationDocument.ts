@@ -41,6 +41,9 @@ export class RentalAgreementReservationDocument {
     @Column({ default: false })
     isOverridden: boolean;
 
+    @Column({ type: "text", nullable: true })
+    overrideReason: string | null;
+
     @Column({ type: "timestamp", nullable: true })
     overriddenAt: Date | null;
 
@@ -52,6 +55,12 @@ export class RentalAgreementReservationDocument {
 
     @Column({ type: "varchar", length: 255, nullable: true })
     lastEditedBy: string | null;
+
+    @Column({ type: "timestamp", nullable: true })
+    firstViewedAt: Date | null;
+
+    @Column({ type: "timestamp", nullable: true })
+    lastViewedAt: Date | null;
 
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
