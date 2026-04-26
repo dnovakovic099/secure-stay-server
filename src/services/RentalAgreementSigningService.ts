@@ -138,34 +138,6 @@ export class RentalAgreementSigningService {
         "declined_inq", "preapproved", "offer",
         "withdrawn", "timedout", "not_possible", "deleted",
     ];
-    private reservationDocumentColumnSupportPromise: Promise<Record<string, boolean>> | null = null;
-
-    private async getReservationDocumentColumnSupport() {
-        if (!this.reservationDocumentColumnSupportPromise) {
-            this.reservationDocumentColumnSupportPromise = (async () => {
-                try {
-                    const rows = await appDatabase.query("SHOW COLUMNS FROM `rental_agreement_reservation_documents`");
-                    const fields = new Set(
-                        Array.isArray(rows)
-                            ? rows.map((row: any) => String(row.Field || row.field || ""))
-                            : [],
-                    );
-                    return {
-                        overrideReason: fields.has("overrideReason"),
-                        firstViewedAt: fields.has("firstViewedAt"),
-                        lastViewedAt: fields.has("lastViewedAt"),
-                    };
-                } catch {
-                    return {
-                        overrideReason: false,
-                        firstViewedAt: false,
-                        lastViewedAt: false,
-                    };
-                }
-            })();
-        }
-        return this.reservationDocumentColumnSupportPromise;
-    }
 
     private getFrontendBaseUrl() {
         const explicitFrontendUrl = String(process.env.FRONTEND_URL || "").trim();
@@ -704,7 +676,6 @@ export class RentalAgreementSigningService {
         page: number;
         limit: number;
     }> {
-        const columnSupport = await this.getReservationDocumentColumnSupport();
         const page = Math.max(1, Number(filters.page) || 1);
         const limit = Math.min(200, Math.max(10, Number(filters.limit) || 50));
         const search = String(filters.search || "").trim();
@@ -749,6 +720,9 @@ export class RentalAgreementSigningService {
                 "signing.fileInfoId AS fileInfoId",
                 "document.isEdited AS isEdited",
                 "document.isOverridden AS isOverridden",
+                "document.overrideReason AS overrideReason",
+                "document.firstViewedAt AS firstViewedAt",
+                "document.lastViewedAt AS lastViewedAt",
                 "document.overriddenBy AS overriddenBy",
                 "document.lastEditedBy AS lastEditedBy",
                 "listing.tags AS listingTags",
@@ -757,10 +731,6 @@ export class RentalAgreementSigningService {
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
             });
-
-        qb.addSelect(columnSupport.overrideReason ? "document.overrideReason" : "NULL", "overrideReason");
-        qb.addSelect(columnSupport.firstViewedAt ? "document.firstViewedAt" : "NULL", "firstViewedAt");
-        qb.addSelect(columnSupport.lastViewedAt ? "document.lastViewedAt" : "NULL", "lastViewedAt");
 
         const bucketWhere = this.buildBucketWhere(bucket);
         if (bucketWhere) {
@@ -774,18 +744,9 @@ export class RentalAgreementSigningService {
                 qb.andWhere("DATE(signing.signedAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("DATE(signing.signedAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else if (dateType === "viewed") {
-                if (columnSupport.firstViewedAt || columnSupport.lastViewedAt) {
-                    const viewedExpr = columnSupport.firstViewedAt && columnSupport.lastViewedAt
-                        ? "COALESCE(document.lastViewedAt, document.firstViewedAt)"
-                        : columnSupport.lastViewedAt
-                            ? "document.lastViewedAt"
-                            : "document.firstViewedAt";
-                    qb.andWhere(`${viewedExpr} IS NOT NULL`);
-                    qb.andWhere(`DATE(${viewedExpr}) >= :fromDate`, { fromDate: format(fromDate, "yyyy-MM-dd") });
-                    qb.andWhere(`DATE(${viewedExpr}) <= :toDate`, { toDate: format(toDate, "yyyy-MM-dd") });
-                } else {
-                    qb.andWhere("1 = 0");
-                }
+                qb.andWhere("COALESCE(document.lastViewedAt, document.firstViewedAt) IS NOT NULL");
+                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else {
                 qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
