@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { Between, In } from "typeorm";
 import { subDays, startOfDay, endOfDay } from "date-fns";
 import { appDatabase } from "../utils/database.util";
-import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag } from "../entity/GuestAnalysis";
+import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag, GuestAnalysisTimelinePhase } from "../entity/GuestAnalysis";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { GuestCommunicationService } from "./GuestCommunicationService";
@@ -89,13 +89,12 @@ export interface GuestAnalysisPhaseSummary {
     byPriority: Array<{ label: string; count: number }>;
 }
 
-export type GuestAnalysisTimelinePhase = "inquiry" | "before_stay" | "during_stay" | "after_stay";
-
 export interface GuestAnalysisPhaseBreakdownItem {
     phase: GuestAnalysisTimelinePhase;
     label: string;
     summary: string;
     communicationCount: number;
+    sentiment: SentimentType;
 }
 
 /**
@@ -215,8 +214,9 @@ export class GuestAnalysisService {
         return this.getTimelinePhaseOrder().map((phase) => ({
             phase,
             label: this.getTimelinePhaseLabel(phase),
-            summary: summaries[phase] || "No guest communication captured during this phase.",
+            summary: summaries[phase]?.summary || "No guest communication captured during this phase.",
             communicationCount: grouped[phase].length,
+            sentiment: summaries[phase]?.sentiment || "Neutral",
         }));
     }
 
@@ -457,10 +457,35 @@ export class GuestAnalysisService {
             serviceType: this.extractServiceTypeFromTags(listing?.tags),
             categories,
             departments,
-            flagCount: analysis.flags?.length || 0,
+            flagCount: this.countNegativeFlags(analysis.flags || [], analysis.bookingPhase || this.resolveBookingPhase(reservation, [], analysis.analyzedAt)),
             priority,
             status,
         };
+    }
+
+    private countNegativeFlags(flags: GuestAnalysisFlag[], fallbackPhase?: BookingPhase): number {
+        return this.normalizeFlagsForDisplay(flags, fallbackPhase).filter((flag) => flag.polarity !== "positive").length;
+    }
+
+    private normalizeFlagsForDisplay(flags: GuestAnalysisFlag[], fallbackPhase?: BookingPhase): GuestAnalysisFlag[] {
+        return (flags || []).map((flag) => ({
+            ...flag,
+            polarity: flag?.polarity === "positive" ? "positive" : "negative",
+            phases: this.normalizeFlagPhases(flag?.phases, fallbackPhase),
+        }));
+    }
+
+    private normalizeFlagPhases(value: unknown, fallbackPhase?: BookingPhase): GuestAnalysisTimelinePhase[] {
+        const allowed: GuestAnalysisTimelinePhase[] = ["inquiry", "before_stay", "during_stay", "after_stay"];
+        const normalized = Array.isArray(value)
+            ? value.map((item) => String(item || "").trim()).filter((item): item is GuestAnalysisTimelinePhase => allowed.includes(item as GuestAnalysisTimelinePhase))
+            : [];
+        if (normalized.length) {
+            return Array.from(new Set(normalized));
+        }
+        if (fallbackPhase === "inquiry") return ["inquiry"];
+        if (fallbackPhase === "after_stay") return ["after_stay"];
+        return ["during_stay"];
     }
 
     private getPriorityFromFlags(flags: GuestAnalysisFlag[], priorityRankMap: Map<string, number>): string {
@@ -682,6 +707,8 @@ export class GuestAnalysisService {
                     severity: priorityNames.has(flag.severity) ? flag.severity : fallbackPriority,
                     evidence: String(flag.evidence || "").trim(),
                     evidenceAt: String(flag.evidenceAt || "").trim() || undefined,
+                    polarity: (String(flag.polarity || "").trim().toLowerCase() === "positive" ? "positive" : "negative") as "positive" | "negative",
+                    phases: this.normalizeFlagPhases(flag.phases),
                 }))
                 .filter((flag: any) => flag.explanation);
 
@@ -853,12 +880,12 @@ export class GuestAnalysisService {
     private async generatePhaseBreakdownSummaries(
         grouped: Record<GuestAnalysisTimelinePhase, GuestCommunicationEntity[]>,
         reservation: ReservationInfoEntity | null,
-    ): Promise<Record<GuestAnalysisTimelinePhase, string>> {
-        const defaults: Record<GuestAnalysisTimelinePhase, string> = {
-            inquiry: "No guest communication captured during this phase.",
-            before_stay: "No guest communication captured during this phase.",
-            during_stay: "No guest communication captured during this phase.",
-            after_stay: "No guest communication captured during this phase.",
+    ): Promise<Record<GuestAnalysisTimelinePhase, { summary: string; sentiment: SentimentType }>> {
+        const defaults: Record<GuestAnalysisTimelinePhase, { summary: string; sentiment: SentimentType }> = {
+            inquiry: { summary: "No guest communication captured during this phase.", sentiment: "Neutral" },
+            before_stay: { summary: "No guest communication captured during this phase.", sentiment: "Neutral" },
+            during_stay: { summary: "No guest communication captured during this phase.", sentiment: "Neutral" },
+            after_stay: { summary: "No guest communication captured during this phase.", sentiment: "Neutral" },
         };
 
         const hasAnyCommunication = this.getTimelinePhaseOrder().some((phase) => grouped[phase].length > 0);
@@ -876,10 +903,10 @@ Your task is to summarize guest communication across four reservation phases:
 
 Return valid JSON with exactly these keys:
 {
-  "inquiry": "summary",
-  "before_stay": "summary",
-  "during_stay": "summary",
-  "after_stay": "summary"
+  "inquiry": { "summary": "summary", "sentiment": "Positive|Neutral|Negative|Mixed" },
+  "before_stay": { "summary": "summary", "sentiment": "Positive|Neutral|Negative|Mixed" },
+  "during_stay": { "summary": "summary", "sentiment": "Positive|Neutral|Negative|Mixed" },
+  "after_stay": { "summary": "summary", "sentiment": "Positive|Neutral|Negative|Mixed" }
 }
 
 Rules:
@@ -929,10 +956,19 @@ Rules:
         }
 
         try {
-            const parsed = JSON.parse(content) as Partial<Record<GuestAnalysisTimelinePhase, string>>;
-            return this.getTimelinePhaseOrder().reduce<Record<GuestAnalysisTimelinePhase, string>>((accumulator, phase) => {
-                const value = String(parsed?.[phase] || "").trim();
-                accumulator[phase] = value || defaults[phase];
+            const parsed = JSON.parse(content) as Partial<Record<GuestAnalysisTimelinePhase, { summary?: string; sentiment?: string } | string>>;
+            return this.getTimelinePhaseOrder().reduce<Record<GuestAnalysisTimelinePhase, { summary: string; sentiment: SentimentType }>>((accumulator, phase) => {
+                const rawPhase = parsed?.[phase];
+                if (typeof rawPhase === "string") {
+                    accumulator[phase] = { summary: rawPhase.trim() || defaults[phase].summary, sentiment: "Neutral" };
+                    return accumulator;
+                }
+                const summary = String((rawPhase as any)?.summary || "").trim();
+                const sentiment = String((rawPhase as any)?.sentiment || "").trim();
+                accumulator[phase] = {
+                    summary: summary || defaults[phase].summary,
+                    sentiment: ["Positive", "Neutral", "Negative", "Mixed"].includes(sentiment) ? (sentiment as SentimentType) : defaults[phase].sentiment,
+                };
                 return accumulator;
             }, { ...defaults });
         } catch (error: any) {
@@ -970,6 +1006,8 @@ Respond in valid JSON with this structure:
             "owner": "${departmentList}",
             "rootCause": "Staffing problem | Training problem | Bad process / SOP | Vendor didn't show up | System/tool issue | Too much workload | Not enough maintenance | Unknown",
             "severity": "${priorityList}",
+            "polarity": "positive | negative",
+            "phases": ["inquiry | before_stay | during_stay | after_stay"],
             "evidence": "Short quote or paraphrase from the communication/review",
             "evidenceAt": "Exact timestamp from the communication timeline when the guest said this, if available"
         }
@@ -992,12 +1030,16 @@ Respond in valid JSON with this structure:
 ## WHAT TO DO
 - Decide if there is a real operational issue or not
 - If no issue is present, return empty flags array: []
-- If multiple issues exist, list them all, most important first
+- Flags can be negative problems or positive operational wins
+- Use polarity "negative" for complaints, failures, confusion, missed expectations, escalation risk, unresolved issues
+- Use polarity "positive" for strong service recovery, proactive communication, fast execution, clear coordination, or guest praise tied to operations
+- If multiple issues or wins exist, list them all, most important first
 - Prioritize "Property / Unit Issue" whenever there is a real property problem
 - If something was supposed to be done but wasn't, prefer "Execution Failure"
 - If information was wrong or conflicting, use "Information Problem"
 - Focus on the operational problem, not just emotion
 - Do not guess or invent facts
+- For each flag, include every applicable phase in "phases". If the same topic spans multiple phases, include all of them.
 - When you cite evidence from a guest message, include the guest message timestamp in evidenceAt when it is available in the timeline
 
 ${this.buildSettingsPromptBlock("Categories", categories)}
