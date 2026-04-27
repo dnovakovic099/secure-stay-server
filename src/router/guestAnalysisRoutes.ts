@@ -17,6 +17,9 @@ router.get("/summary", controller.getSummary);
 // GET /api/guest-analysis/records - Get AI analysis records table data
 router.get("/records", controller.getRecords);
 
+// GET /api/guest-analysis/records/:reservationId - Get reservation drill-in detail
+router.get("/records/:reservationId", controller.getRecordDetail);
+
 // GET /api/guest-analysis/settings - Get taxonomy/settings
 router.get("/settings", controller.getSettings);
 

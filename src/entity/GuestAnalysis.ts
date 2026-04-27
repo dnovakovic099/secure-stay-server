@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
-export type BookingPhase = 'inquiry' | 'during_stay' | 'after_stay';
+export type BookingPhase = 'inquiry' | 'before_stay' | 'during_stay' | 'after_stay';
 export type GuestAnalysisFlagPolarity = 'positive' | 'negative';
 export type GuestAnalysisTimelinePhase = 'inquiry' | 'before_stay' | 'during_stay' | 'after_stay';
 

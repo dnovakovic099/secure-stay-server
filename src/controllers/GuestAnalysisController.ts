@@ -104,6 +104,25 @@ export class GuestAnalysisController {
         }
     };
 
+    getRecordDetail = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+            const detail = await this.analysisService.getAnalysisDetailContext(reservationId);
+            if (!detail) {
+                res.status(404).json({ error: "No analysis detail found for this reservation" });
+                return;
+            }
+            res.json({ success: true, data: detail });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getRecordDetail error:", error.message);
+            res.status(500).json({ error: "Failed to get analysis detail" });
+        }
+    };
+
     getSettings = async (req: Request, res: Response): Promise<void> => {
         try {
             const settings = await this.settingsService.getSettings();
@@ -352,6 +371,7 @@ export class GuestAnalysisController {
             sentiment: parseList(req.query.sentiment),
             category: parseList(req.query.category),
             department: parseList(req.query.department),
+            flagPolarity: parseList(req.query.flagPolarity) as GuestAnalysisRecordFilters["flagPolarity"],
             status: parseList(req.query.status),
             priority: parseList(req.query.priority),
             property: parseList(req.query.property),
