@@ -224,6 +224,21 @@ export class RentalAgreementSigningService {
         });
     }
 
+    private formatDateOnlyValue(value: Date | string | null | undefined): string | null {
+        if (!value) return null;
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+            const isoLike = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (isoLike) return isoLike[1];
+        }
+
+        const nextDate = new Date(value);
+        if (Number.isNaN(nextDate.getTime())) return null;
+        return format(nextDate, "yyyy-MM-dd");
+    }
+
     private async getListingForReservation(reservationInfo: ReservationInfoEntity): Promise<Listing | null> {
         if (!reservationInfo?.listingMapId) return null;
         return listingRepo().findOne({ where: { id: reservationInfo.listingMapId } });
@@ -568,8 +583,8 @@ export class RentalAgreementSigningService {
             propertyName: raw.propertyName || "—",
             propertyAddress: raw.propertyAddress || "",
             channelName: raw.channelName || "—",
-            arrivalDate: raw.arrivalDate ? new Date(raw.arrivalDate).toISOString() : null,
-            departureDate: raw.departureDate ? new Date(raw.departureDate).toISOString() : null,
+            arrivalDate: this.formatDateOnlyValue(raw.arrivalDate),
+            departureDate: this.formatDateOnlyValue(raw.departureDate),
             checkInTime: this.formatHourValue(raw.checkInTime ?? raw.listingCheckInTime),
             checkOutTime: this.formatHourValue(raw.checkOutTime ?? raw.listingCheckOutTime),
             signingId: raw.signingId ? Number(raw.signingId) : null,
