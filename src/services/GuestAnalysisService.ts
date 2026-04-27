@@ -324,10 +324,12 @@ export class GuestAnalysisService {
         page: number;
         limit: number;
     }> {
-        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const analyses = await this.getAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
+        const mapped = analyses.map(({ analysis, reservation, listing }) =>
+            this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap)
+        );
         const filtered = this.applyRecordFilters(mapped, filters);
         const sorted = this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
         const page = Math.max(1, Number(filters.page || 1));
@@ -343,19 +345,23 @@ export class GuestAnalysisService {
     }
 
     async getAllAnalysisRecords(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisRecord[]> {
-        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const analyses = await this.getAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
+        const mapped = analyses.map(({ analysis, reservation, listing }) =>
+            this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap)
+        );
         const filtered = this.applyRecordFilters(mapped, filters);
         return this.sortRecords(filtered, priorityRankMap, filters.sortField, filters.sortDir || "DESC");
     }
 
     async getAnalysisSummary(filters: GuestAnalysisRecordFilters = {}): Promise<GuestAnalysisPhaseSummary[]> {
-        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const analyses = await this.getAnalysesWithReservations();
         const priorityRankMap = await this.settingsService.getPriorityRankMap();
         const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
-        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) => this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap));
+        const mapped = analyses.map(({ analysis, reservation, listing }) =>
+            this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap)
+        );
         const filtered = this.applyRecordFilters(mapped, filters);
 
         return PHASE_ORDER.map((phase) => {
@@ -461,6 +467,36 @@ export class GuestAnalysisService {
         );
 
         return Array.from(latestByReservation.values()).map((analysis) => ({
+            analysis,
+            reservation: reservationMap.get(Number(analysis.reservationId)) || null,
+            listing: listingMap.get(Number(reservationMap.get(Number(analysis.reservationId))?.listingMapId || 0)) || null,
+        }));
+    }
+
+    private async getAnalysesWithReservations(): Promise<Array<{ analysis: GuestAnalysisEntity; reservation: ReservationInfoEntity | null; listing: Listing | null }>> {
+        const analyses = await this.analysisRepo.find({ order: { analyzedAt: "DESC" } });
+        const reservationIds = Array.from(new Set(analyses.map((analysis) => Number(analysis.reservationId)).filter((value) => Number.isFinite(value) && value > 0)));
+        const reservations = reservationIds.length
+            ? await this.reservationRepo.find({ where: { id: In(reservationIds) } })
+            : [];
+        const reservationMap = new Map<number, ReservationInfoEntity>(
+            reservations.map((reservation) => [Number(reservation.id), reservation])
+        );
+        const listingIds = Array.from(
+            new Set(
+                reservations
+                    .map((reservation) => Number(reservation.listingMapId))
+                    .filter((value) => Number.isFinite(value) && value > 0)
+            )
+        );
+        const listings = listingIds.length
+            ? await this.listingRepo.find({ where: { id: In(listingIds) }, select: ["id", "tags"] })
+            : [];
+        const listingMap = new Map<number, Listing>(
+            listings.map((listing) => [Number(listing.id), listing])
+        );
+
+        return analyses.map((analysis) => ({
             analysis,
             reservation: reservationMap.get(Number(analysis.reservationId)) || null,
             listing: listingMap.get(Number(reservationMap.get(Number(analysis.reservationId))?.listingMapId || 0)) || null,
