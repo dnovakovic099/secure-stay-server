@@ -672,9 +672,11 @@ export class RentalAgreementSigningService {
             checkingInNext7Days: RentalAgreementSummaryCard;
         };
         records: RentalAgreementOverviewRow[];
+        availableChannels: string[];
         total: number;
         page: number;
         limit: number;
+        hasMore: boolean;
     }> {
         const page = Math.max(1, Number(filters.page) || 1);
         const limit = Math.min(200, Math.max(10, Number(filters.limit) || 50));
@@ -822,22 +824,41 @@ export class RentalAgreementSigningService {
         }
 
         qb.addOrderBy("reservation.id", "DESC");
-        const totalQb = qb.clone();
-        qb.skip((page - 1) * limit).take(limit);
+        qb.skip((page - 1) * limit).take(limit + 1);
 
-        const [rawRows, totalRaw] = await Promise.all([
+        const channelRowsPromise = reservationInfoRepo()
+            .createQueryBuilder("reservation")
+            .select("DISTINCT reservation.channelName", "channelName")
+            .where("reservation.arrivalDate IS NOT NULL")
+            .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
+                excludedStatuses: this.excludedReservationStatuses,
+            })
+            .andWhere("COALESCE(reservation.channelName, '') <> ''")
+            .orderBy("reservation.channelName", "ASC")
+            .getRawMany();
+
+        const [rawRows, channelRows] = await Promise.all([
             qb.getRawMany(),
-            totalQb.select("COUNT(DISTINCT reservation.id)", "total").getRawOne(),
+            channelRowsPromise,
         ]);
-        const total = Number(totalRaw?.total || 0);
+        const hasMore = rawRows.length > limit;
+        const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
+        const total = (page - 1) * limit + pageRows.length + (hasMore ? 1 : 0);
+        const availableChannels = Array.from(
+            new Set(
+                channelRows
+                    .map((row) => String(row.channelName || "").trim())
+                    .filter(Boolean),
+            ),
+        );
 
-        const fileInfoIds = rawRows.map((row) => Number(row.fileInfoId)).filter(Boolean);
+        const fileInfoIds = pageRows.map((row) => Number(row.fileInfoId)).filter(Boolean);
         const fileInfos = fileInfoIds.length > 0
             ? await fileInfoRepo().findBy({ id: In(fileInfoIds) })
             : [];
         const fileInfoMap = new Map(fileInfos.map((fileInfo) => [fileInfo.id, fileInfo]));
 
-        const records = rawRows.map((row) => {
+        const records = pageRows.map((row) => {
             const fileInfo = row.fileInfoId ? fileInfoMap.get(Number(row.fileInfoId)) || null : null;
             const enrichedRow = {
                 ...row,
@@ -902,9 +923,11 @@ export class RentalAgreementSigningService {
                 checkingInNext7Days,
             },
             records,
+            availableChannels,
             total,
             page,
             limit,
+            hasMore,
         };
     }
 
