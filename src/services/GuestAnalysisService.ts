@@ -33,6 +33,7 @@ export type AnalysisStatus = "No issue" | "Monitor" | "Action needed";
 export interface GuestAnalysisRecord {
     id: string;
     reservationId: number;
+    listingMapId: number | null;
     guestName: string | null;
     listingName: string | null;
     channelName: string | null;
@@ -49,6 +50,7 @@ export interface GuestAnalysisRecord {
     analyzedBy: string | null;
     propertyType: string | null;
     serviceType: string | null;
+    reservationDate: Date | string | null;
     categories: string[];
     departments: string[];
     flagCount: number;
@@ -62,6 +64,7 @@ export interface GuestAnalysisRecordFilters {
     sentiment?: string[];
     category?: string[];
     department?: string[];
+    flagPolarity?: Array<"positive" | "negative">;
     status?: string[];
     priority?: string[];
     property?: string[];
@@ -89,6 +92,27 @@ export interface GuestAnalysisPhaseSummary {
     byPriority: Array<{ label: string; count: number }>;
 }
 
+export interface GuestAnalysisDetailContext {
+    record: GuestAnalysisRecord;
+    phaseBreakdown: GuestAnalysisPhaseBreakdownItem[];
+    reservationHistory: GuestAnalysisRecord[];
+    propertyContext: {
+        listingName: string | null;
+        reservationCount: number;
+        records: GuestAnalysisRecord[];
+    };
+    categoryContext: Array<{
+        label: string;
+        count: number;
+        records: GuestAnalysisRecord[];
+    }>;
+    departmentContext: Array<{
+        label: string;
+        count: number;
+        records: GuestAnalysisRecord[];
+    }>;
+}
+
 export interface GuestAnalysisPhaseBreakdownItem {
     phase: GuestAnalysisTimelinePhase;
     label: string;
@@ -107,7 +131,7 @@ export interface GuestAnalysisResult {
     flags: GuestAnalysisFlag[];
 }
 
-const PHASE_ORDER: BookingPhase[] = ["inquiry", "during_stay", "after_stay"];
+const PHASE_ORDER: BookingPhase[] = ["inquiry", "before_stay", "during_stay", "after_stay"];
 
 /**
  * GuestAnalysisService
@@ -218,6 +242,55 @@ export class GuestAnalysisService {
             communicationCount: grouped[phase].length,
             sentiment: summaries[phase]?.sentiment || "Neutral",
         }));
+    }
+
+    async getAnalysisDetailContext(reservationId: number): Promise<GuestAnalysisDetailContext | null> {
+        const latestAnalyses = await this.getLatestAnalysesWithReservations();
+        const priorityRankMap = await this.settingsService.getPriorityRankMap();
+        const priorityStatusMap = await this.settingsService.getPriorityStatusMap();
+        const mapped = latestAnalyses.map(({ analysis, reservation, listing }) =>
+            this.mapAnalysisRecord(analysis, reservation, listing, priorityRankMap, priorityStatusMap)
+        );
+        const currentRecord = mapped.find((record) => Number(record.reservationId) === Number(reservationId));
+        if (!currentRecord) return null;
+        const currentSource = latestAnalyses.find((item) => Number(item.analysis.reservationId) === Number(reservationId));
+
+        const reservationHistory = (await this.getAllAnalysesByReservation(reservationId)).map((analysis) =>
+            this.mapAnalysisRecord(
+                analysis,
+                currentSource?.reservation || null,
+                currentSource?.listing || null,
+                priorityRankMap,
+                priorityStatusMap
+            )
+        );
+        const phaseBreakdown = await this.getReservationPhaseBreakdown(reservationId);
+        const propertyRecords = mapped
+            .filter((record) => record.listingMapId && record.listingMapId === currentRecord.listingMapId && record.reservationId !== currentRecord.reservationId)
+            .slice(0, 12);
+        const categoryContext = currentRecord.categories.slice(0, 3).map((label) => ({
+            label,
+            count: mapped.filter((record) => record.categories.includes(label)).length,
+            records: mapped.filter((record) => record.categories.includes(label) && record.reservationId !== currentRecord.reservationId).slice(0, 8),
+        }));
+        const departmentContext = currentRecord.departments.slice(0, 3).map((label) => ({
+            label,
+            count: mapped.filter((record) => record.departments.includes(label)).length,
+            records: mapped.filter((record) => record.departments.includes(label) && record.reservationId !== currentRecord.reservationId).slice(0, 8),
+        }));
+
+        return {
+            record: currentRecord,
+            phaseBreakdown,
+            reservationHistory,
+            propertyContext: {
+                listingName: currentRecord.listingName,
+                reservationCount: mapped.filter((record) => record.listingMapId && record.listingMapId === currentRecord.listingMapId).length,
+                records: propertyRecords,
+            },
+            categoryContext,
+            departmentContext,
+        };
     }
 
     /**
@@ -406,17 +479,19 @@ export class GuestAnalysisService {
             .sort((a, b) => new Date(b.communicatedAt).getTime() - new Date(a.communicatedAt).getTime());
         const referenceDate = guestInbound[0]?.communicatedAt || communications[communications.length - 1]?.communicatedAt || fallbackDate || new Date();
         const reference = new Date(referenceDate);
-        const arrival = reservation.arrivalDate ? new Date(reservation.arrivalDate) : null;
-        const departure = reservation.departureDate ? new Date(reservation.departureDate) : null;
+        const bookingDate = this.resolveReservationConfirmationBoundary(reservation);
+        const arrival = this.resolveStayBoundary(reservation.arrivalDate, reservation.checkInTime, 0);
+        const departure = this.resolveStayBoundary(reservation.departureDate, reservation.checkOutTime, 23);
 
-        if (arrival && reference < new Date(arrival.toISOString().slice(0, 10))) {
+        if (bookingDate && reference < bookingDate) {
             return "inquiry";
+        }
+        if (arrival && reference < arrival) {
+            return "before_stay";
         }
 
         if (departure) {
-            const departureEnd = new Date(departure.toISOString().slice(0, 10));
-            departureEnd.setDate(departureEnd.getDate() + 1);
-            if (reference >= departureEnd) {
+            if (reference >= departure) {
                 return "after_stay";
             }
         }
@@ -439,6 +514,7 @@ export class GuestAnalysisService {
         return {
             id: analysis.id,
             reservationId: Number(analysis.reservationId),
+            listingMapId: reservation?.listingMapId ? Number(reservation.listingMapId) : null,
             guestName: reservation?.guestName || null,
             listingName: reservation?.listingName || null,
             channelName: reservation?.channelName || reservation?.source || null,
@@ -446,15 +522,16 @@ export class GuestAnalysisService {
             confirmationCode: reservation?.confirmation_code || null,
             arrivalDate: reservation?.arrivalDate || null,
             departureDate: reservation?.departureDate || null,
-            bookingPhase: analysis.bookingPhase || this.resolveBookingPhase(reservation, [], analysis.analyzedAt),
+            bookingPhase: this.resolveBookingPhase(reservation, [], analysis.analyzedAt),
             summary: analysis.summary,
             sentiment: analysis.sentiment as SentimentType,
             sentimentReason: analysis.sentimentReason,
-            flags: analysis.flags || [],
+            flags: this.normalizeFlagsForDisplay(analysis.flags || [], analysis.bookingPhase || this.resolveBookingPhase(reservation, [], analysis.analyzedAt)),
             analyzedAt: analysis.analyzedAt,
             analyzedBy: analysis.analyzedBy || null,
             propertyType: this.extractPropertyTypeFromTags(listing?.tags),
             serviceType: this.extractServiceTypeFromTags(listing?.tags),
+            reservationDate: reservation?.reservationDate || null,
             categories,
             departments,
             flagCount: this.countNegativeFlags(analysis.flags || [], analysis.bookingPhase || this.resolveBookingPhase(reservation, [], analysis.analyzedAt)),
@@ -520,6 +597,10 @@ export class GuestAnalysisService {
             if (filters.sentiment?.length && !filters.sentiment.includes(record.sentiment)) return false;
             if (filters.category?.length && !record.categories.some((category) => filters.category?.includes(category))) return false;
             if (filters.department?.length && !record.departments.some((department) => filters.department?.includes(department))) return false;
+            if (filters.flagPolarity?.length) {
+                const polarities = new Set((record.flags || []).map((flag) => flag.polarity || "negative"));
+                if (!filters.flagPolarity.some((value) => polarities.has(value))) return false;
+            }
             if (filters.status?.length && !filters.status.includes(record.status)) return false;
             if (filters.priority?.length && !filters.priority.includes(record.priority)) return false;
             if (filters.property?.length && !filters.property.includes(record.listingName || "")) return false;
