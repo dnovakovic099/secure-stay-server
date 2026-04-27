@@ -89,6 +89,15 @@ export interface GuestAnalysisPhaseSummary {
     byPriority: Array<{ label: string; count: number }>;
 }
 
+export type GuestAnalysisTimelinePhase = "inquiry" | "before_stay" | "during_stay" | "after_stay";
+
+export interface GuestAnalysisPhaseBreakdownItem {
+    phase: GuestAnalysisTimelinePhase;
+    label: string;
+    summary: string;
+    communicationCount: number;
+}
+
 /**
  * AI analysis result interface
  */
@@ -193,6 +202,22 @@ export class GuestAnalysisService {
             where: { reservationId },
             order: { analyzedAt: 'DESC' }
         });
+    }
+
+    async getReservationPhaseBreakdown(reservationId: number): Promise<GuestAnalysisPhaseBreakdownItem[]> {
+        const reservation = await this.reservationRepo.findOne({
+            where: { id: reservationId }
+        });
+        const communications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
+        const grouped = this.groupCommunicationsByTimelinePhase(reservation, communications);
+        const summaries = await this.generatePhaseBreakdownSummaries(grouped, reservation);
+
+        return this.getTimelinePhaseOrder().map((phase) => ({
+            phase,
+            label: this.getTimelinePhaseLabel(phase),
+            summary: summaries[phase] || "No guest communication captured during this phase.",
+            communicationCount: grouped[phase].length,
+        }));
     }
 
     /**
@@ -701,6 +726,219 @@ export class GuestAnalysisService {
             lines.push(`- ${item.name}: ${item.criteria}`);
         });
         return lines.join("\n");
+    }
+
+    private getTimelinePhaseOrder(): GuestAnalysisTimelinePhase[] {
+        return ["inquiry", "before_stay", "during_stay", "after_stay"];
+    }
+
+    private getTimelinePhaseLabel(phase: GuestAnalysisTimelinePhase): string {
+        switch (phase) {
+            case "inquiry":
+                return "Inquiry Phase";
+            case "before_stay":
+                return "Before Stay";
+            case "during_stay":
+                return "During Stay";
+            case "after_stay":
+                return "After Stay";
+            default:
+                return phase;
+        }
+    }
+
+    private groupCommunicationsByTimelinePhase(
+        reservation: ReservationInfoEntity | null,
+        communications: GuestCommunicationEntity[],
+    ): Record<GuestAnalysisTimelinePhase, GuestCommunicationEntity[]> {
+        const grouped: Record<GuestAnalysisTimelinePhase, GuestCommunicationEntity[]> = {
+            inquiry: [],
+            before_stay: [],
+            during_stay: [],
+            after_stay: [],
+        };
+        const confirmationAt = this.resolveReservationConfirmationBoundary(reservation);
+        const checkInAt = this.resolveStayBoundary(reservation?.arrivalDate, reservation?.checkInTime, 0);
+        const checkOutAt = this.resolveStayBoundary(reservation?.departureDate, reservation?.checkOutTime, 23);
+
+        communications.forEach((communication) => {
+            const communicatedAt = new Date(communication.communicatedAt);
+            if (confirmationAt && communicatedAt < confirmationAt) {
+                grouped.inquiry.push(communication);
+                return;
+            }
+            if (checkInAt && communicatedAt < checkInAt) {
+                grouped.before_stay.push(communication);
+                return;
+            }
+            if (checkOutAt && communicatedAt < checkOutAt) {
+                grouped.during_stay.push(communication);
+                return;
+            }
+            grouped.after_stay.push(communication);
+        });
+
+        if (!confirmationAt && !checkInAt && !checkOutAt && communications.length) {
+            grouped.during_stay = [...communications];
+        }
+
+        return grouped;
+    }
+
+    private resolveReservationConfirmationBoundary(reservation: ReservationInfoEntity | null): Date | null {
+        const raw = reservation?.reservationDate;
+        if (!raw) return null;
+        return this.parseDateValue(raw, 0);
+    }
+
+    private resolveStayBoundary(dateValue?: Date | string | null, hourValue?: number | null, fallbackHour = 0): Date | null {
+        if (!dateValue) return null;
+        const hour = Number.isFinite(Number(hourValue)) ? Number(hourValue) : fallbackHour;
+        return this.parseDateValue(dateValue, hour);
+    }
+
+    private parseDateValue(value: Date | string, hour = 0): Date | null {
+        if (!value) return null;
+        if (value instanceof Date) {
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) return null;
+            parsed.setHours(hour, 0, 0, 0);
+            return parsed;
+        }
+
+        const raw = String(value).trim();
+        if (!raw) return null;
+        const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnlyMatch) {
+            const [, year, month, day] = dateOnlyMatch;
+            return new Date(Number(year), Number(month) - 1, Number(day), hour, 0, 0, 0);
+        }
+
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return null;
+        parsed.setHours(hour, 0, 0, 0);
+        return parsed;
+    }
+
+    private buildTimelineFromCommunications(communications: GuestCommunicationEntity[]): string {
+        if (!communications.length) {
+            return "No communications found for this phase.";
+        }
+
+        const lines: string[] = ["## Communication Timeline\n"];
+        communications.forEach((comm) => {
+            const timestamp = new Date(comm.communicatedAt).toISOString().replace("T", " ").substring(0, 19);
+            const directionLabel = comm.direction === "inbound" ? "GUEST" : "REP";
+            const sourceLabel = this.formatCommunicationSource(comm.source);
+            lines.push(`[${timestamp}] [${sourceLabel}] [${directionLabel}] ${comm.senderName}:`);
+            lines.push(comm.content);
+            lines.push("");
+        });
+        return lines.join("\n");
+    }
+
+    private formatCommunicationSource(source: string): string {
+        switch (source) {
+            case "openphone_sms":
+                return "SMS";
+            case "openphone_call":
+                return "CALL";
+            case "hostify_message":
+                return "MSG";
+            default:
+                return source.toUpperCase();
+        }
+    }
+
+    private async generatePhaseBreakdownSummaries(
+        grouped: Record<GuestAnalysisTimelinePhase, GuestCommunicationEntity[]>,
+        reservation: ReservationInfoEntity | null,
+    ): Promise<Record<GuestAnalysisTimelinePhase, string>> {
+        const defaults: Record<GuestAnalysisTimelinePhase, string> = {
+            inquiry: "No guest communication captured during this phase.",
+            before_stay: "No guest communication captured during this phase.",
+            during_stay: "No guest communication captured during this phase.",
+            after_stay: "No guest communication captured during this phase.",
+        };
+
+        const hasAnyCommunication = this.getTimelinePhaseOrder().some((phase) => grouped[phase].length > 0);
+        if (!hasAnyCommunication) {
+            return defaults;
+        }
+
+        const systemPrompt = `You are an expert hospitality communication analyst for a vacation rental management company.
+
+Your task is to summarize guest communication across four reservation phases:
+- inquiry
+- before_stay
+- during_stay
+- after_stay
+
+Return valid JSON with exactly these keys:
+{
+  "inquiry": "summary",
+  "before_stay": "summary",
+  "during_stay": "summary",
+  "after_stay": "summary"
+}
+
+Rules:
+- Each summary must be concise, neutral, and operationally useful.
+- Focus on guest concerns, team actions, outcomes, and unresolved items.
+- Do not invent facts.
+- If a phase has no messages, return exactly: "No guest communication captured during this phase."
+- Keep each phase summary to 1-3 sentences.`;
+
+        const phaseSections = this.getTimelinePhaseOrder()
+            .map((phase) => `### ${phase}\n${this.buildTimelineFromCommunications(grouped[phase])}`)
+            .join("\n\n");
+
+        const userPrompt = [
+            "## Reservation Context",
+            `- Guest Name: ${reservation?.guestName || "Unknown"}`,
+            `- Listing: ${reservation?.listingName || "Unknown"}`,
+            `- Booking Date: ${reservation?.reservationDate || "Unknown"}`,
+            `- Check-in Date: ${reservation?.arrivalDate || "Unknown"}`,
+            `- Check-out Date: ${reservation?.departureDate || "Unknown"}`,
+            "",
+            "## Phase Timelines",
+            phaseSections,
+            "",
+            "Summarize each phase in JSON."
+        ].join("\n");
+
+        let content = "";
+        try {
+            const response = await this.openai.chat.completions.create({
+                model: "gpt-4.1",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userPrompt },
+                ],
+                temperature: 0.2,
+                response_format: { type: "json_object" }
+            });
+            content = response.choices[0]?.message?.content || "";
+        } catch (error: any) {
+            logger.error("[GuestAnalysisService] Error generating phase breakdown:", error?.message || error);
+            return defaults;
+        }
+
+        if (!content) {
+            return defaults;
+        }
+
+        try {
+            const parsed = JSON.parse(content) as Partial<Record<GuestAnalysisTimelinePhase, string>>;
+            return this.getTimelinePhaseOrder().reduce<Record<GuestAnalysisTimelinePhase, string>>((accumulator, phase) => {
+                const value = String(parsed?.[phase] || "").trim();
+                accumulator[phase] = value || defaults[phase];
+                return accumulator;
+            }, { ...defaults });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisService] Error parsing phase breakdown response:", error?.message || error, { content });
+            return defaults;
+        }
     }
 
     private buildSystemPrompt(

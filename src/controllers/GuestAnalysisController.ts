@@ -255,11 +255,17 @@ export class GuestAnalysisController {
                 return;
             }
 
-            const analyses = await this.analysisService.getAllAnalysesByReservation(reservationId);
+            const [analyses, phaseBreakdown] = await Promise.all([
+                this.analysisService.getAllAnalysesByReservation(reservationId),
+                this.analysisService.getReservationPhaseBreakdown(reservationId),
+            ]);
 
             res.json({
                 success: true,
-                data: analyses
+                data: analyses,
+                meta: {
+                    phaseBreakdown,
+                },
             });
         } catch (error: any) {
             logger.error("[GuestAnalysisController] getAnalysisHistory error:", error.message);
