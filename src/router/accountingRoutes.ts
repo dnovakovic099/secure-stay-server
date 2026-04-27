@@ -182,6 +182,13 @@ router.route('/resolution/upload-csv-multiple')
         resolutionController.processMultipleCSVForResolution
     )
 
+router.route('/resolution/check-missing-csv-multiple')
+    .post(
+        verifySession,
+        fileUpload("resolution").array("files", 30),
+        resolutionController.checkMultipleCSVForMissingResolutions
+    )
+
 router.route('/save-published-ha-statements')
     .get(
         verifySession,

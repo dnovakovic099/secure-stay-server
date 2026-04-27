@@ -117,6 +117,50 @@ export class ResolutionController {
         }
     }
 
+    async checkMultipleCSVForMissingResolutions(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const resolutionService = new ResolutionService();
+            const files = request.files as Express.Multer.File[];
+
+            if (!files || files.length === 0) {
+                return response.status(400).json({ message: "No files uploaded" });
+            }
+
+            logger.info(`Checking ${files.length} CSV file(s) for missing resolutions`);
+
+            let allMissingRows: any[] = [];
+            let allPresentRows: any[] = [];
+
+            for (const file of files) {
+                try {
+                    const { missingRows, presentRows } = await resolutionService.checkCSVFileForMissingResolutions(file.path);
+                    allMissingRows = [...allMissingRows, ...missingRows];
+                    allPresentRows = [...allPresentRows, ...presentRows];
+                } catch (fileError) {
+                    logger.error(`Failed to check file ${file.originalname}: ${fileError.message}`);
+                }
+            }
+
+            if (allMissingRows.length > 0) {
+                const csv = unparse(allMissingRows);
+
+                response.setHeader("Content-Disposition", "attachment; filename=missing_resolutions.csv");
+                response.setHeader("Content-Type", "text/csv");
+                response.status(200).send(csv);
+            } else {
+                response.status(200).json({
+                    success: true,
+                    message: "No missing resolutions found",
+                    filesProcessed: files.length,
+                    missingCount: 0,
+                    presentCount: allPresentRows.length
+                });
+            }
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async processMultipleCSVForResolution(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;
