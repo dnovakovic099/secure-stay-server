@@ -138,6 +138,61 @@ export class RentalAgreementSigningService {
         "declined_inq", "preapproved", "offer",
         "withdrawn", "timedout", "not_possible", "deleted",
     ];
+    private rentalAgreementMinArrivalDate = "2026-01-01";
+
+    private normalizeRentalAgreementChannel(channelName?: string | null): string | null {
+        const value = String(channelName || "").trim();
+        if (!value) return null;
+        const normalized = value.toLowerCase();
+
+        if (normalized.includes("airbnb")) return "Airbnb";
+        if (normalized.includes("booking")) return "Booking.com";
+        if (normalized.includes("vrbo") || normalized.includes("homeaway")) return "Vrbo";
+        if (normalized.includes("direct") || normalized.includes("website") || normalized.includes("hostaway")) return "Direct";
+        if (normalized.includes("hvmb") || normalized.includes("marriott")) return "HVMB / Marriott";
+        if (normalized.includes("google")) return "Google";
+        if (normalized === "customlocal") return "Customlocal";
+        if (normalized === "owner") return "Owner";
+        if (normalized === "partner") return "Partner";
+        if (normalized.includes("whimstay")) return "Whimstay";
+
+        return value;
+    }
+
+    private buildRentalAgreementChannelWhere(channelValues: string[]) {
+        const normalizedValues = Array.from(
+            new Set(channelValues.map((value) => this.normalizeRentalAgreementChannel(value)).filter(Boolean)),
+        ) as string[];
+        if (!normalizedValues.length) return null;
+
+        const clauses: string[] = [];
+        const params: Record<string, string> = {};
+
+        normalizedValues.forEach((value, index) => {
+            const key = `channelFilter${index}`;
+            params[key] = value;
+            clauses.push(`
+                CASE
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%airbnb%' THEN 'Airbnb'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%booking%' THEN 'Booking.com'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%vrbo%' OR LOWER(COALESCE(reservation.channelName, '')) LIKE '%homeaway%' THEN 'Vrbo'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%direct%' OR LOWER(COALESCE(reservation.channelName, '')) LIKE '%website%' OR LOWER(COALESCE(reservation.channelName, '')) LIKE '%hostaway%' THEN 'Direct'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%hvmb%' OR LOWER(COALESCE(reservation.channelName, '')) LIKE '%marriott%' THEN 'HVMB / Marriott'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%google%' THEN 'Google'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) = 'customlocal' THEN 'Customlocal'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) = 'owner' THEN 'Owner'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) = 'partner' THEN 'Partner'
+                    WHEN LOWER(COALESCE(reservation.channelName, '')) LIKE '%whimstay%' THEN 'Whimstay'
+                    ELSE TRIM(COALESCE(reservation.channelName, ''))
+                END = :${key}
+            `);
+        });
+
+        return {
+            sql: `(${clauses.join(" OR ")})`,
+            params,
+        };
+    }
 
     private getFrontendBaseUrl() {
         const explicitFrontendUrl = String(process.env.FRONTEND_URL || "").trim();
@@ -687,7 +742,7 @@ export class RentalAgreementSigningService {
         const dateType = String(filters.dateType || "checkIn");
         const channelValues = String(filters.channel || "")
             .split(",")
-            .map((value) => value.trim().toLowerCase())
+            .map((value) => value.trim())
             .filter(Boolean);
         const sort = String(filters.sort || "checkInAsc");
         const editedOnly = String(filters.editedOnly || "false") === "true";
@@ -733,6 +788,9 @@ export class RentalAgreementSigningService {
                 "listing.tags AS listingTags",
             ])
             .where("reservation.arrivalDate IS NOT NULL")
+            .andWhere("reservation.arrivalDate >= :minArrivalDate", {
+                minArrivalDate: this.rentalAgreementMinArrivalDate,
+            })
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
             });
@@ -758,10 +816,9 @@ export class RentalAgreementSigningService {
             }
         }
 
-        if (channelValues.length > 0) {
-            qb.andWhere("LOWER(COALESCE(reservation.channelName, '')) IN (:...channelValues)", {
-                channelValues,
-            });
+        const channelWhere = this.buildRentalAgreementChannelWhere(channelValues);
+        if (channelWhere) {
+            qb.andWhere(channelWhere.sql, channelWhere.params);
         }
 
         if (search) {
@@ -830,6 +887,9 @@ export class RentalAgreementSigningService {
             .createQueryBuilder("reservation")
             .select("DISTINCT reservation.channelName", "channelName")
             .where("reservation.arrivalDate IS NOT NULL")
+            .andWhere("reservation.arrivalDate >= :minArrivalDate", {
+                minArrivalDate: this.rentalAgreementMinArrivalDate,
+            })
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
             })
@@ -847,10 +907,10 @@ export class RentalAgreementSigningService {
         const availableChannels = Array.from(
             new Set(
                 channelRows
-                    .map((row) => String(row.channelName || "").trim())
+                    .map((row) => this.normalizeRentalAgreementChannel(row.channelName))
                     .filter(Boolean),
             ),
-        );
+        ).sort((a, b) => a.localeCompare(b));
 
         const fileInfoIds = pageRows.map((row) => Number(row.fileInfoId)).filter(Boolean);
         const fileInfos = fileInfoIds.length > 0
@@ -882,6 +942,9 @@ export class RentalAgreementSigningService {
                 .addSelect("COUNT(DISTINCT CASE WHEN signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0 THEN reservation.id END)", "unsigned")
                 .addSelect("COUNT(DISTINCT CASE WHEN COALESCE(document.isOverridden, 0) = 1 THEN reservation.id END)", "overridden")
                 .where(whereSql, whereParams)
+                .andWhere("reservation.arrivalDate >= :minArrivalDate", {
+                    minArrivalDate: this.rentalAgreementMinArrivalDate,
+                })
                 .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                     excludedStatuses: this.excludedReservationStatuses,
                 })
