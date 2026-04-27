@@ -138,7 +138,7 @@ export class RentalAgreementSigningService {
         "declined_inq", "preapproved", "offer",
         "withdrawn", "timedout", "not_possible", "deleted",
     ];
-    private rentalAgreementMinArrivalDate = "2026-01-01";
+    private rentalAgreementMinArrivalDate = "2026-05-01";
 
     private normalizeRentalAgreementChannel(channelName?: string | null): string | null {
         const value = String(channelName || "").trim();
