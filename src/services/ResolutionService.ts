@@ -484,6 +484,67 @@ export class ResolutionService {
         return { successfullyProcessedData, failedToProcessData };
     }
 
+    async checkCSVFileForMissingResolutions(filePath: string) {
+        const filteredRows = await this.processCSVData(filePath);
+        const missingRows: (CsvRow & { reason?: string; })[] = [];
+        const presentRows: CsvRow[] = [];
+
+        if (filteredRows.length === 0) {
+            fs.unlinkSync(filePath);
+            return { missingRows, presentRows };
+        }
+
+        for (const row of filteredRows) {
+            const guestName = row.Guest;
+            const startDateRaw = row["Start date"]?.trim();
+            const claimDateRaw = row.Date;
+            const amountRaw = row.Amount;
+            const nights = row.Nights;
+
+            if (!guestName || !startDateRaw || !amountRaw || !claimDateRaw || !nights) {
+                missingRows.push({ ...row, reason: "Missing required data" });
+                continue;
+            }
+
+            let arrivalDate: string;
+            try {
+                arrivalDate = format(
+                    parse(startDateRaw, "MM/dd/yyyy", new Date()),
+                    "yyyy-MM-dd"
+                );
+            } catch (err) {
+                missingRows.push({ ...row, reason: "Invalid date format" });
+                continue;
+            }
+
+            const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
+            qb.where("reservation.guestName Like :guestName", { guestName: `${guestName}%` })
+                .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
+                .andWhere("reservation.nights = :nights", { nights: nights });
+
+            const reservation = await qb.getOne();
+            if (!reservation) {
+                missingRows.push({ ...row, reason: "No matching reservation found" });
+                continue;
+            }
+
+            const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
+            const hasExistingResolution = existingResolutions.some(res =>
+                (res.amount == Number(row.Amount) && (res.type == row.Type || res.description == row.Type))
+            );
+
+            if (hasExistingResolution) {
+                presentRows.push(row);
+            } else {
+                missingRows.push({ ...row, reason: "Resolution not found in database" });
+            }
+        }
+
+        fs.unlinkSync(filePath);
+
+        return { missingRows, presentRows };
+    }
+
     async sendCancellationFeeNotification(reservation: ReservationInfoEntity, resolution: Resolution, cancellationFeeInfo: Resolution) {
         const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
 
