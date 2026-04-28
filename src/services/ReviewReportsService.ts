@@ -107,6 +107,7 @@ export class ReviewReportsService {
     private guestAnalysisService = new GuestAnalysisService();
     private guestCommunicationService = new GuestCommunicationService();
     private openai: OpenAI;
+    private schemaReadyPromise: Promise<void> | null = null;
 
     constructor() {
         const apiKey = process.env.OPENAI_API_KEY;
@@ -121,6 +122,7 @@ export class ReviewReportsService {
     }
 
     async listReports() {
+        await this.ensureSchemaReady();
         const reports = await this.reportRepo.find({ order: { updatedAt: "DESC" } });
         const reportIds = reports.map((report) => report.id);
         const versions = reportIds.length
@@ -140,6 +142,7 @@ export class ReviewReportsService {
     }
 
     async getReport(reportId: string) {
+        await this.ensureSchemaReady();
         const report = await this.requireReport(reportId);
         const versions = await this.versionRepo.find({
             where: { reportId },
@@ -160,6 +163,7 @@ export class ReviewReportsService {
         templateType: ReviewReportTemplateType;
         filters: ReviewReportFilters;
     }, userId: string | null) {
+        await this.ensureSchemaReady();
         const template = this.getTemplate(payload.templateType);
         const normalizedFilters = this.normalizeFilters(payload.filters);
         const generated = await this.generateDocument({
@@ -203,6 +207,7 @@ export class ReviewReportsService {
         instruction: string;
         targetSectionKey?: ReviewReportSectionKey | null;
     }, userId: string | null) {
+        await this.ensureSchemaReady();
         if (!String(payload.instruction || "").trim()) {
             throw new Error("Revision instruction is required");
         }
@@ -244,6 +249,7 @@ export class ReviewReportsService {
         instruction?: string | null;
         targetSectionKey?: ReviewReportSectionKey | null;
     }, userId: string | null) {
+        await this.ensureSchemaReady();
         const report = await this.requireReport(reportId);
         const currentVersion = await this.requireCurrentVersion(report);
         const template = this.getTemplate(report.templateType);
@@ -279,6 +285,7 @@ export class ReviewReportsService {
     }
 
     async saveSectionEdit(reportId: string, sectionKey: ReviewReportSectionKey, content: string, userId: string | null) {
+        await this.ensureSchemaReady();
         const report = await this.requireReport(reportId);
         const currentVersion = await this.requireCurrentVersion(report);
         const nextSections = currentVersion.document.sections.map((section) =>
@@ -825,5 +832,53 @@ export class ReviewReportsService {
         return Array.from(counts.entries())
             .map(([label, count]) => ({ label, count }))
             .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+    }
+
+    private async ensureSchemaReady() {
+        if (!this.schemaReadyPromise) {
+            this.schemaReadyPromise = this.bootstrapSchema();
+        }
+        return this.schemaReadyPromise;
+    }
+
+    private async bootstrapSchema() {
+        try {
+            await appDatabase.query(`
+                CREATE TABLE IF NOT EXISTS review_reports (
+                  id VARCHAR(36) NOT NULL PRIMARY KEY,
+                  name VARCHAR(180) NOT NULL,
+                  templateType VARCHAR(64) NOT NULL,
+                  filters JSON NOT NULL,
+                  chatHistory JSON NULL,
+                  linkedAiThreadId VARCHAR(36) NULL,
+                  currentVersionNumber INT NOT NULL DEFAULT 1,
+                  createdBy VARCHAR(120) NULL,
+                  updatedBy VARCHAR(120) NULL,
+                  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_review_reports_templateType_updatedAt (templateType, updatedAt)
+                )
+            `);
+
+            await appDatabase.query(`
+                CREATE TABLE IF NOT EXISTS review_report_versions (
+                  id VARCHAR(36) NOT NULL PRIMARY KEY,
+                  reportId VARCHAR(36) NOT NULL,
+                  versionNumber INT NOT NULL,
+                  generationType VARCHAR(48) NOT NULL,
+                  targetSectionKey VARCHAR(64) NULL,
+                  instruction LONGTEXT NULL,
+                  document JSON NOT NULL,
+                  createdBy VARCHAR(120) NULL,
+                  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_review_report_versions_reportId_versionNumber (reportId, versionNumber)
+                )
+            `);
+        } catch (error: any) {
+            this.schemaReadyPromise = null;
+            logger.error(`[ReviewReportsService] Failed to ensure review report schema: ${error?.message || error}`);
+            throw new Error("Review report tables are not ready");
+        }
     }
 }
