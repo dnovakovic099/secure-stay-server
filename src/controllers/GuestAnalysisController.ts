@@ -3,6 +3,7 @@ import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import { GuestAnalysisSettingsService } from "../services/GuestAnalysisSettingsService";
 import { GuestAnalysisReportThreadService } from "../services/GuestAnalysisReportThreadService";
+import { ReservationAICopilotService } from "../services/ReservationAICopilotService";
 import logger from "../utils/logger.utils";
 import type { GuestAnalysisRecordFilters } from "../services/GuestAnalysisService";
 import type { GuestAnalysisMigrationPlan, GuestAnalysisSettingsValue } from "../entity/GuestAnalysisSettings";
@@ -16,12 +17,14 @@ export class GuestAnalysisController {
     private communicationService: GuestCommunicationService;
     private settingsService: GuestAnalysisSettingsService;
     private reportThreadService: GuestAnalysisReportThreadService;
+    private reservationAICopilotService: ReservationAICopilotService;
 
     constructor() {
         this.analysisService = new GuestAnalysisService();
         this.communicationService = new GuestCommunicationService();
         this.settingsService = new GuestAnalysisSettingsService();
         this.reportThreadService = new GuestAnalysisReportThreadService();
+        this.reservationAICopilotService = new ReservationAICopilotService();
     }
 
     /**
@@ -204,6 +207,78 @@ export class GuestAnalysisController {
         } catch (error: any) {
             logger.error("[GuestAnalysisController] createReportThreadMessage error:", error.message);
             res.status(400).json({ error: error?.message || "Failed to create report thread message" });
+        }
+    };
+
+    getReservationCopilotThread = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+
+            const userId = (req as any).user?.email || (req as any).user?.id || null;
+            const thread = await this.reservationAICopilotService.getOrCreateReservationThread(reservationId, userId);
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] getReservationCopilotThread error:", error.message);
+            res.status(500).json({ error: error?.message || "Failed to load reservation copilot thread" });
+        }
+    };
+
+    resetReservationCopilotThread = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+
+            const userId = (req as any).user?.email || (req as any).user?.id || null;
+            const thread = await this.reservationAICopilotService.resetReservationThread(reservationId, userId);
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] resetReservationCopilotThread error:", error.message);
+            res.status(500).json({ error: error?.message || "Failed to reset reservation copilot thread" });
+        }
+    };
+
+    sendReservationCopilotMessage = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+
+            const userId = (req as any).user?.email || (req as any).user?.id || null;
+            const thread = await this.reservationAICopilotService.sendMessage({
+                reservationId,
+                content: req.body?.content,
+                userId,
+            });
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] sendReservationCopilotMessage error:", error.message);
+            res.status(400).json({ error: error?.message || "Failed to send reservation copilot message" });
+        }
+    };
+
+    refreshReservationCopilotAnalysis = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const reservationId = parseInt(req.params.reservationId, 10);
+            if (isNaN(reservationId)) {
+                res.status(400).json({ error: "Invalid reservation ID" });
+                return;
+            }
+
+            const userId = (req as any).user?.email || (req as any).user?.id || null;
+            const thread = await this.reservationAICopilotService.refreshReservationAnalysis(reservationId, req.body?.inboxId, userId);
+            res.json({ success: true, data: thread });
+        } catch (error: any) {
+            logger.error("[GuestAnalysisController] refreshReservationCopilotAnalysis error:", error.message);
+            res.status(500).json({ error: error?.message || "Failed to refresh reservation analysis for copilot" });
         }
     };
 
