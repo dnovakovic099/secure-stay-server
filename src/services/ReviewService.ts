@@ -52,6 +52,7 @@ interface CreateReview {
 }
 
 interface Filter {
+    currentlyStaying?: boolean | string | null | undefined;
     listingMapId?: string[];
     guestName?: string;
     page?: number;
@@ -559,6 +560,114 @@ export class ReviewService {
         return current.filter((value) => normalizedIncoming.includes(value));
     }
 
+    private getTimeZoneSnapshot(timeZoneName?: string | null) {
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: timeZoneName || 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            hour12: false,
+        });
+        const parts = formatter.formatToParts(new Date());
+        const readPart = (type: string) => parts.find((part) => part.type === type)?.value || '';
+        return {
+            date: `${readPart('year')}-${readPart('month')}-${readPart('day')}`,
+            hour: Number(readPart('hour') || '0'),
+        };
+    }
+
+    private toDateString(value: unknown): string | null {
+        if (!value) return null;
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+            const parsed = new Date(trimmed);
+            return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd');
+        }
+        if (value instanceof Date) {
+            return Number.isNaN(value.getTime()) ? null : format(value, 'yyyy-MM-dd');
+        }
+        const parsed = new Date(value as any);
+        return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd');
+    }
+
+    private toHourNumber(value: unknown, fallback: number) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return fallback;
+        return Math.min(23, Math.max(0, Math.floor(num)));
+    }
+
+    private isReservationCurrentlyStaying(
+        reservation: Pick<ReservationInfoEntity, 'arrivalDate' | 'departureDate' | 'checkInTime' | 'checkOutTime'>,
+        listingTimeZoneName?: string | null,
+    ) {
+        const arrivalDate = this.toDateString(reservation.arrivalDate);
+        const departureDate = this.toDateString(reservation.departureDate);
+        if (!arrivalDate || !departureDate) return false;
+
+        const timeZoneName = typeof listingTimeZoneName === 'string' && listingTimeZoneName.trim()
+            ? listingTimeZoneName
+            : 'America/New_York';
+        const snapshot = this.getTimeZoneSnapshot(timeZoneName);
+        const checkInHour = this.toHourNumber(reservation.checkInTime, 0);
+        const checkOutHour = this.toHourNumber(reservation.checkOutTime, 23);
+
+        if (snapshot.date < arrivalDate || snapshot.date > departureDate) return false;
+        if (arrivalDate === departureDate) {
+            return snapshot.date === arrivalDate && snapshot.hour >= checkInHour && snapshot.hour < checkOutHour;
+        }
+        if (snapshot.date === arrivalDate) return snapshot.hour >= checkInHour;
+        if (snapshot.date === departureDate) return snapshot.hour < checkOutHour;
+        return snapshot.date > arrivalDate && snapshot.date < departureDate;
+    }
+
+    private async getCurrentlyStayingReservationIds(baseReservationIds: number[] | null = null, listingIds: number[] | null = null) {
+        if (baseReservationIds && baseReservationIds.length === 0) return [];
+        if (listingIds && listingIds.length === 0) return [];
+
+        const today = new Date();
+        const minDate = format(addDays(today, -1), 'yyyy-MM-dd');
+        const maxDate = format(addDays(today, 1), 'yyyy-MM-dd');
+
+        const query = this.reservationInfoRepo
+            .createQueryBuilder('reservation')
+            .select([
+                'reservation.id',
+                'reservation.listingMapId',
+                'reservation.arrivalDate',
+                'reservation.departureDate',
+                'reservation.checkInTime',
+                'reservation.checkOutTime',
+            ])
+            .where('DATE(reservation.arrivalDate) <= :maxDate', { maxDate })
+            .andWhere('DATE(reservation.departureDate) >= :minDate', { minDate });
+
+        if (baseReservationIds !== null) {
+            query.andWhere('reservation.id IN (:...baseReservationIds)', { baseReservationIds: baseReservationIds.length ? baseReservationIds : [-1] });
+        }
+        if (listingIds !== null) {
+            query.andWhere('reservation.listingMapId IN (:...listingIds)', { listingIds: listingIds.length ? listingIds : [-1] });
+        }
+
+        const reservations = await query.getMany();
+        if (!reservations.length) return [];
+
+        const uniqueListingIds = Array.from(new Set(reservations.map((reservation) => Number(reservation.listingMapId)).filter(Boolean)));
+        const listings = uniqueListingIds.length
+            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds) }, select: ['id', 'timeZoneName'] })
+            : [];
+        const listingTimeZoneMap = new Map(listings.map((listing) => [Number(listing.id), listing.timeZoneName || null]));
+
+        return reservations
+            .filter((reservation) => this.isReservationCurrentlyStaying(
+                reservation,
+                listingTimeZoneMap.get(Number(reservation.listingMapId)) || null,
+            ))
+            .map((reservation) => Number(reservation.id))
+            .filter(Boolean);
+    }
+
     private async resolveDashboardListingIds({
         listingId,
         propertyType,
@@ -775,6 +884,7 @@ export class ReviewService {
         integration,
         sortField,
         sortDir,
+        currentlyStaying,
     }) {
         try {
             let listingIds: number[] | null = null;
@@ -843,6 +953,11 @@ export class ReviewService {
                     .map((item) => Number(item.reservationInfo?.id))
                     .filter(Boolean);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, assigneeReservationIds);
+            }
+
+            if (currentlyStaying === true || currentlyStaying === 'true') {
+                const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(filteredReservationIds, listingIds);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, currentStayReservationIds);
             }
 
             if (filteredReservationIds !== null) {
@@ -1585,6 +1700,7 @@ export class ReviewService {
             isClaimOnly,
             refundStatus: rawRefundStatus,
             rating: rawRating,
+            currentlyStaying,
         } = filters;
 
         // qs parses a single repeated query param as a string, not an array.
@@ -1614,6 +1730,17 @@ export class ReviewService {
             .createQueryBuilder("reviewCheckout")
             .leftJoinAndSelect("reviewCheckout.reservationInfo", "reservationInfo")
             .leftJoinAndSelect("reviewCheckout.reviewCheckoutUpdates", "reviewCheckoutUpdates");
+
+        if (currentlyStaying === true || currentlyStaying === 'true') {
+            const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(
+                null,
+                listingMapId.length > 0 ? listingMapId.map((id) => Number(id)).filter(Boolean) : null,
+            );
+            query.andWhere(
+                currentStayReservationIds.length > 0 ? 'reservationInfo.id IN (:...currentStayReservationIds)' : '1 = 0',
+                currentStayReservationIds.length > 0 ? { currentStayReservationIds } : {},
+            );
+        }
 
         // Tab-based filtering logic
         if (tab) {

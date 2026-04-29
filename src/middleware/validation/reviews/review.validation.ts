@@ -45,6 +45,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         serviceType: arrayOrSingle(Joi.string().required()),
         channel: arrayOrSingle(Joi.number()),
         integration: arrayOrSingle(Joi.string().required()),
+        currentlyStaying: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
         sortField: Joi.string().optional().valid(
             'rating',
             'submittedAt',
@@ -186,6 +187,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional().allow(null, ""),
+        currentlyStaying: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
     });
 
     const { error } = schema.validate(request.query);
