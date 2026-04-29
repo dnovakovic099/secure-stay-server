@@ -37,6 +37,7 @@ import { ReservationHistoryService, ReservationHistoryDiff } from "./Reservation
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
 import { getSlackUsers } from "../utils/getSlackUsers";
+import { generateSlackMessageLink } from "../helpers/helpers";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -430,6 +431,12 @@ export class ReviewService {
         }
 
         return null;
+    }
+
+    private buildSlackThreadPermalink(channelId?: string | null, messageTs?: string | null) {
+        const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
+        if (!workspaceUrl || !channelId || !messageTs) return null;
+        return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), channelId, messageTs);
     }
 
     private async buildLatestUpdatePayload(message: ReviewDiscussionMessageEntity | null) {
@@ -1175,6 +1182,7 @@ export class ReviewService {
                     latestNotesByReservation.get(Number(review.reservationId)) || null
                 );
                 const latestRefund = latestRefundsByReservation.get(Number(review.reservationId)) || null;
+                const slackThreadPermalink = this.buildSlackThreadPermalink(reviewCheckout?.slackChannelId || null, reviewCheckout?.slackThreadTs || null);
                 const ownerRevenue = reservationInfo?.owner_revenue ?? null;
                 const refundAmount = latestRefund?.refundAmount ?? null;
                 const refundPercent = ownerRevenue && refundAmount
@@ -1202,6 +1210,7 @@ export class ReviewService {
                     createdByName: userMap.get(review.createdBy) || review.createdBy || null,
                     updatedByName: userMap.get(review.updatedBy) || review.updatedBy || null,
                     reviewCheckoutId: reviewCheckout?.id || null,
+                    slackThreadPermalink,
                     assignee: reviewCheckout?.assignee || null,
                     assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
                     resolutionNotes: reviewCheckout?.comments || null,
@@ -2266,6 +2275,7 @@ export class ReviewService {
                 latestNotesByReservation.get(reservationId) || null
             );
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
+            const slackThreadPermalink = this.buildSlackThreadPermalink(rc.slackChannelId || null, rc.slackThreadTs || null);
             const ownerRevenue = rc.reservationInfo?.owner_revenue ?? null;
             const refundAmount = latestRefund?.refundAmount ?? null;
             const refundPercent = ownerRevenue && refundAmount
@@ -2298,6 +2308,7 @@ export class ReviewService {
                     actionItems: actionItems.filter(item => item.reservationId == rc.reservationInfo?.id) || null,
                     aiAnalysis: guestAnalyses.find(a => a.reservationId == rc.reservationInfo?.id) || null,
                     latestUpdate,
+                    slackThreadPermalink,
                     resolutionNotes: rc.comments || null,
                     refundAmount,
                     refundRequestId: latestRefund?.id ?? null,

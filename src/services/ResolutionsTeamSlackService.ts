@@ -273,6 +273,83 @@ export class ResolutionsTeamSlackService {
         }
     }
 
+    async ensureThreadForReservation(reservationId: number, userId?: string | null) {
+        const existing = await this.reviewCheckoutRepo.findOne({
+            where: { reservationInfo: { id: reservationId } },
+            relations: ["reservationInfo"],
+        });
+
+        if (existing?.slackThreadTs && existing?.slackChannelId) {
+            return existing;
+        }
+
+        const reviewService = new ReviewService();
+        const reviewCheckout = existing || await reviewService.ensureReviewCheckout(reservationId, userId || "system");
+        const reservation = reviewCheckout.reservationInfo || await this.reservationRepo.findOne({ where: { id: reservationId } });
+        if (!reservation) {
+            throw new Error(`Reservation ${reservationId} not found`);
+        }
+
+        const listing = reservation.listingMapId
+            ? await this.listingRepo.findOne({ where: { id: reservation.listingMapId } })
+            : null;
+        const { emoji } = this.getListingEmoji(listing?.tags);
+        const [statusData, assigneeOptions] = await Promise.all([
+            reviewService.getMitigationStatusOptions(),
+            this.getResolutionsAssigneeOptions(),
+        ]);
+
+        const hostifyUrl = reservation.reservationId
+            ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
+            : "";
+        const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
+
+        const msgPayload = buildResolutionsCheckoutMessage({
+            emoji,
+            listingName: reservation.listingName || "Unknown Property",
+            guestName: reservation.guestName || "Guest",
+            hostifyUrl,
+            channelName: reservation.channelName || "",
+            checkIn: reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d") : "",
+            checkOut: reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d") : "",
+            totalPaid: this.getTotalPaidDisplay(reservation),
+            ownerRevenue: this.getOwnerRevenueDisplay(reservation),
+            status: reviewCheckout.status || "New",
+            assignee: reviewCheckout.assignee || "",
+            ssUrl,
+            reviewCheckoutId: reviewCheckout.id,
+            statusOptions: statusData.options,
+            assigneeOptions,
+        });
+
+        const result = await sendSlackMessage(msgPayload);
+        if (!result?.ok || !result?.ts) {
+            throw new Error(`Failed to create Slack thread for reservation ${reservationId}: ${result?.error || "unknown error"}`);
+        }
+
+        reviewCheckout.slackThreadTs = result.ts;
+        reviewCheckout.slackChannelId = result.channel || RESOLUTIONS_TEAM_CHANNEL;
+        await this.reviewCheckoutRepo.save(reviewCheckout);
+
+        const existingSlackRecord = await this.slackMessageRepo.findOne({
+            where: { entityType: "review_checkout", entityId: reviewCheckout.id, messageTs: result.ts },
+        });
+
+        if (!existingSlackRecord) {
+            const slackMsgRecord = this.slackMessageRepo.create({
+                channel: reviewCheckout.slackChannelId,
+                messageTs: result.ts,
+                threadTs: result.ts,
+                entityType: "review_checkout",
+                entityId: reviewCheckout.id,
+                originalMessage: JSON.stringify({ reservationId: reservation.id }),
+            });
+            await this.slackMessageRepo.save(slackMsgRecord);
+        }
+
+        return reviewCheckout;
+    }
+
     // ─── Daily checkout message posting ───────────────────────────────────────
 
     async postDailyCheckoutMessages(): Promise<void> {
