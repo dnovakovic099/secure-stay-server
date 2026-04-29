@@ -2,6 +2,14 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 
 export type ReviewDiscussionSourceType = "note" | "system" | "ai";
 
+export interface ReviewDiscussionAttachment {
+    fileName: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    url: string;
+}
+
 @Entity({ name: "review_discussion_messages" })
 @Index("idx_review_discussion_review", ["reviewId"])
 @Index("idx_review_discussion_reservation", ["reservationId"])

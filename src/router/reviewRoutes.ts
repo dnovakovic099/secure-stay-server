@@ -4,6 +4,7 @@ import verifySession from "../middleware/verifySession";
 import { validateGetReviewRequest, validateSaveReview, validateUpdateReviewVisibilityStatusRequest, validateGetReviewForCheckout, validateUpdateReviewForCheckout, validateCreateLatestUpdate, validateBadReviewUpdateStatus, validateBadReviewLatestUpdate, validateGetBadReview, validateGetLiveIssues, validateCreateLiveIssue, validateUpdateLiveIssue, validateCreateLiveIssueUpdate, validateBackfillReviewCheckout, validateFixReviewCheckoutCreatedAt } from "../middleware/validation/reviews/review.validation";
 import { validateReviewDetailsRequest } from "../middleware/validation/reviews/reviewDetail.validation";
 import { ReviewDetailController } from "../controllers/ReviewDetailController";
+import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const reviewController = new ReviewController();
@@ -21,7 +22,11 @@ router.route('/mitigation-statuses')
 
 router.route('/reviewdiscussion/:reviewId')
     .get(verifySession, reviewController.getReviewDiscussion.bind(reviewController))
-    .post(verifySession, reviewController.createReviewDiscussionMessage.bind(reviewController));
+    .post(
+        verifySession,
+        fileUpload('review-discussion').fields([{ name: 'attachments', maxCount: 10 }]),
+        reviewController.createReviewDiscussionMessage.bind(reviewController)
+    );
 
 router.route('/reviewdiscussion/:reviewId/:messageId')
     .put(verifySession, reviewController.updateReviewDiscussionMessage.bind(reviewController));
@@ -31,7 +36,18 @@ router.route('/reviewdiscussion/:reviewId/reactions')
 
 router.route('/reservationdiscussion/:reservationId')
     .get(verifySession, reviewController.getReservationDiscussion.bind(reviewController))
-    .post(verifySession, reviewController.createReservationDiscussionMessage.bind(reviewController));
+    .post(
+        verifySession,
+        fileUpload('review-discussion').fields([{ name: 'attachments', maxCount: 10 }]),
+        reviewController.createReservationDiscussionMessage.bind(reviewController)
+    );
+
+router.route('/reservationdiscussion/:reservationId/thread')
+    .get(verifySession, reviewController.getReservationDiscussionThread.bind(reviewController))
+    .post(verifySession, reviewController.ensureReservationDiscussionThread.bind(reviewController));
+
+router.route('/discussion/attachment/:fileName')
+    .get(verifySession, reviewController.getDiscussionAttachment.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/:messageId')
     .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController));

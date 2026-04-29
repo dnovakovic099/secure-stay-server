@@ -253,11 +253,15 @@ export class ReviewController {
     async createReviewDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const service = new ReviewDiscussionService();
+            const files = Array.isArray((request as any).files?.attachments)
+                ? ((request as any).files.attachments as Express.Multer.File[])
+                : [];
             const data = await service.createMessage(
                 request.params.reviewId,
                 request.body?.content,
                 request.body?.parentMessageId ? Number(request.body.parentMessageId) : null,
-                request.user.id
+                request.user.id,
+                files
             );
             return response.status(201).json({ success: true, data });
         } catch (error) {
@@ -310,14 +314,38 @@ export class ReviewController {
         }
     }
 
+    async getReservationDiscussionThread(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.getReservationThreadInfo(request.params.reservationId);
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async ensureReservationDiscussionThread(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.ensureReservationThread(request.params.reservationId, request.user.id);
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async createReservationDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const service = new ReviewDiscussionService();
+            const files = Array.isArray((request as any).files?.attachments)
+                ? ((request as any).files.attachments as Express.Multer.File[])
+                : [];
             const data = await service.createMessageByReservation(
                 request.params.reservationId,
                 request.body?.content,
                 request.body?.parentMessageId ? Number(request.body.parentMessageId) : null,
-                request.user.id
+                request.user.id,
+                files
             );
             return response.status(201).json({ success: true, data });
         } catch (error) {
@@ -403,6 +431,19 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error creating review checkout update:", error);
+            return next(error);
+        }
+    }
+
+    async getDiscussionAttachment(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const path = await import("path");
+            const fileName = String(request.params.fileName || "").trim();
+            if (!fileName) {
+                return response.status(400).json({ success: false, message: "File name is required" });
+            }
+            return response.sendFile(path.resolve(__dirname, `../../public/review-discussion/${fileName}`));
+        } catch (error) {
             return next(error);
         }
     }

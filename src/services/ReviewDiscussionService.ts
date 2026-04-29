@@ -1,5 +1,5 @@
 import { appDatabase } from "../utils/database.util";
-import { ReviewDiscussionMessageEntity, ReviewDiscussionSourceType } from "../entity/ReviewDiscussionMessage";
+import { ReviewDiscussionAttachment, ReviewDiscussionMessageEntity, ReviewDiscussionSourceType } from "../entity/ReviewDiscussionMessage";
 import { ReviewDiscussionReactionEntity, ReviewDiscussionReactionType } from "../entity/ReviewDiscussionReaction";
 import { ReviewEntity } from "../entity/Review";
 import { UsersEntity } from "../entity/Users";
@@ -43,6 +43,13 @@ interface DiscussionItemDTO {
     canEdit: boolean;
 }
 
+interface DiscussionThreadDTO {
+    exists: boolean;
+    slackThreadTs: string | null;
+    slackChannelId: string | null;
+    slackPermalink: string | null;
+}
+
 const ALLOWED_REACTIONS: ReviewDiscussionReactionType[] = ["eyes", "heart", "check", "warning"];
 
 export class ReviewDiscussionService {
@@ -68,6 +75,29 @@ export class ReviewDiscussionService {
 
     private normalizeSort(sort?: string): DiscussionSort {
         return String(sort || "oldest").toLowerCase() === "newest" ? "newest" : "oldest";
+    }
+
+    private getBaseUrl() {
+        const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
+        return (
+            configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
+                ? configuredBaseUrl
+                : "https://securestay.ai"
+        ).replace(/\/$/, "");
+    }
+
+    private buildDiscussionAttachmentUrl(fileName: string) {
+        return `${this.getBaseUrl()}/review/discussion/attachment/${encodeURIComponent(fileName)}`;
+    }
+
+    private buildAttachments(files?: Express.Multer.File[] | null): ReviewDiscussionAttachment[] {
+        return (files || []).map((file) => ({
+            fileName: file.filename,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            url: this.buildDiscussionAttachmentUrl(file.filename),
+        }));
     }
 
     private extractMentions(content: string) {
@@ -285,6 +315,31 @@ export class ReviewDiscussionService {
         return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), channelId, messageTs);
     }
 
+    async getReservationThreadInfo(reservationId: string): Promise<DiscussionThreadDTO> {
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+            where: { reservationInfo: { id: Number(reservationId) } },
+            select: ["id", "slackChannelId", "slackThreadTs"],
+        });
+
+        return {
+            exists: Boolean(reviewCheckout?.slackThreadTs && reviewCheckout?.slackChannelId),
+            slackThreadTs: reviewCheckout?.slackThreadTs || null,
+            slackChannelId: reviewCheckout?.slackChannelId || null,
+            slackPermalink: this.buildSlackPermalink(reviewCheckout?.slackChannelId || null, reviewCheckout?.slackThreadTs || null),
+        };
+    }
+
+    async ensureReservationThread(reservationId: string, userId: string): Promise<DiscussionThreadDTO> {
+        const slackService = new ResolutionsTeamSlackService();
+        const result = await slackService.ensureThreadForReservation(Number(reservationId), userId);
+        return {
+            exists: Boolean(result?.slackThreadTs && result?.slackChannelId),
+            slackThreadTs: result?.slackThreadTs || null,
+            slackChannelId: result?.slackChannelId || null,
+            slackPermalink: this.buildSlackPermalink(result?.slackChannelId || null, result?.slackThreadTs || null),
+        };
+    }
+
     private async buildStoredMessageDto(
         message: ReviewDiscussionMessageEntity,
         reactions: ReviewDiscussionReactionEntity[],
@@ -393,7 +448,7 @@ export class ReviewDiscussionService {
         };
     }
 
-    async createMessage(reviewId: string, content: string, parentMessageId: number | null, userId: string) {
+    async createMessage(reviewId: string, content: string, parentMessageId: number | null, userId: string, files?: Express.Multer.File[] | null) {
         const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
         if (!review) {
             throw CustomErrorHandler.notFound(`Review ${reviewId} not found`);
@@ -421,7 +476,10 @@ export class ReviewDiscussionService {
             authorAvatar: avatarUrl,
             content: trimmedContent,
             mentions: this.extractMentions(trimmedContent),
-            metadata: { source: "app" },
+            metadata: {
+                source: "app",
+                attachments: this.buildAttachments(files),
+            },
         });
 
         const saved = await this.messageRepo.save(message);
@@ -617,10 +675,11 @@ export class ReviewDiscussionService {
         };
     }
 
-    async createMessageByReservation(reservationId: string, content: string, parentMessageId: number | null, userId: string) {
+    async createMessageByReservation(reservationId: string, content: string, parentMessageId: number | null, userId: string, files?: Express.Multer.File[] | null) {
         const trimmedContent = String(content || "").trim();
-        if (!trimmedContent) {
-            throw CustomErrorHandler.validationError("Content is required");
+        const attachments = this.buildAttachments(files);
+        if (!trimmedContent && attachments.length === 0) {
+            throw CustomErrorHandler.validationError("Content or attachments are required");
         }
 
         if (parentMessageId) {
@@ -641,7 +700,10 @@ export class ReviewDiscussionService {
             authorAvatar: avatarUrl,
             content: trimmedContent,
             mentions: this.extractMentions(trimmedContent),
-            metadata: { source: "app" },
+            metadata: {
+                source: "app",
+                attachments,
+            },
         });
 
         let saved = await this.messageRepo.save(message);
@@ -656,7 +718,7 @@ export class ReviewDiscussionService {
                 const slackMessageTs = await resolutionsService.postActivityToThread(rc.id, {
                     type: "comment",
                     actor: userId,
-                    details: trimmedContent,
+                    details: [trimmedContent, ...attachments.map((attachment) => attachment.url)].filter(Boolean).join("\n"),
                 });
                 if (slackMessageTs && slackMessageTs !== rc.slackThreadTs) {
                     saved.metadata = {
