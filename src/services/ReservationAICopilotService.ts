@@ -303,6 +303,10 @@ export class ReservationAICopilotService {
             "If evidence is insufficient, say that clearly.",
             "The reservation is the anchor context, but you may use broader property, category, and department patterns when they are included in the retrieval payload.",
             "Always distinguish between current reservation facts and broader historical patterns.",
+            "Write the answer as a short, organized narrative with 2 to 4 concise paragraphs.",
+            "Use this structure when it fits: **Direct answer**, **Current reservation context**, **Broader pattern**, **Limitations**.",
+            "Use bold markdown for the most important keywords or conclusions.",
+            "Keep the answer continuous and easy to read; do not write as a list of disconnected snippets.",
             "Return valid JSON only with keys: answer, insufficientEvidence, evidence.",
             "The evidence array must contain concise evidence objects with: type, label, detail, reservationId, timestamp, phase, category, department, polarity.",
             "Limit evidence to the most relevant 6 items.",
@@ -377,15 +381,15 @@ export class ReservationAICopilotService {
         if (lowered.includes("repeated") || lowered.includes("property")) {
             return {
                 answer: detail.propertyContext.records.length
-                    ? `I can see ${detail.propertyContext.records.length} other AI analysis records tied to this property in the current dataset. That suggests there is broader property history to review, but I’d rely on the related property evidence below for the exact pattern rather than guessing beyond those records.`
-                    : "I don’t have enough related property history in the current dataset to say this is a repeated property issue.",
+                    ? `**Direct answer:** I can see **${detail.propertyContext.records.length} other AI analysis records** tied to this property in the current dataset.\n\n**Broader pattern:** That means there is real historical property context to review here, but I’m limiting the conclusion to the related property evidence below rather than guessing beyond those stored records.`
+                    : `**Direct answer:** I don’t have enough related property history in the current dataset to say this is a **repeated property issue**.\n\n**Limitations:** I can only confirm repeat patterns when the stored AI-analysis history for that property contains enough comparable reservations.`,
                 insufficientEvidence: detail.propertyContext.records.length === 0,
                 evidence: this.buildDefaultEvidence(detail),
             };
         }
 
         return {
-            answer: `Based on the latest saved AI analysis for this reservation, ${detail.record.summary || "there isn’t enough stored detail for a stronger conclusion."} I’m keeping this answer limited to the data currently stored in SecureStay.`,
+            answer: `**Direct answer:** Based on the latest saved AI analysis for this reservation, ${detail.record.summary || "there isn’t enough stored detail for a stronger conclusion."}\n\n**Current reservation context:** I’m keeping this answer limited to the data currently stored in SecureStay, including the latest analysis, phase summaries, and linked evidence.`,
             insufficientEvidence: false,
             evidence: this.buildDefaultEvidence(detail),
         };
@@ -471,4 +475,3 @@ export class ReservationAICopilotService {
         this.schemaReady = true;
     }
 }
-
