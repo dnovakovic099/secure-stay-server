@@ -74,6 +74,7 @@ interface Filter {
     toDate?: string | undefined;
     dateType?: string | undefined;
     sentiment?: string[] | null | undefined;
+    latestUpdate?: string[] | null | undefined;
     visibility?: string[] | null | undefined;
     operationalFlags?: string[] | null | undefined;
     owner?: string[] | null | undefined;
@@ -873,6 +874,7 @@ export class ReviewService {
         rating,
         owner,
         assignee,
+        latestUpdate,
         claimResolutionStatus,
         status,
         isClaimOnly,
@@ -958,6 +960,30 @@ export class ReviewService {
             if (currentlyStaying === true || currentlyStaying === 'true') {
                 const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(filteredReservationIds, listingIds);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, currentStayReservationIds);
+            }
+
+            if (latestUpdate && latestUpdate.length > 0) {
+                const normalizedLatestUpdate = Array.from(new Set(latestUpdate.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)));
+                const hasWithUpdates = normalizedLatestUpdate.includes('with-updates');
+                const hasNoUpdates = normalizedLatestUpdate.includes('no-updates');
+                if (hasWithUpdates !== hasNoUpdates) {
+                    const updateRows = await this.discussionMessageRepo
+                        .createQueryBuilder('message')
+                        .select('DISTINCT message.reservationId', 'reservationId')
+                        .where('message.sourceType = :sourceType', { sourceType: 'note' })
+                        .getRawMany();
+                    const updateReservationIds = updateRows
+                        .map((row: { reservationId: string | number | null }) => Number(row.reservationId))
+                        .filter((id) => !Number.isNaN(id));
+
+                    if (hasWithUpdates) {
+                        filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, updateReservationIds);
+                    } else if (filteredReservationIds !== null) {
+                        filteredReservationIds = filteredReservationIds.filter((id) => !updateReservationIds.includes(id));
+                    } else if (updateReservationIds.length > 0) {
+                        condition.reservationId = Not(In(updateReservationIds));
+                    }
+                }
             }
 
             if (filteredReservationIds !== null) {
@@ -1694,6 +1720,7 @@ export class ReviewService {
             assignee: rawAssignee,
             fromDate, toDate, dateType,
             sentiment: rawSentiment,
+            latestUpdate: rawLatestUpdate,
             visibility: rawVisibility,
             operationalFlags: rawOperationalFlags,
             owner: rawOwner,
@@ -1714,6 +1741,7 @@ export class ReviewService {
         const assignee = toArr(rawAssignee);
         const status = toArr(rawStatus);
         const sentiment = toArr(rawSentiment);
+        const latestUpdate = toArr(rawLatestUpdate);
         const visibility = toArr(rawVisibility);
         const operationalFlags = toArr(rawOperationalFlags);
         const owner = toArr(rawOwner);
@@ -1830,6 +1858,28 @@ export class ReviewService {
 
         if (assignee && assignee.length > 0) {
             query.andWhere("reviewCheckout.assignee IN (:...assignee)", { assignee });
+        }
+
+        if (latestUpdate && latestUpdate.length > 0) {
+            const normalizedLatestUpdate = Array.from(new Set(latestUpdate.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)));
+            const hasWithUpdates = normalizedLatestUpdate.includes('with-updates');
+            const hasNoUpdates = normalizedLatestUpdate.includes('no-updates');
+            if (hasWithUpdates !== hasNoUpdates) {
+                const updateRows = await this.discussionMessageRepo
+                    .createQueryBuilder('message')
+                    .select('DISTINCT message.reservationId', 'reservationId')
+                    .where('message.sourceType = :sourceType', { sourceType: 'note' })
+                    .getRawMany();
+                const updateReservationIds = updateRows.map((row: { reservationId: string | number | null }) => Number(row.reservationId)).filter((id) => !Number.isNaN(id));
+                if (hasWithUpdates) {
+                    query.andWhere(
+                        updateReservationIds.length > 0 ? 'reservationInfo.id IN (:...updateReservationIds)' : '1 = 0',
+                        updateReservationIds.length > 0 ? { updateReservationIds } : {},
+                    );
+                } else if (updateReservationIds.length > 0) {
+                    query.andWhere('reservationInfo.id NOT IN (:...updateReservationIds)', { updateReservationIds });
+                }
+            }
         }
 
         if (fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
