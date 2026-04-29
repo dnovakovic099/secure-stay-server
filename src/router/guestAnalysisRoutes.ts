@@ -38,6 +38,18 @@ router.get("/report-threads/:threadId", controller.getReportThread);
 // POST /api/guest-analysis/report-threads/:threadId/messages - Add a user message and generate a report response
 router.post("/report-threads/:threadId/messages", controller.createReportThreadMessage);
 
+// GET /api/guest-analysis/:reservationId/copilot-thread - Load or create the active reservation copilot thread
+router.get("/:reservationId/copilot-thread", controller.getReservationCopilotThread);
+
+// POST /api/guest-analysis/:reservationId/copilot-thread/reset - Start a fresh reservation copilot thread
+router.post("/:reservationId/copilot-thread/reset", controller.resetReservationCopilotThread);
+
+// POST /api/guest-analysis/:reservationId/copilot-thread/messages - Send a reservation copilot message
+router.post("/:reservationId/copilot-thread/messages", controller.sendReservationCopilotMessage);
+
+// POST /api/guest-analysis/:reservationId/copilot-thread/refresh - Refresh AI analysis before continuing chat
+router.post("/:reservationId/copilot-thread/refresh", controller.refreshReservationCopilotAnalysis);
+
 // GET /api/guest-analysis/:reservationId - Get existing analysis
 router.get("/:reservationId", controller.getAnalysis);
 
