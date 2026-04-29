@@ -113,4 +113,7 @@ export class Claim {
     
     @Column({ type: 'enum', enum: ["Not Paid", "Paid", "Partially Paid"], default: "Not Paid" })
     payment_status: string;
+
+    @Column({ type: 'longtext', nullable: true, name: 'workspace_data' })
+    workspace_data: string | null;
 }

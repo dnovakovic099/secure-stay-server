@@ -1,11 +1,34 @@
 import { NextFunction, Request, Response } from "express";
 import { ClaimsService } from "../services/ClaimsService";
+import { ClaimWorkspaceService } from "../services/ClaimWorkspaceService";
 import path from "path";
 import fs from "fs";
 
 const UPLOADS_PATH = path.join(process.cwd(), 'public/claims'); 
 
 export class ClaimsController {
+    async getReportMetadata(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const data = await service.getReportMetadata(request.user);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async getReservationCandidates(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const listingId = request.query.listingId ? Number(request.query.listingId) : null;
+            const windowOffset = request.query.windowOffset ? Number(request.query.windowOffset) : 0;
+            const data = await service.getReservationCandidates(listingId, windowOffset);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
     async getClaims(request: Request, response: Response) {
         const claimsService = new ClaimsService();
         try {   
@@ -49,6 +72,7 @@ export class ClaimsController {
 
     async createClaim(request: any, response: Response) {
         const claimsService = new ClaimsService();
+        const workspaceService = new ClaimWorkspaceService();
         try {
             const userId = request.user.id;
 
@@ -63,6 +87,11 @@ export class ClaimsController {
                     };
                 }
                 );
+            }
+
+            if (request.body?.workspaceMode === "report-claim") {
+                const result = await workspaceService.createReportClaim(request.body, request.user, request.files?.['attachments'] || []);
+                return response.status(201).json({ status: true, data: result });
             }
 
             const result = await claimsService.createClaim(request.body, userId, fileInfo);
@@ -80,9 +109,15 @@ export class ClaimsController {
 
     async updateClaim(request: any, response: Response) {
         const claimsService = new ClaimsService();
+        const workspaceService = new ClaimWorkspaceService();
         try {
             const id = parseInt(request.params.id);
             const userId = request.user.id;
+
+            if (request.body?.workspaceMode === "claim-detail") {
+                const result = await workspaceService.updateClaimDetail(id, request.body, request.user, request.files?.['attachments'] || []);
+                return response.status(200).json({ status: true, data: result });
+            }
 
             const currentClaim = await claimsService.getClaimById(id);
             console.log(currentClaim);
@@ -231,4 +266,72 @@ export class ClaimsController {
             return next(error);
         }
     }
-} 
+
+    async getClaimDetail(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const id = Number(request.params.id);
+            const data = await service.getClaimDetail(id);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async getClaimDiscussion(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const claimId = Number(request.params.id);
+            const data = await service.getClaimDiscussionFeed(claimId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async postClaimDiscussion(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const claimId = Number(request.params.id);
+            const content = String(request.body?.content || "").trim();
+            const data = await service.postClaimDiscussionMessage(claimId, content, request.user, request.files?.["attachments"] || []);
+            return response.status(201).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async getClaimThreadInfo(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const claimId = Number(request.params.id);
+            const data = await service.getClaimThreadInfo(claimId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async ensureClaimThread(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const claimId = Number(request.params.id);
+            const data = await service.ensureThreadForClaim(claimId, request.user);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async suggestClaimEntries(request: any, response: Response) {
+        const service = new ClaimWorkspaceService();
+        try {
+            const descriptions = request.body?.descriptions ? String(request.body.descriptions) : null;
+            const categories = request.body?.categories ? JSON.parse(String(request.body.categories)) : null;
+            const data = await service.suggestClaimEntries(descriptions, categories, request.files?.["attachments"] || []);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+}
