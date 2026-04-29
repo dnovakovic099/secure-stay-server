@@ -158,6 +158,10 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional(),
+        latestUpdate: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string().valid('with-updates', 'no-updates'))
+        ).optional(),
         visibility: Joi.alternatives().try(
             Joi.string(),
             Joi.array().items(Joi.string())
