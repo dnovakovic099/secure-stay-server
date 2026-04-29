@@ -2,6 +2,25 @@ import { Request, NextFunction, Response } from "express";
 import Joi from "joi";
 
 export const validateCreateClaim = (request: Request, response: Response, next: NextFunction) => {
+    if (request.body?.workspaceMode === "report-claim") {
+        const schema = Joi.object({
+            workspaceMode: Joi.string().valid("report-claim").required(),
+            reservation: Joi.object().required(),
+            claimRequest: Joi.object().required(),
+            securityDeposit: Joi.object().required(),
+            payout: Joi.object().optional(),
+            resolutions: Joi.array().optional(),
+            attachmentManifest: Joi.string().allow(null, ''),
+        }).unknown(true);
+        const { error } = schema.validate(request.body);
+        if (error) {
+            next(error);
+            return;
+        }
+        next();
+        return;
+    }
+
     const schema = Joi.object({
         status: Joi.string()
             .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied")
@@ -52,6 +71,25 @@ export const validateCreateClaim = (request: Request, response: Response, next: 
 };
 
 export const validateUpdateClaim = (request: Request, response: Response, next: NextFunction) => {
+    if (request.body?.workspaceMode === "claim-detail") {
+        const schema = Joi.object({
+            workspaceMode: Joi.string().valid("claim-detail").required(),
+            reservation: Joi.object().required(),
+            claimRequest: Joi.object().required(),
+            securityDeposit: Joi.object().required(),
+            payout: Joi.object().optional(),
+            resolutions: Joi.array().optional(),
+            attachmentManifest: Joi.string().allow(null, ''),
+        }).unknown(true);
+        const { error } = schema.validate(request.body);
+        if (error) {
+            next(error);
+            return;
+        }
+        next();
+        return;
+    }
+
     const schema = Joi.object({
         status: Joi.string()
             .valid("Not Submitted", "In Progress", "Submitted", "Resolved", "Denied"),

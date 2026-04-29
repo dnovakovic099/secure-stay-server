@@ -135,10 +135,22 @@ export class ClaimsService {
         const [claims, total] = await this.claimRepo.findAndCount(queryOptions);
 
         const transformedData = claims.map(claim => {
+            let visibleStatus = claim.status;
+            try {
+                const workspace = claim.workspace_data ? JSON.parse(claim.workspace_data) : null;
+                if (workspace?.claimRequest?.statusGroup === 'New') {
+                    visibleStatus = 'New';
+                } else if (workspace?.claimRequest?.statusDetail) {
+                    visibleStatus = workspace.claimRequest.statusDetail;
+                }
+            } catch {
+                visibleStatus = claim.status;
+            }
             return {
                 ...claim,
                 updated_by: userMap.get(claim.updated_by) || claim.updated_by,
-                fileInfo: fileInfoList.filter(file => file.entityId === claim.id)
+                fileInfo: fileInfoList.filter(file => file.entityId === claim.id),
+                visibleStatus,
             };
         })
 
@@ -466,4 +478,4 @@ export class ClaimsService {
         }
     }
 
-} 
+}
