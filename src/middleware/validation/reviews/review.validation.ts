@@ -64,6 +64,10 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional().allow(null, ""),
+        latestUpdate: Joi.alternatives().try(
+            Joi.string().valid('with-updates', 'no-updates', ''),
+            Joi.array().items(Joi.string().valid('with-updates', 'no-updates'))
+        ).optional().allow(null, ""),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
