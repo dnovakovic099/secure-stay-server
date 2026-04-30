@@ -33,6 +33,7 @@ router.route('/update-assignee').put(verifySession, validateUpdateAssignee, issu
 router.route('/update-urgency').put(verifySession, validateUpdateUrgency, issuesController.updateUrgency);
 router.route('/update-mistake').put(verifySession, validateUpdateMistake, issuesController.updateMistake);
 router.route('/update-status').put(verifySession, validateUpdateStatus, issuesController.updateStatus)
+router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 
 
 router.route('/:id')

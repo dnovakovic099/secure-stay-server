@@ -24,6 +24,8 @@ import { FileInfo } from "../entity/FileInfo";
 import path from "path";
 import logger from "../utils/logger.utils";
 import { format } from "date-fns";
+import axios from "axios";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -32,6 +34,7 @@ export class IssuesService {
   private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
   private usersRepo = appDatabase.getRepository(UsersEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
+  private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
   private formatDate(date: Date): string {
     const year = date.getFullYear();
@@ -634,6 +637,113 @@ export class IssuesService {
       issues: transformedIssues,
       total,
     };
+  }
+
+  async getIssueThread(issueId: number) {
+    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const trackedSlackMessage = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issues",
+        entityId: issueId,
+      },
+      order: {
+        createdAt: "DESC",
+      },
+    });
+
+    if (!trackedSlackMessage) {
+      return [];
+    }
+
+    try {
+      const response = await axios.get("https://slack.com/api/conversations.replies", {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        },
+        params: {
+          channel: trackedSlackMessage.channel,
+          ts: trackedSlackMessage.threadTs || trackedSlackMessage.messageTs,
+          limit: 100,
+        },
+      });
+
+      if (!response.data.ok) {
+        logger.error(
+          `[IssuesService][getIssueThread] Slack API error: ${response.data.error}`
+        );
+        return [];
+      }
+
+      const userCache = new Map<string, { name: string; avatar: string | null }>();
+      const replies = (response.data.messages || [])
+        .slice(1)
+        .filter((message: any) => !message.bot_id && message.subtype !== "bot_message");
+
+      return await Promise.all(
+        replies.map(async (message: any) => {
+          let createdBy = "Slack User";
+          let userAvatar: string | null = null;
+
+          if (message.user) {
+            if (userCache.has(message.user)) {
+              const cached = userCache.get(message.user)!;
+              createdBy = cached.name;
+              userAvatar = cached.avatar;
+            } else {
+              try {
+                const userResponse = await axios.get("https://slack.com/api/users.info", {
+                  headers: {
+                    Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                  },
+                  params: { user: message.user },
+                });
+
+                if (userResponse.data.ok && userResponse.data.user) {
+                  const profile = userResponse.data.user.profile || {};
+                  createdBy =
+                    profile.display_name ||
+                    profile.real_name ||
+                    userResponse.data.user.name ||
+                    createdBy;
+                  userAvatar = profile.image_48 || null;
+                }
+              } catch (error) {
+                logger.warn(
+                  `[IssuesService][getIssueThread] Failed to fetch Slack user ${message.user}: ${error}`
+                );
+              }
+
+              userCache.set(message.user, {
+                name: createdBy,
+                avatar: userAvatar,
+              });
+            }
+          }
+
+          return {
+            id: `slack_${message.ts}`,
+            source: "slack",
+            createdAt: new Date(parseFloat(message.ts) * 1000).toISOString(),
+            createdBy,
+            updatedAt: null,
+            updatedBy: null,
+            updates: message.text || "",
+            deletedAt: null,
+            deletedBy: null,
+            userAvatar,
+          };
+        })
+      );
+    } catch (error) {
+      logger.error(
+        `[IssuesService][getIssueThread] Error fetching Slack thread for issue ${issueId}: ${error}`
+      );
+      return [];
+    }
   }
 
   async bulkUpdateIssues(
