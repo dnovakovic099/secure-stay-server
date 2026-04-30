@@ -32,6 +32,52 @@ const UNRESPONDED_MESSAGES_CHANNEL = "#unresponded-messages";
 const CLEANING_AND_MAINTENANCE = "#cleaning-and-maintenance";
 const INTERNAL_PHOTOGRAPHY = "#internal-photography";
 
+const ISSUE_STATUS_OPTIONS = [
+    "New",
+    "In Progress",
+    "Scheduled",
+    "Need Help",
+    "Overdue",
+    "Completed",
+];
+
+const buildIssueStatusDropdown = (issue: Issue) => ({
+    type: "actions",
+    elements: [
+        {
+            type: "static_select",
+            action_id: slackInteractivityEventNames.UPDATE_ISSUE_STATUS,
+            placeholder: {
+                type: "plain_text",
+                text: "Update Status",
+                emoji: true
+            },
+            initial_option: {
+                text: {
+                    type: "plain_text",
+                    text: issue.status || "New",
+                    emoji: true
+                },
+                value: JSON.stringify({
+                    id: issue.id,
+                    status: issue.status || "New"
+                })
+            },
+            options: ISSUE_STATUS_OPTIONS.map((status) => ({
+                text: {
+                    type: "plain_text",
+                    text: status,
+                    emoji: true
+                },
+                value: JSON.stringify({
+                    id: issue.id,
+                    status
+                })
+            }))
+        }
+    ]
+});
+
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity, slackTagIds?: string[]) => {
     const tagMention = slackTagIds && slackTagIds.length > 0
         ? slackTagIds.map(id => `<@${id}>`).join(' ') + ' — New refund request requires your approval.'
@@ -320,13 +366,7 @@ export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
                     text: `*New Issue reported for 🏠 ${issue.listing_name} by 🙍 ${issue?.guest_name}* *<https://securestay.ai/issues?id=${issue.id}|View Issue>*`
                 }
             },
-            {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Status:* ${issueStatusEmoji(issue.status)}${capitalizeFirstLetter(issue.status)}`
-                },
-            },
+            buildIssueStatusDropdown(issue),
             {
                 type: "section",
                 text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }

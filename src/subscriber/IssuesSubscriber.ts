@@ -84,7 +84,7 @@ export class IssuesSubscriber
     private async updateSlackMessage(issue: any, userId: string, eventType: string) {
         try {
             const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : userId || "Unknown User";
 
             let slackMessage = buildIssuesSlackMessageUpdate(issue, user);
             const slackMessageInfo = await this.slackMessageInfo.findOne({

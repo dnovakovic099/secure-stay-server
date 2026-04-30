@@ -85,6 +85,10 @@ export class UnifiedWebhookController {
                     // Acknowledgment handled by response.send() below; service updates original message + posts thread reply
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_ISSUE_STATUS: {
+                    logger.info(`Issue status update request`);
+                    break;
+                }
                 case slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS: {
                     logger.info(`Action Item status update request`);
                     break;
@@ -183,6 +187,20 @@ export class UnifiedWebhookController {
                         logger.error(`Error marking refund request as paid: ${error}`);
                     }
 
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_ISSUE_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option.value);
+                        const issuesService = new IssuesService();
+                        await issuesService.updateStatus(
+                            Number(requestObj.id),
+                            requestObj.status,
+                            user
+                        );
+                    } catch (error) {
+                        logger.error(`Error updating issue status: ${error}`);
+                    }
                     break;
                 }
                 case `${slackInteractivityEventNames.UPDATE_ACTION_ITEM_STATUS}`: {
