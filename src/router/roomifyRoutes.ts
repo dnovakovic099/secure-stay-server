@@ -274,6 +274,222 @@ function parseListingIdParam(value: any): string[] {
   return [String(value)];
 }
 
+// ---------- Enrichment loaders ----------
+//
+// The dashboard schema scatters cleaner-relevant data across several
+// tables that aren't wired up via TypeORM relations on the Listing
+// entity (`listing_image`, `property_info`, and `client_properties`).
+// Rather than declare new entities just to read a few columns, we
+// issue narrow raw queries via the existing connection. All loaders
+// are best-effort: if any throws, the calling endpoint continues with
+// the basic listing data so the picker / template never goes down
+// because of an enrichment failure.
+
+/**
+ * Returns Map<listingIdString, thumbnailUrl> for the given listing
+ * ids. Picks the lowest-sortOrder image per listing as the cover.
+ */
+async function loadThumbnailMap(
+  listingIds: Array<string | number>
+): Promise<Map<string, string | null>> {
+  if (!listingIds || listingIds.length === 0) return new Map();
+  try {
+    const ids = listingIds
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n));
+    if (ids.length === 0) return new Map();
+    const rows: Array<{
+      listingId: number;
+      thumbnailUrl: string | null;
+      url: string | null;
+    }> = await appDatabase.query(
+      `SELECT li.listingId, li.thumbnailUrl, li.url
+         FROM listing_image li
+         JOIN (
+           SELECT listingId, MIN(COALESCE(sortOrder, 999999)) AS minOrder
+             FROM listing_image
+            WHERE listingId IN (${ids.map(() => "?").join(",")})
+            GROUP BY listingId
+         ) m ON m.listingId = li.listingId
+              AND COALESCE(li.sortOrder, 999999) = m.minOrder`,
+      ids
+    );
+    const out = new Map<string, string | null>();
+    for (const r of rows) {
+      if (!out.has(String(r.listingId))) {
+        out.set(String(r.listingId), r.thumbnailUrl || r.url || null);
+      }
+    }
+    return out;
+  } catch (err: any) {
+    console.warn(
+      "[roomifyRoutes] loadThumbnailMap failed (returning empty):",
+      err?.message
+    );
+    return new Map();
+  }
+}
+
+/**
+ * Returns the up-to-N image URLs for one listing, ordered by
+ * sortOrder.
+ */
+async function loadImageList(
+  listingId: string | number,
+  limit = 5
+): Promise<
+  Array<{ url: string | null; thumbnail_url: string | null; caption: string | null }>
+> {
+  try {
+    const id = Number(listingId);
+    if (!Number.isFinite(id)) return [];
+    const rows: Array<{
+      thumbnailUrl: string | null;
+      url: string | null;
+      caption: string | null;
+      sortOrder: number | null;
+    }> = await appDatabase.query(
+      `SELECT thumbnailUrl, url, caption, sortOrder
+         FROM listing_image
+        WHERE listingId = ?
+        ORDER BY COALESCE(sortOrder, 999999) ASC
+        LIMIT ?`,
+      [id, limit]
+    );
+    return rows.map((r) => ({
+      url: r.url || null,
+      thumbnail_url: r.thumbnailUrl || null,
+      caption: r.caption || null,
+    }));
+  } catch (err: any) {
+    console.warn(
+      "[roomifyRoutes] loadImageList failed (returning empty):",
+      err?.message
+    );
+    return [];
+  }
+}
+
+/**
+ * Returns the property_info row for a listing, joined through
+ * client_properties.listingId -> client_properties.id =
+ * property_info.clientPropertyId. Returns null when no row exists or
+ * if the underlying tables are unavailable.
+ */
+async function loadPropertyInfo(
+  listingId: string | number
+): Promise<any | null> {
+  try {
+    const id = Number(listingId);
+    if (!Number.isFinite(id)) return null;
+    // A single listingId can map to multiple property_info rows
+    // (intake/migration creates duplicates), and only one of them is
+    // typically populated. Score each row by how many cleaner-relevant
+    // fields it has so we pick the most useful one. Tie-break on
+    // updatedAt to prefer the most recently edited row.
+    const rows: any[] = await appDatabase.query(
+      `SELECT pi.*
+         FROM property_info pi
+         JOIN client_properties cp ON cp.id = pi.clientPropertyId
+        WHERE cp.listingId = ?
+        ORDER BY (
+          (pi.wifiPassword IS NOT NULL AND pi.wifiPassword != '' AND pi.wifiPassword != '(NO PASSWORD)') +
+          (pi.standardDoorCode IS NOT NULL AND pi.standardDoorCode != '') +
+          (pi.lockboxCode IS NOT NULL AND pi.lockboxCode != '') +
+          (pi.parkingInstructions IS NOT NULL AND pi.parkingInstructions != '') +
+          (pi.wasteCollectionDays IS NOT NULL AND pi.wasteCollectionDays != '') +
+          (pi.swimmingPoolNotes IS NOT NULL AND pi.swimmingPoolNotes != '') +
+          (pi.hotTubInstructions IS NOT NULL AND pi.hotTubInstructions != '') +
+          (pi.securityCameraLocations IS NOT NULL AND pi.securityCameraLocations != '') +
+          (pi.checkInInstructions IS NOT NULL AND pi.checkInInstructions != '') +
+          (pi.otherHouseRules IS NOT NULL AND pi.otherHouseRules != '')
+        ) DESC, pi.updatedAt DESC
+        LIMIT 1`,
+      [String(id)]
+    );
+    return rows[0] || null;
+  } catch (err: any) {
+    console.warn(
+      "[roomifyRoutes] loadPropertyInfo failed (returning null):",
+      err?.message
+    );
+    return null;
+  }
+}
+
+/**
+ * Strips noise like "(NO PASSWORD)" / "(NOT SPECIFIED)" placeholders
+ * from a string field. Returns null for empty or sentinel values.
+ */
+function cleanString(v: any, max = 2000): string | null {
+  if (v == null) return null;
+  let s = String(v).trim();
+  if (!s) return null;
+  if (/^\((no|not)[^)]*\)$/i.test(s)) return null;
+  if (s.length > max) s = s.slice(0, max);
+  return s;
+}
+
+/**
+ * Reshapes a property_info row into a cleaner-facing notes object.
+ * Returns null when nothing useful is populated (every leaf is empty).
+ * Keys are present even when null so clients can render a stable
+ * layout.
+ */
+function shapeCleanerNotes(pi: any): any | null {
+  if (!pi) return null;
+  const notes = {
+    door: {
+      standard_code: cleanString(pi.standardDoorCode, 50),
+      lockbox_code: cleanString(pi.lockboxCode, 50),
+      lockbox_location: cleanString(pi.lockboxLocation, 200),
+      instructions: cleanString(pi.doorLockInstructions, 1500),
+    },
+    wifi: {
+      ssid: cleanString(pi.wifiUsername, 100),
+      password: cleanString(pi.wifiPassword, 100),
+      speed: cleanString(pi.wifiSpeed, 50),
+    },
+    parking: cleanString(pi.parkingInstructions, 1500),
+    check_in: cleanString(pi.checkInInstructions, 2000),
+    check_out: cleanString(pi.checkOutInstructions, 2000),
+    waste: {
+      collection_days: cleanString(pi.wasteCollectionDays, 200),
+      bin_location: cleanString(pi.wasteBinLocation, 500),
+      management: cleanString(pi.wasteManagementInstructions, 1500),
+    },
+    pool: cleanString(pi.swimmingPoolNotes, 2000),
+    hot_tub: cleanString(pi.hotTubInstructions, 2000),
+    fire_pit: cleanString(pi.firepitNotes, 1000),
+    fireplace: cleanString(pi.firePlaceNotes, 1000),
+    gym: cleanString(pi.gymNotes, 1000),
+    bedroom_notes: cleanString(pi.bedroomNotes, 2000),
+    security_cameras: cleanString(pi.securityCameraLocations, 1000),
+    house_rules: cleanString(pi.otherHouseRules, 2000),
+    pets: {
+      allowed:
+        pi.allowPets === 1 || pi.allowPets === "1"
+          ? true
+          : pi.allowPets === 0 || pi.allowPets === "0"
+          ? false
+          : null,
+      restrictions: cleanString(pi.petRestrictionsNotes, 1000),
+    },
+    floors: pi.noOfFloors == null ? null : Number(pi.noOfFloors),
+    square_feet: pi.squareFeet == null ? null : Number(pi.squareFeet),
+    special_instructions: cleanString(pi.specialInstructions, 2000),
+  };
+
+  const isEmpty = (v: any): boolean => {
+    if (v == null) return true;
+    if (typeof v === "string") return v.length === 0;
+    if (typeof v === "object") return Object.values(v).every(isEmpty);
+    return false;
+  };
+  if (isEmpty(notes)) return null;
+  return notes;
+}
+
 // ---------- /listings ----------
 
 const listingsRouter = Router();
@@ -308,7 +524,21 @@ listingsRouter.get("/", verifySession, async (req: Request, res: Response) => {
 
     const [rows, total] = await qb.getManyAndCount();
 
-    return ok(res, rows.map(shapeListing), {
+    // Best-effort thumbnail enrichment (single batched query for the
+    // entire page). Doesn't block the response if it fails.
+    const ids = rows.map((r: any) => r.id);
+    const thumbs = await loadThumbnailMap(ids);
+
+    const data = rows.map((r: any) => {
+      const shaped: any = shapeListing(r);
+      if (!shaped.thumbnail_url) {
+        const t = thumbs.get(String(r.id));
+        if (t) shaped.thumbnail_url = t;
+      }
+      return shaped;
+    });
+
+    return ok(res, data, {
       total,
       currentPage: page,
       totalPages: Math.max(1, Math.ceil(total / limit)),
@@ -334,10 +564,28 @@ listingsRouter.get(
 
       if (!listing) return fail(res, "Listing not found", 404);
 
-      return ok(res, {
-        listing: shapeListing(listing),
-        template: buildPropertyTemplate(listing),
-      });
+      // Run all enrichment loads in parallel — each returns a safe
+      // empty value on error so a failing aux query never breaks the
+      // template fetch.
+      const [thumbs, images, propertyInfo] = await Promise.all([
+        loadThumbnailMap([(listing as any).id]),
+        loadImageList((listing as any).id, 8),
+        loadPropertyInfo((listing as any).id),
+      ]);
+
+      const shapedListing: any = shapeListing(listing);
+      if (!shapedListing.thumbnail_url) {
+        shapedListing.thumbnail_url =
+          thumbs.get(String((listing as any).id)) || null;
+      }
+      shapedListing.images = images;
+
+      const template: any = buildPropertyTemplate(listing);
+      template.thumbnail_url = shapedListing.thumbnail_url;
+      template.images = images;
+      template.cleaner_notes = shapeCleanerNotes(propertyInfo);
+
+      return ok(res, { listing: shapedListing, template });
     } catch (err: any) {
       return fail(res, err?.message || "Failed to load listing");
     }
@@ -525,6 +773,15 @@ cleanerReportRouter.get(
       // ----- Last guest signal (most recent review) -----
       const lastReview = recentReviews[0] || null;
 
+      // Best-effort static enrichment — door code, wifi, parking,
+      // pool/hot tub instructions, security camera locations, etc.
+      // pulled from property_info via client_properties.
+      const [propertyInfo, thumbs] = await Promise.all([
+        loadPropertyInfo(listingId),
+        loadThumbnailMap([listingId]),
+      ]);
+      const cleanerNotes = shapeCleanerNotes(propertyInfo);
+
       return ok(res, {
         listing_id: String(listingId),
         name:
@@ -532,6 +789,11 @@ cleanerReportRouter.get(
           (listing as any)?.internalListingName ||
           null,
         address: (listing as any)?.address || null,
+        timezone:
+          (listing as any)?.timeZoneName ||
+          (listing as any)?.timezone ||
+          null,
+        thumbnail_url: thumbs.get(String(listingId)) || null,
         window_days: days,
         counts: {
           open_issues: openIssues.length,
@@ -542,6 +804,7 @@ cleanerReportRouter.get(
         watch_for,
         recurring_categories,
         low_rated_quotes,
+        cleaner_notes: cleanerNotes,
         last_guest: lastReview
           ? {
               guest_name: lastReview.guestName,
