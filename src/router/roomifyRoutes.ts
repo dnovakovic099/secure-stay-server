@@ -55,6 +55,30 @@ function joinAddress(l: any): string {
 }
 
 /**
+ * Pulls the bedroom count from a SecureStay listing. The canonical
+ * column is `bedroomsNumber` (populated on 100% of catalog rows). We
+ * also accept `bedrooms` as a convenience alias for code paths that
+ * pre-shape the data.
+ */
+function bedroomsOf(l: any): number | null {
+  const n = Number(l.bedroomsNumber ?? l.bedrooms ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function bathroomsOf(l: any): number | null {
+  const n = Number(l.bathroomsNumber ?? l.bathrooms ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function guestsOf(l: any): number | null {
+  for (const v of [l.guests, l.personCapacity, l.guestsIncluded]) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return null;
+}
+
+/**
  * Roomify mobile/web reads `listing_id` (NOT `id`). The legacy fallback
  * shape (`fetchCatalogFromIssuesFeed`) defines the canonical key set:
  * listing_id, name, internal_name, full_address, street, city, state,
@@ -80,17 +104,59 @@ function shapeListing(l: any) {
     country: l.country || null,
     countryCode: l.countryCode || null,
     zipcode: l.zipcode || null,
-    timezone: l.timezone || null,
+    timezone: l.timeZoneName || l.timezone || null,
     lat: l.lat ?? null,
     lng: l.lng ?? null,
     propertyType: l.propertyType || null,
-    guests: l.guestsIncluded ?? null,
+    guests: guestsOf(l),
     guestsIncluded: l.guestsIncluded ?? null,
-    bedrooms: l.bedrooms ?? null,
-    bathrooms: l.bathrooms ?? null,
+    bedrooms: bedroomsOf(l),
+    bathrooms: bathroomsOf(l),
     beds: l.beds ?? null,
     price: l.price ?? null,
     thumbnail_url: l.thumbnailUrl || l.thumbnail_url || null,
+  };
+}
+
+/**
+ * Heuristic feature detection from the listing's name + description.
+ *
+ * The `listing_amenities` table is currently empty for the entire
+ * catalog (verified 2026-04-30), so we cannot rely on structured
+ * amenities. We fall back to scanning the marketing copy — which is
+ * how "Heated Pool/Spa • Theater • Gym" gets correctly turned into
+ * Pool / Spa / Theater / Gym rooms.
+ */
+function detectFeatures(listing: any) {
+  const haystack = [
+    listing.name,
+    listing.internalListingName,
+    listing.externalListingName,
+    listing.description,
+    listing.tags,
+    Array.isArray(listing.listingAmenities)
+      ? listing.listingAmenities.map((a: any) => a && a.amenityName).join(" ")
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const has = (re: RegExp) => re.test(haystack);
+
+  return {
+    pool: has(/\bpool\b/),
+    hotTub: has(/\b(hot\s*tub|jacuzzi|spa)\b/),
+    theater: has(/\b(theater|theatre|cinema|movie\s*room)\b/),
+    gym: has(/\b(gym|fitness|workout)\b/),
+    gameRoom: has(/\b(game\s*room|arcade|pool\s*table|ping\s*pong)\b/),
+    bbq: has(/\b(bbq|barbecue|grill)\b/),
+    patio: has(/\b(patio|deck|porch|balcony|lanai|terrace)\b/),
+    yard: has(/\b(yard|garden|outdoor)\b/),
+    garage: has(/\bgarage\b/),
+    laundry: has(/\b(laundry|washer|dryer)\b/),
+    waterfront: has(/\b(waterfront|beach|lake|river|canal|ocean|bay)\b/),
+    fireplace: has(/\bfire\s*pit|fireplace\b/),
   };
 }
 
@@ -103,30 +169,61 @@ function shapeListing(l: any) {
  *     units: [{ name, notes, rooms: [{ name, type }] }]
  *   }
  * with `units[0].rooms.length > 0`. We synthesize a sensible default
- * room list from the listing's bedrooms/bathrooms columns so the
- * cleaner can immediately start an inspection — they can edit before
- * confirming the import.
+ * room list from the listing's bedroomsNumber/bathroomsNumber columns
+ * plus name-based feature detection (pool, spa, theater, etc.) so the
+ * cleaner sees an accurate set of areas to inspect — they can still
+ * edit before confirming the import.
  */
 function buildPropertyTemplate(listing: any) {
   const id = String(listing.id);
-  const bedrooms = Math.max(1, Number(listing.bedrooms) || 1);
-  const bathrooms = Math.max(1, Number(listing.bathrooms) || 1);
+  const bedrooms = Math.max(1, bedroomsOf(listing) || 1);
+  const bathrooms = Math.max(1, bathroomsOf(listing) || 1);
+  const features = detectFeatures(listing);
+  const isHouseLike = !/\b(apartment|condo|studio|loft|hotel|hostel|room)\b/i.test(
+    String(listing.propertyType || "")
+  );
 
   const rooms: { name: string; type: string }[] = [];
+
+  // Bedrooms
   for (let i = 1; i <= bedrooms; i++) {
     rooms.push({
       name: i === 1 ? "Master Bedroom" : `Bedroom ${i}`,
       type: "bedroom",
     });
   }
+
+  // Common indoor living spaces
   rooms.push({ name: "Living Room", type: "living" });
   rooms.push({ name: "Kitchen", type: "kitchen" });
+  if (bedrooms >= 3) {
+    rooms.push({ name: "Dining Room", type: "dining" });
+  }
+
+  // Bathrooms
   for (let i = 1; i <= bathrooms; i++) {
     rooms.push({
       name: i === 1 && bathrooms > 1 ? "Master Bathroom" : `Bathroom ${i}`,
       type: "bathroom",
     });
   }
+
+  // Specialty rooms detected from the marketing copy
+  if (features.theater) rooms.push({ name: "Theater Room", type: "theater" });
+  if (features.gameRoom) rooms.push({ name: "Game Room", type: "game" });
+  if (features.gym) rooms.push({ name: "Gym", type: "gym" });
+  if (features.laundry) rooms.push({ name: "Laundry Room", type: "laundry" });
+  if (features.garage) rooms.push({ name: "Garage", type: "garage" });
+
+  // Outdoor — always for house-like properties (villas, houses, cabins).
+  // Cleaners need to walk the exterior even if the listing copy doesn't
+  // mention a patio, so this is the default for any non-apartment.
+  if (isHouseLike || features.patio || features.yard) {
+    rooms.push({ name: "Outdoor / Patio", type: "outdoor" });
+  }
+  if (features.pool) rooms.push({ name: "Pool Area", type: "pool" });
+  if (features.hotTub) rooms.push({ name: "Hot Tub / Spa", type: "spa" });
+  if (features.bbq) rooms.push({ name: "BBQ / Grill Area", type: "bbq" });
 
   return {
     name:
@@ -135,13 +232,14 @@ function buildPropertyTemplate(listing: any) {
       listing.externalListingName ||
       `Listing ${id}`,
     address: joinAddress(listing),
-    timezone: listing.timezone || "UTC",
+    timezone: listing.timeZoneName || listing.timezone || "UTC",
     securestay_listing_id: id,
     counts: {
       bedrooms,
       bathrooms,
       rooms: rooms.length,
     },
+    features,
     units: [
       {
         name: "Main Property",
