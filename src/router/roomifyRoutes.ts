@@ -44,12 +44,35 @@ function fail(res: Response, message: string, code = 500) {
     .json({ status: false, message, originalMessage: message });
 }
 
+function joinAddress(l: any): string {
+  if (l.address && String(l.address).trim()) {
+    return String(l.address).trim().replace(/,\s*$/, "");
+  }
+  const parts = [l.street, l.city, l.state, l.zipcode, l.country]
+    .filter((p) => p && String(p).trim())
+    .map((p) => String(p).trim());
+  return parts.join(", ");
+}
+
+/**
+ * Roomify mobile/web reads `listing_id` (NOT `id`). The legacy fallback
+ * shape (`fetchCatalogFromIssuesFeed`) defines the canonical key set:
+ * listing_id, name, internal_name, full_address, street, city, state,
+ * zipcode, country, timezone, bedrooms, bathrooms, guests,
+ * thumbnail_url. We mirror that exactly so the property picker and the
+ * import flow work without any client-side adapters.
+ */
 function shapeListing(l: any) {
   if (!l) return null;
+  const id = String(l.id);
+  const fullAddress = joinAddress(l);
   return {
-    id: String(l.id),
+    listing_id: id,
+    id, // kept for any older callers
     name: l.name || l.internalListingName || l.externalListingName || null,
     nickname: l.internalListingName || l.externalListingName || null,
+    internal_name: l.internalListingName || null,
+    full_address: fullAddress,
     address: l.address || null,
     street: l.street || null,
     city: l.city || null,
@@ -57,14 +80,75 @@ function shapeListing(l: any) {
     country: l.country || null,
     countryCode: l.countryCode || null,
     zipcode: l.zipcode || null,
+    timezone: l.timezone || null,
     lat: l.lat ?? null,
     lng: l.lng ?? null,
     propertyType: l.propertyType || null,
+    guests: l.guestsIncluded ?? null,
     guestsIncluded: l.guestsIncluded ?? null,
     bedrooms: l.bedrooms ?? null,
     bathrooms: l.bathrooms ?? null,
     beds: l.beds ?? null,
     price: l.price ?? null,
+    thumbnail_url: l.thumbnailUrl || l.thumbnail_url || null,
+  };
+}
+
+/**
+ * Generates a Roomify property template from a SecureStay listing.
+ * Roomify's create-property flow (and the test in
+ * server/test-securestay-flow.js) requires:
+ *   {
+ *     name, address, timezone, securestay_listing_id,
+ *     units: [{ name, notes, rooms: [{ name, type }] }]
+ *   }
+ * with `units[0].rooms.length > 0`. We synthesize a sensible default
+ * room list from the listing's bedrooms/bathrooms columns so the
+ * cleaner can immediately start an inspection — they can edit before
+ * confirming the import.
+ */
+function buildPropertyTemplate(listing: any) {
+  const id = String(listing.id);
+  const bedrooms = Math.max(1, Number(listing.bedrooms) || 1);
+  const bathrooms = Math.max(1, Number(listing.bathrooms) || 1);
+
+  const rooms: { name: string; type: string }[] = [];
+  for (let i = 1; i <= bedrooms; i++) {
+    rooms.push({
+      name: i === 1 ? "Master Bedroom" : `Bedroom ${i}`,
+      type: "bedroom",
+    });
+  }
+  rooms.push({ name: "Living Room", type: "living" });
+  rooms.push({ name: "Kitchen", type: "kitchen" });
+  for (let i = 1; i <= bathrooms; i++) {
+    rooms.push({
+      name: i === 1 && bathrooms > 1 ? "Master Bathroom" : `Bathroom ${i}`,
+      type: "bathroom",
+    });
+  }
+
+  return {
+    name:
+      listing.name ||
+      listing.internalListingName ||
+      listing.externalListingName ||
+      `Listing ${id}`,
+    address: joinAddress(listing),
+    timezone: listing.timezone || "UTC",
+    securestay_listing_id: id,
+    counts: {
+      bedrooms,
+      bathrooms,
+      rooms: rooms.length,
+    },
+    units: [
+      {
+        name: "Main Property",
+        notes: "",
+        rooms,
+      },
+    ],
   };
 }
 
@@ -142,6 +226,9 @@ listingsRouter.get(
   async (req: Request, res: Response) => {
     try {
       const { listingId } = req.params;
+      if (!listingId || listingId === "undefined" || listingId === "null") {
+        return fail(res, "listingId is required", 400);
+      }
       const repo = appDatabase.getRepository(Listing);
       const listing = await repo.findOne({
         where: { id: listingId as any },
@@ -149,15 +236,10 @@ listingsRouter.get(
 
       if (!listing) return fail(res, "Listing not found", 404);
 
-      // Best-effort template; the Roomify auto-create flow only requires
-      // listing fields. We expose rooms/amenities as empty arrays so the
-      // mobile flow has something to bind against without crashing.
-      const template = {
-        rooms: [] as any[],
-        amenities: [] as any[],
-      };
-
-      return ok(res, { listing: shapeListing(listing), template });
+      return ok(res, {
+        listing: shapeListing(listing),
+        template: buildPropertyTemplate(listing),
+      });
     } catch (err: any) {
       return fail(res, err?.message || "Failed to load listing");
     }
