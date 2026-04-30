@@ -59,6 +59,7 @@ import utilityProviderRoutes from "./utilityProviderRoutes";
 import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
 
+import { roomifyListingsRouter, roomifyReviewsRouter, roomifyCleanerReportRouter } from "./roomifyRoutes";
 const router = Router();
 
 // Health check endpoint (no authentication required)
@@ -122,5 +123,12 @@ router.use('/hostify', hostifyRoutes);
 router.use('/utility-providers', utilityProviderRoutes);
 router.use('/rental-agreement', rentalAgreementRoutes);
 router.use('/rental-agreement-templates', rentalAgreementTemplateRoutes);
+
+
+// Roomify-facing endpoints (do NOT remove on redeploy — see
+// secure-stay-server/src/router/roomifyRoutes.ts for context)
+router.use("/listings", roomifyListingsRouter);
+router.use("/reviews", roomifyReviewsRouter);
+router.use("/cleaner-report", roomifyCleanerReportRouter);
 
 export default router;
