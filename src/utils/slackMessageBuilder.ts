@@ -41,6 +41,11 @@ const ISSUE_STATUS_OPTIONS = [
     "Completed",
 ];
 
+const getIssueStatusLabelWithEmoji = (status: string) => {
+    const emoji = issueStatusEmoji(status);
+    return `${emoji ? `${emoji} ` : ''}${status}`;
+};
+
 const buildIssueStatusDropdown = (issue: Issue) => ({
     type: "actions",
     elements: [
@@ -55,7 +60,7 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
             initial_option: {
                 text: {
                     type: "plain_text",
-                    text: issue.status || "New",
+                    text: getIssueStatusLabelWithEmoji(issue.status || "New"),
                     emoji: true
                 },
                 value: JSON.stringify({
@@ -66,7 +71,7 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
             options: ISSUE_STATUS_OPTIONS.map((status) => ({
                 text: {
                     type: "plain_text",
-                    text: status,
+                    text: getIssueStatusLabelWithEmoji(status),
                     emoji: true
                 },
                 value: JSON.stringify({
