@@ -26,6 +26,7 @@ import logger from "../utils/logger.utils";
 import { format } from "date-fns";
 import axios from "axios";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import OpenAI from "openai";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -35,12 +36,154 @@ export class IssuesService {
   private usersRepo = appDatabase.getRepository(UsersEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private openai: OpenAI | null = process.env.OPENAI_API_KEY
+    ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    : null;
 
   private formatDate(date: Date): string {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  }
+
+  private extractPropertyTypeTag(tags?: string | null): string | null {
+    const normalized = String(tags || "").toLowerCase();
+    if (!normalized) return null;
+    if (normalized.includes(String(tagIds.PM))) return "PM";
+    if (normalized.includes(String(tagIds.ARB))) return "Arb";
+    if (normalized.includes(String(tagIds.OWN))) return "Own";
+    return null;
+  }
+
+  private extractServiceTypeTag(tags?: string | null): string | null {
+    const normalized = String(tags || "").toLowerCase();
+    if (!normalized) return null;
+    if (normalized.includes(String(tagIds.FULL_SERVICE))) return "Full";
+    if (normalized.includes(String(tagIds.PRO_SERVICE))) return "Pro";
+    if (normalized.includes(String(tagIds.LAUNCH_SERVICE))) return "Launch";
+    return null;
+  }
+
+  private normalizeCategory(category?: string | null): string {
+    return String(category || "Issue")
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private buildFallbackIssueTitle(issue: Partial<Issue>) {
+    const description = String(issue.issue_description || "").trim();
+    if (!description) return this.normalizeCategory(issue.category);
+
+    const cleaned = description
+      .replace(/\s+/g, " ")
+      .replace(/^[^a-zA-Z0-9]+/, "")
+      .trim();
+
+    const concise = cleaned.split(/[.?!]/)[0]?.trim() || cleaned;
+    return concise.length > 68 ? `${concise.slice(0, 65).trim()}...` : concise;
+  }
+
+  private buildFallbackChecklist(issue: Partial<Issue>) {
+    const category = String(issue.category || "").toUpperCase();
+    const defaultSteps = [
+      "Acknowledge the guest",
+      "Assign the right owner",
+      "Coordinate timing and ETA",
+      "Confirm resolution with the guest",
+    ];
+
+    if (category === "MAINTENANCE") {
+      return [
+        "Acknowledge the guest",
+        "Assign a vendor",
+        "Coordinate schedule and ETA",
+        "Confirm the fix with the guest",
+      ];
+    }
+
+    if (category === "CLEANLINESS") {
+      return [
+        "Acknowledge the guest",
+        "Assign the cleaning team",
+        "Coordinate access and timing",
+        "Confirm guest satisfaction",
+      ];
+    }
+
+    return defaultSteps;
+  }
+
+  private async generateIssueAiFields(issue: Partial<Issue>) {
+    const fallback = {
+      shortTitle: this.buildFallbackIssueTitle(issue),
+      checklist: this.buildFallbackChecklist(issue),
+    };
+
+    if (!this.openai || !issue.issue_description) {
+      return fallback;
+    }
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You generate concise operational issue summaries for an internal dashboard. Return valid JSON with keys shortTitle and checklist. shortTitle must be brief, action-oriented, and under 70 characters. checklist must be an array of up to 4 short coordination-focused steps.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              category: issue.category || null,
+              description: issue.issue_description || "",
+            }),
+          },
+        ],
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) return fallback;
+
+      const parsed = JSON.parse(content);
+      const shortTitle = String(parsed?.shortTitle || fallback.shortTitle).trim();
+      const checklist = Array.isArray(parsed?.checklist)
+        ? parsed.checklist.map((item: unknown) => String(item).trim()).filter(Boolean).slice(0, 4)
+        : fallback.checklist;
+
+      return {
+        shortTitle: shortTitle || fallback.shortTitle,
+        checklist: checklist.length > 0 ? checklist : fallback.checklist,
+      };
+    } catch (error) {
+      logger.warn(`[IssuesService] Failed to generate AI issue fields: ${error}`);
+      return fallback;
+    }
+  }
+
+  private async applyAiFields(issue: Issue, force = false) {
+    if (!issue.issue_description) return issue;
+
+    const existingChecklist = (() => {
+      try {
+        return issue.ai_checklist ? JSON.parse(issue.ai_checklist) : [];
+      } catch {
+        return [];
+      }
+    })();
+
+    if (!force && issue.ai_short_title && Array.isArray(existingChecklist) && existingChecklist.length > 0) {
+      return issue;
+    }
+
+    const aiFields = await this.generateIssueAiFields(issue);
+    issue.ai_short_title = aiFields.shortTitle;
+    issue.ai_checklist = JSON.stringify(aiFields.checklist);
+    return await this.issueRepo.save(issue);
   }
 
   async createIssue(
@@ -85,6 +228,7 @@ export class IssuesService {
     });
 
     const savedIssue = await this.issueRepo.save(newIssue);
+    await this.applyAiFields(savedIssue, true);
 
     if (fileInfo) {
       for (const file of fileInfo) {
@@ -238,6 +382,12 @@ export class IssuesService {
     });
 
     const updatedData = await this.issueRepo.save(issue);
+    const shouldRefreshAi =
+      Object.prototype.hasOwnProperty.call(data, "issue_description") ||
+      Object.prototype.hasOwnProperty.call(data, "category") ||
+      !updatedData.ai_short_title ||
+      !updatedData.ai_checklist;
+    const finalIssue = shouldRefreshAi ? await this.applyAiFields(updatedData, true) : updatedData;
     if (fileInfo) {
       for (const file of fileInfo) {
         const fileRecord = new FileInfo();
@@ -251,7 +401,7 @@ export class IssuesService {
         await this.fileInfoRepo.save(fileRecord);
       }
     }
-    return updatedData;
+    return finalIssue;
   }
 
   async deleteIssue(id: number, userId: string) {
@@ -486,11 +636,20 @@ export class IssuesService {
     const result = await this.issueUpdatesRepo.save(newUpdate);
     const users = await this.usersRepo.find();
     const userMap = new Map(
-      users.map((user) => [user.uid, `${user.firstName} ${user.lastName}`])
+      users.map((user) => [user.uid, user])
     );
-    result.createdBy = userMap.get(result.createdBy) || result.createdBy;
-    result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
-    return result;
+    const createdUser = userMap.get(result.createdBy);
+    const updatedUser = userMap.get(result.updatedBy);
+    return {
+      ...result,
+      source: "securestay",
+      createdByUid: result.createdBy,
+      updatedByUid: result.updatedBy,
+      createdByDepartment: createdUser?.department || null,
+      updatedByDepartment: updatedUser?.department || null,
+      createdBy: createdUser ? `${createdUser.firstName} ${createdUser.lastName}` : result.createdBy,
+      updatedBy: updatedUser ? `${updatedUser.firstName} ${updatedUser.lastName}` : result.updatedBy,
+    };
   }
 
   async updateIssueUpdates(body: any, userId: string) {
@@ -508,11 +667,20 @@ export class IssuesService {
     const result = await this.issueUpdatesRepo.save(existingIssueUpdate);
     const users = await this.usersRepo.find();
     const userMap = new Map(
-      users.map((user) => [user.uid, `${user.firstName} ${user.lastName}`])
+      users.map((user) => [user.uid, user])
     );
-    result.createdBy = userMap.get(result.createdBy) || result.createdBy;
-    result.updatedBy = userMap.get(result.updatedBy) || result.updatedBy;
-    return result;
+    const createdUser = userMap.get(result.createdBy);
+    const updatedUser = userMap.get(result.updatedBy);
+    return {
+      ...result,
+      source: "securestay",
+      createdByUid: result.createdBy,
+      updatedByUid: result.updatedBy,
+      createdByDepartment: createdUser?.department || null,
+      updatedByDepartment: updatedUser?.department || null,
+      createdBy: createdUser ? `${createdUser.firstName} ${createdUser.lastName}` : result.createdBy,
+      updatedBy: updatedUser ? `${updatedUser.firstName} ${updatedUser.lastName}` : result.updatedBy,
+    };
   }
 
   async deleteIssueUpdates(id: number, userId: string) {
@@ -594,6 +762,14 @@ export class IssuesService {
       },
     });
 
+    const listingIdsToLoad = Array.from(
+      new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean))
+    );
+    const listings = listingIdsToLoad.length
+      ? await appDatabase.getRepository(Listing).find({ where: { id: In(listingIdsToLoad as number[]) } })
+      : [];
+    const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+
     for (const issue of issues) {
       const issueWithInfo = issue as Issue & { reservationInfo?: any };
       if (issue.reservation_id && issue.reservation_id !== "NA") {
@@ -616,17 +792,34 @@ export class IssuesService {
     });
 
     const transformedIssues = issues.map((issue) => {
+      const listing = listingMap.get(Number(issue.listing_id));
+      const parsedChecklist = (() => {
+        try {
+          return issue.ai_checklist ? JSON.parse(issue.ai_checklist) : [];
+        } catch {
+          return [];
+        }
+      })();
       return {
         ...issue,
         created_by: userMap.get(issue.created_by) || issue.created_by,
         updated_by: userMap.get(issue.updated_by) || issue.updated_by,
         issueUpdates: issue.issueUpdates.map((update) => ({
           ...update,
+          source: "securestay",
+          createdByUid: update.createdBy,
+          updatedByUid: update.updatedBy,
+          createdByDepartment: users.find((user) => user.uid === update.createdBy)?.department || null,
+          updatedByDepartment: users.find((user) => user.uid === update.updatedBy)?.department || null,
           createdBy: userMap.get(update.createdBy) || update.createdBy,
           updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
         })),
         fileInfo: fileInfoList.filter((file) => file.entityId === issue.id),
         assigneeName: userMap.get(issue.assignee) || issue.assignee,
+        propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
+        serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
+        ai_short_title: issue.ai_short_title,
+        ai_checklist: parsedChecklist,
         assigneeList: users.map((user) => {
           return { uid: user.uid, name: `${user.firstName} ${user.lastName}` };
         }),
@@ -727,6 +920,8 @@ export class IssuesService {
           return {
             id: `slack_${message.ts}`,
             source: "slack",
+            createdByUid: message.user || null,
+            createdByDepartment: null,
             createdAt: new Date(parseFloat(message.ts) * 1000).toISOString(),
             createdBy,
             updatedAt: null,
@@ -945,5 +1140,71 @@ export class IssuesService {
     issue.status = status;
     issue.updated_by = userId;
     return await this.issueRepo.save(issue);
+  }
+
+  async generateAiSummary(issueId: number) {
+    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const updated = await this.applyAiFields(issue, true);
+    return {
+      ai_short_title: updated.ai_short_title,
+      ai_checklist: (() => {
+        try {
+          return updated.ai_checklist ? JSON.parse(updated.ai_checklist) : [];
+        } catch {
+          return [];
+        }
+      })(),
+    };
+  }
+
+  async runQuickAction(id: number, action: string, userId: string) {
+    const issue = await this.issueRepo.findOne({ where: { id } });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
+    }
+
+    const actor = await this.usersRepo.findOne({ where: { uid: userId } });
+    const actorName = actor ? `${actor.firstName} ${actor.lastName}` : "SecureStay";
+
+    const messages: Record<string, string> = {
+      assign_to_myself: `${actorName} assigned this issue to themselves.`,
+      coordinating_guest: `${actorName} is coordinating with the guest and will follow up with an update.`,
+      coordinating_vendor: `${actorName} is coordinating with the vendor and confirming schedule details.`,
+      escalate_issue: `${actorName} escalated this issue and requested manager help from Anj.`,
+    };
+
+    if (action === "assign_to_myself") {
+      issue.assignee = userId;
+    }
+
+    if (action === "escalate_issue") {
+      issue.status = "Need Help";
+    }
+
+    issue.updated_by = userId;
+    const updatedIssue = await this.issueRepo.save(issue);
+
+    const update = this.issueUpdatesRepo.create({
+      issue: updatedIssue,
+      updates: messages[action] || `${actorName} updated this issue.`,
+      createdBy: userId,
+    });
+
+    const savedUpdate = await this.issueUpdatesRepo.save(update);
+
+    return {
+      issue: updatedIssue,
+      update: {
+        ...savedUpdate,
+        source: "securestay",
+        createdByUid: userId,
+        createdByDepartment: actor?.department || null,
+        createdBy: actorName,
+      },
+    };
   }
 }

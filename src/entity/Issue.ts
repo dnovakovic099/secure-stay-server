@@ -139,6 +139,18 @@ export class Issue {
     @Column({ type: "text", nullable: true })
     resolution: string;
 
+    @Column({ type: "text", nullable: true })
+    ai_short_title: string;
+
+    @Column({ type: "text", nullable: true })
+    ai_checklist: string;
+
+    @Column({ type: "text", nullable: true })
+    manager_feedback: string;
+
+    @Column({ type: "boolean", nullable: true })
+    preventable_flag: boolean;
+
     @Column({ nullable: true })
     assignee: string;
 
