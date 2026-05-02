@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { IssuesController } from "../controllers/IssuesController";
 import verifySession from "../middleware/verifySession";
-import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates, validateBulkUpdateIssues, validateUpdateAssignee, validateUpdateMistake, validateUpdateUrgency, validateUpdateStatus } from "../middleware/validation/issues/issues.validation";
+import { validateCreateIssue, validateCreateLatestUpdates, validateGetIssues, validateIssueMigrationToActionItem, validateUpdateIssue, validateUpdateLatestUpdates, validateBulkUpdateIssues, validateUpdateAssignee, validateUpdateMistake, validateUpdateUrgency, validateUpdateStatus, validateIssueQuickAction } from "../middleware/validation/issues/issues.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -33,6 +33,8 @@ router.route('/update-assignee').put(verifySession, validateUpdateAssignee, issu
 router.route('/update-urgency').put(verifySession, validateUpdateUrgency, issuesController.updateUrgency);
 router.route('/update-mistake').put(verifySession, validateUpdateMistake, issuesController.updateMistake);
 router.route('/update-status').put(verifySession, validateUpdateStatus, issuesController.updateStatus)
+router.route('/quick-action').post(verifySession, validateIssueQuickAction, issuesController.quickAction);
+router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 
 

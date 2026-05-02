@@ -43,6 +43,10 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         payment_information: Joi.string().allow(null, ''),
         category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null, ""),
         resolution: Joi.string().optional().allow(null),
+        ai_short_title: Joi.string().optional().allow(null, ''),
+        ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
+        manager_feedback: Joi.string().optional().allow(null, ''),
+        preventable_flag: Joi.boolean().optional().allow(null),
         assignee: Joi.string().optional().allow(null),
         urgency: Joi.number().optional().allow(null).min(1).max(5),
         mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
@@ -99,6 +103,10 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         deletedFiles: Joi.string().allow(null, ''),
         category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
         resolution: Joi.string().optional().allow(null),
+        ai_short_title: Joi.string().optional().allow(null, ''),
+        ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
+        manager_feedback: Joi.string().optional().allow(null, ''),
+        preventable_flag: Joi.boolean().optional().allow(null),
         fileInfo: Joi.any().optional(),
         assignee: Joi.string().optional().allow(null),
         urgency: Joi.number().optional().allow(null).min(1).max(5),
@@ -276,4 +284,18 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
     next();
 };
 
+export const validateIssueQuickAction = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
+        action: Joi.string()
+            .valid("assign_to_myself", "coordinating_guest", "coordinating_vendor", "escalate_issue")
+            .required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+    next();
+};
 

@@ -422,6 +422,24 @@ export class IssuesController {
     }
   }
 
+  async generateAiSummary(
+    request: any,
+    response: Response,
+    next: NextFunction
+  ) {
+    try {
+      const issueId = Number(request.params.id);
+      const issuesService = new IssuesService();
+      const result = await issuesService.generateAiSummary(issueId);
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async bulkUpdateIssues(request: any, response: Response, next: NextFunction) {
     try {
       const { ids, updateData } = request.body;
@@ -532,6 +550,22 @@ export class IssuesController {
 
       const issuesService = new IssuesService();
       const result = await issuesService.updateStatus(id, status, userId);
+
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async quickAction(request: any, response: Response, next: NextFunction) {
+    try {
+      const { id, action } = request.body;
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.runQuickAction(Number(id), action, userId);
 
       return response.status(200).json({
         status: true,
