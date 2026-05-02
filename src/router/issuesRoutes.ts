@@ -70,6 +70,9 @@ router
     .route('/latestupdates/create')
     .post(
         verifySession,
+        fileUpload('issues').fields([
+            { name: 'attachments', maxCount: 10 }
+        ]),
         validateCreateLatestUpdates,
         issuesController.createIssueUpdates
     );

@@ -27,6 +27,7 @@ import { format } from "date-fns";
 import axios from "axios";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import OpenAI from "openai";
+import { Employee } from "../entity/Employee";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -36,6 +37,7 @@ export class IssuesService {
   private usersRepo = appDatabase.getRepository(UsersEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private employeeRepo = appDatabase.getRepository(Employee);
   private openai: OpenAI | null = process.env.OPENAI_API_KEY
     ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     : null;
@@ -70,6 +72,62 @@ export class IssuesService {
       .replace(/_/g, " ")
       .toLowerCase()
       .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+    if (!fileInfo) return null;
+
+    if (fileInfo.status === "uploaded" && fileInfo.driveFileId) {
+      return `${process.env.BASE_URL}/getdriveimage/${fileInfo.driveFileId}`;
+    }
+
+    if (fileInfo.localPath && fileInfo.fileName) {
+      return `${process.env.BASE_URL}/getimage/employees/${fileInfo.fileName}`;
+    }
+
+    return null;
+  }
+
+  private async buildIssueUserDirectory() {
+    const users = await this.usersRepo.find();
+    const employees = await this.employeeRepo.find({
+      where: { deletedAt: null as any },
+      select: ["userId", "profilePhoto", "preferredName", "department"],
+    });
+
+    const profilePhotoIds = employees
+      .map((employee) => Number(employee.profilePhoto))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const photoInfoList = profilePhotoIds.length
+      ? await this.fileInfoRepo.find({ where: { id: In(profilePhotoIds) } })
+      : [];
+    const photoInfoMap = new Map(photoInfoList.map((file) => [Number(file.id), file]));
+    const employeeMap = new Map(
+      employees.map((employee) => {
+        const photoInfo = photoInfoMap.get(Number(employee.profilePhoto));
+        return [
+          employee.userId,
+          {
+            preferredName: employee.preferredName || null,
+            department: employee.department || null,
+            avatarUrl: this.buildEmployeePhotoUrl(photoInfo),
+          },
+        ];
+      })
+    );
+
+    return users.map((user) => {
+      const employee = employeeMap.get(user.id);
+      const firstName = String(user.firstName || "").trim();
+      const lastName = String(user.lastName || "").trim();
+      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+      return {
+        uid: user.uid,
+        name: employee?.preferredName || fullName || user.uid,
+        department: employee?.department || user.department || null,
+        avatarUrl: employee?.avatarUrl || null,
+      };
+    });
   }
 
   private buildFallbackIssueTitle(issue: Partial<Issue>) {
@@ -619,7 +677,16 @@ export class IssuesService {
     return savedActionItem;
   }
 
-  async createIssueUpdates(body: any, userId: string) {
+  async createIssueUpdates(
+    body: any,
+    userId: string,
+    fileInfo?: {
+      fileName: string;
+      filePath: string;
+      mimeType: string;
+      originalName: string;
+    }[]
+  ) {
     const { issueId, updates } = body;
 
     const issue = await this.issueRepo.findOne({ where: { id: issueId } });
@@ -629,17 +696,33 @@ export class IssuesService {
 
     const newUpdate = this.issueUpdatesRepo.create({
       issue: issue,
-      updates: updates,
+      updates: updates || "",
       createdBy: userId,
     });
 
     const result = await this.issueUpdatesRepo.save(newUpdate);
-    const users = await this.usersRepo.find();
-    const userMap = new Map(
-      users.map((user) => [user.uid, user])
-    );
+    if (fileInfo?.length) {
+      for (const file of fileInfo) {
+        const fileRecord = this.fileInfoRepo.create({
+          entityType: "issue-updates",
+          entityId: result.id,
+          fileName: file.fileName,
+          localPath: file.filePath,
+          mimetype: file.mimeType,
+          originalName: file.originalName,
+          createdBy: userId,
+        });
+        await this.fileInfoRepo.save(fileRecord);
+      }
+    }
+
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
     const createdUser = userMap.get(result.createdBy);
     const updatedUser = userMap.get(result.updatedBy);
+    const attachedFiles = await this.fileInfoRepo.find({
+      where: { entityType: "issue-updates", entityId: result.id },
+    });
     return {
       ...result,
       source: "securestay",
@@ -647,8 +730,10 @@ export class IssuesService {
       updatedByUid: result.updatedBy,
       createdByDepartment: createdUser?.department || null,
       updatedByDepartment: updatedUser?.department || null,
-      createdBy: createdUser ? `${createdUser.firstName} ${createdUser.lastName}` : result.createdBy,
-      updatedBy: updatedUser ? `${updatedUser.firstName} ${updatedUser.lastName}` : result.updatedBy,
+      createdBy: createdUser?.name || result.createdBy,
+      updatedBy: updatedUser?.name || result.updatedBy,
+      userAvatar: createdUser?.avatarUrl || null,
+      fileInfo: attachedFiles,
     };
   }
 
@@ -665,12 +750,13 @@ export class IssuesService {
     existingIssueUpdate.updatedBy = userId;
 
     const result = await this.issueUpdatesRepo.save(existingIssueUpdate);
-    const users = await this.usersRepo.find();
-    const userMap = new Map(
-      users.map((user) => [user.uid, user])
-    );
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
     const createdUser = userMap.get(result.createdBy);
     const updatedUser = userMap.get(result.updatedBy);
+    const attachedFiles = await this.fileInfoRepo.find({
+      where: { entityType: "issue-updates", entityId: result.id },
+    });
     return {
       ...result,
       source: "securestay",
@@ -678,8 +764,10 @@ export class IssuesService {
       updatedByUid: result.updatedBy,
       createdByDepartment: createdUser?.department || null,
       updatedByDepartment: updatedUser?.department || null,
-      createdBy: createdUser ? `${createdUser.firstName} ${createdUser.lastName}` : result.createdBy,
-      updatedBy: updatedUser ? `${updatedUser.firstName} ${updatedUser.lastName}` : result.updatedBy,
+      createdBy: createdUser?.name || result.createdBy,
+      updatedBy: updatedUser?.name || result.updatedBy,
+      userAvatar: createdUser?.avatarUrl || null,
+      fileInfo: attachedFiles,
     };
   }
 
@@ -783,12 +871,10 @@ export class IssuesService {
       }
     }
 
-    const users = await this.usersRepo.find();
-    const userMap = new Map(
-      users.map((user) => [user.uid, `${user?.firstName} ${user?.lastName}`])
-    );
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
     const fileInfoList = await this.fileInfoRepo.find({
-      where: { entityType: "issues" },
+      where: [{ entityType: "issues" }, { entityType: "issue-updates" }],
     });
 
     const transformedIssues = issues.map((issue) => {
@@ -802,26 +888,28 @@ export class IssuesService {
       })();
       return {
         ...issue,
-        created_by: userMap.get(issue.created_by) || issue.created_by,
-        updated_by: userMap.get(issue.updated_by) || issue.updated_by,
+        created_by: userMap.get(issue.created_by)?.name || issue.created_by,
+        updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
         issueUpdates: issue.issueUpdates.map((update) => ({
           ...update,
           source: "securestay",
           createdByUid: update.createdBy,
           updatedByUid: update.updatedBy,
-          createdByDepartment: users.find((user) => user.uid === update.createdBy)?.department || null,
-          updatedByDepartment: users.find((user) => user.uid === update.updatedBy)?.department || null,
-          createdBy: userMap.get(update.createdBy) || update.createdBy,
-          updatedBy: userMap.get(update.updatedBy) || update.updatedBy,
+          createdByDepartment: userMap.get(update.createdBy)?.department || null,
+          updatedByDepartment: userMap.get(update.updatedBy)?.department || null,
+          createdBy: userMap.get(update.createdBy)?.name || update.createdBy,
+          updatedBy: userMap.get(update.updatedBy)?.name || update.updatedBy,
+          userAvatar: userMap.get(update.createdBy)?.avatarUrl || null,
+          fileInfo: fileInfoList.filter((file) => file.entityType === "issue-updates" && file.entityId === update.id),
         })),
-        fileInfo: fileInfoList.filter((file) => file.entityId === issue.id),
-        assigneeName: userMap.get(issue.assignee) || issue.assignee,
+        fileInfo: fileInfoList.filter((file) => file.entityType === "issues" && file.entityId === issue.id),
+        assigneeName: userMap.get(issue.assignee)?.name || issue.assignee,
         propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
         serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
         ai_short_title: issue.ai_short_title,
         ai_checklist: parsedChecklist,
-        assigneeList: users.map((user) => {
-          return { uid: user.uid, name: `${user.firstName} ${user.lastName}` };
+        assigneeList: userDirectory.map((user) => {
+          return { uid: user.uid, name: user.name };
         }),
       };
     });
@@ -1167,8 +1255,9 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
     }
 
-    const actor = await this.usersRepo.findOne({ where: { uid: userId } });
-    const actorName = actor ? `${actor.firstName} ${actor.lastName}` : "SecureStay";
+    const userDirectory = await this.buildIssueUserDirectory();
+    const actor = userDirectory.find((item) => item.uid === userId);
+    const actorName = actor?.name || "SecureStay";
 
     const messages: Record<string, string> = {
       assign_to_myself: `${actorName} assigned this issue to themselves.`,
@@ -1204,6 +1293,7 @@ export class IssuesService {
         createdByUid: userId,
         createdByDepartment: actor?.department || null,
         createdBy: actorName,
+        userAvatar: actor?.avatarUrl || null,
       },
     };
   }
