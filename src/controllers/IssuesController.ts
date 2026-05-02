@@ -335,9 +335,34 @@ export class IssuesController {
     try {
       const userId = request.user.id;
       const issuesService = new IssuesService();
+
+      let fileInfo:
+        | {
+            fileName: string;
+            filePath: string;
+            mimeType: string;
+            originalName: string;
+          }[]
+        | null = null;
+
+      if (
+        Array.isArray(request.files?.["attachments"]) &&
+        request.files["attachments"].length > 0
+      ) {
+        fileInfo = (request.files["attachments"] as Express.Multer.File[]).map(
+          (file) => ({
+            fileName: file.filename,
+            filePath: file.path,
+            mimeType: file.mimetype,
+            originalName: file.originalname,
+          })
+        );
+      }
+
       const result = await issuesService.createIssueUpdates(
         request.body,
-        userId
+        userId,
+        fileInfo || undefined
       );
       return response.status(201).json({
         status: true,

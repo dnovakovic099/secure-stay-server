@@ -142,12 +142,16 @@ export const validateIssueMigrationToActionItem = (request: Request, response: R
 export const validateCreateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         issueId: Joi.number().required(),
-        updates: Joi.string().required(),
+        updates: Joi.string().allow('').optional(),
     });
 
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
+    }
+    const hasFiles = Array.isArray((request as any).files?.attachments) && (request as any).files.attachments.length > 0;
+    if (!String(request.body?.updates || '').trim() && !hasFiles) {
+        return next(new Error('Either updates or attachments are required'));
     }
     next();
 };
@@ -298,4 +302,3 @@ export const validateIssueQuickAction = (request: Request, response: Response, n
     }
     next();
 };
-
