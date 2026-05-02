@@ -29,7 +29,7 @@ const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
     'resolutions': ['Resolutions', 'Guest Relations'],
     'action-items': ['Guest Relations', 'Maintenance', 'Resolutions'],
     'client-tickets': ['Client Relations', 'Onboarding', 'Maintenance', 'Guest Relations', 'Resolutions'],
-    'guest-issues': ['Maintenance', 'Guest Relations', 'Resolutions'],
+    'guest-issues': ['Resolutions', 'Guest Relations', 'Maintenance'],
     'default': [], // All departments alphabetically
 };
 

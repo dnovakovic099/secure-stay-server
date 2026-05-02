@@ -1018,6 +1018,32 @@ export class IssuesService {
             deletedAt: null,
             deletedBy: null,
             userAvatar,
+            fileInfo: Array.isArray(message.files)
+              ? message.files.map((file: any, index: number) => ({
+                  id: `${message.ts}-${index}`,
+                  fileName: file?.name || `Slack file ${index + 1}`,
+                  originalName: file?.title || file?.name || `Slack file ${index + 1}`,
+                  mimeType: file?.mimetype || file?.filetype || "",
+                  url:
+                    file?.thumb_1024 ||
+                    file?.thumb_720 ||
+                    file?.thumb_480 ||
+                    file?.thumb_360 ||
+                    file?.permalink_public ||
+                    file?.permalink ||
+                    null,
+                  webViewLink: file?.permalink_public || file?.permalink || null,
+                  webContentLink:
+                    file?.thumb_1024 ||
+                    file?.thumb_720 ||
+                    file?.thumb_480 ||
+                    file?.thumb_360 ||
+                    file?.permalink_public ||
+                    file?.permalink ||
+                    null,
+                  link: file?.permalink_public || file?.permalink || null,
+                }))
+              : [],
           };
         })
       );
