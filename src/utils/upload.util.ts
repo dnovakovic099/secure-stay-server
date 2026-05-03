@@ -38,9 +38,40 @@ const fileStorage = (uploadPath: string) => multer.diskStorage({
 });
 
 const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-    const allowedFileTypes = /jpeg|jpg|png|gif|pdf|doc|docx|xls|xlsx|csv/;
-    const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedFileTypes.test(file.mimetype);
+    const allowedExtensions = new Set([
+        '.jpeg',
+        '.jpg',
+        '.png',
+        '.gif',
+        '.webp',
+        '.heic',
+        '.heif',
+        '.bmp',
+        '.pdf',
+        '.doc',
+        '.docx',
+        '.xls',
+        '.xlsx',
+        '.csv',
+    ]);
+    const allowedMimeTypes = new Set([
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'image/heic',
+        'image/heif',
+        'image/bmp',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+    ]);
+    const extname = allowedExtensions.has(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedMimeTypes.has(file.mimetype.toLowerCase());
 
     if (mimetype && extname) {
         cb(null, true);
@@ -52,7 +83,7 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallb
 const fileUpload = (uploadPath: string) => multer({
     storage: fileStorage(uploadPath),
     limits: {
-        fileSize: 5 * 1024 * 1024, // 5 MB
+        fileSize: 15 * 1024 * 1024, // 15 MB
     },
     fileFilter: fileFilter
 });
