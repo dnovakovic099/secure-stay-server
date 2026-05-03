@@ -22,7 +22,7 @@ import { MaintenanceFormRequest } from "../entity/MaintenanceFormRequest";
 import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
 
 const REFUND_REQUEST_CHANNEL = "#social";
-const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
+const ISSUE_NOTIFICATION_CHANNEL = "#social";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";

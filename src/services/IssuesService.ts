@@ -919,18 +919,21 @@ export class IssuesService {
         ...issue,
         created_by: userMap.get(issue.created_by)?.name || issue.created_by,
         updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
-        issueUpdates: issue.issueUpdates.map((update) => ({
-          ...update,
-          source: "securestay",
-          createdByUid: update.createdBy,
-          updatedByUid: update.updatedBy,
-          createdByDepartment: userMap.get(update.createdBy)?.department || null,
-          updatedByDepartment: userMap.get(update.updatedBy)?.department || null,
-          createdBy: userMap.get(update.createdBy)?.name || update.createdBy,
-          updatedBy: userMap.get(update.updatedBy)?.name || update.updatedBy,
-          userAvatar: userMap.get(update.createdBy)?.avatarUrl || null,
-          fileInfo: fileInfoList.filter((file) => file.entityType === "issue-updates" && file.entityId === update.id),
-        })),
+        issueUpdates: issue.issueUpdates.map((update) => {
+          const isSlack = update.source === "slack";
+          return {
+            ...update,
+            source: isSlack ? "slack" : "securestay",
+            createdByUid: isSlack ? null : update.createdBy,
+            updatedByUid: isSlack ? null : update.updatedBy,
+            createdByDepartment: isSlack ? null : (userMap.get(update.createdBy)?.department || null),
+            updatedByDepartment: isSlack ? null : (userMap.get(update.updatedBy)?.department || null),
+            createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
+            updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
+            userAvatar: isSlack ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
+            fileInfo: fileInfoList.filter((file) => file.entityType === "issue-updates" && file.entityId === update.id),
+          };
+        }),
         fileInfo: fileInfoList.filter((file) => file.entityType === "issues" && file.entityId === issue.id),
         assigneeName: userMap.get(issue.assignee)?.name || issue.assignee,
         propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
@@ -950,10 +953,35 @@ export class IssuesService {
   }
 
   async getIssueThread(issueId: number) {
-    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+      relations: ["issueUpdates"],
+    });
     if (!issue) {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
+
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
+    const persistedUpdates = (issue.issueUpdates || []).map((update) => {
+      const isSlack = update.source === "slack";
+      return {
+        id: update.id,
+        updates: update.updates,
+        createdAt: update.createdAt,
+        updatedAt: update.updatedAt,
+        deletedAt: update.deletedAt,
+        source: isSlack ? "slack" : "securestay",
+        slackMessageTs: update.slackMessageTs || null,
+        createdByUid: isSlack ? null : update.createdBy,
+        updatedByUid: isSlack ? null : update.updatedBy,
+        createdByDepartment: isSlack ? null : (userMap.get(update.createdBy)?.department || null),
+        updatedByDepartment: isSlack ? null : (userMap.get(update.updatedBy)?.department || null),
+        createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
+        updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
+        userAvatar: isSlack ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
+      };
+    });
 
     const trackedSlackMessage = await this.slackMessageRepo.findOne({
       where: {
@@ -968,6 +996,7 @@ export class IssuesService {
     if (!trackedSlackMessage) {
       return {
         entries: [],
+        persistedUpdates,
         threadUrl: null,
       };
     }
@@ -1010,6 +1039,7 @@ export class IssuesService {
         );
         return {
           entries: [],
+          persistedUpdates,
           threadUrl,
         };
       }
@@ -1104,6 +1134,7 @@ export class IssuesService {
       );
       return {
         entries,
+        persistedUpdates,
         threadUrl,
       };
     } catch (error) {
@@ -1112,6 +1143,7 @@ export class IssuesService {
       );
       return {
         entries: [],
+        persistedUpdates,
         threadUrl: null,
       };
     }

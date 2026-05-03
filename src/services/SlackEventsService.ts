@@ -5,6 +5,8 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { ThreadMessageEntity } from "../entity/ThreadMessage";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { Issue } from "../entity/Issue";
+import { IssueUpdates } from "../entity/IsssueUpdates";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import sendSlackMessage from "../utils/sendSlackMsg";
@@ -40,6 +42,8 @@ export class SlackEventsService {
     private threadMessageRepo = appDatabase.getRepository(ThreadMessageEntity);
     private zapierEventRepo = appDatabase.getRepository(ZapierTriggerEvent);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private issueRepo = appDatabase.getRepository(Issue);
+    private issueUpdateRepo = appDatabase.getRepository(IssueUpdates);
 
     /**
      * Handle incoming message event from Slack Events API
@@ -110,6 +114,39 @@ export class SlackEventsService {
                     processedText,
                     event.ts
                 );
+                return;
+            }
+
+            if (slackMessageRecord.entityType === 'issues') {
+                const dup = await this.issueUpdateRepo.findOne({
+                    where: { slackMessageTs: event.ts }
+                });
+                if (dup) {
+                    logger.info(`[SlackEventsService] Duplicate Slack reply for issue, skipping ts=${event.ts}`);
+                    return;
+                }
+
+                const issue = await this.issueRepo.findOne({
+                    where: { id: slackMessageRecord.entityId }
+                });
+                if (!issue) {
+                    logger.error(`[SlackEventsService] Issue not found: ${slackMessageRecord.entityId}`);
+                    return;
+                }
+
+                const slackUserName = await this.getSlackUserDisplayName(event.user);
+                const slackUsers = await getSlackUsers();
+                const processedText = replaceSlackIdsWithMentions(event.text, slackUsers);
+
+                const newUpdate = this.issueUpdateRepo.create({
+                    updates: processedText,
+                    issue,
+                    createdBy: `${slackUserName} (via Slack)`,
+                    source: 'slack',
+                    slackMessageTs: event.ts,
+                });
+                await this.issueUpdateRepo.save(newUpdate);
+                logger.info(`[SlackEventsService] Synced Slack reply to issue ${issue.id}`);
                 return;
             }
 
