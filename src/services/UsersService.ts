@@ -29,7 +29,7 @@ const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
     'resolutions': ['Resolutions', 'Guest Relations'],
     'action-items': ['Guest Relations', 'Maintenance', 'Resolutions'],
     'client-tickets': ['Client Relations', 'Onboarding', 'Maintenance', 'Guest Relations', 'Resolutions'],
-    'guest-issues': ['Resolutions', 'Guest Relations', 'Maintenance'],
+    'guest-issues': ['Issue Resolution', 'Guest Relations', 'Maintenance'],
     'default': [], // All departments alphabetically
 };
 
@@ -694,9 +694,10 @@ export class UsersService {
         const departmentUsersMap: Record<string, { id: number; name: string; users: ReturnType<typeof buildUserPayload>[] }> = {};
 
         for (const dept of departments) {
-            departmentUsersMap[dept.name] = {
+            const normalizedDeptName = dept.name === 'Issue Resolution"' ? 'Issue Resolution' : dept.name;
+            departmentUsersMap[normalizedDeptName] = {
                 id: dept.id,
-                name: dept.name,
+                name: normalizedDeptName,
                 users: [],
             };
         }
@@ -711,7 +712,7 @@ export class UsersService {
         // Populate users into their departments (sorted alphabetically)
         const usersInDepartments = new Set<string>();
         for (const ud of userDepartments) {
-            const deptName = ud.department?.name;
+            const deptName = ud.department?.name === 'Issue Resolution"' ? 'Issue Resolution' : ud.department?.name;
             const userPayload = buildUserPayload(ud.user as any);
             
             if (deptName && departmentUsersMap[deptName]) {

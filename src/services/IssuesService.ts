@@ -937,10 +937,33 @@ export class IssuesService {
     });
 
     if (!trackedSlackMessage) {
-      return [];
+      return {
+        entries: [],
+        threadUrl: null,
+      };
     }
 
     try {
+      let threadUrl: string | null = null;
+      try {
+        const permalinkResponse = await axios.get("https://slack.com/api/chat.getPermalink", {
+          headers: {
+            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          },
+          params: {
+            channel: trackedSlackMessage.channel,
+            message_ts: trackedSlackMessage.threadTs || trackedSlackMessage.messageTs,
+          },
+        });
+        if (permalinkResponse.data?.ok) {
+          threadUrl = permalinkResponse.data?.permalink || null;
+        }
+      } catch (error) {
+        logger.warn(
+          `[IssuesService][getIssueThread] Failed to fetch Slack permalink for issue ${issueId}: ${error}`
+        );
+      }
+
       const response = await axios.get("https://slack.com/api/conversations.replies", {
         headers: {
           Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
@@ -956,7 +979,10 @@ export class IssuesService {
         logger.error(
           `[IssuesService][getIssueThread] Slack API error: ${response.data.error}`
         );
-        return [];
+        return {
+          entries: [],
+          threadUrl,
+        };
       }
 
       const userCache = new Map<string, { name: string; avatar: string | null }>();
@@ -964,7 +990,7 @@ export class IssuesService {
         .slice(1)
         .filter((message: any) => !message.bot_id && message.subtype !== "bot_message");
 
-      return await Promise.all(
+      const entries = await Promise.all(
         replies.map(async (message: any) => {
           let createdBy = "Slack User";
           let userAvatar: string | null = null;
@@ -1047,11 +1073,18 @@ export class IssuesService {
           };
         })
       );
+      return {
+        entries,
+        threadUrl,
+      };
     } catch (error) {
       logger.error(
         `[IssuesService][getIssueThread] Error fetching Slack thread for issue ${issueId}: ${error}`
       );
-      return [];
+      return {
+        entries: [],
+        threadUrl: null,
+      };
     }
   }
 
