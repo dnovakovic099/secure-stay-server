@@ -28,6 +28,8 @@ import axios from "axios";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import OpenAI from "openai";
 import { Employee } from "../entity/Employee";
+import updateSlackMessage from "../utils/updateSlackMsg";
+import { buildIssueUpdateMessage } from "../utils/slackMessageBuilder";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -742,6 +744,7 @@ export class IssuesService {
 
     const existingIssueUpdate = await this.issueUpdatesRepo.findOne({
       where: { id },
+      relations: ["issue"],
     });
     if (!existingIssueUpdate) {
       throw CustomErrorHandler.notFound(`Issue update with ID ${id} not found`);
@@ -750,6 +753,32 @@ export class IssuesService {
     existingIssueUpdate.updatedBy = userId;
 
     const result = await this.issueUpdatesRepo.save(existingIssueUpdate);
+    const trackedSlackUpdate = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-updates",
+        entityId: result.id,
+      },
+      order: {
+        createdAt: "DESC",
+      },
+    });
+    if (trackedSlackUpdate) {
+      try {
+        const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+        const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+        const listingInfo = await appDatabase.getRepository(Listing).findOne({
+          where: {
+            id: Number(existingIssueUpdate.issue?.listing_id),
+          },
+        });
+        const slackMessage = buildIssueUpdateMessage(existingIssueUpdate, listingInfo?.internalListingName, user);
+        const { channel, ...messageWithoutChannel } = slackMessage;
+        await updateSlackMessage(messageWithoutChannel, trackedSlackUpdate.messageTs, trackedSlackUpdate.channel);
+      } catch (error) {
+        logger.error("Slack issue update sync failed", error);
+      }
+    }
+
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
     const createdUser = userMap.get(result.createdBy);

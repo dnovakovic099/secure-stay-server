@@ -51,7 +51,18 @@ export class IssuesSubscriber
                 }
             });
 
-            await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            const slackResponse = await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            if (slackResponse?.ok && slackResponse?.ts) {
+                const trackedUpdate = this.slackMessageInfo.create({
+                    channel: slackMessageInfo.channel,
+                    messageTs: slackResponse.ts,
+                    threadTs: slackMessageInfo.threadTs || slackMessageInfo.messageTs,
+                    entityType: "issue-updates",
+                    entityId: updates.id,
+                    originalMessage: JSON.stringify(slackMessage),
+                });
+                await this.slackMessageInfo.save(trackedUpdate);
+            }
         } catch (error) {
             logger.error("Slack creation failed", error);
         }
