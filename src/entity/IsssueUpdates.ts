@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, DeleteDateColumn, Index } from 'typeorm';
 import { Issue } from './Issue';
 
 @Entity('issues_updates')
@@ -26,6 +26,13 @@ export class IssueUpdates {
 
     @Column({ nullable: true })
     deletedBy: string;
+
+    @Column({ type: 'varchar', length: 20, default: 'securestay' })
+    source: 'securestay' | 'slack';
+
+    @Index()
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    slackMessageTs: string | null;
 
     @ManyToOne(() => Issue, issue => issue.issueUpdates, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'issueId' })
