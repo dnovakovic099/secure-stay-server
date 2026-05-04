@@ -89,6 +89,7 @@ type RentalAgreementTemplateContext = {
     petCount: string;
     checkInDate: string;
     checkOutDate: string;
+    listingName: string;
     propertyName: string;
     propertyFullAddress: string;
     checkInTime: string;
@@ -120,6 +121,7 @@ type PreviewReservationContext = {
     guestPhone: string;
     channel: string;
     petCount: number;
+    listingName: string;
     propertyName: string;
     propertyAddress: string;
     arrivalDate: string | null;
@@ -208,7 +210,19 @@ export class RentalAgreementSigningService {
 
     private formatDateValue(d: Date | string | null | undefined): string {
         if (!d) return "";
-        const date = new Date(d);
+        let date: Date;
+        if (typeof d === "string") {
+            const trimmed = d.trim();
+            const dateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (dateOnly) {
+                date = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+            } else {
+                date = new Date(trimmed);
+            }
+        } else {
+            date = d;
+        }
+        if (Number.isNaN(date.getTime())) return "";
         return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     }
 
@@ -244,8 +258,17 @@ export class RentalAgreementSigningService {
         return listingRepo().findOne({ where: { id: reservationInfo.listingMapId } });
     }
 
+    private getDisplayPropertyName(info: ReservationInfoEntity, listing: Listing | null): string {
+        return info.listingName || listing?.internalListingName || listing?.name || "";
+    }
+
+    private getActualListingName(info: ReservationInfoEntity, listing: Listing | null): string {
+        return listing?.name || listing?.externalListingName || info.listingName || listing?.internalListingName || "";
+    }
+
     private buildTemplateContext(info: ReservationInfoEntity, listing: Listing | null): RentalAgreementTemplateContext {
-        const propertyName = info.listingName || listing?.internalListingName || listing?.name || "";
+        const propertyName = this.getDisplayPropertyName(info, listing);
+        const listingName = this.getActualListingName(info, listing);
         const propertyFullAddress = listing?.address || "";
         const checkInTime = this.formatHourValue(info.checkInTime ?? listing?.checkInTimeStart);
         const checkOutTime = this.formatHourValue(info.checkOutTime ?? listing?.checkOutTime);
@@ -260,6 +283,7 @@ export class RentalAgreementSigningService {
             petCount: String(info.pets || 0),
             checkInDate: this.formatDateValue(info.arrivalDate),
             checkOutDate: this.formatDateValue(info.departureDate),
+            listingName,
             propertyName,
             propertyFullAddress,
             checkInTime,
@@ -284,6 +308,7 @@ export class RentalAgreementSigningService {
             petCount: context.petCount,
             checkInDate: context.checkInDate,
             checkOutDate: context.checkOutDate,
+            listingName: context.listingName,
             propertyName: context.propertyName,
             propertyFullAddress: context.propertyFullAddress,
             checkInTime: context.checkInTime,
@@ -317,12 +342,12 @@ export class RentalAgreementSigningService {
     }
 
     private buildDefaultEmailSubject(info: ReservationInfoEntity, listing: Listing | null) {
-        const propertyName = info.listingName || listing?.internalListingName || listing?.name || "your stay";
+        const propertyName = this.getDisplayPropertyName(info, listing) || "your stay";
         return `Rental Agreement for ${propertyName}`;
     }
 
     private buildDefaultEmailBody(info: ReservationInfoEntity, listing: Listing | null, signingUrl: string) {
-        const propertyName = info.listingName || listing?.internalListingName || listing?.name || "your stay";
+        const propertyName = this.getDisplayPropertyName(info, listing) || "your stay";
         const checkInDate = this.formatDateValue(info.arrivalDate);
         return `
             <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
@@ -634,6 +659,7 @@ export class RentalAgreementSigningService {
         return {
             reservationInfo: {
                 ...reservationInfo,
+                actualListingName: this.getActualListingName(reservationInfo, listing),
                 propertyFullAddress: listing?.address || "",
                 checkInTimeDisplay: this.formatHourValue(reservationInfo.checkInTime ?? listing?.checkInTimeStart),
                 checkOutTimeDisplay: this.formatHourValue(reservationInfo.checkOutTime ?? listing?.checkOutTime),
@@ -1035,7 +1061,8 @@ export class RentalAgreementSigningService {
             guestPhone: reservationInfo.phone || "",
             channel: reservationInfo.channelName || "",
             petCount: reservationInfo.pets || 0,
-            propertyName: reservationInfo.listingName || listing?.internalListingName || listing?.name || "",
+            listingName: this.getActualListingName(reservationInfo, listing),
+            propertyName: this.getDisplayPropertyName(reservationInfo, listing),
             propertyAddress: listing?.address || "",
             arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
             departureDate: reservationInfo.departureDate ? new Date(reservationInfo.departureDate).toISOString() : null,
@@ -1062,7 +1089,7 @@ export class RentalAgreementSigningService {
                 id: reservationInfo.id,
                 guestName: reservationInfo.guestName || "",
                 guestEmail: reservationInfo.guestEmail || "",
-                listingName: reservationInfo.listingName || listing?.internalListingName || listing?.name || "",
+                listingName: this.getDisplayPropertyName(reservationInfo, listing),
                 propertyFullAddress: listing?.address || "",
                 arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
                 departureDate: reservationInfo.departureDate ? new Date(reservationInfo.departureDate).toISOString() : null,
@@ -1099,6 +1126,71 @@ export class RentalAgreementSigningService {
                 pdfViewUrl: fileInfo?.webViewLink || null,
             } : null,
         };
+    }
+
+    async createManualAgreement(payload: {
+        guestName?: string;
+        guestEmail?: string;
+        guestPhone?: string;
+        listingName?: string;
+        listingMapId?: number | null;
+        arrivalDate?: string;
+        departureDate?: string;
+        checkInTime?: number | string | null;
+        checkOutTime?: number | string | null;
+        numberOfGuests?: number | string | null;
+        pets?: number | string | null;
+        channelName?: string;
+        reservationCode?: string;
+    }): Promise<{ hostifyReservationId: string }> {
+        const guestName = String(payload.guestName || "").trim();
+        const listingName = String(payload.listingName || "").trim();
+        const arrivalDate = this.formatDateOnlyValue(payload.arrivalDate);
+        const departureDate = this.formatDateOnlyValue(payload.departureDate);
+        if (!guestName) throw new Error("Guest name is required");
+        if (!arrivalDate || !departureDate) throw new Error("Check-in and check-out dates are required");
+
+        const selectedListing = payload.listingMapId
+            ? await listingRepo().findOne({ where: { id: Number(payload.listingMapId) } })
+            : null;
+        const maxManual = await reservationInfoRepo()
+            .createQueryBuilder("reservation")
+            .select("MIN(reservation.id)", "minId")
+            .where("reservation.id < 0")
+            .getRawOne();
+        const nextId = Math.min(-1, Number(maxManual?.minId || 0) - 1);
+        const [guestFirstName, ...lastNameParts] = guestName.split(/\s+/).filter(Boolean);
+        const manualReservationCode = String(payload.reservationCode || `MANUAL-RA-${Math.abs(nextId)}`).trim();
+
+        const reservation = reservationInfoRepo().create({
+            id: nextId,
+            listingMapId: selectedListing?.id || (payload.listingMapId ? Number(payload.listingMapId) : null),
+            listingName: listingName || selectedListing?.internalListingName || selectedListing?.name || "Manual Rental Agreement",
+            source: "manual_rental_agreement",
+            channelName: String(payload.channelName || "Manual").trim() || "Manual",
+            reservationId: manualReservationCode,
+            guestName,
+            guestFirstName: guestFirstName || guestName,
+            guestLastName: lastNameParts.join(" "),
+            guestEmail: String(payload.guestEmail || "").trim(),
+            phone: String(payload.guestPhone || "").trim(),
+            numberOfGuests: Number(payload.numberOfGuests || 1),
+            pets: Number(payload.pets || 0),
+            arrivalDate: arrivalDate as any,
+            departureDate: departureDate as any,
+            checkInTime: payload.checkInTime === "" || payload.checkInTime === null || payload.checkInTime === undefined
+                ? (selectedListing?.checkInTimeStart ?? null)
+                : Number(payload.checkInTime),
+            checkOutTime: payload.checkOutTime === "" || payload.checkOutTime === null || payload.checkOutTime === undefined
+                ? (selectedListing?.checkOutTime ?? null)
+                : Number(payload.checkOutTime),
+            nights: Math.max(1, Math.round((new Date(`${departureDate}T00:00:00`).getTime() - new Date(`${arrivalDate}T00:00:00`).getTime()) / 86400000)),
+            currency: selectedListing?.currencyCode || "USD",
+            status: "confirmed",
+        });
+
+        await reservationInfoRepo().save(reservation);
+        return { hostifyReservationId: String(nextId) };
     }
 
     async upsertReservationDocumentForAdmin(

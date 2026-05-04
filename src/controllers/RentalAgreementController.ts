@@ -79,6 +79,15 @@ export class RentalAgreementController {
         }
     }
 
+    async createManualAgreement(req: CustomRequest, res: Response) {
+        try {
+            const result = await rentalAgreementSigningService.createManualAgreement(req.body || {});
+            res.status(201).json({ success: true, data: result });
+        } catch (err: any) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
     async getSendPreview(req: CustomRequest, res: Response) {
         try {
             const { hostifyReservationId } = req.params;
