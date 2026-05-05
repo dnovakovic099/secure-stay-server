@@ -19,6 +19,7 @@ import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
 import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
 import { FileInfo } from "../entity/FileInfo";
 import path from "path";
@@ -830,6 +831,8 @@ export class IssuesService {
       reservationId,
       keyword,
       channel,
+      dateType,
+      stayStatus,
     } = body;
 
     let listingIds = [];
@@ -854,6 +857,62 @@ export class IssuesService {
       isOverdue = true;
     }
 
+    // dateType=created/updated filters on the Issue table directly.
+    // dateType=check_in/check_out and stayStatus require resolving matching
+    // reservation IDs from reservation_info, since Issue has no check_out_date
+    // and stay status is computed from arrival/departure dates.
+    const needsReservationLookup =
+      ((dateType === "check_in" || dateType === "check_out") && fromDate && toDate) ||
+      (Array.isArray(stayStatus) && stayStatus.length > 0);
+
+    let resolvedReservationIds: number[] | undefined;
+    if (needsReservationLookup) {
+      const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+      const qb = reservationRepo.createQueryBuilder("r").select("r.id", "id");
+
+      if (dateType === "check_in" && fromDate && toDate) {
+        qb.andWhere("r.arrivalDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+      } else if (dateType === "check_out" && fromDate && toDate) {
+        qb.andWhere("r.departureDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+      }
+
+      if (Array.isArray(stayStatus) && stayStatus.length > 0) {
+        const stayConditions: string[] = [];
+        if (stayStatus.includes("currently-staying")) {
+          stayConditions.push("(r.arrivalDate <= :today AND r.departureDate >= :today)");
+        }
+        if (stayStatus.includes("past")) {
+          stayConditions.push("r.departureDate < :today");
+        }
+        if (stayStatus.includes("upcoming")) {
+          stayConditions.push("r.arrivalDate > :today");
+        }
+        if (stayConditions.length > 0) {
+          qb.andWhere(`(${stayConditions.join(" OR ")})`, { today: currentDate });
+        }
+      }
+
+      const rows = await qb.getRawMany<{ id: number }>();
+      resolvedReservationIds = rows.map((r) => Number(r.id));
+
+      if (reservationId && reservationId.length > 0) {
+        const requested = new Set(reservationId.map((id: any) => Number(id)));
+        resolvedReservationIds = resolvedReservationIds.filter((id) => requested.has(id));
+      }
+
+      if (resolvedReservationIds.length === 0) {
+        return { issues: [], total: 0 };
+      }
+    }
+
+    const effectiveReservationIds = resolvedReservationIds ?? reservationId;
+
+    let dateColumn: "created_at" | "updated_at" | null = null;
+    if (fromDate && toDate) {
+      if (dateType === "updated") dateColumn = "updated_at";
+      else if (!dateType || dateType === "created") dateColumn = "created_at";
+    }
+
     const [issues, total] = await this.issueRepo.findAndCount({
       where: {
         ...(category && category.length > 0 && { category: In(category) }),
@@ -861,11 +920,11 @@ export class IssuesService {
           listingIds.length > 0 && { listing_id: In(listingIds) }),
         ...(issueStatus &&
           issueStatus.length > 0 && { status: In(issueStatus) }),
-        ...(fromDate && toDate && { created_at: Between(fromDate, toDate) }),
+        ...(dateColumn && fromDate && toDate && { [dateColumn]: Between(fromDate, toDate) }),
         ...(guestName && { guest_name: guestName }),
         ...(issueId && issueId.length > 0 && { id: In(issueId) }),
-        ...(reservationId &&
-          reservationId.length > 0 && { reservation_id: In(reservationId) }),
+        ...(effectiveReservationIds &&
+          effectiveReservationIds.length > 0 && { reservation_id: In(effectiveReservationIds) }),
         ...(keyword && { issue_description: Like(`%${keyword}%`) }),
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(isOverdue && { nextUpdateDate: LessThanOrEqual(currentDate) }),

@@ -10,56 +10,57 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         listing_id: Joi.number().required(),
         listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
-        check_in_date: Joi.date().allow(null),
-        reservation_amount: Joi.number().precision(2).allow(null),
+        check_in_date: Joi.date().allow(null).empty(''),
+        reservation_amount: Joi.number().precision(2).allow(null).empty(''),
         channel: Joi.string().allow(null, ''),
         guest_name: Joi.string().allow(null, ''),
         guest_contact_number: Joi.string().allow(null, ''),
         issue_description: Joi.string().allow(null, ''),
         owner_notes: Joi.string().allow(null, ''),
         creator: Joi.string().allow(null, ''),
-        date_time_reported: Joi.date().allow(null),
-        date_time_contractor_contacted: Joi.date().allow(null),
-        date_time_contractor_deployed: Joi.date().allow(null),
+        date_time_reported: Joi.date().allow(null).empty(''),
+        date_time_contractor_contacted: Joi.date().allow(null).empty(''),
+        date_time_contractor_deployed: Joi.date().allow(null).empty(''),
         quote_1: Joi.string().allow(null, ''),
         quote_2: Joi.string().allow(null, ''),
         quote_3: Joi.string().allow(null, ''),
         quote_4: Joi.string().allow(null, ''),
         quote_5: Joi.string().allow(null, ''),
         quote_6: Joi.string().allow(null, ''),
-        estimated_reasonable_price: Joi.number().precision(2).allow(null),
-        final_price: Joi.number().precision(2).allow(null),
-        date_time_work_finished: Joi.date().allow(null),
+        estimated_reasonable_price: Joi.number().precision(2).allow(null).empty(''),
+        final_price: Joi.number().precision(2).allow(null).empty(''),
+        date_time_work_finished: Joi.date().allow(null).empty(''),
         final_contractor_name: Joi.string().allow(null, ''),
         issue_reporter: Joi.string().allow(null, ''),
         is_preventable: Joi.string().allow(null, ''),
         completed_by: Joi.string().allow(null, ''),
-        completed_at: Joi.date().allow(null),
+        completed_at: Joi.date().allow(null).empty(''),
         claim_resolution_status: Joi.string()
             .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved')
             .default('N/A'),
-        claim_resolution_amount: Joi.number().precision(2).allow(null),
+        claim_resolution_amount: Joi.number().precision(2).allow(null).empty(''),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null, ""),
-        resolution: Joi.string().optional().allow(null),
+        resolution: Joi.string().optional().allow(null, ''),
         ai_short_title: Joi.string().optional().allow(null, ''),
         ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
         manager_feedback: Joi.string().optional().allow(null, ''),
-        preventable_flag: Joi.boolean().optional().allow(null),
-        assignee: Joi.string().optional().allow(null),
-        urgency: Joi.number().optional().allow(null).min(1).max(5),
-        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
+        preventable_flag: Joi.boolean().optional().allow(null).empty(''),
+        assignee: Joi.string().optional().allow(null, ''),
+        urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
+        mistake: Joi.string().optional().allow(null, '').valid("Yes", "In Progress", "Need Help", "Resolved", ""),
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
         due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
     });
 
-    const { error } = schema.validate(request.body);
+    const { error, value } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
+    request.body = value;
     next();
 };
 
@@ -67,60 +68,61 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
     const schema = Joi.object({
         status: Joi.string()
             .valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
-        listing_id: Joi.number(),
+        listing_id: Joi.number().empty(''),
         listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
-        check_in_date: Joi.date().allow(null),
-        reservation_amount: Joi.number().precision(2).allow(null),
+        check_in_date: Joi.date().allow(null).empty(''),
+        reservation_amount: Joi.number().precision(2).allow(null).empty(''),
         channel: Joi.string().allow(null, ''),
         guest_name: Joi.string().allow(null, ''),
         guest_contact_number: Joi.string().allow(null, ''),
         issue_description: Joi.string().allow(null, ''),
         owner_notes: Joi.string().allow(null, ''),
         creator: Joi.string().allow(null, ''),
-        date_time_reported: Joi.date().allow(null),
-        date_time_contractor_contacted: Joi.date().allow(null),
-        date_time_contractor_deployed: Joi.date().allow(null),
+        date_time_reported: Joi.date().allow(null).empty(''),
+        date_time_contractor_contacted: Joi.date().allow(null).empty(''),
+        date_time_contractor_deployed: Joi.date().allow(null).empty(''),
         quote_1: Joi.string().allow(null, ''),
         quote_2: Joi.string().allow(null, ''),
         quote_3: Joi.string().allow(null, ''),
         quote_4: Joi.string().allow(null, ''),
         quote_5: Joi.string().allow(null, ''),
         quote_6: Joi.string().allow(null, ''),
-        estimated_reasonable_price: Joi.number().precision(2).allow(null),
-        final_price: Joi.number().precision(2).allow(null),
-        date_time_work_finished: Joi.date().allow(null),
+        estimated_reasonable_price: Joi.number().precision(2).allow(null).empty(''),
+        final_price: Joi.number().precision(2).allow(null).empty(''),
+        date_time_work_finished: Joi.date().allow(null).empty(''),
         final_contractor_name: Joi.string().allow(null, ''),
         issue_reporter: Joi.string().allow(null, ''),
         is_preventable: Joi.string().allow(null, ''),
         completed_by: Joi.string().allow(null, ''),
-        completed_at: Joi.date().allow(null),
+        completed_at: Joi.date().allow(null).empty(''),
         claim_resolution_status: Joi.string()
             .valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved'),
-        claim_resolution_amount: Joi.number().precision(2).allow(null),
+        claim_resolution_amount: Joi.number().precision(2).allow(null).empty(''),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         deletedFiles: Joi.string().allow(null, ''),
         category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
-        resolution: Joi.string().optional().allow(null),
+        resolution: Joi.string().optional().allow(null, ''),
         ai_short_title: Joi.string().optional().allow(null, ''),
         ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
         manager_feedback: Joi.string().optional().allow(null, ''),
-        preventable_flag: Joi.boolean().optional().allow(null),
+        preventable_flag: Joi.boolean().optional().allow(null).empty(''),
         fileInfo: Joi.any().optional(),
-        assignee: Joi.string().optional().allow(null),
-        urgency: Joi.number().optional().allow(null).min(1).max(5),
-        mistake: Joi.string().optional().allow(null).valid("Yes", "In Progress", "Need Help", "Resolved"),
+        assignee: Joi.string().optional().allow(null, ''),
+        urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
+        mistake: Joi.string().optional().allow(null, '').valid("Yes", "In Progress", "Need Help", "Resolved", ""),
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
         due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
     });
 
-    const { error } = schema.validate(request.body);
+    const { error, value } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
+    request.body = value;
     next();
 };
 
@@ -189,6 +191,8 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         reservationId: Joi.array().items(Joi.number()).min(1).optional(),
         keyword: Joi.string().optional(),
         channel: Joi.array().items(Joi.string()).min(1).optional(),
+        dateType: Joi.string().valid('created', 'updated', 'check_in', 'check_out').optional(),
+        stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'past', 'upcoming')).min(1).optional(),
     });
 
     const { error } = schema.validate(request.query);
@@ -223,10 +227,8 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
             date_time_contractor_deployed: Joi.date().optional(),
             date_time_work_finished: Joi.date().optional(),
             final_contractor_name: Joi.string().optional(),
-            due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, '').optional(),
         }).min(1).required()
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
@@ -234,13 +236,11 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
     next();
 };
 
-
 export const validateUpdateAssignee = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
         assignee: Joi.string().required(),
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
@@ -253,7 +253,6 @@ export const validateUpdateUrgency = (request: Request, response: Response, next
         id: Joi.number().required(),
         urgency: Joi.number().required(),
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
@@ -261,13 +260,11 @@ export const validateUpdateUrgency = (request: Request, response: Response, next
     next();
 };
 
-
 export const validateUpdateMistake = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
         mistake: Joi.string().required().valid('Yes', 'In Progress', 'Need Help', 'Resolved'),
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
@@ -280,7 +277,6 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
         id: Joi.number().required(),
         status: Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
@@ -290,15 +286,13 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
 
 export const validateIssueQuickAction = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        id: Joi.number().required(),
-        action: Joi.string()
-            .valid("assign_to_myself", "coordinating_guest", "coordinating_vendor", "escalate_issue")
-            .required(),
+        id: Joi.alternatives().try(Joi.number(), Joi.string()).required(),
+        action: Joi.string().required(),
     });
-
     const { error } = schema.validate(request.body);
     if (error) {
         return next(error);
     }
     next();
 };
+
