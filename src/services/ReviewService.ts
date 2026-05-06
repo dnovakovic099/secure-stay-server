@@ -2349,9 +2349,18 @@ export class ReviewService {
     }
 
     async processReviewCheckout() {
-        // Create review checkout entries for today's checkouts with default status "New"
+        // Create review checkout entries for today's checkins and checkouts with default status "New"
         const reservationInfoService = new ReservationInfoService();
-        const { reservations } = await reservationInfoService.getCheckinReservations();
+        const [{ reservations: checkinReservations }, { reservations: checkoutReservations }] = await Promise.all([
+            reservationInfoService.getCheckinReservations(),
+            reservationInfoService.getCheckoutReservations(),
+        ]);
+        const seen = new Set<number>();
+        const reservations = [...checkinReservations, ...checkoutReservations].filter((r) => {
+            if (seen.has(r.id)) return false;
+            seen.add(r.id);
+            return true;
+        });
 
         for (const reservation of reservations) {
             const listingId = reservation.listingMapId;
