@@ -182,7 +182,7 @@ export class ReviewService {
 
     private async ensureSecureStayAdmin(userId: string) {
         const user = await this.usersRepo.findOne({ where: { uid: userId, deletedAt: null as any } });
-        if (!user || (user.userType !== 'admin' && !user.isSuperAdmin)) {
+        if (!user || (user.userType !== 'admin' && user.userType !== 'super admin' && !user.isSuperAdmin)) {
             throw CustomErrorHandler.forbidden('Only SecureStay admin users can update shared review settings.');
         }
         return user;

@@ -40,7 +40,9 @@ const verifyAdmin = async (
       });
     }
 
-    if (user.userType !== 'admin') {
+    const hasAdminAccess = user.userType === 'admin' || user.userType === 'super admin' || Boolean(user.isSuperAdmin);
+
+    if (!hasAdminAccess) {
       return res.status(403).json({
         success: false,
         message: "Access denied. Admin privileges required.",
