@@ -40,7 +40,9 @@ const verifySuperAdmin = async (
       });
     }
 
-    if (!user.isSuperAdmin) {
+    const hasSuperAdminAccess = Boolean(user.isSuperAdmin) || user.userType === 'super admin';
+
+    if (!hasSuperAdminAccess) {
       return res.status(403).json({
         success: false,
         message: "Access denied. Super admin privileges required.",

@@ -310,8 +310,8 @@ export class UserManagementService {
             return { success: false, message: "User not found" };
         }
 
-        if (!['admin', 'regular'].includes(userType)) {
-            return { success: false, message: "Invalid user type. Must be 'admin' or 'regular'" };
+        if (!['admin', 'regular', 'super admin'].includes(userType)) {
+            return { success: false, message: "Invalid user type. Must be 'admin', 'regular', or 'super admin'" };
         }
 
         await this.usersRepository.update(userId, {

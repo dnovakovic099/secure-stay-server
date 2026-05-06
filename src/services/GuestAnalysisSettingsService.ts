@@ -297,7 +297,7 @@ export class GuestAnalysisSettingsService {
 
     private async ensureSecureStayAdmin(userId: string) {
         const user = await this.usersRepo.findOne({ where: { uid: userId, deletedAt: null as any } });
-        if (!user || (user.userType !== "admin" && !user.isSuperAdmin)) {
+        if (!user || (user.userType !== "admin" && user.userType !== "super admin" && !user.isSuperAdmin)) {
             throw new Error("Only SecureStay admin users can update AI analysis settings.");
         }
         return user;
