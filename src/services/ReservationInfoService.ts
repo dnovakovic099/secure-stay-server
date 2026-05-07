@@ -881,7 +881,18 @@ export class ReservationInfoService {
    * loadAll=true: all reservations (no date filter)
    * Used for refund request form guest name dropdown
    */
-  async getReservationsByListingId(listingId: number, loadAll: boolean = false): Promise<{ id: number; guestName: string; arrivalDate: Date; departureDate: Date; }[]> {
+  async getReservationsByListingId(listingId: number, loadAll: boolean = false): Promise<{
+    id: number;
+    listingMapId: number;
+    listingName: string;
+    channelId: number;
+    channelName: string;
+    guestName: string;
+    arrivalDate: Date;
+    departureDate: Date;
+    phone: string;
+    totalPrice: string;
+  }[]> {
     const qb = this.reservationInfoRepository
       .createQueryBuilder('reservation')
       .where('reservation.listingMapId = :listingId', { listingId })
@@ -889,30 +900,22 @@ export class ReservationInfoService {
 
     if (!loadAll) {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const past1MonthDate = new Date();
-      past1MonthDate.setMonth(past1MonthDate.getMonth() - 1);
-      const past1Month = format(past1MonthDate, 'yyyy-MM-dd');
-      const future1MonthDate = new Date();
-      future1MonthDate.setMonth(future1MonthDate.getMonth() + 1);
-      const future1Month = format(future1MonthDate, 'yyyy-MM-dd');
-
-      qb.andWhere(
-        '(' +
-        '(DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today)' +
-        ' OR (DATE(reservation.departureDate) >= :past1Month AND DATE(reservation.departureDate) < :today)' +
-        ' OR (DATE(reservation.arrivalDate) > :today AND DATE(reservation.arrivalDate) <= :future1Month)' +
-        ')',
-        { today, past1Month, future1Month }
-      );
+      qb.andWhere('DATE(reservation.arrivalDate) <= :today AND DATE(reservation.departureDate) >= :today', { today });
     }
 
     const reservations = await qb.orderBy('reservation.arrivalDate', 'ASC').getMany();
 
     return reservations.map(r => ({
       id: r.id,
+      listingMapId: r.listingMapId,
+      listingName: r.listingName,
+      channelId: r.channelId,
+      channelName: r.channelName,
       guestName: r.guestName || `${r.guestFirstName || ''} ${r.guestLastName || ''}`.trim(),
       arrivalDate: r.arrivalDate,
-      departureDate: r.departureDate
+      departureDate: r.departureDate,
+      phone: r.phone,
+      totalPrice: r.totalPrice,
     }));
   }
 

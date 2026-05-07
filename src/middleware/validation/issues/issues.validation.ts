@@ -41,7 +41,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null).empty(''),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null, ""),
+        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").required(),
         resolution: Joi.string().optional().allow(null, ''),
         ai_short_title: Joi.string().optional().allow(null, ''),
         ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
@@ -295,4 +295,3 @@ export const validateIssueQuickAction = (request: Request, response: Response, n
     }
     next();
 };
-
