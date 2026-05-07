@@ -20,10 +20,18 @@ interface SlackMessageEvent {
     subtype?: string;
     channel: string;
     user?: string;
-    text: string;
+    text?: string;
     ts: string;
     thread_ts?: string;
     bot_id?: string;
+    deleted_ts?: string;
+    previous_message?: {
+        ts?: string;
+        thread_ts?: string;
+        user?: string;
+        bot_id?: string;
+        subtype?: string;
+    };
 }
 
 interface SlackAppMentionEvent {
@@ -50,6 +58,11 @@ export class SlackEventsService {
      */
     async handleMessageEvent(event: SlackMessageEvent): Promise<void> {
         try {
+            if (event.subtype === 'message_deleted') {
+                await this.handleDeletedMessageEvent(event);
+                return;
+            }
+
             // Skip if not a thread reply (no thread_ts means it's a root message)
             if (!event.thread_ts) {
                 logger.debug('[SlackEventsService] Skipping: Not a thread reply');
@@ -198,6 +211,53 @@ export class SlackEventsService {
         } catch (error) {
             logger.error('[SlackEventsService] Error handling message event:', error);
         }
+    }
+
+    /**
+     * Slack sends message_deleted events separately from the original reply event.
+     * Match by Slack ts and soft-delete the synced timeline entry so it disappears
+     * from SecureStay without touching the issue/client ticket itself.
+     */
+    private async handleDeletedMessageEvent(event: SlackMessageEvent): Promise<void> {
+        const deletedTs = event.deleted_ts || event.previous_message?.ts;
+        if (!deletedTs) {
+            logger.warn('[SlackEventsService] message_deleted event missing deleted_ts/previous_message.ts');
+            return;
+        }
+
+        const deletedBy = event.previous_message?.user
+            ? `${event.previous_message.user} (via Slack)`
+            : 'Slack';
+
+        const issueUpdate = await this.issueUpdateRepo.findOne({
+            where: { slackMessageTs: deletedTs },
+            withDeleted: true,
+        });
+        if (issueUpdate) {
+            if (!issueUpdate.deletedAt) {
+                issueUpdate.deletedAt = new Date();
+                issueUpdate.deletedBy = deletedBy;
+                await this.issueUpdateRepo.save(issueUpdate);
+            }
+            logger.info(`[SlackEventsService] Soft-deleted issue timeline update for Slack ts=${deletedTs}`);
+            return;
+        }
+
+        const clientTicketUpdate = await this.clientTicketUpdateRepo.findOne({
+            where: { slackMessageTs: deletedTs },
+            withDeleted: true,
+        });
+        if (clientTicketUpdate) {
+            if (!clientTicketUpdate.deletedAt) {
+                clientTicketUpdate.deletedAt = new Date();
+                clientTicketUpdate.deletedBy = deletedBy;
+                await this.clientTicketUpdateRepo.save(clientTicketUpdate);
+            }
+            logger.info(`[SlackEventsService] Soft-deleted client ticket update for Slack ts=${deletedTs}`);
+            return;
+        }
+
+        logger.debug(`[SlackEventsService] No synced timeline entry found for deleted Slack ts=${deletedTs}`);
     }
 
     /**

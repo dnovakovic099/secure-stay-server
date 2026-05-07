@@ -1022,7 +1022,7 @@ export class IssuesService {
 
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
-    const persistedUpdates = (issue.issueUpdates || []).map((update) => {
+    const persistedUpdates = (issue.issueUpdates || []).filter((update) => !update.deletedAt).map((update) => {
       const isSlack = update.source === "slack";
       return {
         id: update.id,
