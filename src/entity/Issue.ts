@@ -168,10 +168,4 @@ export class Issue {
 
     @Column({ nullable: true })
     due_date: string;
-
-    @Column({ type: "boolean", nullable: true, default: false })
-    is_recurring: boolean;
-
-    @Column({ type: "text", nullable: true })
-    recurring_issue_ids: string;
 }

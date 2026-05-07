@@ -77,45 +77,6 @@ export class IssuesService {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
-  private normalizeRecurringText(value?: string | null): string {
-    return String(value || "")
-      .toLowerCase()
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  private async findRecurringIssueIds(data: Partial<Issue>, excludeIssueId?: number): Promise<number[]> {
-    const listingId = data.listing_id ? String(data.listing_id) : "";
-    const category = String(data.category || "").trim();
-    const description = this.normalizeRecurringText(data.issue_description || data.ai_short_title || data.resolution);
-
-    if (!listingId || !category || !description) {
-      return [];
-    }
-
-    const priorIssues = await this.issueRepo.find({
-      where: {
-        listing_id: listingId,
-        category,
-      },
-      order: { created_at: "DESC" },
-      take: 100,
-    });
-
-    const guestKey = this.normalizeRecurringText(data.guest_name);
-
-    return priorIssues
-      .filter((issue) => {
-        if (excludeIssueId && Number(issue.id) === Number(excludeIssueId)) return false;
-        if (issue.deleted_at) return false;
-        if (guestKey && this.normalizeRecurringText(issue.guest_name) === guestKey) return false;
-        return this.normalizeRecurringText(issue.issue_description || issue.ai_short_title || issue.resolution) === description;
-      })
-      .map((issue) => issue.id);
-  }
-
   private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
     if (!fileInfo) return null;
 
@@ -319,13 +280,9 @@ export class IssuesService {
       data.nextUpdateDate = format(new Date(), "yyyy-MM-dd");
     }
 
-    const recurringIssueIds = await this.findRecurringIssueIds(data);
-
     const newIssue = this.issueRepo.create({
       ...data,
       listing_name: listing_name,
-      is_recurring: recurringIssueIds.length > 0,
-      recurring_issue_ids: recurringIssueIds.length > 0 ? JSON.stringify(recurringIssueIds) : null,
       fileNames: fileInfo
         ? JSON.stringify(fileInfo.map((file) => file.fileName))
         : "",
@@ -477,17 +434,6 @@ export class IssuesService {
 
     if (!data.nextUpdateDate) {
       data.nextUpdateDate = format(new Date(), "yyyy-MM-dd");
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(data, "issue_description") ||
-      Object.prototype.hasOwnProperty.call(data, "category") ||
-      Object.prototype.hasOwnProperty.call(data, "listing_id") ||
-      Object.prototype.hasOwnProperty.call(data, "guest_name")
-    ) {
-      const recurringIssueIds = await this.findRecurringIssueIds({ ...issue, ...data }, id);
-      data.is_recurring = recurringIssueIds.length > 0;
-      data.recurring_issue_ids = recurringIssueIds.length > 0 ? JSON.stringify(recurringIssueIds) : null;
     }
 
     Object.assign(issue, {
@@ -1076,7 +1022,7 @@ export class IssuesService {
 
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
-    const persistedUpdates = (issue.issueUpdates || []).filter((update) => !update.deletedAt).map((update) => {
+    const persistedUpdates = (issue.issueUpdates || []).map((update) => {
       const isSlack = update.source === "slack";
       return {
         id: update.id,
