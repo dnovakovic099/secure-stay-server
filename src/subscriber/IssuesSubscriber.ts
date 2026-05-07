@@ -15,8 +15,6 @@ import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import updateSlackMessage from '../utils/updateSlackMsg';
-import { Listing } from '../entity/Listing';
-import { ReservationInfoEntity } from '../entity/ReservationInfo';
 
 @EventSubscriber()
 export class IssuesSubscriber
@@ -28,33 +26,6 @@ export class IssuesSubscriber
 
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
-    private listingRepo = appDatabase.getRepository(Listing);
-    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
-
-    private async enrichIssueForSlack(issue: Issue) {
-        const listing = issue.listing_id
-            ? await this.listingRepo.findOne({
-                where: { id: Number(issue.listing_id) },
-                select: ["id", "internalListingName", "name", "tags"],
-            })
-            : null;
-        const reservationInfo = issue.reservation_id && issue.reservation_id !== "NA"
-            ? await this.reservationInfoRepo.findOne({
-                where: { id: Number(issue.reservation_id) },
-                select: ["id", "listingName", "guestName", "channelName", "arrivalDate", "departureDate"],
-            })
-            : null;
-
-        return {
-            ...issue,
-            listing_name: issue.listing_name || listing?.internalListingName || listing?.name || reservationInfo?.listingName,
-            guest_name: issue.guest_name || reservationInfo?.guestName,
-            channel: issue.channel || reservationInfo?.channelName,
-            check_in_date: issue.check_in_date || reservationInfo?.arrivalDate,
-            listingTags: listing?.tags || null,
-            reservationInfo,
-        } as Issue;
-    }
 
     async afterInsert(event: InsertEvent<Issue>) {
         const { entity, manager } = event;
@@ -73,8 +44,7 @@ export class IssuesSubscriber
 
         // handle slack message
         try {
-            const issueForSlack = await this.enrichIssueForSlack(entity);
-            const slackMessage = buildIssueSlackMessage(issueForSlack);
+            const slackMessage = buildIssueSlackMessage(entity);
             const slackResponse = await sendSlackMessage(slackMessage);
             const slackMessageService = new SlackMessageService();
             await slackMessageService.saveSlackMessageInfo({
@@ -115,9 +85,8 @@ export class IssuesSubscriber
         try {
             const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
             const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : userId || "Unknown User";
-            const issueForSlack = await this.enrichIssueForSlack(issue);
 
-            let slackMessage = buildIssuesSlackMessageUpdate(issueForSlack, user);
+            let slackMessage = buildIssuesSlackMessageUpdate(issue, user);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "issues",
@@ -125,14 +94,14 @@ export class IssuesSubscriber
                 }
             });
             if (eventType == "delete") {
-                slackMessage = buildIssueMessageDelete(issueForSlack, user);
+                slackMessage = buildIssueMessageDelete(issue, user);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildIssueStatusUpdateMessage(issueForSlack, user);
+                slackMessage = buildIssueStatusUpdateMessage(issue, user);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
-            const mainMessage = buildIssueSlackMessage(issueForSlack, user);
+            const mainMessage = buildIssueSlackMessage(issue, user);
             const { channel, ...messageWithoutChannel } = mainMessage;
             await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
 

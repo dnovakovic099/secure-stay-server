@@ -46,58 +46,6 @@ const getIssueStatusLabelWithEmoji = (status: string) => {
     return `${emoji ? `${emoji} ` : ''}${status}`;
 };
 
-const ISSUE_LISTING_EMOJIS: Array<{ key: string; emoji: string }> = [
-    { key: "own", emoji: "🟥" },
-    { key: "arb", emoji: "🟪" },
-    { key: "pro", emoji: "🟦" },
-    { key: "full", emoji: "🟧" },
-    { key: "launch", emoji: "🟫" },
-];
-
-const normalizeSlackField = (value?: unknown, fallback = "—") => {
-    const normalized = String(value || "").trim();
-    return normalized || fallback;
-};
-
-const getIssueListingEmoji = (issue: Issue) => {
-    const tags = String(
-        (issue as any).listingTags ||
-        (issue as any).listing_tags ||
-        (issue as any).listing?.tags ||
-        ""
-    )
-        .toLowerCase()
-        .split(",")
-        .map((tag) => tag.trim().replace(/\s+/g, ""));
-
-    const matched = ISSUE_LISTING_EMOJIS.find(({ key }) => tags.includes(key));
-    return matched?.emoji || "⬜";
-};
-
-const formatIssueStayDate = (value?: unknown) => {
-    if (!value) return "";
-    const date = value instanceof Date ? value : new Date(String(value));
-    if (Number.isNaN(date.getTime())) return "";
-    return format(date, "MMM dd");
-};
-
-const buildIssueSlackHeader = (issue: Issue) => {
-    const reservationInfo = (issue as any).reservationInfo || {};
-    const listingName = normalizeSlackField(
-        issue.listing_name ||
-        (issue as any).listingName ||
-        (issue as any).listing?.internalListingName ||
-        reservationInfo.listingName
-    );
-    const guestName = normalizeSlackField(issue.guest_name || reservationInfo.guestName);
-    const channelName = normalizeSlackField(issue.channel || reservationInfo.channelName);
-    const checkIn = formatIssueStayDate(issue.check_in_date || reservationInfo.arrivalDate);
-    const checkOut = formatIssueStayDate((issue as any).check_out_date || reservationInfo.departureDate);
-    const stayDates = checkIn && checkOut ? `${checkIn} → ${checkOut}` : checkIn || checkOut || "—";
-
-    return `${getIssueListingEmoji(issue)} ${listingName} | ${guestName} | ${channelName} | ${stayDates}`;
-};
-
 const buildIssueStatusDropdown = (issue: Issue) => ({
     type: "actions",
     elements: [
@@ -134,14 +82,6 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
         }
     ]
 });
-
-const formatSecureStayMarkdownForSlack = (value?: unknown) => {
-    return String(value || "")
-        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
-            const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-            return `<${normalizedUrl}|${label}>`;
-        });
-};
 
 export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity, slackTagIds?: string[]) => {
     const tagMention = slackTagIds && slackTagIds.length > 0
@@ -420,16 +360,15 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
 
 
 export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
-    const headerText = buildIssueSlackHeader(issue);
     return {
         channel: ISSUE_NOTIFICATION_CHANNEL,
-        text: headerText,
+        text: `New Issue reported for ${issue.listing_name} by ${issue?.guest_name}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${headerText}* *<https://securestay.ai/issues?id=${issue.id}|View Issue>*`
+                    text: `*New Issue reported for 🏠 ${issue.listing_name} by 🙍 ${issue?.guest_name}* *<https://securestay.ai/issues?id=${issue.id}|View Issue>*`
                 }
             },
             buildIssueStatusDropdown(issue),
@@ -826,7 +765,6 @@ export const buildActionItemsUpdateMessage = (updates: ActionItemsUpdates, _list
 
 
 export const buildIssueUpdateMessage = (updates: IssueUpdates, listingName: string, user: string) => {
-    const formattedUpdate = formatSecureStayMarkdownForSlack(updates.updates);
     return {
         channel: ISSUE_NOTIFICATION_CHANNEL,
         text: `New update for 🏠 ${listingName}`,
@@ -835,7 +773,7 @@ export const buildIssueUpdateMessage = (updates: IssueUpdates, listingName: stri
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `📢 *Update:* ${formattedUpdate}`
+                    text: `📢 *Update:* ${updates.updates}`
                 }
             },
             {
