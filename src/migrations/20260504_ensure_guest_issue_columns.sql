@@ -21,6 +21,36 @@ DEALLOCATE PREPARE stmt;
 SET @sql = (
   SELECT IF(
     COUNT(*) = 0,
+    'ALTER TABLE issues ADD COLUMN is_recurring TINYINT(1) NULL DEFAULT 0',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'issues'
+    AND COLUMN_NAME = 'is_recurring'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE issues ADD COLUMN recurring_issue_ids TEXT NULL',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'issues'
+    AND COLUMN_NAME = 'recurring_issue_ids'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
     'ALTER TABLE issues ADD COLUMN ai_checklist TEXT NULL',
     'SELECT 1'
   )
