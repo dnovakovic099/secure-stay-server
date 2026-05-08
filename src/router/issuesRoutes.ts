@@ -37,6 +37,10 @@ router.route('/quick-action').post(verifySession, validateIssueQuickAction, issu
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
+router.route('/:id/vendor-thread')
+    .get(verifySession, issuesController.getIssueVendorThread)
+    .post(verifySession, issuesController.attachIssueVendorThread);
+router.route('/:id/vendor-thread/reply').post(verifySession, issuesController.replyToIssueVendorThread);
 
 
 router.route('/:id')

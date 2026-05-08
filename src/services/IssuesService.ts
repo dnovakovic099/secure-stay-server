@@ -30,7 +30,8 @@ import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import OpenAI from "openai";
 import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
-import { buildIssueUpdateMessage } from "../utils/slackMessageBuilder";
+import { buildIssueUpdateMessage, formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -44,6 +45,178 @@ export class IssuesService {
   private openai: OpenAI | null = process.env.OPENAI_API_KEY
     ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     : null;
+
+  private parseSlackThreadLink(slackLink: string): { channel: string; threadTs: string; messageTs: string; url: string } {
+    const trimmedLink = String(slackLink || "").trim();
+    if (!trimmedLink) {
+      throw CustomErrorHandler.validationError("Slack thread link is required");
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmedLink);
+    } catch {
+      throw CustomErrorHandler.validationError("Please enter a valid Slack thread link");
+    }
+
+    const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
+    const archiveIndex = pathParts.indexOf("archives");
+    const channel = parsedUrl.searchParams.get("cid") || (archiveIndex >= 0 ? pathParts[archiveIndex + 1] : "");
+    const permalinkPart = pathParts.find((part) => /^p\d{10,}$/.test(part));
+    const messageTs = this.slackPermalinkTsToMessageTs(permalinkPart || "");
+    const threadTs = parsedUrl.searchParams.get("thread_ts") || messageTs;
+
+    if (!channel || !/^[CGD][A-Z0-9]+$/.test(channel)) {
+      throw CustomErrorHandler.validationError("Slack link must include a channel ID. Please use a Slack permalink from the thread.");
+    }
+    if (!threadTs) {
+      throw CustomErrorHandler.validationError("Slack link must include a message timestamp");
+    }
+
+    return {
+      channel,
+      threadTs,
+      messageTs: messageTs || threadTs,
+      url: parsedUrl.toString(),
+    };
+  }
+
+  private slackPermalinkTsToMessageTs(value: string): string {
+    const digits = String(value || "").replace(/^p/, "");
+    if (!digits || digits.length < 11) return "";
+    return `${digits.slice(0, -6)}.${digits.slice(-6)}`;
+  }
+
+  private async getSlackThreadPermalink(channel: string, threadTs: string): Promise<string | null> {
+    try {
+      const permalinkResponse = await axios.get("https://slack.com/api/chat.getPermalink", {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        },
+        params: {
+          channel,
+          message_ts: threadTs,
+        },
+      });
+      if (permalinkResponse.data?.ok) {
+        return permalinkResponse.data?.permalink || null;
+      }
+      logger.warn(`[IssuesService][getSlackThreadPermalink] Slack API error: ${permalinkResponse.data?.error}`);
+      return null;
+    } catch (error) {
+      logger.warn(`[IssuesService][getSlackThreadPermalink] Failed to fetch Slack permalink: ${error}`);
+      return null;
+    }
+  }
+
+  private async getSlackThreadEntries(channel: string, threadTs: string, includeRoot = false, includeBotMessages = false) {
+    const response = await axios.get("https://slack.com/api/conversations.replies", {
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      },
+      params: {
+        channel,
+        ts: threadTs,
+        limit: 100,
+      },
+    });
+
+    if (!response.data.ok) {
+      throw new Error(response.data.error || "Slack API error");
+    }
+
+    const userCache = new Map<string, { name: string; avatar: string | null }>();
+    const messages = response.data.messages || [];
+    const replies = (includeRoot ? messages : messages.slice(1)).filter((message: any) => {
+      if (includeBotMessages) return message.subtype !== "message_deleted";
+      return !(message.bot_id || message.subtype === "bot_message");
+    });
+
+    return Promise.all(
+      replies.map(async (message: any) => {
+        let createdBy = "Slack User";
+        let userAvatar: string | null = null;
+
+        if (message.bot_id || message.subtype === "bot_message") {
+          createdBy = message.username || "SecureStay";
+        } else if (message.user) {
+          if (userCache.has(message.user)) {
+            const cached = userCache.get(message.user)!;
+            createdBy = cached.name;
+            userAvatar = cached.avatar;
+          } else {
+            try {
+              const userResponse = await axios.get("https://slack.com/api/users.info", {
+                headers: {
+                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                },
+                params: { user: message.user },
+              });
+
+              if (userResponse.data.ok && userResponse.data.user) {
+                const profile = userResponse.data.user.profile || {};
+                createdBy =
+                  profile.display_name ||
+                  profile.real_name ||
+                  userResponse.data.user.name ||
+                  createdBy;
+                userAvatar = profile.image_48 || null;
+              }
+            } catch (error) {
+              logger.warn(`[IssuesService][getSlackThreadEntries] Failed to fetch Slack user ${message.user}: ${error}`);
+            }
+
+            userCache.set(message.user, {
+              name: createdBy,
+              avatar: userAvatar,
+            });
+          }
+        }
+
+        return {
+          id: `vendor_slack_${message.ts}`,
+          source: "slack",
+          createdByUid: message.user || null,
+          createdByDepartment: null,
+          createdAt: new Date(parseFloat(message.ts) * 1000).toISOString(),
+          createdBy,
+          updatedAt: null,
+          updatedBy: null,
+          updates: message.text || "",
+          deletedAt: null,
+          deletedBy: null,
+          userAvatar,
+          slackMessageTs: message.ts,
+          fileInfo: Array.isArray(message.files)
+            ? message.files.map((file: any, index: number) => ({
+                id: `${message.ts}-${index}`,
+                fileName: file?.name || `Slack file ${index + 1}`,
+                originalName: file?.title || file?.name || `Slack file ${index + 1}`,
+                mimeType: file?.mimetype || file?.filetype || "",
+                url:
+                  file?.thumb_1024 ||
+                  file?.thumb_720 ||
+                  file?.thumb_480 ||
+                  file?.thumb_360 ||
+                  file?.permalink_public ||
+                  file?.permalink ||
+                  null,
+                webViewLink: file?.permalink_public || file?.permalink || null,
+                webContentLink:
+                  file?.thumb_1024 ||
+                  file?.thumb_720 ||
+                  file?.thumb_480 ||
+                  file?.thumb_360 ||
+                  file?.permalink_public ||
+                  file?.permalink ||
+                  null,
+                link: file?.permalink_public || file?.permalink || null,
+              }))
+            : [],
+        };
+      })
+    );
+  }
 
   private formatDate(date: Date): string {
     const year = date.getFullYear();
@@ -1338,6 +1511,200 @@ export class IssuesService {
         threadUrl: null,
       };
     }
+  }
+
+  async getIssueVendorThread(issueId: number) {
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const trackedVendorThread = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-vendor-thread",
+        entityId: issueId,
+      },
+      order: {
+        updatedAt: "DESC",
+      },
+    });
+
+    if (!trackedVendorThread) {
+      return {
+        attached: false,
+        threadUrl: null,
+        entries: [],
+      };
+    }
+
+    const parsedOriginalMessage = (() => {
+      try {
+        return trackedVendorThread.originalMessage ? JSON.parse(trackedVendorThread.originalMessage) : {};
+      } catch {
+        return {};
+      }
+    })();
+
+    const threadUrl =
+      parsedOriginalMessage?.slackLink ||
+      (await this.getSlackThreadPermalink(trackedVendorThread.channel, trackedVendorThread.threadTs || trackedVendorThread.messageTs));
+
+    try {
+      const entries = await this.getSlackThreadEntries(
+        trackedVendorThread.channel,
+        trackedVendorThread.threadTs || trackedVendorThread.messageTs,
+        true,
+        true
+      );
+
+      return {
+        attached: true,
+        channel: trackedVendorThread.channel,
+        threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
+        messageTs: trackedVendorThread.messageTs,
+        threadUrl,
+        entries,
+      };
+    } catch (error) {
+      logger.error(`[IssuesService][getIssueVendorThread] Slack API error for issue ${issueId}: ${error}`);
+      return {
+        attached: true,
+        channel: trackedVendorThread.channel,
+        threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
+        messageTs: trackedVendorThread.messageTs,
+        threadUrl,
+        entries: [],
+        error: "Unable to load vendor thread replies. Please confirm the Slack app can access the channel.",
+      };
+    }
+  }
+
+  async attachIssueVendorThread(issueId: number, slackLink: string, userId: string) {
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const parsedThread = this.parseSlackThreadLink(slackLink);
+    const existing = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-vendor-thread",
+        entityId: issueId,
+      },
+      order: {
+        updatedAt: "DESC",
+      },
+    });
+
+    const payload = {
+      slackLink: parsedThread.url,
+      attachedBy: userId,
+      attachedAt: new Date().toISOString(),
+    };
+
+    const savedThread = await this.slackMessageRepo.save({
+      ...(existing || {}),
+      channel: parsedThread.channel,
+      messageTs: parsedThread.messageTs,
+      threadTs: parsedThread.threadTs,
+      entityType: "issue-vendor-thread",
+      entityId: issueId,
+      originalMessage: JSON.stringify(payload),
+    });
+
+    const mainIssueThread = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issues",
+        entityId: issueId,
+      },
+      order: {
+        createdAt: "DESC",
+      },
+    });
+
+    if (mainIssueThread) {
+      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+      const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+      await sendSlackMessage(
+        {
+          channel: mainIssueThread.channel,
+          text: `Vendor thread added by ${userName}: ${parsedThread.url}`,
+        },
+        mainIssueThread.threadTs || mainIssueThread.messageTs
+      );
+    }
+
+    return {
+      attached: true,
+      channel: savedThread.channel,
+      threadTs: savedThread.threadTs,
+      messageTs: savedThread.messageTs,
+      threadUrl: parsedThread.url,
+      entries: [],
+    };
+  }
+
+  async replyToIssueVendorThread(issueId: number, updates: string, userId: string) {
+    const trimmedUpdates = String(updates || "").trim();
+    if (!trimmedUpdates) {
+      throw CustomErrorHandler.validationError("Reply text is required");
+    }
+
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const trackedVendorThread = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-vendor-thread",
+        entityId: issueId,
+      },
+      order: {
+        updatedAt: "DESC",
+      },
+    });
+
+    if (!trackedVendorThread) {
+      throw CustomErrorHandler.notFound("No vendor thread is attached to this issue");
+    }
+
+    const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+    const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+    const slackResponse = await sendSlackMessage(
+      {
+        channel: trackedVendorThread.channel,
+        text: `*${userName} (via SecureStay):*\n${formatSecureStayMarkdownForSlack(trimmedUpdates)}`,
+      },
+      trackedVendorThread.threadTs || trackedVendorThread.messageTs
+    );
+
+    if (!slackResponse?.ok) {
+      throw CustomErrorHandler.validationError(`Slack reply failed${slackResponse?.error ? `: ${slackResponse.error}` : ""}`);
+    }
+
+    return {
+      id: `vendor_slack_${slackResponse.ts}`,
+      source: "securestay",
+      createdByUid: userId,
+      createdByDepartment: null,
+      createdAt: new Date(parseFloat(slackResponse.ts) * 1000).toISOString(),
+      createdBy: `${userName} (via SecureStay)`,
+      updatedAt: null,
+      updatedBy: null,
+      updates: trimmedUpdates,
+      deletedAt: null,
+      deletedBy: null,
+      userAvatar: null,
+      slackMessageTs: slackResponse.ts,
+      fileInfo: [],
+    };
   }
 
   async bulkUpdateIssues(
