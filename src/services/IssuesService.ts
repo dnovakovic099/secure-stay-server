@@ -978,6 +978,7 @@ export class IssuesService {
         ...issue,
         created_by: userMap.get(issue.created_by)?.name || issue.created_by,
         updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
+        completed_by: userMap.get(issue.completed_by)?.name || issue.completed_by,
         issueUpdates: issue.issueUpdates.map((update) => {
           const isSlack = update.source === "slack";
           return {
