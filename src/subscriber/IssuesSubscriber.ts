@@ -41,7 +41,7 @@ export class IssuesSubscriber
         const reservationInfo = issue.reservation_id && issue.reservation_id !== "NA"
             ? await this.reservationInfoRepo.findOne({
                 where: { id: Number(issue.reservation_id) },
-                select: ["id", "listingName", "guestName", "channelName", "arrivalDate", "departureDate"],
+                select: ["id", "listingName", "guestName", "channelName", "arrivalDate", "departureDate", "reservationId"],
             })
             : null;
 

@@ -239,7 +239,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
 export const validateUpdateAssignee = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        assignee: Joi.string().required(),
+        assignee: Joi.string().allow('', null).optional(),
     });
     const { error } = schema.validate(request.body);
     if (error) {
