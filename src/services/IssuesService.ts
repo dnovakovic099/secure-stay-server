@@ -133,6 +133,86 @@ export class IssuesService {
     });
   }
 
+  private async resolveKeywordIssueIds(keyword: string): Promise<number[]> {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return [];
+
+    const keywordParam = `%${normalizedKeyword}%`;
+    const listingRepo = appDatabase.getRepository(Listing);
+    const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+
+    const matchingListings = await listingRepo
+      .createQueryBuilder("listing")
+      .select("listing.id", "id")
+      .where("listing.name LIKE :keyword", { keyword: keywordParam })
+      .orWhere("listing.internalListingName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("listing.externalListingName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("listing.address LIKE :keyword", { keyword: keywordParam })
+      .getRawMany<{ id: number }>();
+
+    const matchingListingIds = matchingListings
+      .map((listing) => Number(listing.id))
+      .filter((id) => Number.isFinite(id));
+
+    const matchingReservations = await reservationRepo
+      .createQueryBuilder("reservation")
+      .select("reservation.id", "id")
+      .where("reservation.guestName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.guestFirstName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.guestLastName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.listingName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.channelName LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.reservationId LIKE :keyword", { keyword: keywordParam })
+      .orWhere("reservation.phone LIKE :keyword", { keyword: keywordParam })
+      .getRawMany<{ id: number }>();
+
+    const matchingReservationIds = matchingReservations
+      .map((reservation) => Number(reservation.id))
+      .filter((id) => Number.isFinite(id));
+
+    const directIssueQuery = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .where("issue.issue_description LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.guest_name LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.guest_contact_number LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.listing_name LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.channel LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.category LIKE :keyword", { keyword: keywordParam })
+      .orWhere("issue.owner_notes LIKE :keyword", { keyword: keywordParam });
+
+    if (matchingListingIds.length > 0) {
+      directIssueQuery.orWhere("issue.listing_id IN (:...matchingListingIds)", {
+        matchingListingIds,
+      });
+    }
+
+    if (matchingReservationIds.length > 0) {
+      directIssueQuery.orWhere("issue.reservation_id IN (:...matchingReservationIds)", {
+        matchingReservationIds,
+      });
+    }
+
+    const directIssueRows = await directIssueQuery.getRawMany<{ id: number }>();
+
+    const updateIssueRows = await this.issueUpdatesRepo
+      .createQueryBuilder("issueUpdate")
+      .innerJoin("issueUpdate.issue", "issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("issueUpdate.updates LIKE :keyword", { keyword: keywordParam })
+      .getRawMany<{ id: number }>();
+
+    return Array.from(
+      new Set(
+        [...directIssueRows, ...updateIssueRows]
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isFinite(id))
+      )
+    );
+  }
+
   private buildFallbackIssueTitle(issue: Partial<Issue>) {
     const description = String(issue.issue_description || "").trim();
     if (!description) return this.normalizeCategory(issue.category);
@@ -833,6 +913,10 @@ export class IssuesService {
       channel,
       dateType,
       stayStatus,
+      assignee,
+      urgency,
+      activityType,
+      activityUser,
     } = body;
 
     let listingIds = [];
@@ -857,7 +941,7 @@ export class IssuesService {
       isOverdue = true;
     }
 
-    // dateType=created/updated filters on the Issue table directly.
+    // dateType=created/updated/completed/due filters on the Issue table directly.
     // dateType=check_in/check_out and stayStatus require resolving matching
     // reservation IDs from reservation_info, since Issue has no check_out_date
     // and stay status is computed from arrival/departure dates.
@@ -907,10 +991,54 @@ export class IssuesService {
 
     const effectiveReservationIds = resolvedReservationIds ?? reservationId;
 
-    let dateColumn: "created_at" | "updated_at" | null = null;
+    let dateColumn: "created_at" | "updated_at" | "completed_at" | "due_date" | null = null;
     if (fromDate && toDate) {
       if (dateType === "updated") dateColumn = "updated_at";
+      else if (dateType === "completed") dateColumn = "completed_at";
+      else if (dateType === "due") dateColumn = "due_date";
       else if (!dateType || dateType === "created") dateColumn = "created_at";
+    }
+
+    const normalizedAssignee = Array.isArray(assignee)
+      ? assignee.filter(Boolean)
+      : assignee
+      ? [assignee]
+      : [];
+    const normalizedUrgency = Array.isArray(urgency)
+      ? urgency.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
+      : urgency
+      ? [Number(urgency)].filter((value: number) => Number.isFinite(value))
+      : [];
+    const activityColumn =
+      activityType === "updated"
+        ? "updated_by"
+        : activityType === "completed"
+        ? "completed_by"
+        : "created_by";
+
+    const normalizedKeyword = String(keyword || "").trim();
+    const requestedIssueIds = Array.isArray(issueId)
+      ? issueId.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id))
+      : issueId
+      ? [Number(issueId)].filter((id: number) => Number.isFinite(id))
+      : [];
+    const keywordIssueIds = normalizedKeyword
+      ? await this.resolveKeywordIssueIds(normalizedKeyword)
+      : undefined;
+    let effectiveIssueIds = requestedIssueIds.length > 0 ? requestedIssueIds : undefined;
+
+    if (keywordIssueIds) {
+      if (keywordIssueIds.length === 0) {
+        return { issues: [], total: 0 };
+      }
+
+      effectiveIssueIds = effectiveIssueIds
+        ? effectiveIssueIds.filter((id) => keywordIssueIds.includes(id))
+        : keywordIssueIds;
+
+      if (effectiveIssueIds.length === 0) {
+        return { issues: [], total: 0 };
+      }
     }
 
     const [issues, total] = await this.issueRepo.findAndCount({
@@ -922,11 +1050,14 @@ export class IssuesService {
           issueStatus.length > 0 && { status: In(issueStatus) }),
         ...(dateColumn && fromDate && toDate && { [dateColumn]: Between(fromDate, toDate) }),
         ...(guestName && { guest_name: guestName }),
-        ...(issueId && issueId.length > 0 && { id: In(issueId) }),
+        ...(effectiveIssueIds &&
+          effectiveIssueIds.length > 0 && { id: In(effectiveIssueIds) }),
         ...(effectiveReservationIds &&
           effectiveReservationIds.length > 0 && { reservation_id: In(effectiveReservationIds) }),
-        ...(keyword && { issue_description: Like(`%${keyword}%`) }),
         ...(channel && channel.length > 0 && { channel: In(channel) }),
+        ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
+        ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
+        ...(activityUser && { [activityColumn]: activityUser }),
         ...(isOverdue && { nextUpdateDate: LessThanOrEqual(currentDate) }),
       },
       relations: ["issueUpdates"],
@@ -1427,6 +1558,128 @@ export class IssuesService {
         }
       })(),
     };
+  }
+
+  private normalizeAiResolutionStatus(value: unknown) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "resolved") return "Resolved";
+    if (normalized === "not resolved" || normalized === "unresolved") return "Not Resolved";
+    return "—";
+  }
+
+  private normalizeAiGuestSentiment(value: unknown) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "positive") return "Positive";
+    if (normalized === "mixed") return "Mixed";
+    if (normalized === "neutral") return "Neutral";
+    if (normalized === "negative") return "Negative";
+    return "—";
+  }
+
+  async generateResolutionAnalysis(issueId: number) {
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+      relations: ["issueUpdates"],
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const updates = (issue.issueUpdates || [])
+      .filter((entry) => !entry.deletedAt && String(entry.updates || "").trim())
+      .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+      .map((entry) => ({
+        createdAt: entry.createdAt,
+        source: entry.source || "securestay",
+        createdBy: entry.createdBy || null,
+        text: entry.updates,
+      }));
+
+    const fallback = {
+      issueResolution: "—",
+      guestSentiment: "—",
+      resolution: [
+        "Issue Resolution",
+        "—",
+        "",
+        "Guest relation",
+        "—",
+      ].join("\n"),
+    };
+
+    if (!this.openai || updates.length === 0) {
+      issue.ai_resolution_status = fallback.issueResolution;
+      issue.ai_guest_sentiment = fallback.guestSentiment;
+      issue.resolution = fallback.resolution;
+      const saved = await this.issueRepo.save(issue);
+      return {
+        issueResolution: saved.ai_resolution_status,
+        guestSentiment: saved.ai_guest_sentiment,
+        resolution: saved.resolution,
+      };
+    }
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Analyze an internal issue ticket activity timeline. Return only valid JSON with keys issueResolution, guestSentiment, issueResolutionSummary, guestRelationSummary. issueResolution must be one of Resolved, Not Resolved, or —. guestSentiment must be one of Positive, Mixed, Neutral, Negative, or —. If evidence is missing, use —. Summaries should be concise, factual paragraphs.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              category: issue.category || null,
+              description: issue.issue_description || "",
+              currentResolutionNotes: issue.resolution || "",
+              updates,
+            }),
+          },
+        ],
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) throw new Error("No AI response");
+
+      const parsed = JSON.parse(content);
+      const issueResolution = this.normalizeAiResolutionStatus(parsed?.issueResolution);
+      const guestSentiment = this.normalizeAiGuestSentiment(parsed?.guestSentiment);
+      const issueResolutionSummary = String(parsed?.issueResolutionSummary || "—").trim() || "—";
+      const guestRelationSummary = String(parsed?.guestRelationSummary || "—").trim() || "—";
+      const resolution = [
+        "Issue Resolution",
+        issueResolutionSummary,
+        "",
+        "Guest relation",
+        guestRelationSummary,
+      ].join("\n");
+
+      issue.ai_resolution_status = issueResolution;
+      issue.ai_guest_sentiment = guestSentiment;
+      issue.resolution = resolution;
+      const saved = await this.issueRepo.save(issue);
+
+      return {
+        issueResolution: saved.ai_resolution_status,
+        guestSentiment: saved.ai_guest_sentiment,
+        resolution: saved.resolution,
+      };
+    } catch (error) {
+      logger.warn(`[IssuesService] Failed to generate resolution analysis: ${error}`);
+      issue.ai_resolution_status = fallback.issueResolution;
+      issue.ai_guest_sentiment = fallback.guestSentiment;
+      issue.resolution = fallback.resolution;
+      const saved = await this.issueRepo.save(issue);
+      return {
+        issueResolution: saved.ai_resolution_status,
+        guestSentiment: saved.ai_guest_sentiment,
+        resolution: saved.resolution,
+      };
+    }
   }
 
   async runQuickAction(id: number, action: string, userId: string) {

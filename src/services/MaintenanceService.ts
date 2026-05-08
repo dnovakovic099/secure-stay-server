@@ -16,6 +16,7 @@ interface MaintenanceFilter {
     listingId?: string[];
     workCategory?: string[];
     contactId?: number[];
+    workType?: string[];
     fromDate?: string;
     toDate?: string;
     propertyType?: string[];
@@ -39,7 +40,8 @@ export class MaintenanceService {
             where: {
                 listingId: body.listingId,
                 nextSchedule: body.nextSchedule,
-                workCategory: body.workCategory
+                workCategory: body.workCategory,
+                ...(body.issueId ? { issueId: body.issueId } : { issueId: IsNull() })
             }
         });
 
@@ -81,7 +83,7 @@ export class MaintenanceService {
     }
 
     async getMaintenanceList(filter: MaintenanceFilter, userId: string) {
-        const { listingId, workCategory, contactId, fromDate, toDate, propertyType, keyword, type, page, limit, currentDate } = filter;
+        const { listingId, workCategory, contactId, workType, fromDate, toDate, propertyType, keyword, type, page, limit, currentDate } = filter;
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -124,11 +126,28 @@ export class MaintenanceService {
             };
         }
 
+        if (workType && workType.length > 0 && workType.length < 3) {
+            const workTypeConditions = workType.map((selectedType) => {
+                if (selectedType === "issue-related") {
+                    return { ...whereConditions, issueId: Not(IsNull()) };
+                }
+                if (selectedType === "regular") {
+                    return { ...whereConditions, issueId: IsNull(), createdBy: "system" };
+                }
+                return { ...whereConditions, issueId: IsNull(), createdBy: Not("system") };
+            });
+            whereConditions = workTypeConditions as any;
+        }
+
+        const buildKeywordWhere = (conditions: any) => [
+            { ...conditions, workCategory: ILike(`%${keyword}%`) },
+            { ...conditions, notes: ILike(`%${keyword}%`) },
+        ];
+
         const where = keyword
-            ? [
-                { ...whereConditions, workCategory: ILike(`%${keyword}%`) },
-                { ...whereConditions, notes: ILike(`%${keyword}%`) },
-            ]
+            ? Array.isArray(whereConditions)
+                ? whereConditions.flatMap((condition) => buildKeywordWhere(condition))
+                : buildKeywordWhere(whereConditions)
             : whereConditions;
 
         const users = await this.usersRepo.find();
@@ -157,6 +176,7 @@ export class MaintenanceService {
                 contact: contacts.find(contact => contact.id == logs.contactId) || null,
                 createdBy: userMap.get(logs.createdBy) || logs.createdBy,
                 updatedBy: userMap.get(logs.updatedBy) || logs.updatedBy,
+                typeOfWork: logs.issueId ? "Issue-Related" : logs.createdBy === "system" ? "Regular" : "One-Time",
                 listingName: listings.find(l => l.id == Number(logs.listingId))?.internalListingName || listings.find(l => l.id == Number(logs.listingId))?.name || "Unknown"
             };
         });
@@ -176,6 +196,8 @@ export class MaintenanceService {
             Date: log.nextSchedule ? format(new Date(log.nextSchedule), 'yyyy-MM-dd') : "-",
             Property: log.listingName,
             "Work Category": log.workCategory,
+            "Type of Work": log.typeOfWork,
+            Issue: log.issueId ? `Issue #${log.issueId}` : "-",
             Assignee: log.contact ? log.contact.name : "-",
             "Vendor Role": log.contact ? log.contact.role : "-",
             Notes: log.notes || "-",

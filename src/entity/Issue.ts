@@ -152,6 +152,12 @@ export class Issue {
     preventable_flag: boolean;
 
     @Column({ nullable: true })
+    ai_resolution_status: string;
+
+    @Column({ nullable: true })
+    ai_guest_sentiment: string;
+
+    @Column({ nullable: true })
     assignee: string;
 
     @Column({ nullable: true })
