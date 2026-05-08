@@ -8,7 +8,8 @@ export const validateCreateMaintenance = (request: Request, response: Response, 
         nextSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
-        contactId: Joi.number().required().allow(null)
+        contactId: Joi.number().required().allow(null),
+        issueId: Joi.number().optional().allow(null)
     });
 
     const { error } = schema.validate(request.body);
@@ -28,6 +29,7 @@ export const validateUpdateMaintenance = (request: Request, response: Response, 
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
         contactId: Joi.number().required().allow(null),
+        issueId: Joi.number().optional().allow(null),
         notes: Joi.string().allow(null, '')
     });
 
@@ -53,6 +55,7 @@ export const validateGetMaintenance = (request: Request, response: Response, nex
         page: Joi.number().required(),
         limit: Joi.number().required(),
         propertyType: Joi.array().items(Joi.string()).min(1).optional(),
+        workType: Joi.array().items(Joi.string().valid("regular", "one-time", "issue-related")).optional(),
         keyword: Joi.string().optional(),
         type: Joi.string().valid("unassigned", "today", "upcoming", "past").optional(),
         currentDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({

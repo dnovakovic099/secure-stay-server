@@ -35,6 +35,7 @@ router.route('/update-mistake').put(verifySession, validateUpdateMistake, issues
 router.route('/update-status').put(verifySession, validateUpdateStatus, issuesController.updateStatus)
 router.route('/quick-action').post(verifySession, validateIssueQuickAction, issuesController.quickAction);
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
+router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 
 

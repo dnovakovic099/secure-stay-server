@@ -20,6 +20,9 @@ export class Maintenance {
     @Column({ nullable: true })
     contactId: number;
 
+    @Column({ nullable: true })
+    issueId: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

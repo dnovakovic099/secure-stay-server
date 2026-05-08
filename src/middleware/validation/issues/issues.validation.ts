@@ -1,6 +1,14 @@
 import { Request, NextFunction, Response } from "express";
 import Joi from "joi";
 
+const dueDateSchema = Joi.string()
+    .regex(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/)
+    .allow(null, "")
+    .optional()
+    .messages({
+        'string.pattern.base': 'Due Date must be in the format "yyyy-mm-dd" or "yyyy-mm-dd hh:mm:ss"',
+    });
+
 export const validateCreateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
@@ -47,13 +55,15 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
         manager_feedback: Joi.string().optional().allow(null, ''),
         preventable_flag: Joi.boolean().optional().allow(null).empty(''),
+        ai_resolution_status: Joi.string().optional().allow(null, '').valid("Resolved", "Not Resolved", "—", ""),
+        ai_guest_sentiment: Joi.string().optional().allow(null, '').valid("Positive", "Mixed", "Neutral", "Negative", "—", ""),
         assignee: Joi.string().optional().allow(null, ''),
         urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
         mistake: Joi.string().optional().allow(null, '').valid("Yes", "In Progress", "Need Help", "Resolved", ""),
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
+        due_date: dueDateSchema,
     });
 
     const { error, value } = schema.validate(request.body);
@@ -108,6 +118,8 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         ai_checklist: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow(null, ''),
         manager_feedback: Joi.string().optional().allow(null, ''),
         preventable_flag: Joi.boolean().optional().allow(null).empty(''),
+        ai_resolution_status: Joi.string().optional().allow(null, '').valid("Resolved", "Not Resolved", "—", ""),
+        ai_guest_sentiment: Joi.string().optional().allow(null, '').valid("Positive", "Mixed", "Neutral", "Negative", "—", ""),
         fileInfo: Joi.any().optional(),
         assignee: Joi.string().optional().allow(null, ''),
         urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
@@ -115,7 +127,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         nextUpdateDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Next Update Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        due_date: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).allow(null, "").optional(),
+        due_date: dueDateSchema,
     });
 
     const { error, value } = schema.validate(request.body);
