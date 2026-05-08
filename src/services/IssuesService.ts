@@ -136,9 +136,19 @@ export class IssuesService {
       replies.map(async (message: any) => {
         let createdBy = "Slack User";
         let userAvatar: string | null = null;
+        let source = "slack";
+        let updates = message.text || "";
 
         if (message.bot_id || message.subtype === "bot_message") {
           createdBy = message.username || "SecureStay";
+          const secureStayReplyMatch = updates.match(/^\*([^*]+?)(?: \(via SecureStay\))?:\*\n?([\s\S]*)$/);
+          if (secureStayReplyMatch) {
+            source = "securestay";
+            createdBy = secureStayReplyMatch[1].trim() || createdBy;
+            updates = secureStayReplyMatch[2].trim();
+          } else if (createdBy === "SecureStay") {
+            source = "securestay";
+          }
         } else if (message.user) {
           if (userCache.has(message.user)) {
             const cached = userCache.get(message.user)!;
@@ -175,14 +185,14 @@ export class IssuesService {
 
         return {
           id: `vendor_slack_${message.ts}`,
-          source: "slack",
+          source,
           createdByUid: message.user || null,
           createdByDepartment: null,
           createdAt: new Date(parseFloat(message.ts) * 1000).toISOString(),
           createdBy,
           updatedAt: null,
           updatedBy: null,
-          updates: message.text || "",
+          updates,
           deletedAt: null,
           deletedBy: null,
           userAvatar,
@@ -1581,7 +1591,12 @@ export class IssuesService {
     }
   }
 
-  async attachIssueVendorThread(issueId: number, slackLink: string, userId: string) {
+  async attachIssueVendorThread(
+    issueId: number,
+    slackLink: string,
+    userId: string,
+    createOptions?: { channel?: string; message?: string }
+  ) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
     });
@@ -1589,7 +1604,36 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
-    const parsedThread = this.parseSlackThreadLink(slackLink);
+    const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+    const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+    let parsedThread: { channel: string; threadTs: string; messageTs: string; url: string };
+
+    if (createOptions?.channel && String(createOptions?.message || "").trim()) {
+      const channel = String(createOptions.channel).trim();
+      if (!/^[CGD][A-Z0-9]+$/.test(channel)) {
+        throw CustomErrorHandler.validationError("Please select a valid Slack channel");
+      }
+      const trimmedMessage = String(createOptions.message || "").trim();
+      const slackResponse = await sendSlackMessage({
+        channel,
+        text: formatSecureStayMarkdownForSlack(trimmedMessage),
+      });
+
+      if (!slackResponse?.ok || !slackResponse?.ts) {
+        throw CustomErrorHandler.validationError(`Slack message failed${slackResponse?.error ? `: ${slackResponse.error}` : ""}`);
+      }
+
+      const permalink = await this.getSlackThreadPermalink(slackResponse.channel || channel, slackResponse.ts);
+      parsedThread = {
+        channel: slackResponse.channel || channel,
+        threadTs: slackResponse.ts,
+        messageTs: slackResponse.ts,
+        url: permalink || "",
+      };
+    } else {
+      parsedThread = this.parseSlackThreadLink(slackLink);
+    }
+
     const existing = await this.slackMessageRepo.findOne({
       where: {
         entityType: "issue-vendor-thread",
@@ -1603,7 +1647,9 @@ export class IssuesService {
     const payload = {
       slackLink: parsedThread.url,
       attachedBy: userId,
+      attachedByName: userName,
       attachedAt: new Date().toISOString(),
+      createdFromSecureStay: Boolean(createOptions?.channel && String(createOptions?.message || "").trim()),
     };
 
     const savedThread = await this.slackMessageRepo.save({
@@ -1627,12 +1673,11 @@ export class IssuesService {
     });
 
     if (mainIssueThread) {
-      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-      const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+      const threadReference = parsedThread.url || `Slack channel ${parsedThread.channel}, thread ${parsedThread.threadTs}`;
       await sendSlackMessage(
         {
           channel: mainIssueThread.channel,
-          text: `Vendor thread added by ${userName}: ${parsedThread.url}`,
+          text: `🔹 *Vendor thread added by ${userName}:* ${threadReference}`,
         },
         mainIssueThread.threadTs || mainIssueThread.messageTs
       );
@@ -1680,7 +1725,7 @@ export class IssuesService {
     const slackResponse = await sendSlackMessage(
       {
         channel: trackedVendorThread.channel,
-        text: `*${userName} (via SecureStay):*\n${formatSecureStayMarkdownForSlack(trimmedUpdates)}`,
+        text: `*${userName}:*\n${formatSecureStayMarkdownForSlack(trimmedUpdates)}`,
       },
       trackedVendorThread.threadTs || trackedVendorThread.messageTs
     );
@@ -1695,7 +1740,7 @@ export class IssuesService {
       createdByUid: userId,
       createdByDepartment: null,
       createdAt: new Date(parseFloat(slackResponse.ts) * 1000).toISOString(),
-      createdBy: `${userName} (via SecureStay)`,
+      createdBy: userName,
       updatedAt: null,
       updatedBy: null,
       updates: trimmedUpdates,
