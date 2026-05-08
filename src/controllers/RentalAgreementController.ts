@@ -189,11 +189,11 @@ export class RentalAgreementController {
             }
             if (target.driveFileId) {
                 try {
-                    const [driveRes] = await drive.files.get(
+                    const driveRes = await drive.files.get(
                         { fileId: target.driveFileId, alt: "media" },
                         { responseType: "arraybuffer" }
                     ) as any;
-                    const buffer = Buffer.from(driveRes as ArrayBuffer);
+                    const buffer = Buffer.from(driveRes.data as ArrayBuffer);
                     res.setHeader("Content-Type", "application/pdf");
                     res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
                     res.setHeader("Content-Length", buffer.length);
@@ -228,12 +228,12 @@ export class RentalAgreementController {
             if (target.driveFileId) {
                 try {
                     // Fetch file content from Google Drive as a buffer
-                    const [driveRes] = await drive.files.get(
+                    const driveRes = await drive.files.get(
                         { fileId: target.driveFileId, alt: "media" },
                         { responseType: "arraybuffer" }
                     ) as any;
 
-                    const buffer = Buffer.from(driveRes as ArrayBuffer);
+                    const buffer = Buffer.from(driveRes.data as ArrayBuffer);
                     res.setHeader("Content-Type", "application/pdf");
                     res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
                     res.setHeader("Content-Length", buffer.length);
