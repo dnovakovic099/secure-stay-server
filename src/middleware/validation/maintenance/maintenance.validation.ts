@@ -9,7 +9,8 @@ export const validateCreateMaintenance = (request: Request, response: Response, 
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
         contactId: Joi.number().required().allow(null),
-        issueId: Joi.number().optional().allow(null)
+        issueId: Joi.number().optional().allow(null),
+        issueIds: Joi.array().items(Joi.number()).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -30,6 +31,7 @@ export const validateUpdateMaintenance = (request: Request, response: Response, 
         }).required(),
         contactId: Joi.number().required().allow(null),
         issueId: Joi.number().optional().allow(null),
+        issueIds: Joi.array().items(Joi.number()).optional(),
         notes: Joi.string().allow(null, '')
     });
 

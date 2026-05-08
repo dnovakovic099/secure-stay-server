@@ -447,6 +447,50 @@ export class IssuesController {
     }
   }
 
+  async getIssueVendorThread(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const issuesService = new IssuesService();
+      const result = await issuesService.getIssueVendorThread(issueId);
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async attachIssueVendorThread(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.attachIssueVendorThread(issueId, request.body?.slackLink, userId);
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async replyToIssueVendorThread(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.replyToIssueVendorThread(issueId, request.body?.updates, userId);
+      return response.status(201).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async generateAiSummary(
     request: any,
     response: Response,

@@ -10,6 +10,8 @@ import { Contact } from "../entity/Contact";
 import { ContactRole } from "../entity/ContactRole";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
+import { Issue } from "../entity/Issue";
+import { IssueUpdates } from "../entity/IsssueUpdates";
 import * as XLSX from "xlsx";
 
 interface MaintenanceFilter {
@@ -30,30 +32,78 @@ interface MaintenanceFilter {
 export class MaintenanceService {
     private maintenanceRepo = appDatabase.getRepository(Maintenance);
     private contactRepo = appDatabase.getRepository(Contact);
+    private issueRepo = appDatabase.getRepository(Issue);
+    private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
     private contactRoleRepo = appDatabase.getRepository(ContactRole);
     private usersRepo = appDatabase.getRepository(UsersEntity);
 
-    async createMaintenance(body: Partial<Maintenance>, userId: string) {
-        //check if the maintenance log already exists
-        const existingMaintenenace = await this.maintenanceRepo.find({
-            where: {
-                listingId: body.listingId,
-                nextSchedule: body.nextSchedule,
-                workCategory: body.workCategory,
-                ...(body.issueId ? { issueId: body.issueId } : { issueId: IsNull() })
-            }
-        });
+    async createMaintenance(body: Partial<Maintenance> & { issueIds?: number[] }, userId: string) {
+        const issueIds = Array.isArray(body.issueIds) && body.issueIds.length > 0
+            ? body.issueIds.map(Number).filter((id) => Number.isFinite(id))
+            : body.issueId
+                ? [Number(body.issueId)].filter((id) => Number.isFinite(id))
+                : [];
+        const targetIssueIds = issueIds.length > 0 ? issueIds : [null];
+        const savedMaintenanceLogs: Maintenance[] = [];
+        const contact = body.contactId
+            ? await this.contactRepo.findOne({ where: { id: Number(body.contactId) } })
+            : null;
 
-        if (existingMaintenenace.length > 0) {
-            throw CustomErrorHandler.alreadyExists(`Maintenance log for ${body.workCategory} on ${body.nextSchedule} already exists`);
+        //check if the maintenance log already exists
+        for (const issueId of targetIssueIds) {
+            const existingMaintenenace = await this.maintenanceRepo.find({
+                where: {
+                    listingId: body.listingId,
+                    nextSchedule: body.nextSchedule,
+                    workCategory: body.workCategory,
+                    ...(issueId ? { issueId } : { issueId: IsNull() })
+                }
+            });
+
+            if (existingMaintenenace.length > 0) {
+                throw CustomErrorHandler.alreadyExists(`Maintenance log for ${body.workCategory} on ${body.nextSchedule} already exists`);
+            }
+
+            const maintenance = this.maintenanceRepo.create({
+                listingId: body.listingId,
+                workCategory: body.workCategory,
+                nextSchedule: body.nextSchedule,
+                contactId: body.contactId,
+                issueId,
+                createdBy: userId,
+            });
+            const savedMaintenance = await this.maintenanceRepo.save(maintenance);
+            savedMaintenanceLogs.push(savedMaintenance);
+
+            if (issueId) {
+                const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+                if (issue) {
+                    issue.status = "Scheduled";
+                    issue.due_date = String(body.nextSchedule || "");
+                    issue.date_time_contractor_deployed = body.nextSchedule as any;
+                    if (contact?.name) {
+                        issue.final_contractor_name = contact.name;
+                    }
+                    issue.updated_by = userId;
+                    await this.issueRepo.save(issue);
+
+                    const updateText = [
+                        `Maintenance scheduled for ${body.nextSchedule}.`,
+                        body.workCategory ? `Work category: ${body.workCategory}.` : null,
+                        contact?.name ? `POC: ${contact.name}.` : null,
+                    ].filter(Boolean).join(" ");
+                    const issueUpdate = this.issueUpdatesRepo.create({
+                        issue,
+                        updates: updateText,
+                        createdBy: userId,
+                    });
+                    await this.issueUpdatesRepo.save(issueUpdate);
+                }
+            }
         }
 
-        const maintenance = this.maintenanceRepo.create({
-            ...body,
-            createdBy: userId,
-        });
-        return await this.maintenanceRepo.save(maintenance);
+        return savedMaintenanceLogs.length === 1 ? savedMaintenanceLogs[0] : savedMaintenanceLogs;
     }
 
     async updateMaintenance(body: Partial<Maintenance>, userId: string) {

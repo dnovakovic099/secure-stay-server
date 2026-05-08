@@ -83,7 +83,17 @@ const getIssueListingEmoji = (issue: Issue) => {
 
 const formatIssueStayDate = (value?: unknown) => {
     if (!value) return "";
-    const date = value instanceof Date ? value : new Date(String(value));
+    const rawValue = String(value).trim();
+    const dateOnlyMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const date = dateOnlyMatch
+        ? new Date(
+            Number(dateOnlyMatch[1]),
+            Number(dateOnlyMatch[2]) - 1,
+            Number(dateOnlyMatch[3])
+        )
+        : value instanceof Date
+            ? value
+            : new Date(rawValue);
     if (Number.isNaN(date.getTime())) return "";
     return format(date, "MMM dd");
 };
@@ -151,7 +161,7 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
     ]
 });
 
-const formatSecureStayMarkdownForSlack = (value?: unknown) => {
+export const formatSecureStayMarkdownForSlack = (value?: unknown) => {
     return String(value || "")
         .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
             const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
