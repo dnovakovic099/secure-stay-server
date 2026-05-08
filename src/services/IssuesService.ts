@@ -1364,12 +1364,12 @@ export class IssuesService {
     }
   }
 
-  async updateAssignee(id: number, assignee: string, userId: string) {
+  async updateAssignee(id: number, assignee: string | null, userId: string) {
     const issue = await this.issueRepo.findOne({ where: { id } });
     if (!issue) {
       throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
     }
-    issue.assignee = assignee;
+    issue.assignee = assignee || null;
     issue.updated_by = userId;
     return await this.issueRepo.save(issue);
   }

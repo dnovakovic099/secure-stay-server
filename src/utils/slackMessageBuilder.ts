@@ -59,6 +59,13 @@ const normalizeSlackField = (value?: unknown, fallback = "—") => {
     return normalized || fallback;
 };
 
+const escapeSlackLinkText = (value: string) =>
+    value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\|/g, " ");
+
 const getIssueListingEmoji = (issue: Issue) => {
     const tags = String(
         (issue as any).listingTags ||
@@ -90,12 +97,21 @@ const buildIssueSlackHeader = (issue: Issue) => {
         reservationInfo.listingName
     );
     const guestName = normalizeSlackField(issue.guest_name || reservationInfo.guestName);
+    const reservationId = issue.reservation_id && issue.reservation_id !== "NA"
+        ? issue.reservation_id
+        : reservationInfo.id;
+    const hostifyReservationUrl = reservationId
+        ? `https://us.hostify.com/reservations/view/${reservationId}`
+        : "";
+    const guestNameText = hostifyReservationUrl
+        ? `<${hostifyReservationUrl}|${escapeSlackLinkText(guestName)}>`
+        : guestName;
     const channelName = normalizeSlackField(issue.channel || reservationInfo.channelName);
     const checkIn = formatIssueStayDate(issue.check_in_date || reservationInfo.arrivalDate);
     const checkOut = formatIssueStayDate((issue as any).check_out_date || reservationInfo.departureDate);
     const stayDates = checkIn && checkOut ? `${checkIn} → ${checkOut}` : checkIn || checkOut || "—";
 
-    return `${getIssueListingEmoji(issue)} ${listingName} | ${guestName} | ${channelName} | ${stayDates}`;
+    return `${getIssueListingEmoji(issue)} ${listingName} | ${guestNameText} | ${channelName} | ${stayDates}`;
 };
 
 const buildIssueStatusDropdown = (issue: Issue) => ({
