@@ -466,7 +466,10 @@ export class IssuesController {
       const issueId = Number(request.params.id);
       const userId = request.user.id;
       const issuesService = new IssuesService();
-      const result = await issuesService.attachIssueVendorThread(issueId, request.body?.slackLink, userId);
+      const result = await issuesService.attachIssueVendorThread(issueId, request.body?.slackLink, userId, {
+        channel: request.body?.channel,
+        message: request.body?.message,
+      });
       return response.status(200).json({
         status: true,
         data: result,
