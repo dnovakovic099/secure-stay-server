@@ -34,6 +34,8 @@ interface CreateEmployeeDto {
 }
 
 interface UpdateEmployeeDto {
+    firstName?: string;
+    lastName?: string | null;
     department?: string;
     departmentNames?: string[];
     jobTitle?: string;
@@ -820,6 +822,20 @@ export class EmployeeService {
                 queue('Department', employee.department, departmentNames.join(', '));
                 employee.department = primaryDepartment;
                 pendingDepartmentNames = departmentNames;
+            }
+        }
+        if (dto.firstName !== undefined || dto.lastName !== undefined) {
+            const user = await this.usersRepo.findOne({ where: { id: employee.userId } });
+            if (user) {
+                if (dto.firstName !== undefined) {
+                    queue('First Name', user.firstName, dto.firstName);
+                    user.firstName = dto.firstName;
+                }
+                if (dto.lastName !== undefined) {
+                    queue('Last Name', user.lastName, dto.lastName || null);
+                    user.lastName = dto.lastName || null as any;
+                }
+                await this.usersRepo.save(user);
             }
         }
         if (dto.jobTitle !== undefined) { queue('Job Title', employee.jobTitle, dto.jobTitle); employee.jobTitle = dto.jobTitle; }
