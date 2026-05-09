@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/EmployeeService';
-import { EmployeeDepartment } from '../entity/Employee';
 import { EmployeeScheduleShiftType } from '../entity/EmployeeScheduleEntry';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
@@ -117,7 +116,7 @@ export class EmployeeController {
             console.log('Body:', JSON.stringify(req.body));
             console.log('User:', req.user?.id);
             
-            const { userId, department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
+            const { userId, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
                 preferredName,
                 phone, birthday, country, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo } = req.body;
 
@@ -126,16 +125,12 @@ export class EmployeeController {
                 return res.status(400).json({ error: 'Missing required fields', missing: { userId: !userId, department: !department, jobTitle: !jobTitle, startDate: !startDate } });
             }
 
-            // Validate department
-            if (!Object.values(EmployeeDepartment).includes(department)) {
-                return res.status(400).json({ error: 'Invalid department' });
-            }
-
             const creatorId = await this.getInternalUserId(req.user);
 
             const employee = await this.employeeService.createEmployee({
                 userId,
                 department,
+                departmentNames: Array.isArray(departmentNames) ? departmentNames : undefined,
                 jobTitle,
                 jobType: jobType || undefined,
                 hiredFrom: hiredFrom || undefined,
@@ -176,19 +171,15 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
+            const { department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
                 preferredName,
                 phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, paymentDay, paymentStartDate } = req.body;
 
             const updatedBy = await this.getInternalUserId(req.user);
 
-            // Validate department if provided
-            if (department && !Object.values(EmployeeDepartment).includes(department)) {
-                return res.status(400).json({ error: 'Invalid department' });
-            }
-
             const employee = await this.employeeService.updateEmployee(parseInt(id), {
                 department,
+                departmentNames: Array.isArray(departmentNames) ? departmentNames : undefined,
                 jobTitle,
                 jobType,
                 hiredFrom,
@@ -305,7 +296,7 @@ export class EmployeeController {
      */
     getDepartments = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const departments = this.employeeService.getDepartments();
+            const departments = await this.employeeService.getDepartments();
             return res.json(departments);
         } catch (error) {
             next(error);

@@ -8,7 +8,7 @@ export enum EmployeeDepartment {
     CLIENT_RELATIONS = 'Client Relations',
     MAINTENANCE = 'Maintenance',
     ONBOARDING = 'Onboarding',
-    ADMIN = 'Admin',
+    ADMINISTRATIVE = 'Administrative',
 }
 
 @Entity({ name: 'employees' })
@@ -29,8 +29,8 @@ export class Employee {
     @Column({ name: 'employee_number_seq', type: 'int', nullable: true })
     employeeNumberSeq: number;
 
-    @Column({ name: 'department', type: 'enum', enum: EmployeeDepartment })
-    department: EmployeeDepartment;
+    @Column({ name: 'department', type: 'varchar', length: 100 })
+    department: string;
 
     @Column({ name: 'job_title', type: 'varchar', length: 100 })
     jobTitle: string;
