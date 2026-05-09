@@ -28,7 +28,7 @@ export class IssueUpdates {
     deletedBy: string;
 
     @Column({ type: 'varchar', length: 20, default: 'securestay' })
-    source: 'securestay' | 'slack';
+    source: 'securestay' | 'slack' | 'system';
 
     @Index()
     @Column({ type: 'varchar', length: 50, nullable: true })

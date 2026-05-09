@@ -29,7 +29,7 @@ export class IssuesSubscriber
 
     async afterInsert(event: InsertEvent<IssueUpdates>) {
         const { entity, manager } = event;
-        if (entity.source === 'slack') {
+        if (entity.source === 'slack' || entity.source === 'system') {
             return;
         }
         await this.sendSlackMessage(entity, entity.createdBy);

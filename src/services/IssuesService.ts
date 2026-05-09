@@ -953,7 +953,7 @@ export class IssuesService {
       originalName: string;
     }[]
   ) {
-    const { issueId, updates } = body;
+    const { issueId, updates, source } = body;
 
     const issue = await this.issueRepo.findOne({ where: { id: issueId } });
     if (!issue) {
@@ -964,6 +964,7 @@ export class IssuesService {
       issue: issue,
       updates: updates || "",
       createdBy: userId,
+      source: source === "system" ? "system" : "securestay",
     });
 
     const result = await this.issueUpdatesRepo.save(newUpdate);
@@ -991,14 +992,14 @@ export class IssuesService {
     });
     return {
       ...result,
-      source: "securestay",
+      source: result.source === "system" ? "system" : "securestay",
       createdByUid: result.createdBy,
       updatedByUid: result.updatedBy,
       createdByDepartment: createdUser?.department || null,
       updatedByDepartment: updatedUser?.department || null,
       createdBy: createdUser?.name || result.createdBy,
       updatedBy: updatedUser?.name || result.updatedBy,
-      userAvatar: createdUser?.avatarUrl || null,
+      userAvatar: result.source === "system" ? null : (createdUser?.avatarUrl || null),
       fileInfo: attachedFiles,
     };
   }
@@ -1295,16 +1296,17 @@ export class IssuesService {
         completed_by: userMap.get(issue.completed_by)?.name || issue.completed_by,
         issueUpdates: issue.issueUpdates.map((update) => {
           const isSlack = update.source === "slack";
+          const isSystem = update.source === "system";
           return {
             ...update,
-            source: isSlack ? "slack" : "securestay",
+            source: isSlack ? "slack" : isSystem ? "system" : "securestay",
             createdByUid: isSlack ? null : update.createdBy,
             updatedByUid: isSlack ? null : update.updatedBy,
             createdByDepartment: isSlack ? null : (userMap.get(update.createdBy)?.department || null),
             updatedByDepartment: isSlack ? null : (userMap.get(update.updatedBy)?.department || null),
             createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
             updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
-            userAvatar: isSlack ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
+            userAvatar: isSlack || isSystem ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
             fileInfo: fileInfoList.filter((file) => file.entityType === "issue-updates" && file.entityId === update.id),
           };
         }),
@@ -1339,13 +1341,14 @@ export class IssuesService {
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
     const persistedUpdates = (issue.issueUpdates || []).filter((update) => !update.deletedAt).map((update) => {
       const isSlack = update.source === "slack";
+      const isSystem = update.source === "system";
       return {
         id: update.id,
         updates: update.updates,
         createdAt: update.createdAt,
         updatedAt: update.updatedAt,
         deletedAt: update.deletedAt,
-        source: isSlack ? "slack" : "securestay",
+        source: isSlack ? "slack" : isSystem ? "system" : "securestay",
         slackMessageTs: update.slackMessageTs || null,
         createdByUid: isSlack ? null : update.createdBy,
         updatedByUid: isSlack ? null : update.updatedBy,
@@ -1353,7 +1356,7 @@ export class IssuesService {
         updatedByDepartment: isSlack ? null : (userMap.get(update.updatedBy)?.department || null),
         createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
         updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
-        userAvatar: isSlack ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
+        userAvatar: isSlack || isSystem ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
       };
     });
 
