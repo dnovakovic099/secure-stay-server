@@ -9,6 +9,16 @@ import { supabaseAdmin } from "../utils/supabase";
 import { Like, In } from "typeorm";
 import logger from "../utils/logger.utils";
 
+const DEPARTMENT_RENAMES: Record<string, string> = {
+    "Issue Resolution": "Maintenance",
+    "Issue Resolutions": "Maintenance",
+    "Issues Resolution": "Maintenance",
+    "Issues Resolutions": "Maintenance",
+    "Admin": "Administrative",
+};
+
+const normalizeDepartmentName = (name: string) => DEPARTMENT_RENAMES[name.trim()] || name.trim();
+
 interface UserFilters {
     page?: number;
     limit?: number;
@@ -31,6 +41,59 @@ export class UserManagementService {
     private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
     private employeeRepository = appDatabase.getRepository(Employee);
     private employeeChangeLogRepository = appDatabase.getRepository(EmployeeChangeLog);
+
+    private async normalizeStoredDepartments() {
+        for (const [fromName, toName] of Object.entries(DEPARTMENT_RENAMES)) {
+            const source = await this.departmentRepository.findOne({ where: { name: fromName, deletedAt: null as any } });
+            if (!source) continue;
+
+            const target = await this.departmentRepository.findOne({ where: { name: toName, deletedAt: null as any } });
+            if (target) {
+                await appDatabase.query(
+                    `DELETE source_ud FROM user_departments source_ud
+                     INNER JOIN user_departments target_ud
+                        ON target_ud.userId = source_ud.userId
+                       AND target_ud.departmentId = ?
+                     WHERE source_ud.departmentId = ?`,
+                    [target.id, source.id]
+                );
+                await this.userDepartmentRepository.update({ departmentId: source.id }, { departmentId: target.id });
+                await this.departmentRepository.delete(source.id);
+            } else {
+                await this.departmentRepository.update(source.id, { name: toName, updatedAt: new Date() });
+            }
+        }
+
+        await this.employeeRepository
+            .createQueryBuilder()
+            .update(Employee)
+            .set({ department: () => "CASE WHEN department IN ('Issue Resolution', 'Issue Resolutions', 'Issues Resolution', 'Issues Resolutions') THEN 'Maintenance' WHEN department = 'Admin' THEN 'Administrative' ELSE department END" })
+            .execute();
+    }
+
+    private async syncEmployeeDepartmentFromUser(userId: number, changedBy?: string) {
+        const employee = await this.employeeRepository.findOne({ where: { userId } });
+        if (!employee) return;
+
+        const userDepartments = await this.userDepartmentRepository.find({
+            where: { userId },
+            relations: ["department"],
+            order: { id: "ASC" },
+        });
+        const primaryDepartment = userDepartments.map((ud) => ud.department?.name).filter(Boolean)[0];
+        if (!primaryDepartment || employee.department === primaryDepartment) return;
+
+        const previousDepartment = employee.department;
+        employee.department = primaryDepartment;
+        await this.employeeRepository.save(employee);
+        await this.employeeChangeLogRepository.save(this.employeeChangeLogRepository.create({
+            employeeId: employee.id,
+            fieldName: "Department",
+            oldValue: previousDepartment,
+            newValue: primaryDepartment,
+            changedBy: Number(changedBy) || null,
+        }));
+    }
 
     /**
      * Get all users with pagination and filters
@@ -234,6 +297,7 @@ export class UserManagementService {
      * Get all departments
      */
     async getAllDepartments() {
+        await this.normalizeStoredDepartments();
         const departments = await this.departmentRepository.find({
             where: { deletedAt: null as any },
             order: { name: "ASC" },
@@ -246,6 +310,7 @@ export class UserManagementService {
      * Create a new department
      */
     async createDepartment(name: string, createdBy: string) {
+        name = normalizeDepartmentName(name);
         // Check if department already exists
         const existing = await this.departmentRepository.findOne({
             where: { name, deletedAt: null as any },
@@ -267,6 +332,7 @@ export class UserManagementService {
      * Assign departments to a user (replaces existing assignments)
      */
     async assignDepartments(userId: number, departmentIds: number[], createdBy: string) {
+        await this.normalizeStoredDepartments();
         const user = await this.usersRepository.findOne({
             where: { id: userId, deletedAt: null as any },
         });
@@ -294,6 +360,8 @@ export class UserManagementService {
             updatedBy: createdBy,
             updatedAt: new Date(),
         });
+
+        await this.syncEmployeeDepartmentFromUser(userId, createdBy);
 
         return { success: true, message: "Departments assigned successfully" };
     }

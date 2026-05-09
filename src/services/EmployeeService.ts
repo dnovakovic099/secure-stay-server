@@ -5,11 +5,14 @@ import { EmployeeChangeLog } from "../entity/EmployeeChangeLog";
 import { EmployeeScheduleEntry, EmployeeScheduleShiftType } from "../entity/EmployeeScheduleEntry";
 import { UsersEntity } from "../entity/Users";
 import { FileInfo } from "../entity/FileInfo";
+import { DepartmentEntity } from "../entity/Department";
+import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { Between, IsNull } from "typeorm";
 
 interface CreateEmployeeDto {
     userId: number;
-    department: EmployeeDepartment;
+    department: string;
+    departmentNames?: string[];
     jobTitle: string;
     jobType?: string | null;
     hiredFrom?: string | null;
@@ -31,7 +34,8 @@ interface CreateEmployeeDto {
 }
 
 interface UpdateEmployeeDto {
-    department?: EmployeeDepartment;
+    department?: string;
+    departmentNames?: string[];
     jobTitle?: string;
     jobType?: string | null;
     hiredFrom?: string | null;
@@ -78,6 +82,67 @@ export class EmployeeService {
     private changeLogRepo = appDatabase.getRepository(EmployeeChangeLog);
     private scheduleRepo = appDatabase.getRepository(EmployeeScheduleEntry);
     private usersRepo = appDatabase.getRepository(UsersEntity);
+    private departmentRepo = appDatabase.getRepository(DepartmentEntity);
+    private userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
+
+    private normalizeDepartmentName(name: string) {
+        const trimmed = name.trim();
+        const renames: Record<string, string> = {
+            'Issue Resolution': 'Maintenance',
+            'Issue Resolutions': 'Maintenance',
+            'Issues Resolution': 'Maintenance',
+            'Issues Resolutions': 'Maintenance',
+            'Admin': 'Administrative',
+        };
+        return renames[trimmed] || trimmed;
+    }
+
+    private normalizeDepartmentNames(names: Array<string | null | undefined>) {
+        return Array.from(new Set(names.filter(Boolean).map((name) => this.normalizeDepartmentName(String(name))).filter(Boolean)));
+    }
+
+    private async getOrCreateDepartment(name: string, createdBy?: number | string | null) {
+        const normalized = this.normalizeDepartmentName(name);
+        let department = await this.departmentRepo.findOne({ where: { name: normalized, deletedAt: null as any } });
+        if (!department) {
+            department = await this.departmentRepo.save(this.departmentRepo.create({
+                name: normalized,
+                createdBy: createdBy !== undefined && createdBy !== null ? String(createdBy) : null as any,
+            }));
+        }
+        return department;
+    }
+
+    private async setUserDepartments(userId: number, departmentNames: string[], createdBy?: number | string | null) {
+        const normalizedNames = this.normalizeDepartmentNames(departmentNames);
+        await this.userDepartmentRepo.delete({ userId });
+
+        if (normalizedNames.length === 0) return [];
+
+        const departments = await Promise.all(normalizedNames.map((name) => this.getOrCreateDepartment(name, createdBy)));
+        await this.userDepartmentRepo.save(departments.map((department) => ({
+            userId,
+            departmentId: department.id,
+            createdBy: createdBy !== undefined && createdBy !== null ? String(createdBy) : null as any,
+        })));
+        return departments;
+    }
+
+    private async attachUserDepartments(employee: any) {
+        const userDepartments = await this.userDepartmentRepo.find({
+            where: { userId: employee.userId },
+            relations: ['department'],
+            order: { id: 'ASC' },
+        });
+        const departments = userDepartments.map((ud) => ud.department).filter(Boolean);
+        employee.departments = departments;
+        if (departments.length > 0) {
+            employee.department = departments[0].name;
+        } else if (employee.department) {
+            employee.department = this.normalizeDepartmentName(employee.department);
+        }
+        return employee;
+    }
 
     /**
      * Ensures the employees and employee_notes tables exist
@@ -189,6 +254,15 @@ export class EmployeeService {
 
             // Cleanup soft-deleted employee numbers to prevent conflicts with active ones
             await appDatabase.query(`UPDATE employees SET employee_number = NULL, employee_number_seq = NULL WHERE deleted_at IS NOT NULL`);
+            await appDatabase.query(`ALTER TABLE employees MODIFY COLUMN department VARCHAR(100) NOT NULL`);
+            await appDatabase.query(`
+                UPDATE employees
+                SET department = CASE
+                    WHEN department IN ('Issue Resolution', 'Issue Resolutions', 'Issues Resolution', 'Issues Resolutions') THEN 'Maintenance'
+                    WHEN department = 'Admin' THEN 'Administrative'
+                    ELSE department
+                END
+            `);
 
             tablesInitialized = true;
         } catch (error: any) {
@@ -203,7 +277,7 @@ export class EmployeeService {
                         user_id INT NOT NULL UNIQUE,
                         employee_number VARCHAR(20) UNIQUE,
                         employee_number_seq INT NULL,
-                        department ENUM('Guest Relations', 'Client Relations', 'Maintenance', 'Onboarding', 'Admin') NOT NULL,
+                        department VARCHAR(100) NOT NULL,
                         job_title VARCHAR(100) NOT NULL,
                         hourly_rate DECIMAL(10, 2) DEFAULT 0,
                         start_date DATE NOT NULL,
@@ -322,7 +396,18 @@ export class EmployeeService {
 
         // Apply filters
         if (filters.department) {
-            queryBuilder.andWhere('employee.department = :department', { department: filters.department });
+            const department = this.normalizeDepartmentName(filters.department);
+            queryBuilder.andWhere(
+                `(employee.department = :department OR EXISTS (
+                    SELECT 1
+                    FROM user_departments ud
+                    INNER JOIN departments d ON d.id = ud.departmentId
+                    WHERE ud.userId = employee.userId
+                      AND d.name = :department
+                      AND d.deletedAt IS NULL
+                ))`,
+                { department }
+            );
         }
 
         if (filters.jobType) {
@@ -372,7 +457,7 @@ export class EmployeeService {
                     emp.profilePhotoInfo = fileInfo;
                 }
             }
-            return emp;
+            return this.attachUserDepartments(emp);
         }));
 
         return {
@@ -405,6 +490,10 @@ export class EmployeeService {
             employee.isActive = !!employee.user.isActive;
         }
 
+        if (employee) {
+            await this.attachUserDepartments(employee);
+        }
+
         if (employee?.changeLogs) {
             employee.changeLogs.sort((a: EmployeeChangeLog, b: EmployeeChangeLog) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
@@ -435,10 +524,20 @@ export class EmployeeService {
             queryBuilder.andWhere('user.id NOT IN (:...usedIds)', { usedIds });
         }
 
-        return queryBuilder
+        const users = await queryBuilder
             .select(['user.id', 'user.uid', 'user.firstName', 'user.lastName', 'user.email'])
             .orderBy('user.firstName', 'ASC')
             .getMany();
+
+        return Promise.all(users.map(async (user: any) => {
+            const userDepartments = await this.userDepartmentRepo.find({
+                where: { userId: user.id },
+                relations: ['department'],
+                order: { id: 'ASC' },
+            });
+            user.departments = userDepartments.map((ud) => ud.department).filter(Boolean);
+            return user;
+        }));
     }
 
     /**
@@ -470,10 +569,13 @@ export class EmployeeService {
         }
         console.log('User verified:', userExists.email);
 
+        const departmentNames = this.normalizeDepartmentNames(dto.departmentNames?.length ? dto.departmentNames : [dto.department]);
+        const primaryDepartment = departmentNames[0] || this.normalizeDepartmentName(dto.department);
+
         // Create employee - don't include createdBy if it's undefined
         const employeeData: Partial<Employee> = {
             userId: dto.userId,
-            department: dto.department,
+            department: primaryDepartment,
             jobTitle: dto.jobTitle,
             jobType: dto.jobType || null,
             hiredFrom: dto.hiredFrom || null,
@@ -502,6 +604,7 @@ export class EmployeeService {
         try {
             const employee = this.employeeRepo.create(employeeData);
             const saved = await this.employeeRepo.save(employee);
+            await this.setUserDepartments(dto.userId, departmentNames, dto.createdBy);
             console.log('Employee saved with id:', saved.id);
 
             // Generate employee number after save
@@ -705,11 +808,20 @@ export class EmployeeService {
         }
 
         const logTasks: Promise<void>[] = [];
+        let pendingDepartmentNames: string[] | null = null;
         const queue = (fieldName: string, oldValue: any, newValue: any) => {
             logTasks.push(this.logEmployeeChange(id, fieldName, oldValue, newValue, changedBy));
         };
 
-        if (dto.department !== undefined) { queue('Department', employee.department, dto.department); employee.department = dto.department; }
+        if (dto.departmentNames !== undefined || dto.department !== undefined) {
+            const departmentNames = this.normalizeDepartmentNames(dto.departmentNames?.length ? dto.departmentNames : [dto.department]);
+            const primaryDepartment = departmentNames[0];
+            if (primaryDepartment) {
+                queue('Department', employee.department, departmentNames.join(', '));
+                employee.department = primaryDepartment;
+                pendingDepartmentNames = departmentNames;
+            }
+        }
         if (dto.jobTitle !== undefined) { queue('Job Title', employee.jobTitle, dto.jobTitle); employee.jobTitle = dto.jobTitle; }
         if (dto.jobType !== undefined) { queue('Job Type', employee.jobType, dto.jobType || null); employee.jobType = dto.jobType || null; }
         if (dto.hiredFrom !== undefined) { queue('Hired From', employee.hiredFrom, dto.hiredFrom || null); employee.hiredFrom = dto.hiredFrom || null; }
@@ -744,6 +856,9 @@ export class EmployeeService {
         }
 
         await this.employeeRepo.save(employee);
+        if (pendingDepartmentNames) {
+            await this.setUserDepartments(employee.userId, pendingDepartmentNames, changedBy);
+        }
         await Promise.all(logTasks);
 
         // If start date changed, regenerate all employee numbers
@@ -860,7 +975,17 @@ export class EmployeeService {
     /**
      * Get employee departments
      */
-    getDepartments() {
+    async getDepartments() {
+        await this.ensureTables();
+        const departments = await this.departmentRepo.find({
+            where: { deletedAt: null as any },
+            order: { name: 'ASC' },
+        });
+
+        if (departments.length > 0) {
+            return departments.map((department) => department.name);
+        }
+
         return Object.values(EmployeeDepartment);
     }
 }
