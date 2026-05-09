@@ -157,6 +157,7 @@ export const validateCreateLatestUpdates = (request: Request, response: Response
     const schema = Joi.object({
         issueId: Joi.number().required(),
         updates: Joi.string().allow('').optional(),
+        source: Joi.string().valid('securestay', 'system').optional(),
     });
 
     const { error } = schema.validate(request.body);
