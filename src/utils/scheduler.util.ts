@@ -22,7 +22,7 @@ import { DatabaseBackupService } from "../services/DatabaseBackupService";
 import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
 import { TimeEntryService } from "../services/TimeEntryService";
-import { NoBookingAlertService } from "../services/NoBookingAlertService";
+import { LatestBookingReportService } from "../services/LatestBookingReportService";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
 import { CleanerNotificationService } from "../services/CleanerNotificationService";
 import { EscalationService } from "../services/EscalationService";
@@ -447,18 +447,33 @@ export function scheduleGetReservation() {
     }
   );
 
-  // No-Booking Alert - Every Monday at 6 AM EST
-  // Sends email notification for listings that haven't received any bookings for 7 days
+  // DISABLED: No-Booking Alert (replaced by Latest Booking Report below)
+  // schedule.scheduleJob(
+  //   { hour: 6, minute: 0, dayOfWeek: 1, tz: "America/New_York" },
+  //   async () => {
+  //     try {
+  //       logger.info('[NoBookingAlert] Checking for listings without bookings for 7 days...');
+  //       const noBookingAlertService = new NoBookingAlertService();
+  //       await noBookingAlertService.checkAndTriggerAlerts();
+  //       logger.info('[NoBookingAlert] Check completed.');
+  //     } catch (error) {
+  //       logger.error("[NoBookingAlert] Error checking for listings without bookings:", error);
+  //     }
+  //   }
+  // );
+
+  // Latest Booking Report - Every Monday at 6 AM EST
+  // Sends email with the most recent reservation per every active listing
   schedule.scheduleJob(
     { hour: 6, minute: 0, dayOfWeek: 1, tz: "America/New_York" },
     async () => {
       try {
-        logger.info('[NoBookingAlert] Checking for listings without bookings for 7 days...');
-        const noBookingAlertService = new NoBookingAlertService();
-        await noBookingAlertService.checkAndTriggerAlerts();
-        logger.info('[NoBookingAlert] Check completed.');
+        logger.info('[LatestBookingReport] Sending latest booking report...');
+        const latestBookingReportService = new LatestBookingReportService();
+        await latestBookingReportService.sendReport();
+        logger.info('[LatestBookingReport] Report sent.');
       } catch (error) {
-        logger.error("[NoBookingAlert] Error checking for listings without bookings:", error);
+        logger.error("[LatestBookingReport] Error sending latest booking report:", error);
       }
     }
   );
