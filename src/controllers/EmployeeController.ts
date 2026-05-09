@@ -171,13 +171,15 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
+            const { firstName, lastName, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
                 preferredName,
                 phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, paymentDay, paymentStartDate } = req.body;
 
             const updatedBy = await this.getInternalUserId(req.user);
 
             const employee = await this.employeeService.updateEmployee(parseInt(id), {
+                firstName,
+                lastName,
                 department,
                 departmentNames: Array.isArray(departmentNames) ? departmentNames : undefined,
                 jobTitle,
