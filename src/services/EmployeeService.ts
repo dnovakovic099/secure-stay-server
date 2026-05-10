@@ -25,12 +25,14 @@ interface CreateEmployeeDto {
     birthday?: Date | null;
     country?: string | null;
     preferredName?: string | null;
+    schedule?: string | null;
     paymentMethod?: string | null;
     paymentMethodOther?: string | null;
     paymentSchedule?: string | null;
     paymentDay?: string | null;
     paymentStartDate?: Date | null;
     paymentInfo?: string | null;
+    payrollNotes?: string | null;
 }
 
 interface UpdateEmployeeDto {
@@ -60,6 +62,7 @@ interface UpdateEmployeeDto {
     paymentMethodOther?: string | null;
     paymentSchedule?: string | null;
     paymentInfo?: string | null;
+    payrollNotes?: string | null;
     paymentDay?: string | null;
     paymentRecurrence?: string | null;
     paymentStartDate?: Date | null;
@@ -176,6 +179,7 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_method_other', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('payment_schedule', 'VARCHAR(50) NULL');
             await addColumnIfNotExists('payment_info', 'TEXT NULL');
+            await addColumnIfNotExists('payroll_notes', 'TEXT NULL');
             await addColumnIfNotExists('profile_photo', 'VARCHAR(500) NULL');
             await addColumnIfNotExists('employee_number_seq', 'INT NULL');
             await addColumnIfNotExists('job_type', 'VARCHAR(50) NULL');
@@ -589,12 +593,14 @@ export class EmployeeService {
             birthday: dto.birthday || null,
             country: dto.country || null,
             preferredName: dto.preferredName || null,
+            schedule: dto.schedule || null,
             paymentMethod: dto.paymentMethod || null,
             paymentMethodOther: dto.paymentMethodOther || null,
             paymentSchedule: dto.paymentSchedule || null,
             paymentDay: dto.paymentDay || null,
             paymentStartDate: dto.paymentStartDate || null,
             paymentInfo: dto.paymentInfo || null,
+            payrollNotes: dto.payrollNotes || null,
         };
         
         if (dto.createdBy) {
@@ -607,6 +613,9 @@ export class EmployeeService {
             const employee = this.employeeRepo.create(employeeData);
             const saved = await this.employeeRepo.save(employee);
             await this.setUserDepartments(dto.userId, departmentNames, dto.createdBy);
+            if (dto.schedule) {
+                await this.logEmployeeChange(saved.id, 'Schedule', null, dto.schedule, dto.createdBy);
+            }
             console.log('Employee saved with id:', saved.id);
 
             // Generate employee number after save
@@ -859,6 +868,7 @@ export class EmployeeService {
         if (dto.paymentMethodOther !== undefined) { queue('Payment Method Other', employee.paymentMethodOther, dto.paymentMethodOther || null); employee.paymentMethodOther = dto.paymentMethodOther || null; }
         if (dto.paymentSchedule !== undefined) { queue('Payment Schedule', employee.paymentSchedule, dto.paymentSchedule || null); employee.paymentSchedule = dto.paymentSchedule || null; }
         if (dto.paymentInfo !== undefined) { queue('Payment Info', employee.paymentInfo, dto.paymentInfo || null); employee.paymentInfo = dto.paymentInfo || null; }
+        if (dto.payrollNotes !== undefined) { queue('Payroll Notes', employee.payrollNotes, dto.payrollNotes || null); employee.payrollNotes = dto.payrollNotes || null; }
         if (dto.paymentDay !== undefined) { queue('Payment Day', employee.paymentDay, dto.paymentDay || null); employee.paymentDay = dto.paymentDay || null; }
         if (dto.paymentRecurrence !== undefined) { queue('Payment Recurrence', employee.paymentRecurrence, dto.paymentRecurrence || null); employee.paymentRecurrence = dto.paymentRecurrence || null; }
         if (dto.paymentStartDate !== undefined) { queue('Payment Start Date', employee.paymentStartDate, dto.paymentStartDate || null); employee.paymentStartDate = dto.paymentStartDate || null; }

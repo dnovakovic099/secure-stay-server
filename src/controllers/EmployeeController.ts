@@ -118,7 +118,7 @@ export class EmployeeController {
             
             const { userId, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
                 preferredName,
-                phone, birthday, country, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo } = req.body;
+                phone, birthday, country, schedule, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo, payrollNotes } = req.body;
 
             if (!userId || !department || !jobTitle || !startDate) {
                 console.log('Missing fields:', { userId, department, jobTitle, startDate });
@@ -142,12 +142,14 @@ export class EmployeeController {
                 phone: phone || undefined,
                 birthday: birthday ? new Date(birthday) : undefined,
                 country: country || undefined,
+                schedule: schedule || undefined,
                 paymentMethod: paymentMethod || undefined,
                 paymentMethodOther: paymentMethodOther || undefined,
                 paymentSchedule: paymentSchedule || undefined,
                 paymentDay: paymentDay || undefined,
                 paymentStartDate: paymentStartDate ? new Date(paymentStartDate) : undefined,
                 paymentInfo: paymentInfo || undefined,
+                payrollNotes: payrollNotes || undefined,
                 createdBy: creatorId,
             });
 
@@ -173,7 +175,7 @@ export class EmployeeController {
             const { id } = req.params;
             const { firstName, lastName, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
                 preferredName,
-                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, paymentDay, paymentStartDate } = req.body;
+                phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, payrollNotes, paymentDay, paymentStartDate } = req.body;
 
             const updatedBy = await this.getInternalUserId(req.user);
 
@@ -203,6 +205,7 @@ export class EmployeeController {
                 paymentMethodOther,
                 paymentSchedule,
                 paymentInfo,
+                payrollNotes,
                 paymentDay,
                 paymentStartDate: paymentStartDate ? new Date(paymentStartDate) : undefined,
             }, updatedBy);

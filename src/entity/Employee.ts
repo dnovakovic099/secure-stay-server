@@ -95,6 +95,9 @@ export class Employee {
     @Column({ name: 'payment_info', type: 'text', nullable: true })
     paymentInfo: string | null;
 
+    @Column({ name: 'payroll_notes', type: 'text', nullable: true })
+    payrollNotes: string | null;
+
     @Column({ name: 'payment_day', type: 'varchar', length: 20, nullable: true })
     paymentDay: string | null;
 
