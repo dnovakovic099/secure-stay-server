@@ -28,6 +28,8 @@ import { Hostify } from "../client/Hostify";
 import { ReservationService } from "./ReservationService";
 import { VelocityAlertService } from "./VelocityAlertService";
 import { ReservationHistoryService } from "./ReservationHistoryService";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -36,6 +38,7 @@ export class ReservationInfoService {
   private listingDetailRepo = appDatabase.getRepository(ListingDetail);
   private resolutionRepo = appDatabase.getRepository(Resolution);
   private genericReportRepo = appDatabase.getRepository(GenericReport);
+  private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
 
   private preStayAuditService = new ReservationDetailPreStayAuditService();
   private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -1298,12 +1301,86 @@ export class ReservationInfoService {
     diff: Record<string, { old: any; new: any }>,
     action: "INSERT" | "UPDATE" | "DELETE" = "UPDATE"
   ) {
-    return this.reservationHistoryService.logChanges({
+    const log = await this.reservationHistoryService.logChanges({
       reservationInfoId: reservationId,
       changedBy,
       diff,
       action,
     });
+
+    if (log && diff?.tags) {
+      this.postReservationTagActivityToSlack(reservationId, changedBy, diff)
+        .catch((error) => logger.error("[ReservationInfoService] Slack reservation tag activity post failed:", error));
+    }
+
+    return log;
+  }
+
+  private async postReservationTagActivityToSlack(
+    reservationId: number,
+    changedBy: string,
+    diff: Record<string, { old: any; new: any }>
+  ) {
+    const tagChange = diff.tags;
+    if (!tagChange) return;
+
+    const previousTags = this.normalizeReservationTags(tagChange.old);
+    const nextTags = this.normalizeReservationTags(tagChange.new);
+    const activityValues = this.describeReservationTagChange(previousTags, nextTags);
+    if (!activityValues) return;
+
+    const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+      where: { reservationInfo: { id: reservationId } },
+      relations: ["reservationInfo"],
+    });
+
+    if (!reviewCheckout?.slackThreadTs) return;
+
+    await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+      type: "resolution_tag",
+      actor: changedBy,
+      oldValue: activityValues.oldValue,
+      newValue: activityValues.newValue,
+    });
+  }
+
+  private normalizeReservationTags(value: any): string[] {
+    const source = Array.isArray(value) ? value : value == null ? [] : [value];
+    const seen = new Set<string>();
+    return source
+      .map((tag) => String(tag || "").trim().replace(/\s+/g, " "))
+      .filter((tag) => {
+        if (!tag) return false;
+        const key = tag.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  private describeReservationTagChange(previousTags: string[], nextTags: string[]) {
+    const previousKeys = new Set(previousTags.map((tag) => tag.toLowerCase()));
+    const nextKeys = new Set(nextTags.map((tag) => tag.toLowerCase()));
+    const removedTags = previousTags.filter((tag) => !nextKeys.has(tag.toLowerCase()));
+    const addedTags = nextTags.filter((tag) => !previousKeys.has(tag.toLowerCase()));
+
+    if (!removedTags.length && !addedTags.length) return null;
+    if (removedTags.length && addedTags.length) {
+      return {
+        oldValue: removedTags.join(", "),
+        newValue: addedTags.join(", "),
+      };
+    }
+    if (addedTags.length) {
+      return {
+        oldValue: null,
+        newValue: addedTags.join(", "),
+      };
+    }
+    return {
+      oldValue: removedTags.join(", "),
+      newValue: null,
+    };
   }
 
   async getListingIdsByStatementDurationType(durationType: string): Promise<number[]> {

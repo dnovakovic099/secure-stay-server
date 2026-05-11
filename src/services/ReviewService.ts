@@ -83,6 +83,7 @@ interface Filter {
     isClaimOnly?: boolean | string | null | undefined;
     refundStatus?: string[] | null | undefined;
     rating?: number[] | null | undefined;
+    reservationId?: string | number | null | undefined;
 }
 
 
@@ -1745,6 +1746,7 @@ export class ReviewService {
             refundStatus: rawRefundStatus,
             rating: rawRating,
             currentlyStaying,
+            reservationId,
         } = filters;
 
         // qs parses a single repeated query param as a string, not an array.
@@ -1766,6 +1768,9 @@ export class ReviewService {
         const rating = toArr(rawRating);
         const actionItemsStatus = toArr(rawActionItemsStatus);
         const issuesStatus = toArr(rawIssuesStatus);
+        const requestedReservationId = reservationId != null && reservationId !== ''
+            ? Number(reservationId)
+            : null;
 
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
@@ -1775,6 +1780,10 @@ export class ReviewService {
             .createQueryBuilder("reviewCheckout")
             .leftJoinAndSelect("reviewCheckout.reservationInfo", "reservationInfo")
             .leftJoinAndSelect("reviewCheckout.reviewCheckoutUpdates", "reviewCheckoutUpdates");
+
+        if (requestedReservationId && Number.isFinite(requestedReservationId)) {
+            query.andWhere("reservationInfo.id = :requestedReservationId", { requestedReservationId });
+        }
 
         if (currentlyStaying === true || currentlyStaying === 'true') {
             const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(

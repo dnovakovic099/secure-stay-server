@@ -196,6 +196,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.array().items(Joi.string())
         ).optional().allow(null, ""),
         currentlyStaying: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
+        reservationId: Joi.alternatives().try(Joi.number(), Joi.string()).optional(),
     });
 
     const { error } = schema.validate(request.query);

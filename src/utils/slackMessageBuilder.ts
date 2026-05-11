@@ -2185,7 +2185,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2230,6 +2230,16 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             text = oldValue
                 ? `Resolution Notes Edited By: ${actorLabel}\n📝 ${nextNote}\n~▸ ${previousNote}~\n──────────`
                 : `Resolution Notes Added By: ${actorLabel}\n📝 ${nextNote}\n──────────`;
+            break;
+        }
+        case 'resolution_tag': {
+            const previousTag = String(oldValue || '').trim();
+            const nextTag = String(newValue || details || '').trim();
+            const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
+            const shownTag = nextTag || previousTag || '—';
+            text = previousTag && nextTag
+                ? `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n~▸ ${previousTag}~\n──────────`
+                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n──────────`;
             break;
         }
         case 'comment':
@@ -2296,6 +2306,24 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                 : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Notes Added By: ${actorLabel}` }] },
                     { type: 'section', text: { type: 'mrkdwn', text: `📝 ${nextNote}` } },
+                    { type: 'divider' },
+                ];
+        } else if (type === 'resolution_tag') {
+            const previousTag = String(oldValue || '').trim();
+            const nextTag = String(newValue || details || '').trim();
+            const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
+            const shownTag = nextTag || previousTag || '—';
+
+            blocks = previousTag && nextTag
+                ? [
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Tag ${action} By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${shownTag}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${previousTag}~` }] },
+                    { type: 'divider' },
+                ]
+                : [
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Tag ${action} By: ${actorLabel}` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${shownTag}` } },
                     { type: 'divider' },
                 ];
         } else {
