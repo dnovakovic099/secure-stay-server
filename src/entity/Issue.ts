@@ -22,6 +22,9 @@ export class Issue {
     @Column({ nullable: true })
     reservation_id: string;
 
+    @Column({ type: 'text', nullable: true })
+    linked_reservations: string;
+
     @Column({ type: 'date', nullable: true })
     check_in_date: Date;
 
