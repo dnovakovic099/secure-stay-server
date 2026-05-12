@@ -28,6 +28,8 @@ const main = async () => {
   await initDatabase();
 
   const app = express();
+  // Trust one layer of reverse proxy (Nginx) so req.ip reflects the real client IP
+  app.set('trust proxy', 1);
   // Increase qs arrayLimit so repeated query params (e.g. 47 listingMapId values)
   // are parsed as arrays instead of plain objects (default limit is 20)
   app.set('query parser', (str: string) => qs.parse(str, { arrayLimit: 1000 }));
