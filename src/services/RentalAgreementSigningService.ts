@@ -1369,7 +1369,7 @@ export class RentalAgreementSigningService {
     <p><strong>Signed by:</strong> ${signing.signedByName}</p>
     <p><strong>Email:</strong> ${signing.signedByEmail || "N/A"}</p>
     <img class="sig-img" src="${signing.signatureDataUrl}" alt="Signature" />
-    <p class="timestamp">Signed: ${signing.signedAt.toISOString()} | IP: ${signing.ipAddress || "N/A"}</p>
+    <p class="timestamp">Signed: ${signing.signedAt.toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" })} | IP: ${signing.ipAddress || "N/A"}</p>
   </div>
 </body></html>`;
 

@@ -121,7 +121,7 @@ export class RentalAgreementController {
                 return res.status(400).json({ success: false, message: "signatureDataUrl and signedByName are required" });
             }
 
-            const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "";
+            const ip = req.ip || "";
             const userAgent = (req.headers["user-agent"] as string) || "";
 
             const result = await rentalAgreementSigningService.submitSigning(
