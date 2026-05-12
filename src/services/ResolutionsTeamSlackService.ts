@@ -23,6 +23,7 @@ import logger from "../utils/logger.utils";
 import { ReviewService } from "./ReviewService";
 import { formatCurrency } from "../helpers/helpers";
 import { UsersService } from "./UsersService";
+import { supabaseAdmin } from "../utils/supabase";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -111,6 +112,25 @@ export class ResolutionsTeamSlackService {
         }
     }
 
+    private async getSupabaseUserDisplayName(userId: string): Promise<string | null> {
+        try {
+            const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+            if (error || !data?.user) return null;
+
+            const metadata = data.user.user_metadata || {};
+            const fullName = String(metadata.full_name || metadata.name || "").trim();
+            const firstName = String(metadata.first_name || metadata.firstName || "").trim();
+            const lastName = String(metadata.last_name || metadata.lastName || "").trim();
+
+            return fullName
+                || [firstName, lastName].filter(Boolean).join(" ").trim()
+                || data.user.email
+                || null;
+        } catch {
+            return null;
+        }
+    }
+
     private async getActorPresentation(actor?: string | null) {
         const rawActor = String(actor || "").trim();
         if (!rawActor) {
@@ -131,7 +151,11 @@ export class ResolutionsTeamSlackService {
 
         const user = await this.usersRepo.findOne({ where: { uid: rawActor } });
         if (!user) {
-            return { displayName: rawActor, iconUrl: null as string | null };
+            const supabaseDisplayName = await this.getSupabaseUserDisplayName(rawActor);
+            return {
+                displayName: supabaseDisplayName || (this.looksLikeInternalIdentifier(rawActor) ? "SecureStay User" : rawActor),
+                iconUrl: null as string | null,
+            };
         }
 
         const employee = await this.employeeRepo.findOne({
