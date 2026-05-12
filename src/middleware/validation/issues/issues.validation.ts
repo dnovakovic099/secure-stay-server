@@ -156,8 +156,16 @@ export const validateIssueMigrationToActionItem = (request: Request, response: R
 };
 
 export const validateCreateLatestUpdates = (request: Request, response: Response, next: NextFunction) => {
+    const issueIdValue = Joi.alternatives().try(
+        Joi.number(),
+        Joi.string().pattern(/^\d+$/)
+    );
     const schema = Joi.object({
-        issueId: Joi.number().required(),
+        issueId: Joi.alternatives().try(
+            Joi.number(),
+            Joi.string().pattern(/^\d+(,\d+)*$/),
+            Joi.array().items(issueIdValue).min(1)
+        ).required(),
         updates: Joi.string().allow('').optional(),
         source: Joi.string().valid('securestay', 'system').optional(),
     });
@@ -227,7 +235,13 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
         updateData: Joi.object({
             status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled").optional(),
             category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").optional(),
+            urgency: Joi.number().allow(null).optional(),
+            assignee: Joi.string().allow('', null).optional(),
+            due_date: Joi.string().allow('', null).optional(),
+            ai_resolution_status: Joi.string().valid('Resolved', 'Not Resolved', '—').optional(),
+            ai_guest_sentiment: Joi.string().valid('Positive', 'Mixed', 'Neutral', 'Negative', '—').optional(),
             issue_description: Joi.string().optional(),
+            resolution: Joi.string().optional(),
             claim_resolution_status: Joi.string().valid('N/A', 'Not Submitted', 'In Progress', 'Submitted', 'Resolved').optional(),
             claim_resolution_amount: Joi.number().precision(2).optional(),
             estimated_reasonable_price: Joi.number().precision(2).optional(),

@@ -260,6 +260,67 @@ export class IssuesService {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
+  private normalizeIssueUpdateIds(issueId: any): number[] {
+    const rawValues = Array.isArray(issueId) ? issueId : [issueId];
+    const ids = Array.from(
+      new Set(
+        rawValues
+          .flatMap((value) => String(value ?? "").split(","))
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      )
+    );
+
+    if (!ids.length) {
+      throw CustomErrorHandler.validationError("A valid issueId is required");
+    }
+
+    return ids;
+  }
+
+  private async deleteTrackedIssueUpdateSlackMessage(updateId: number) {
+    const trackedSlackUpdate = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-updates",
+        entityId: updateId,
+      },
+      order: {
+        createdAt: "DESC",
+      },
+    });
+
+    if (!trackedSlackUpdate) return;
+
+    if (!process.env.SLACK_BOT_TOKEN) {
+      throw CustomErrorHandler.validationError("SLACK_BOT_TOKEN is not configured.");
+    }
+
+    try {
+      const response = await axios.post(
+        "https://slack.com/api/chat.delete",
+        {
+          channel: trackedSlackUpdate.channel,
+          ts: trackedSlackUpdate.messageTs,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          },
+        }
+      );
+
+      if (!response.data?.ok && !["message_not_found", "message_deleted"].includes(response.data?.error)) {
+        throw new Error(response.data?.error || "unknown_error");
+      }
+
+      await this.slackMessageRepo.remove(trackedSlackUpdate);
+    } catch (error: any) {
+      logger.error(`Slack issue update delete failed for update ${updateId}`, error);
+      throw CustomErrorHandler.validationError(`Slack delete failed: ${error?.message || "unknown_error"}`);
+    }
+  }
+
   private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
     if (!fileInfo) return null;
 
@@ -954,54 +1015,66 @@ export class IssuesService {
     }[]
   ) {
     const { issueId, updates, source } = body;
+    const issueIds = this.normalizeIssueUpdateIds(issueId);
+    const createdUpdates = [];
 
-    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
-    if (!issue) {
-      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
-    }
-
-    const newUpdate = this.issueUpdatesRepo.create({
-      issue: issue,
-      updates: updates || "",
-      createdBy: userId,
-      source: source === "system" ? "system" : "securestay",
-    });
-
-    const result = await this.issueUpdatesRepo.save(newUpdate);
-    if (fileInfo?.length) {
-      for (const file of fileInfo) {
-        const fileRecord = this.fileInfoRepo.create({
-          entityType: "issue-updates",
-          entityId: result.id,
-          fileName: file.fileName,
-          localPath: file.filePath,
-          mimetype: file.mimeType,
-          originalName: file.originalName,
-          createdBy: userId,
-        });
-        await this.fileInfoRepo.save(fileRecord);
+    for (const normalizedIssueId of issueIds) {
+      const issue = await this.issueRepo.findOne({ where: { id: normalizedIssueId } });
+      if (!issue) {
+        throw CustomErrorHandler.notFound(`Issue with ID ${normalizedIssueId} not found`);
       }
+
+      const newUpdate = this.issueUpdatesRepo.create({
+        issue: issue,
+        updates: updates || "",
+        createdBy: userId,
+        source: source === "system" ? "system" : "securestay",
+      });
+
+      const result = await this.issueUpdatesRepo.save(newUpdate);
+      if (fileInfo?.length) {
+        for (const file of fileInfo) {
+          const fileRecord = this.fileInfoRepo.create({
+            entityType: "issue-updates",
+            entityId: result.id,
+            fileName: file.fileName,
+            localPath: file.filePath,
+            mimetype: file.mimeType,
+            originalName: file.originalName,
+            createdBy: userId,
+          });
+          await this.fileInfoRepo.save(fileRecord);
+        }
+      }
+
+      createdUpdates.push(result);
     }
 
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
-    const createdUser = userMap.get(result.createdBy);
-    const updatedUser = userMap.get(result.updatedBy);
-    const attachedFiles = await this.fileInfoRepo.find({
-      where: { entityType: "issue-updates", entityId: result.id },
-    });
-    return {
-      ...result,
-      source: result.source === "system" ? "system" : "securestay",
-      createdByUid: result.createdBy,
-      updatedByUid: result.updatedBy,
-      createdByDepartment: createdUser?.department || null,
-      updatedByDepartment: updatedUser?.department || null,
-      createdBy: createdUser?.name || result.createdBy,
-      updatedBy: updatedUser?.name || result.updatedBy,
-      userAvatar: result.source === "system" ? null : (createdUser?.avatarUrl || null),
-      fileInfo: attachedFiles,
-    };
+    const formattedUpdates = await Promise.all(
+      createdUpdates.map(async (result) => {
+        const createdUser = userMap.get(result.createdBy);
+        const updatedUser = userMap.get(result.updatedBy);
+        const attachedFiles = await this.fileInfoRepo.find({
+          where: { entityType: "issue-updates", entityId: result.id },
+        });
+        return {
+          ...result,
+          source: result.source === "system" ? "system" : "securestay",
+          createdByUid: result.createdBy,
+          updatedByUid: result.updatedBy,
+          createdByDepartment: createdUser?.department || null,
+          updatedByDepartment: updatedUser?.department || null,
+          createdBy: createdUser?.name || result.createdBy,
+          updatedBy: updatedUser?.name || result.updatedBy,
+          userAvatar: result.source === "system" ? null : (createdUser?.avatarUrl || null),
+          fileInfo: attachedFiles,
+        };
+      })
+    );
+
+    return Array.isArray(issueId) || issueIds.length > 1 ? formattedUpdates : formattedUpdates[0];
   }
 
   async updateIssueUpdates(body: any, userId: string) {
@@ -1071,6 +1144,10 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(
         `Issue update with the id ${id} not found`
       );
+    }
+
+    if (issueUpdate.source !== "slack") {
+      await this.deleteTrackedIssueUpdateSlackMessage(Number(issueUpdate.id));
     }
 
     issueUpdate.deletedAt = new Date();
@@ -1790,8 +1867,26 @@ export class IssuesService {
         if (updateData.category !== undefined) {
           issue.category = updateData.category;
         }
+        if (updateData.urgency !== undefined) {
+          issue.urgency = updateData.urgency;
+        }
+        if (updateData.assignee !== undefined) {
+          issue.assignee = updateData.assignee;
+        }
+        if (updateData.due_date !== undefined) {
+          issue.due_date = updateData.due_date;
+        }
+        if (updateData.ai_resolution_status !== undefined) {
+          issue.ai_resolution_status = updateData.ai_resolution_status;
+        }
+        if (updateData.ai_guest_sentiment !== undefined) {
+          issue.ai_guest_sentiment = updateData.ai_guest_sentiment;
+        }
         if (updateData.issue_description !== undefined) {
           issue.issue_description = updateData.issue_description;
+        }
+        if (updateData.resolution !== undefined) {
+          issue.resolution = updateData.resolution;
         }
         if (updateData.claim_resolution_status !== undefined) {
           issue.claim_resolution_status = updateData.claim_resolution_status;
