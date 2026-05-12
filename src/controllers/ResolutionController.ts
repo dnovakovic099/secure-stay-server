@@ -161,6 +161,45 @@ export class ResolutionController {
         }
     }
 
+    checkMultipleCSVForCancellationFeesWithoutRefunds = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            const files = request.files as Express.Multer.File[];
+
+            if (!files || files.length === 0) {
+                return response.status(400).json({ message: "No files uploaded" });
+            }
+
+            logger.info(`Checking ${files.length} CSV file(s) for cancellation fees without refunds`);
+
+            let allUnpairedRows: any[] = [];
+
+            for (const file of files) {
+                try {
+                    const rows = await this.resolutionService.checkCancellationFeesWithoutRefunds(file.path);
+                    allUnpairedRows = [...allUnpairedRows, ...rows];
+                } catch (fileError) {
+                    logger.error(`Failed to process ${file.originalname}: ${fileError.message}`);
+                }
+            }
+
+            if (allUnpairedRows.length > 0) {
+                const csv = unparse(allUnpairedRows);
+                response.setHeader("Content-Disposition", "attachment; filename=cancellation_fees_without_refunds.csv");
+                response.setHeader("Content-Type", "text/csv");
+                return response.status(200).send(csv);
+            }
+
+            return response.status(200).json({
+                success: true,
+                message: "No unpaired cancellation fees found",
+                filesProcessed: files.length,
+                unpairedCount: 0,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async processMultipleCSVForResolution(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;

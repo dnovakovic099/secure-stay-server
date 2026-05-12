@@ -545,6 +545,53 @@ export class ResolutionService {
         return { missingRows, presentRows };
     }
 
+    async checkCancellationFeesWithoutRefunds(filePath: string): Promise<CsvRow[]> {
+        return new Promise((resolve, reject) => {
+            const allRows: CsvRow[] = [];
+
+            fs.createReadStream(filePath)
+                .pipe(csv({
+                    mapHeaders: ({ header }) => header.replace(/^﻿/, "").trim()
+                }))
+                .on("headers", (headers: string[]) => {
+                    const required = ["Guest", "Start date", "Type", "Confirmation code"];
+                    const missing = required.filter(h => !headers.includes(h));
+                    if (missing.length > 0) {
+                        fs.unlinkSync(filePath);
+                        reject(new CustomErrorHandler(400, `Missing required headers: ${missing.join(", ")}`));
+                    }
+                })
+                .on("data", (row: CsvRow) => {
+                    if (row.Type === "Cancellation Fee" || row.Type === "Cancellation Fee Refund") {
+                        allRows.push(row);
+                    }
+                })
+                .on("end", () => {
+                    const groupMap = new Map<string, { fees: CsvRow[]; refunds: CsvRow[] }>();
+                    for (const row of allRows) {
+                        const key = row["Confirmation code"]?.trim() || `${row.Guest?.trim()}_${row["Start date"]?.trim()}`;
+                        if (!groupMap.has(key)) groupMap.set(key, { fees: [], refunds: [] });
+                        const group = groupMap.get(key)!;
+                        if (row.Type === "Cancellation Fee") {
+                            group.fees.push(row);
+                        } else {
+                            group.refunds.push(row);
+                        }
+                    }
+                    const result: CsvRow[] = [];
+                    for (const { fees, refunds } of groupMap.values()) {
+                        if (fees.length > 0 && refunds.length === 0) result.push(...fees);
+                    }
+                    fs.unlinkSync(filePath);
+                    resolve(result);
+                })
+                .on("error", (err) => {
+                    fs.unlinkSync(filePath);
+                    reject(err);
+                });
+        });
+    }
+
     async sendCancellationFeeNotification(reservation: ReservationInfoEntity, resolution: Resolution, cancellationFeeInfo: Resolution) {
         const listingInfo = await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
 
