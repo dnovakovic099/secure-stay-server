@@ -189,6 +189,13 @@ router.route('/resolution/check-missing-csv-multiple')
         resolutionController.checkMultipleCSVForMissingResolutions
     )
 
+router.route('/resolution/check-cancellation-fees-without-refunds')
+    .post(
+        verifySession,
+        fileUpload("resolution").array("files", 30),
+        resolutionController.checkMultipleCSVForCancellationFeesWithoutRefunds
+    )
+
 router.route('/save-published-ha-statements')
     .get(
         verifySession,
