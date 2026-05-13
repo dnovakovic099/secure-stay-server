@@ -9,6 +9,7 @@ interface MaintenanceFilter {
     listingId?: string[];
     workCategory?: string[];
     contactId?: number[];
+    status?: string[];
     fromDate?: string;
     toDate?: string;
     propertyType?: string[];
@@ -68,6 +69,7 @@ export class MaintenanceController {
                 workCategory: normalizeArray(request.query.workCategory),
                 contactId: normalizeArray(request.query.contactId) ? normalizeArray(request.query.contactId).map(Number) : undefined,
                 workType: normalizeArray(request.query.workType),
+                status: normalizeArray(request.query.status),
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
                 propertyType: normalizeArray(request.query.propertyType),
@@ -100,6 +102,7 @@ export class MaintenanceController {
                 workCategory: normalizeArray(request.query.workCategory),
                 contactId: normalizeArray(request.query.contactId) ? normalizeArray(request.query.contactId).map(Number) : undefined,
                 workType: normalizeArray(request.query.workType),
+                status: normalizeArray(request.query.status),
                 fromDate: request.query.fromDate || undefined,
                 toDate: request.query.toDate || undefined,
                 propertyType: normalizeArray(request.query.propertyType),

@@ -19,6 +19,7 @@ interface MaintenanceFilter {
     workCategory?: string[];
     contactId?: number[];
     workType?: string[];
+    status?: string[];
     fromDate?: string;
     toDate?: string;
     propertyType?: string[];
@@ -69,6 +70,7 @@ export class MaintenanceService {
                 listingId: body.listingId,
                 workCategory: body.workCategory,
                 nextSchedule: body.nextSchedule,
+                status: body.status || "Scheduled",
                 contactId: body.contactId,
                 issueId,
                 createdBy: userId,
@@ -133,7 +135,7 @@ export class MaintenanceService {
     }
 
     async getMaintenanceList(filter: MaintenanceFilter, userId: string) {
-        const { listingId, workCategory, contactId, workType, fromDate, toDate, propertyType, keyword, type, page, limit, currentDate } = filter;
+        const { listingId, workCategory, contactId, workType, status, fromDate, toDate, propertyType, keyword, type, page, limit, currentDate } = filter;
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -145,6 +147,7 @@ export class MaintenanceService {
 
         let whereConditions = {
             ...(workCategory && { workCategory: In(workCategory) }),
+            ...(status && status.length > 0 && { status: In(status) }),
             ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
             ...(contactId && contactId?.length > 0 && { contactId: In(contactId) }),
             ...(fromDate && toDate && {
@@ -247,6 +250,7 @@ export class MaintenanceService {
             Property: log.listingName,
             "Work Category": log.workCategory,
             "Type of Work": log.typeOfWork,
+            Status: log.status || "Scheduled",
             Issue: log.issueId ? `Issue #${log.issueId}` : "-",
             Assignee: log.contact ? log.contact.name : "-",
             "Vendor Role": log.contact ? log.contact.role : "-",

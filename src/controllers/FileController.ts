@@ -35,6 +35,11 @@ export class FileController {
                 '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 '.xls': 'application/vnd.ms-excel',
                 '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.m4v': 'video/x-m4v',
+                '.webm': 'video/webm',
+                '.avi': 'video/x-msvideo',
             };
             const contentType = mimeTypes[fileExtension] || 'application/octet-stream';
             response.setHeader('Content-Type', contentType);

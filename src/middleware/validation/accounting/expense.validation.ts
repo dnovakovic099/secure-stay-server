@@ -193,6 +193,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional(),
+        issueId: Joi.array().items(Joi.number()).optional(),
         isRecurring: Joi.number().valid(0, 1).optional(),
         excludeCategories: Joi.string().valid('true', 'false').optional(),
         excludeContractorName: Joi.string().valid('true', 'false').optional(),
