@@ -41,7 +41,9 @@ router.route('/:id/resolution-analysis').post(verifySession, issuesController.ge
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 router.route('/:id/vendor-thread')
     .get(verifySession, issuesController.getIssueVendorThread)
-    .post(verifySession, issuesController.attachIssueVendorThread);
+    .post(verifySession, issuesController.attachIssueVendorThread)
+    .delete(verifySession, issuesController.unlinkIssueVendorThread);
+router.route('/:id/openphone-conversation').get(verifySession, issuesController.resolveIssueOpenPhoneConversation);
 router.route('/:id/vendor-thread/reply').post(verifySession, issuesController.replyToIssueVendorThread);
 
 

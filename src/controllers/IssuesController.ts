@@ -499,7 +499,41 @@ export class IssuesController {
       const result = await issuesService.attachIssueVendorThread(issueId, request.body?.slackLink, userId, {
         channel: request.body?.channel,
         message: request.body?.message,
+        openPhone: request.body?.openPhone,
       });
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async unlinkIssueVendorThread(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.unlinkIssueVendorThread(issueId, userId);
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async resolveIssueOpenPhoneConversation(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const issuesService = new IssuesService();
+      const result = await issuesService.resolveIssueOpenPhoneConversation(
+        issueId,
+        request.query?.phone as string,
+        request.query?.contactName as string
+      );
       return response.status(200).json({
         status: true,
         data: result,
