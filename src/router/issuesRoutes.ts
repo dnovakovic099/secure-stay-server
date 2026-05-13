@@ -34,6 +34,8 @@ router.route('/update-urgency').put(verifySession, validateUpdateUrgency, issues
 router.route('/update-mistake').put(verifySession, validateUpdateMistake, issuesController.updateMistake);
 router.route('/update-status').put(verifySession, validateUpdateStatus, issuesController.updateStatus)
 router.route('/quick-action').post(verifySession, validateIssueQuickAction, issuesController.quickAction);
+router.route('/slack-thread-preview').get(verifySession, issuesController.previewSlackThread);
+router.route('/slack-file').get(verifySession, issuesController.proxySlackFile);
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);

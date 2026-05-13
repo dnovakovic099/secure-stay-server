@@ -461,6 +461,36 @@ export class IssuesController {
     }
   }
 
+  async previewSlackThread(request: any, response: Response, next: NextFunction) {
+    try {
+      const issuesService = new IssuesService();
+      const result = await issuesService.previewSlackThread(String(request.query?.slackLink || ""));
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async proxySlackFile(request: any, response: Response, next: NextFunction) {
+    try {
+      const issuesService = new IssuesService();
+      const slackResponse = await issuesService.proxySlackFile(String(request.query?.url || ""));
+      const contentType = slackResponse.headers["content-type"] || "application/octet-stream";
+      const contentLength = slackResponse.headers["content-length"];
+      response.setHeader("Content-Type", contentType);
+      if (contentLength) {
+        response.setHeader("Content-Length", contentLength);
+      }
+      response.setHeader("Cache-Control", "private, max-age=300");
+      slackResponse.data.pipe(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async attachIssueVendorThread(request: any, response: Response, next: NextFunction) {
     try {
       const issueId = Number(request.params.id);

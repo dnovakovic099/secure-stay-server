@@ -159,6 +159,7 @@ export class ExpenseService {
             propertyType,
             keyword,
             expenseId,
+            issueId,
             isRecurring,
             type,
             excludeCategories,
@@ -172,6 +173,9 @@ export class ExpenseService {
         // expenseId filter
         const expenseIds = expenseId
             ? (Array.isArray(expenseId) ? expenseId.map(String) : String(expenseId).split(','))
+            : [];
+        const issueIds = issueId
+            ? (Array.isArray(issueId) ? issueId.map(Number) : String(issueId).split(',').map(Number)).filter((id) => Number.isFinite(id))
             : [];
 
         // fetch all the listingIds associated with the tags
@@ -219,6 +223,17 @@ export class ExpenseService {
                         paymentMethod: In(normalizedPaymentMethod),
                     }),
                     ...(expenseIds.length > 0 && { id: In(expenseIds) }),
+                    ...(issueIds.length > 0 && {
+                        issues: Raw((alias) => {
+                            const containsChecks = issueIds
+                                .map((_, index) => `JSON_CONTAINS(${alias}, :issueId${index}, '$')`)
+                                .join(' OR ');
+                            return `${alias} IS NOT NULL AND JSON_VALID(${alias}) AND (${containsChecks})`;
+                        }, issueIds.reduce((params, id, index) => ({
+                            ...params,
+                            [`issueId${index}`]: String(id),
+                        }), {} as Record<string, string>))
+                    }),
                     ...(normalizedContractorName.length > 0 && {
                         contractorName: excludeContractorName === 'true' ? Not(In(normalizedContractorName)) : In(normalizedContractorName),
                     }),

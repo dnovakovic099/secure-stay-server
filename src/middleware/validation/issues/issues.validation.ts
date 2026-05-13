@@ -220,6 +220,11 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         urgency: Joi.array().items(Joi.number()).min(1).optional(),
         activityType: Joi.string().valid('created', 'updated', 'completed').optional(),
         activityUser: Joi.string().optional(),
+        activityKeyword: Joi.string().optional(),
+        issueResolution: Joi.string().valid('Resolved', 'Not Resolved', '—').optional(),
+        guestSentiment: Joi.string().valid('Positive', 'Mixed', 'Neutral', 'Negative', '—').optional(),
+        resolutionNotesStatus: Joi.string().valid('with-resolution', 'no-resolution').optional(),
+        resolutionNotesKeyword: Joi.string().optional(),
     });
 
     const { error } = schema.validate(request.query);

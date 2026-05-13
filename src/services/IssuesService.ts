@@ -198,34 +198,66 @@ export class IssuesService {
           userAvatar,
           slackMessageTs: message.ts,
           fileInfo: Array.isArray(message.files)
-            ? message.files.map((file: any, index: number) => ({
-                id: `${message.ts}-${index}`,
-                fileName: file?.name || `Slack file ${index + 1}`,
-                originalName: file?.title || file?.name || `Slack file ${index + 1}`,
-                mimeType: file?.mimetype || file?.filetype || "",
-                url:
-                  file?.thumb_1024 ||
-                  file?.thumb_720 ||
-                  file?.thumb_480 ||
-                  file?.thumb_360 ||
-                  file?.permalink_public ||
-                  file?.permalink ||
-                  null,
-                webViewLink: file?.permalink_public || file?.permalink || null,
-                webContentLink:
-                  file?.thumb_1024 ||
-                  file?.thumb_720 ||
-                  file?.thumb_480 ||
-                  file?.thumb_360 ||
-                  file?.permalink_public ||
-                  file?.permalink ||
-                  null,
-                link: file?.permalink_public || file?.permalink || null,
-              }))
+            ? message.files.map((file: any, index: number) => this.buildSlackFileAttachment(file, message.ts, index))
             : [],
         };
       })
     );
+  }
+
+  private getSlackFileUrl(file: any, preferPreview = false) {
+    const previewUrl =
+      file?.thumb_1024 ||
+      file?.thumb_720 ||
+      file?.thumb_480 ||
+      file?.thumb_360 ||
+      file?.thumb_pdf ||
+      null;
+    const downloadUrl = file?.url_private_download || file?.url_private || file?.permalink_public || file?.permalink || null;
+    return preferPreview ? (previewUrl || downloadUrl) : (downloadUrl || previewUrl);
+  }
+
+  private buildSlackFileAttachment(file: any, messageTs: string, index: number) {
+    const originalUrl = this.getSlackFileUrl(file);
+    const previewUrl = this.getSlackFileUrl(file, true);
+    const proxyUrl = originalUrl ? `/issues/slack-file?url=${encodeURIComponent(originalUrl)}` : null;
+    const previewProxyUrl = previewUrl ? `/issues/slack-file?url=${encodeURIComponent(previewUrl)}` : proxyUrl;
+
+    return {
+      id: file?.id || `${messageTs}-${index}`,
+      fileName: file?.name || `Slack file ${index + 1}`,
+      originalName: file?.title || file?.name || `Slack file ${index + 1}`,
+      mimeType: file?.mimetype || file?.filetype || "",
+      url: previewProxyUrl,
+      webViewLink: file?.permalink_public || file?.permalink || proxyUrl,
+      webContentLink: proxyUrl,
+      link: proxyUrl || file?.permalink_public || file?.permalink || null,
+    };
+  }
+
+  async proxySlackFile(fileUrl: string) {
+    const trimmedUrl = String(fileUrl || "").trim();
+    if (!trimmedUrl) {
+      throw CustomErrorHandler.validationError("Slack file URL is required");
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmedUrl);
+    } catch {
+      throw CustomErrorHandler.validationError("Please enter a valid Slack file URL");
+    }
+
+    if (!parsedUrl.hostname.endsWith("slack.com")) {
+      throw CustomErrorHandler.validationError("Only Slack file URLs can be previewed");
+    }
+
+    return axios.get(trimmedUrl, {
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      },
+      responseType: "stream",
+    });
   }
 
   private formatDate(date: Date): string {
@@ -455,6 +487,52 @@ export class IssuesService {
           .filter((id) => Number.isFinite(id))
       )
     );
+  }
+
+  private async resolveActivityKeywordIssueIds(keyword: string): Promise<number[]> {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return [];
+
+    const rows = await this.issueUpdatesRepo
+      .createQueryBuilder("issueUpdate")
+      .innerJoin("issueUpdate.issue", "issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("issueUpdate.updates LIKE :keyword", { keyword: `%${normalizedKeyword}%` })
+      .getRawMany<{ id: number }>();
+
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveResolutionNotesKeywordIssueIds(keyword: string): Promise<number[]> {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return [];
+
+    const rows = await this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .where("issue.resolution LIKE :keyword", { keyword: `%${normalizedKeyword}%` })
+      .getRawMany<{ id: number }>();
+
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveResolutionNotesPresenceIssueIds(status: string): Promise<number[]> {
+    const qb = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id");
+
+    if (status === "with-resolution") {
+      qb.where("issue.resolution IS NOT NULL").andWhere("TRIM(issue.resolution) <> ''");
+    } else if (status === "no-resolution") {
+      qb.where("issue.resolution IS NULL OR TRIM(issue.resolution) = ''");
+    } else {
+      return [];
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
   private buildFallbackIssueTitle(issue: Partial<Issue>) {
@@ -1178,6 +1256,11 @@ export class IssuesService {
       urgency,
       activityType,
       activityUser,
+      activityKeyword,
+      issueResolution,
+      guestSentiment,
+      resolutionNotesStatus,
+      resolutionNotesKeyword,
     } = body;
 
     let listingIds = [];
@@ -1278,6 +1361,9 @@ export class IssuesService {
         : "created_by";
 
     const normalizedKeyword = String(keyword || "").trim();
+    const normalizedActivityKeyword = String(activityKeyword || "").trim();
+    const normalizedResolutionNotesKeyword = String(resolutionNotesKeyword || "").trim();
+    const normalizedResolutionNotesStatus = String(resolutionNotesStatus || "").trim();
     const requestedIssueIds = Array.isArray(issueId)
       ? issueId.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id))
       : issueId
@@ -1286,20 +1372,40 @@ export class IssuesService {
     const keywordIssueIds = normalizedKeyword
       ? await this.resolveKeywordIssueIds(normalizedKeyword)
       : undefined;
+    const activityKeywordIssueIds = normalizedActivityKeyword
+      ? await this.resolveActivityKeywordIssueIds(normalizedActivityKeyword)
+      : undefined;
+    const resolutionNotesKeywordIssueIds = normalizedResolutionNotesKeyword
+      ? await this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword)
+      : undefined;
+    const resolutionNotesPresenceIssueIds = normalizedResolutionNotesStatus
+      ? await this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus)
+      : undefined;
     let effectiveIssueIds = requestedIssueIds.length > 0 ? requestedIssueIds : undefined;
 
-    if (keywordIssueIds) {
-      if (keywordIssueIds.length === 0) {
-        return { issues: [], total: 0 };
-      }
-
+    const applyIssueIdFilter = (ids?: number[]) => {
+      if (!ids) return true;
+      if (ids.length === 0) return false;
       effectiveIssueIds = effectiveIssueIds
-        ? effectiveIssueIds.filter((id) => keywordIssueIds.includes(id))
-        : keywordIssueIds;
+        ? effectiveIssueIds.filter((id) => ids.includes(id))
+        : ids;
+      return effectiveIssueIds.length > 0;
+    };
 
-      if (effectiveIssueIds.length === 0) {
-        return { issues: [], total: 0 };
-      }
+    if (!applyIssueIdFilter(keywordIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(activityKeywordIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(resolutionNotesKeywordIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(resolutionNotesPresenceIssueIds)) {
+      return { issues: [], total: 0 };
     }
 
     const [issues, total] = await this.issueRepo.findAndCount({
@@ -1319,6 +1425,8 @@ export class IssuesService {
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
         ...(activityUser && { [activityColumn]: activityUser }),
+        ...(issueResolution && { ai_resolution_status: issueResolution }),
+        ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
         ...(isOverdue && { nextUpdateDate: LessThanOrEqual(currentDate) }),
       },
       relations: ["issueUpdates"],
@@ -1558,30 +1666,7 @@ export class IssuesService {
             deletedBy: null,
             userAvatar,
             fileInfo: Array.isArray(message.files)
-              ? message.files.map((file: any, index: number) => ({
-                  id: `${message.ts}-${index}`,
-                  fileName: file?.name || `Slack file ${index + 1}`,
-                  originalName: file?.title || file?.name || `Slack file ${index + 1}`,
-                  mimeType: file?.mimetype || file?.filetype || "",
-                  url:
-                    file?.thumb_1024 ||
-                    file?.thumb_720 ||
-                    file?.thumb_480 ||
-                    file?.thumb_360 ||
-                    file?.permalink_public ||
-                    file?.permalink ||
-                    null,
-                  webViewLink: file?.permalink_public || file?.permalink || null,
-                  webContentLink:
-                    file?.thumb_1024 ||
-                    file?.thumb_720 ||
-                    file?.thumb_480 ||
-                    file?.thumb_360 ||
-                    file?.permalink_public ||
-                    file?.permalink ||
-                    null,
-                  link: file?.permalink_public || file?.permalink || null,
-                }))
+              ? message.files.map((file: any, index: number) => this.buildSlackFileAttachment(file, message.ts, index))
               : [],
           };
         })
@@ -1669,6 +1754,23 @@ export class IssuesService {
         error: "Unable to load vendor thread replies. Please confirm the Slack app can access the channel.",
       };
     }
+  }
+
+  async previewSlackThread(slackLink: string) {
+    const parsedThread = this.parseSlackThreadLink(slackLink);
+    const threadUrl =
+      (await this.getSlackThreadPermalink(parsedThread.channel, parsedThread.threadTs)) ||
+      parsedThread.url;
+    const entries = await this.getSlackThreadEntries(parsedThread.channel, parsedThread.threadTs, true, true);
+
+    return {
+      attached: true,
+      channel: parsedThread.channel,
+      threadTs: parsedThread.threadTs,
+      messageTs: parsedThread.messageTs,
+      threadUrl,
+      entries,
+    };
   }
 
   async attachIssueVendorThread(

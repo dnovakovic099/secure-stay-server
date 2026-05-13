@@ -1,6 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
+const maintenanceStatusSchema = Joi.string().valid(
+    "Not scheduled",
+    "Coordinating",
+    "Scheduled",
+    "Cancelled",
+    "Postponed"
+);
+
 export const validateCreateMaintenance = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         listingId: Joi.string().required(),
@@ -8,6 +16,7 @@ export const validateCreateMaintenance = (request: Request, response: Response, 
         nextSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
+        status: maintenanceStatusSchema.optional(),
         contactId: Joi.number().required().allow(null),
         issueId: Joi.number().optional().allow(null),
         issueIds: Joi.array().items(Joi.number()).optional()
@@ -29,6 +38,7 @@ export const validateUpdateMaintenance = (request: Request, response: Response, 
         nextSchedule: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'nextSchedule must be in the format "yyyy-mm-dd"',
         }).required(),
+        status: maintenanceStatusSchema.optional(),
         contactId: Joi.number().required().allow(null),
         issueId: Joi.number().optional().allow(null),
         issueIds: Joi.array().items(Joi.number()).optional(),
@@ -58,6 +68,7 @@ export const validateGetMaintenance = (request: Request, response: Response, nex
         limit: Joi.number().required(),
         propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         workType: Joi.array().items(Joi.string().valid("regular", "one-time", "issue-related")).optional(),
+        status: Joi.array().items(maintenanceStatusSchema).optional(),
         keyword: Joi.string().optional(),
         type: Joi.string().valid("unassigned", "today", "upcoming", "past").optional(),
         currentDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({

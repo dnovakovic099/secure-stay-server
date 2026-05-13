@@ -14,6 +14,9 @@ export class Maintenance {
     @Column({ nullable: true })
     nextSchedule: string;
 
+    @Column({ nullable: true, default: 'Scheduled' })
+    status: string;
+
     @Column({ type: "text", nullable: true })
     notes: string;
 
