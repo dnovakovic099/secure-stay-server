@@ -32,6 +32,7 @@ import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { buildIssueUpdateMessage, formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { OpenPhoneService } from "./OpenPhoneService";
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -203,6 +204,51 @@ export class IssuesService {
         };
       })
     );
+  }
+
+  private parseOpenPhoneConversationLink(openPhoneLink?: string | null) {
+    const trimmedLink = String(openPhoneLink || "").trim();
+    if (!trimmedLink) return null;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmedLink);
+    } catch {
+      throw CustomErrorHandler.validationError("Please enter a valid OpenPhone or Quo conversation link");
+    }
+
+    const quoMatch = parsedUrl.pathname.match(/\/inbox\/([^/]+)\/c\/([^/]+)/i);
+    if (parsedUrl.hostname.toLowerCase().includes("quo.com") && quoMatch) {
+      return {
+        url: parsedUrl.toString(),
+        phoneNumberId: decodeURIComponent(quoMatch[1]),
+        conversationId: decodeURIComponent(quoMatch[2]),
+        source: "manual",
+      };
+    }
+
+    if (parsedUrl.hostname.toLowerCase().includes("openphone")) {
+      return {
+        url: parsedUrl.toString(),
+        phoneNumberId: null,
+        conversationId: null,
+        source: "manual",
+      };
+    }
+
+    throw CustomErrorHandler.validationError("Please enter a valid OpenPhone or Quo conversation link");
+  }
+
+  private async getMainIssueSlackThread(issueId: number) {
+    return this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issues",
+        entityId: issueId,
+      },
+      order: {
+        createdAt: "DESC",
+      },
+    });
   }
 
   private getSlackFileUrl(file: any, preferPreview = false) {
@@ -1740,6 +1786,7 @@ export class IssuesService {
         threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
         messageTs: trackedVendorThread.messageTs,
         threadUrl,
+        openPhone: parsedOriginalMessage?.openPhone || null,
         entries,
       };
     } catch (error) {
@@ -1750,10 +1797,69 @@ export class IssuesService {
         threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
         messageTs: trackedVendorThread.messageTs,
         threadUrl,
+        openPhone: parsedOriginalMessage?.openPhone || null,
         entries: [],
         error: "Unable to load vendor thread replies. Please confirm the Slack app can access the channel.",
       };
     }
+  }
+
+  async resolveIssueOpenPhoneConversation(issueId: number, phone?: string, contactName?: string) {
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const normalizedContactName = String(contactName || "").trim().toLowerCase();
+    if (["ana", "diana"].includes(normalizedContactName)) {
+      return {
+        found: false,
+        skipped: true,
+        reason: "excluded_poc",
+      };
+    }
+
+    const openPhoneService = new OpenPhoneService();
+    const normalizedPhone = openPhoneService.formatPhoneNumber("+1", String(phone || ""));
+    if (!normalizedPhone) {
+      return {
+        found: false,
+        skipped: false,
+        reason: "missing_phone",
+      };
+    }
+
+    const result = await openPhoneService.findMessagesByParticipant(normalizedPhone, 50);
+    const messages = Array.isArray(result?.data) ? result.data : [];
+    if (!messages.length) {
+      return {
+        found: false,
+        skipped: false,
+        reason: "not_found",
+        participant: normalizedPhone,
+      };
+    }
+
+    const latestMessage: any = [...messages].sort((a: any, b: any) => {
+      const aTime = new Date(a.createdAt || a.updatedAt || 0).getTime();
+      const bTime = new Date(b.createdAt || b.updatedAt || 0).getTime();
+      return bTime - aTime;
+    })[0];
+    const conversationId = latestMessage?.conversationId;
+    const phoneNumberId = latestMessage?.phoneNumberId;
+
+    return {
+      found: Boolean(conversationId && phoneNumberId),
+      skipped: false,
+      participant: normalizedPhone,
+      conversationId: conversationId || null,
+      phoneNumberId: phoneNumberId || null,
+      latestMessageAt: latestMessage?.createdAt || latestMessage?.updatedAt || null,
+      url: conversationId && phoneNumberId ? `https://my.quo.com/inbox/${phoneNumberId}/c/${conversationId}` : null,
+      source: "auto",
+    };
   }
 
   async previewSlackThread(slackLink: string) {
@@ -1777,7 +1883,7 @@ export class IssuesService {
     issueId: number,
     slackLink: string,
     userId: string,
-    createOptions?: { channel?: string; message?: string }
+    createOptions?: { channel?: string; message?: string; openPhone?: { url?: string; conversationId?: string; phoneNumberId?: string; participant?: string; source?: string } | null }
   ) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
@@ -1789,6 +1895,12 @@ export class IssuesService {
     const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
     const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
     let parsedThread: { channel: string; threadTs: string; messageTs: string; url: string };
+    const openPhone = createOptions?.openPhone?.url
+      ? {
+          ...this.parseOpenPhoneConversationLink(createOptions.openPhone.url),
+          ...createOptions.openPhone,
+        }
+      : createOptions?.openPhone || null;
 
     if (createOptions?.channel && String(createOptions?.message || "").trim()) {
       const channel = String(createOptions.channel).trim();
@@ -1796,9 +1908,46 @@ export class IssuesService {
         throw CustomErrorHandler.validationError("Please select a valid Slack channel");
       }
       const trimmedMessage = String(createOptions.message || "").trim();
+      const mainIssueThread = await this.getMainIssueSlackThread(issueId);
+      const issueTicketUrl = mainIssueThread
+        ? await this.getSlackThreadPermalink(mainIssueThread.channel, mainIssueThread.threadTs || mainIssueThread.messageTs)
+        : null;
+      const actionElements = [
+        ...(issueTicketUrl ? [{
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "View Issue Ticket",
+            emoji: true,
+          },
+          url: issueTicketUrl,
+        }] : []),
+        ...(openPhone?.url ? [{
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "OpenPhone Conversation",
+            emoji: true,
+          },
+          url: openPhone.url,
+        }] : []),
+      ];
       const slackResponse = await sendSlackMessage({
         channel,
         text: formatSecureStayMarkdownForSlack(trimmedMessage),
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: formatSecureStayMarkdownForSlack(trimmedMessage),
+            },
+          },
+          ...(actionElements.length ? [{
+            type: "actions",
+            elements: actionElements,
+          }] : []),
+        ],
       });
 
       if (!slackResponse?.ok || !slackResponse?.ts) {
@@ -1832,6 +1981,7 @@ export class IssuesService {
       attachedByName: userName,
       attachedAt: new Date().toISOString(),
       createdFromSecureStay: Boolean(createOptions?.channel && String(createOptions?.message || "").trim()),
+      openPhone,
     };
 
     const savedThread = await this.slackMessageRepo.save({
@@ -1844,15 +1994,7 @@ export class IssuesService {
       originalMessage: JSON.stringify(payload),
     });
 
-    const mainIssueThread = await this.slackMessageRepo.findOne({
-      where: {
-        entityType: "issues",
-        entityId: issueId,
-      },
-      order: {
-        createdAt: "DESC",
-      },
-    });
+    const mainIssueThread = await this.getMainIssueSlackThread(issueId);
 
     if (mainIssueThread) {
       const threadReference = parsedThread.url || `Slack channel ${parsedThread.channel}, thread ${parsedThread.threadTs}`;
@@ -1871,6 +2013,68 @@ export class IssuesService {
       threadTs: savedThread.threadTs,
       messageTs: savedThread.messageTs,
       threadUrl: parsedThread.url,
+      openPhone,
+      entries: [],
+    };
+  }
+
+  async unlinkIssueVendorThread(issueId: number, userId: string) {
+    const issue = await this.issueRepo.findOne({
+      where: { id: issueId },
+    });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const trackedVendorThread = await this.slackMessageRepo.findOne({
+      where: {
+        entityType: "issue-vendor-thread",
+        entityId: issueId,
+      },
+      order: {
+        updatedAt: "DESC",
+      },
+    });
+
+    if (!trackedVendorThread) {
+      return {
+        attached: false,
+        threadUrl: null,
+        entries: [],
+      };
+    }
+
+    const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+    const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+
+    try {
+      await sendSlackMessage(
+        {
+          channel: trackedVendorThread.channel,
+          text: `🔸 *Vendor thread unlinked from SecureStay issue by ${userName}.*`,
+        },
+        trackedVendorThread.threadTs || trackedVendorThread.messageTs
+      );
+    } catch (error) {
+      logger.warn(`[IssuesService][unlinkIssueVendorThread] Failed to post unlink notice for issue ${issueId}: ${error}`);
+    }
+
+    await this.slackMessageRepo.remove(trackedVendorThread);
+
+    const mainIssueThread = await this.getMainIssueSlackThread(issueId);
+    if (mainIssueThread) {
+      await sendSlackMessage(
+        {
+          channel: mainIssueThread.channel,
+          text: `🔸 *Vendor thread unlinked by ${userName}.*`,
+        },
+        mainIssueThread.threadTs || mainIssueThread.messageTs
+      );
+    }
+
+    return {
+      attached: false,
+      threadUrl: null,
       entries: [],
     };
   }

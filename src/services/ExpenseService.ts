@@ -18,12 +18,15 @@ import { haExpenseUpdateQueue } from "../queue/haQueue";
 import { FileInfo } from "../entity/FileInfo";
 import { IssuesService } from "./IssuesService";
 import { ResolutionService } from "./ResolutionService";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { generateSlackMessageLink } from "../helpers/helpers";
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
     dateOfWork: string;
     status: ExpenseStatus;
     paymentMethod: string;
+    paymentDetails?: string;
     categories: string;
     concept: string;
     listingMapId: number;
@@ -46,6 +49,13 @@ export class ExpenseService {
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
+    private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+
+    private buildSlackPermalink(slackMessage?: SlackMessageEntity | null) {
+        const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
+        if (!workspaceUrl || !slackMessage?.channel || !slackMessage?.threadTs) return null;
+        return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), slackMessage.channel, slackMessage.threadTs);
+    }
 
     async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
@@ -60,6 +70,7 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
+            paymentDetails,
             datePaid,
             issues,
             isRecurring,
@@ -83,6 +94,7 @@ export class ExpenseService {
         newExpense.fileNames = fileInfo ? JSON.stringify(fileInfo.map(file => file.fileName)) : "";
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
+        newExpense.paymentDetails = paymentDetails || null;
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
         newExpense.issues = issues ? issues : null;
@@ -271,6 +283,17 @@ export class ExpenseService {
         const categories = await categoryService.getAllCategories();
         const users = await this.usersRepository.find();
         const fileInfoList = await this.fileInfoRepo.find({ where: { entityType: 'expense' } });
+        const expenseIdsForSlack = expenses.map(expense => expense.id);
+        const slackMessages = expenseIdsForSlack.length > 0
+            ? await this.slackMessageRepo.find({ where: { entityType: "expense", entityId: In(expenseIdsForSlack) } })
+            : [];
+        const slackMessageMap = new Map<number, SlackMessageEntity>();
+        slackMessages.forEach((message) => {
+            const existing = slackMessageMap.get(message.entityId);
+            if (!existing || message.createdAt > existing.createdAt) {
+                slackMessageMap.set(message.entityId, message);
+            }
+        });
 
         const issueService = new IssuesService();
 
@@ -321,6 +344,8 @@ export class ExpenseService {
                     contractorNumber: expense.contractorNumber,
                     findings: expense.findings,
                     paymentMethod: expense.paymentMethod,
+                    paymentDetails: expense.paymentDetails,
+                    slackThreadPermalink: this.buildSlackPermalink(slackMessageMap.get(expense.id)),
                     createdAt: format(expense.createdAt, "yyyy-MM-dd"),
                     updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
                     updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
@@ -481,6 +506,7 @@ export class ExpenseService {
             findings,
             status,
             paymentMethod,
+            paymentDetails,
             datePaid,
             issues,
             isRecurring,
@@ -505,6 +531,7 @@ export class ExpenseService {
         expense.findings = findings;
         expense.status = status;
         expense.paymentMethod = paymentMethod;
+        expense.paymentDetails = paymentDetails || null;
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
@@ -913,6 +940,7 @@ export class ExpenseService {
             dateOfWork,
             status,
             paymentMethod,
+            paymentDetails,
             categories,
             concept,
             listingMapId,
@@ -941,6 +969,7 @@ export class ExpenseService {
             if (dateOfWork) expense.dateOfWork = dateOfWork;
             if (status) expense.status = status;
             if (paymentMethod) expense.paymentMethod = paymentMethod;
+            if (paymentDetails !== undefined && paymentDetails !== null) expense.paymentDetails = paymentDetails;
             if (categories) expense.categories = categories;
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
@@ -1089,6 +1118,7 @@ export class ExpenseService {
                 newExpense.createdBy = expense.userId;
                 newExpense.datePaid = recurringExpenseDateStr;
                 newExpense.paymentMethod = expense.paymentMethod;
+                newExpense.paymentDetails = expense.paymentDetails;
                 newExpense.comesFrom = "recurring_expense";
 
                 logger.info(

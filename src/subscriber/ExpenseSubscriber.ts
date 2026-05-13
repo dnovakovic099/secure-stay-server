@@ -19,6 +19,7 @@ import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { CategoryEntity } from '../entity/Category';
 import updateSlackMessage from '../utils/updateSlackMsg';
 import { updateResolutionFromExpense } from '../queue/expenseQueue';
+import { getSlackUsers } from '../utils/getSlackUsers';
 
 @EventSubscriber()
 export class ExpenseSubscriber
@@ -32,6 +33,20 @@ export class ExpenseSubscriber
     private listingRepo = appDatabase.getRepository(Listing);
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
+
+    private async resolvePaymentDetailsMentions(expense: ExpenseEntity) {
+        if (!expense.paymentDetails) return expense;
+        const slackUsers = await getSlackUsers();
+        const userByHandle = new Map(
+            slackUsers.map((user: any) => [String(user.name || '').toLowerCase(), user.id])
+        );
+        const paymentDetails = expense.paymentDetails.replace(/@([A-Za-z0-9._-]+)/g, (match, handle) => {
+            const slackId = userByHandle.get(String(handle || '').toLowerCase());
+            return slackId ? `<@${slackId}>` : match;
+        });
+
+        return { ...expense, paymentDetails };
+    }
 
     async afterInsert(event: InsertEvent<ExpenseEntity>) {
         const { entity, manager } = event;
@@ -47,7 +62,8 @@ export class ExpenseSubscriber
             const categoryNames = await this.getCategoryNames(expense.categories);
 
             const slackMessageService = new SlackMessageService();
-            const slackMessage = buildExpenseSlackMessage(expense, user, listingInfo?.internalListingName, undefined, categoryNames);
+            const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
+            const slackMessage = buildExpenseSlackMessage(expenseForSlack as ExpenseEntity, user, listingInfo?.internalListingName, undefined, categoryNames);
             const slackResponse = await sendSlackMessage(slackMessage);
 
             await slackMessageService.saveSlackMessageInfo({
@@ -92,7 +108,8 @@ export class ExpenseSubscriber
             const listingInfo = await this.listingRepo.findOne({ where: { id: expense.listingMapId } });
             const categoryNames = await this.getCategoryNames(expense.categories);
 
-            let slackMessage = buildExpenseSlackMessageUpdate(expense, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
+            const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
+            let slackMessage = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "expense",
@@ -100,14 +117,14 @@ export class ExpenseSubscriber
                 }
             });
             if (eventType == "delete") {
-                slackMessage = buildExpenseSlackMessageDelete(expense, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
+                slackMessage = buildExpenseSlackMessageDelete(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildExpenseStatusUpdateMessage(expense, userMap.get(userId) || userId);
+                slackMessage = buildExpenseStatusUpdateMessage(expenseForSlack as ExpenseEntity, userMap.get(userId) || userId);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
-            const mainMessage = buildExpenseSlackMessage(expense, userMap.get(expense.createdBy), listingInfo?.internalListingName, userMap.get(userId), categoryNames);
+            const mainMessage = buildExpenseSlackMessage(expenseForSlack as ExpenseEntity, userMap.get(expense.createdBy), listingInfo?.internalListingName, userMap.get(userId), categoryNames);
             const { channel, ...messageWithoutChannel } = mainMessage;
             await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
 
@@ -149,6 +166,5 @@ export class ExpenseSubscriber
         const oldData = { ...databaseEntity };
     }
 }
-
 
 

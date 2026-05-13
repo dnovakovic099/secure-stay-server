@@ -1277,6 +1277,13 @@ export const buildExpenseSlackMessage = (
                     ...(expense.llCover ? [{ type: "mrkdwn", text: `*Covered by Luxury Lodging*` }] : [])
                 ]
             },
+            ...(expense.paymentDetails ? [{
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Payment Details:*\n${expense.paymentDetails}`
+                }
+            }] : []),
             {
                 type: "section",
                 text: {
@@ -1367,7 +1374,14 @@ export const buildExpenseSlackMessageUpdate = (
                     { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` },
                     ...(expense.llCover ? [{ type: "mrkdwn", text: `*Covered by Luxury Lodging*` }] : [])
                 ]
-            }
+            },
+            ...(expense.paymentDetails ? [{
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Payment Details:*\n${expense.paymentDetails}`
+                }
+            }] : [])
         ]
     };
 };

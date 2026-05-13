@@ -61,6 +61,9 @@ export class ExpenseEntity {
     @Column({ type: 'varchar', nullable: true })
     paymentMethod: string;
 
+    @Column({ type: 'text', nullable: true })
+    paymentDetails: string;
+
     @Column({ nullable: true })
     issues: string;
 
