@@ -221,10 +221,13 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         activityType: Joi.string().valid('created', 'updated', 'completed').optional(),
         activityUser: Joi.string().optional(),
         activityKeyword: Joi.string().optional(),
+        vendorThreadStatus: Joi.string().valid('with-vendor-thread', 'no-vendor-thread').optional(),
         issueResolution: Joi.string().valid('Resolved', 'Not Resolved', '—').optional(),
         guestSentiment: Joi.string().valid('Positive', 'Mixed', 'Neutral', 'Negative', '—').optional(),
         resolutionNotesStatus: Joi.string().valid('with-resolution', 'no-resolution').optional(),
         resolutionNotesKeyword: Joi.string().optional(),
+        managerNotesStatus: Joi.string().valid('with-manager-notes', 'no-manager-notes').optional(),
+        managerNotesKeyword: Joi.string().optional(),
     });
 
     const { error } = schema.validate(request.query);

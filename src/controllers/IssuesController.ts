@@ -451,7 +451,7 @@ export class IssuesController {
     try {
       const issueId = Number(request.params.id);
       const issuesService = new IssuesService();
-      const result = await issuesService.getIssueVendorThread(issueId);
+      const result = await issuesService.getIssueVendorThread(issueId, request.query?.vendorThreadId);
       return response.status(200).json({
         status: true,
         data: result,
@@ -500,6 +500,7 @@ export class IssuesController {
         channel: request.body?.channel,
         message: request.body?.message,
         openPhone: request.body?.openPhone,
+        vendorThreadId: request.body?.vendorThreadId,
       });
       return response.status(200).json({
         status: true,
@@ -515,7 +516,7 @@ export class IssuesController {
       const issueId = Number(request.params.id);
       const userId = request.user.id;
       const issuesService = new IssuesService();
-      const result = await issuesService.unlinkIssueVendorThread(issueId, userId);
+      const result = await issuesService.unlinkIssueVendorThread(issueId, userId, request.query?.vendorThreadId);
       return response.status(200).json({
         status: true,
         data: result,
@@ -548,7 +549,7 @@ export class IssuesController {
       const issueId = Number(request.params.id);
       const userId = request.user.id;
       const issuesService = new IssuesService();
-      const result = await issuesService.replyToIssueVendorThread(issueId, request.body?.updates, userId);
+      const result = await issuesService.replyToIssueVendorThread(issueId, request.body?.updates, userId, request.body?.vendorThreadId);
       return response.status(201).json({
         status: true,
         data: result,

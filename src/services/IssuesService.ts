@@ -581,6 +581,63 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
+  private async resolveManagerNotesKeywordIssueIds(keyword: string): Promise<number[]> {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return [];
+
+    const rows = await this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .where("issue.manager_feedback LIKE :keyword", { keyword: `%${normalizedKeyword}%` })
+      .getRawMany<{ id: number }>();
+
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveManagerNotesPresenceIssueIds(status: string): Promise<number[]> {
+    const qb = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id");
+
+    if (status === "with-manager-notes") {
+      qb.where("issue.manager_feedback IS NOT NULL").andWhere("TRIM(issue.manager_feedback) <> ''");
+    } else if (status === "no-manager-notes") {
+      qb.where("issue.manager_feedback IS NULL OR TRIM(issue.manager_feedback) = ''");
+    } else {
+      return [];
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveVendorThreadStatusIssueIds(status: string): Promise<number[]> {
+    const attachedThreadQb = this.slackMessageRepo
+      .createQueryBuilder("slackMessage")
+      .select("slackMessage.entityId", "id")
+      .where("slackMessage.entityType = :entityType", { entityType: "issue-vendor-thread" });
+
+    if (status === "with-vendor-thread") {
+      const rows = await attachedThreadQb.distinct(true).getRawMany<{ id: number }>();
+      return rows
+        .map((row) => Number(row.id))
+        .filter((id: number) => Number.isFinite(id));
+    }
+
+    if (status === "no-vendor-thread") {
+      const rows = await this.issueRepo
+        .createQueryBuilder("issue")
+        .select("issue.id", "id")
+        .where(`issue.id NOT IN (${attachedThreadQb.getQuery()})`)
+        .setParameters(attachedThreadQb.getParameters())
+        .getRawMany<{ id: number }>();
+
+      return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+    }
+
+    return [];
+  }
+
   private buildFallbackIssueTitle(issue: Partial<Issue>) {
     const description = String(issue.issue_description || "").trim();
     if (!description) return this.normalizeCategory(issue.category);
@@ -1303,10 +1360,13 @@ export class IssuesService {
       activityType,
       activityUser,
       activityKeyword,
+      vendorThreadStatus,
       issueResolution,
       guestSentiment,
       resolutionNotesStatus,
       resolutionNotesKeyword,
+      managerNotesStatus,
+      managerNotesKeyword,
     } = body;
 
     let listingIds = [];
@@ -1408,8 +1468,11 @@ export class IssuesService {
 
     const normalizedKeyword = String(keyword || "").trim();
     const normalizedActivityKeyword = String(activityKeyword || "").trim();
+    const normalizedVendorThreadStatus = String(vendorThreadStatus || "").trim();
     const normalizedResolutionNotesKeyword = String(resolutionNotesKeyword || "").trim();
     const normalizedResolutionNotesStatus = String(resolutionNotesStatus || "").trim();
+    const normalizedManagerNotesKeyword = String(managerNotesKeyword || "").trim();
+    const normalizedManagerNotesStatus = String(managerNotesStatus || "").trim();
     const requestedIssueIds = Array.isArray(issueId)
       ? issueId.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id))
       : issueId
@@ -1421,11 +1484,20 @@ export class IssuesService {
     const activityKeywordIssueIds = normalizedActivityKeyword
       ? await this.resolveActivityKeywordIssueIds(normalizedActivityKeyword)
       : undefined;
+    const vendorThreadStatusIssueIds = normalizedVendorThreadStatus
+      ? await this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus)
+      : undefined;
     const resolutionNotesKeywordIssueIds = normalizedResolutionNotesKeyword
       ? await this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword)
       : undefined;
     const resolutionNotesPresenceIssueIds = normalizedResolutionNotesStatus
       ? await this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus)
+      : undefined;
+    const managerNotesKeywordIssueIds = normalizedManagerNotesKeyword
+      ? await this.resolveManagerNotesKeywordIssueIds(normalizedManagerNotesKeyword)
+      : undefined;
+    const managerNotesPresenceIssueIds = normalizedManagerNotesStatus
+      ? await this.resolveManagerNotesPresenceIssueIds(normalizedManagerNotesStatus)
       : undefined;
     let effectiveIssueIds = requestedIssueIds.length > 0 ? requestedIssueIds : undefined;
 
@@ -1446,11 +1518,23 @@ export class IssuesService {
       return { issues: [], total: 0 };
     }
 
+    if (!applyIssueIdFilter(vendorThreadStatusIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
     if (!applyIssueIdFilter(resolutionNotesKeywordIssueIds)) {
       return { issues: [], total: 0 };
     }
 
     if (!applyIssueIdFilter(resolutionNotesPresenceIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(managerNotesKeywordIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(managerNotesPresenceIssueIds)) {
       return { issues: [], total: 0 };
     }
 
@@ -1734,7 +1818,7 @@ export class IssuesService {
     }
   }
 
-  async getIssueVendorThread(issueId: number) {
+  async getIssueVendorThread(issueId: number, vendorThreadId?: string | number | null) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
     });
@@ -1742,7 +1826,7 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
-    const trackedVendorThread = await this.slackMessageRepo.findOne({
+    const trackedVendorThreads = await this.slackMessageRepo.find({
       where: {
         entityType: "issue-vendor-thread",
         entityId: issueId,
@@ -1752,13 +1836,38 @@ export class IssuesService {
       },
     });
 
+    const requestedVendorThreadId = Number(vendorThreadId);
+    const trackedVendorThread = Number.isFinite(requestedVendorThreadId)
+      ? trackedVendorThreads.find((thread) => thread.id === requestedVendorThreadId) || trackedVendorThreads[0]
+      : trackedVendorThreads[0];
+
     if (!trackedVendorThread) {
       return {
         attached: false,
         threadUrl: null,
+        threads: [],
         entries: [],
       };
     }
+
+    const threads = trackedVendorThreads.map((thread, index) => {
+      let parsedOriginalMessage: any = {};
+      try {
+        parsedOriginalMessage = thread.originalMessage ? JSON.parse(thread.originalMessage) : {};
+      } catch {
+        parsedOriginalMessage = {};
+      }
+
+      return {
+        id: thread.id,
+        label: `Vendor Thread ${trackedVendorThreads.length - index}`,
+        channel: thread.channel,
+        threadTs: thread.threadTs || thread.messageTs,
+        messageTs: thread.messageTs,
+        threadUrl: parsedOriginalMessage?.slackLink || null,
+        openPhone: parsedOriginalMessage?.openPhone || null,
+      };
+    });
 
     const parsedOriginalMessage = (() => {
       try {
@@ -1782,22 +1891,26 @@ export class IssuesService {
 
       return {
         attached: true,
+        id: trackedVendorThread.id,
         channel: trackedVendorThread.channel,
         threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
         messageTs: trackedVendorThread.messageTs,
         threadUrl,
         openPhone: parsedOriginalMessage?.openPhone || null,
+        threads,
         entries,
       };
     } catch (error) {
       logger.error(`[IssuesService][getIssueVendorThread] Slack API error for issue ${issueId}: ${error}`);
       return {
         attached: true,
+        id: trackedVendorThread.id,
         channel: trackedVendorThread.channel,
         threadTs: trackedVendorThread.threadTs || trackedVendorThread.messageTs,
         messageTs: trackedVendorThread.messageTs,
         threadUrl,
         openPhone: parsedOriginalMessage?.openPhone || null,
+        threads,
         entries: [],
         error: "Unable to load vendor thread replies. Please confirm the Slack app can access the channel.",
       };
@@ -1883,7 +1996,7 @@ export class IssuesService {
     issueId: number,
     slackLink: string,
     userId: string,
-    createOptions?: { channel?: string; message?: string; openPhone?: { url?: string; conversationId?: string; phoneNumberId?: string; participant?: string; source?: string } | null }
+    createOptions?: { channel?: string; message?: string; openPhone?: { url?: string; conversationId?: string; phoneNumberId?: string; participant?: string; source?: string } | null; vendorThreadId?: string | number | null }
   ) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
@@ -1965,15 +2078,16 @@ export class IssuesService {
       parsedThread = this.parseSlackThreadLink(slackLink);
     }
 
-    const existing = await this.slackMessageRepo.findOne({
-      where: {
-        entityType: "issue-vendor-thread",
-        entityId: issueId,
-      },
-      order: {
-        updatedAt: "DESC",
-      },
-    });
+    const requestedVendorThreadId = Number(createOptions?.vendorThreadId);
+    const existing = Number.isFinite(requestedVendorThreadId)
+      ? await this.slackMessageRepo.findOne({
+          where: {
+            id: requestedVendorThreadId,
+            entityType: "issue-vendor-thread",
+            entityId: issueId,
+          },
+        })
+      : null;
 
     const payload = {
       slackLink: parsedThread.url,
@@ -2009,6 +2123,7 @@ export class IssuesService {
 
     return {
       attached: true,
+      id: savedThread.id,
       channel: savedThread.channel,
       threadTs: savedThread.threadTs,
       messageTs: savedThread.messageTs,
@@ -2018,7 +2133,7 @@ export class IssuesService {
     };
   }
 
-  async unlinkIssueVendorThread(issueId: number, userId: string) {
+  async unlinkIssueVendorThread(issueId: number, userId: string, vendorThreadId?: string | number | null) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
     });
@@ -2026,8 +2141,10 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
+    const requestedVendorThreadId = Number(vendorThreadId);
     const trackedVendorThread = await this.slackMessageRepo.findOne({
       where: {
+        ...(Number.isFinite(requestedVendorThreadId) ? { id: requestedVendorThreadId } : {}),
         entityType: "issue-vendor-thread",
         entityId: issueId,
       },
@@ -2079,7 +2196,7 @@ export class IssuesService {
     };
   }
 
-  async replyToIssueVendorThread(issueId: number, updates: string, userId: string) {
+  async replyToIssueVendorThread(issueId: number, updates: string, userId: string, vendorThreadId?: string | number | null) {
     const trimmedUpdates = String(updates || "").trim();
     if (!trimmedUpdates) {
       throw CustomErrorHandler.validationError("Reply text is required");
@@ -2092,8 +2209,10 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
+    const requestedVendorThreadId = Number(vendorThreadId);
     const trackedVendorThread = await this.slackMessageRepo.findOne({
       where: {
+        ...(Number.isFinite(requestedVendorThreadId) ? { id: requestedVendorThreadId } : {}),
         entityType: "issue-vendor-thread",
         entityId: issueId,
       },
