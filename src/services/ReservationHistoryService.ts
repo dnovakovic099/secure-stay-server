@@ -2,6 +2,7 @@ import { EntityManager, In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { UsersEntity } from "../entity/Users";
+import { supabaseAdmin } from "../utils/supabase";
 
 export type ReservationHistoryDiff = Record<string, { old: any; new: any }>;
 
@@ -93,24 +94,56 @@ export class ReservationHistoryService {
     const users = userIds.length
       ? await this.usersRepo.find({ where: { uid: In(userIds) } })
       : [];
-    const userMap = new Map(users.map((user) => [user.uid, `${user.firstName} ${user.lastName}`.trim()]));
+    const userMap = new Map(users.map((user) => [
+      user.uid,
+      [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid,
+    ]));
+    const displayNameCache = new Map<string, string>();
 
-    return logs.map((log) => ({
+    const resolveDisplayName = async (changedBy?: string | null) => {
+      const raw = String(changedBy || "").trim();
+      if (!raw) return "Unknown";
+      if (raw === "system") return "System";
+      if (displayNameCache.has(raw)) return displayNameCache.get(raw) || raw;
+
+      const localName = userMap.get(raw);
+      if (localName) {
+        displayNameCache.set(raw, localName);
+        return localName;
+      }
+
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.getUserById(raw);
+        if (!error && data?.user) {
+          const metadata = data.user.user_metadata || {};
+          const fullName = String(metadata.full_name || metadata.name || "").trim();
+          const firstName = String(metadata.first_name || metadata.firstName || "").trim();
+          const lastName = String(metadata.last_name || metadata.lastName || "").trim();
+          const authName = fullName || [firstName, lastName].filter(Boolean).join(" ").trim() || data.user.email || raw;
+          displayNameCache.set(raw, authName);
+          return authName;
+        }
+      } catch {
+        // Fall through to the stored actor ID if auth metadata cannot be read.
+      }
+
+      displayNameCache.set(raw, raw);
+      return raw;
+    };
+
+    return Promise.all(logs.map(async (log) => ({
       id: log.id,
       reservationInfoId: log.reservationInfoId,
       action: log.action,
       changedAt: log.changedAt,
       changedBy: log.changedBy,
-      changedByName:
-        log.changedBy === "system"
-          ? "System"
-          : userMap.get(log.changedBy) || log.changedBy || "Unknown",
+      changedByName: await resolveDisplayName(log.changedBy),
       changes: Object.entries(log.diff || {}).map(([field, value]) => ({
         field,
         oldValue: value?.old ?? null,
         newValue: value?.new ?? null,
       })),
-    }));
+    })));
   }
 
   private valuesEqual(left: any, right: any) {

@@ -74,7 +74,10 @@ export class ExpenseService {
             datePaid,
             issues,
             isRecurring,
-            llCover
+            llCover,
+            comesFrom,
+            reservationId,
+            guestName
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -100,6 +103,9 @@ export class ExpenseService {
         newExpense.issues = issues ? issues : null;
         newExpense.isRecurring = isRecurring ? isRecurring : 0;
         newExpense.llCover = llCover ? llCover : 0;
+        newExpense.comesFrom = comesFrom || null;
+        newExpense.reservationId = reservationId || null;
+        newExpense.guestName = guestName || null;
 
         // const hostawayExpense = await this.createHostawayExpense({
         //     listingMapId,
@@ -510,7 +516,10 @@ export class ExpenseService {
             datePaid,
             issues,
             isRecurring,
-            llCover
+            llCover,
+            comesFrom,
+            reservationId,
+            guestName
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
@@ -538,6 +547,9 @@ export class ExpenseService {
         expense.issues = issues ? issues : null;
         expense.isRecurring = isRecurring ? isRecurring : 0;
         expense.llCover = llCover ? llCover : 0;
+        expense.comesFrom = comesFrom || null;
+        expense.reservationId = reservationId || null;
+        expense.guestName = guestName || null;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }

@@ -38,6 +38,7 @@ import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { generateSlackMessageLink } from "../helpers/helpers";
+import { supabaseAdmin } from "../utils/supabase";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -472,6 +473,8 @@ export class ReviewService {
                     ? slackUsers.find((member: any) => member.id === employee.slackUserId)?.image || null
                     : null;
                 authorAvatar = this.buildEmployeePhotoUrl(fileInfo) || slackAvatarUrl || authorAvatar;
+            } else {
+                authorName = await this.getSupabaseUserDisplayName(message.authorId) || authorName;
             }
         }
 
@@ -482,6 +485,28 @@ export class ReviewService {
             authorAvatar,
             authorId: message.authorId || null,
         };
+    }
+
+    private async getSupabaseUserDisplayName(userId?: string | null): Promise<string | null> {
+        const rawUserId = String(userId || "").trim();
+        if (!rawUserId || rawUserId === "system") return rawUserId === "system" ? "System" : null;
+
+        try {
+            const { data, error } = await supabaseAdmin.auth.admin.getUserById(rawUserId);
+            if (error || !data?.user) return null;
+
+            const metadata = data.user.user_metadata || {};
+            const fullName = String(metadata.full_name || metadata.name || "").trim();
+            const firstName = String(metadata.first_name || metadata.firstName || "").trim();
+            const lastName = String(metadata.last_name || metadata.lastName || "").trim();
+
+            return fullName
+                || [firstName, lastName].filter(Boolean).join(" ").trim()
+                || data.user.email
+                || null;
+        } catch {
+            return null;
+        }
     }
 
     private async getLatestRefundRequests(reservationIds: number[]) {
@@ -583,14 +608,11 @@ export class ReviewService {
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
-            hour: '2-digit',
-            hour12: false,
         });
         const parts = formatter.formatToParts(new Date());
         const readPart = (type: string) => parts.find((part) => part.type === type)?.value || '';
         return {
             date: `${readPart('year')}-${readPart('month')}-${readPart('day')}`,
-            hour: Number(readPart('hour') || '0'),
         };
     }
 
@@ -609,14 +631,8 @@ export class ReviewService {
         return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd');
     }
 
-    private toHourNumber(value: unknown, fallback: number) {
-        const num = Number(value);
-        if (!Number.isFinite(num)) return fallback;
-        return Math.min(23, Math.max(0, Math.floor(num)));
-    }
-
     private isReservationCurrentlyStaying(
-        reservation: Pick<ReservationInfoEntity, 'arrivalDate' | 'departureDate' | 'checkInTime' | 'checkOutTime'>,
+        reservation: Pick<ReservationInfoEntity, 'arrivalDate' | 'departureDate'>,
         listingTimeZoneName?: string | null,
     ) {
         const arrivalDate = this.toDateString(reservation.arrivalDate);
@@ -627,16 +643,7 @@ export class ReviewService {
             ? listingTimeZoneName
             : 'America/New_York';
         const snapshot = this.getTimeZoneSnapshot(timeZoneName);
-        const checkInHour = this.toHourNumber(reservation.checkInTime, 0);
-        const checkOutHour = this.toHourNumber(reservation.checkOutTime, 23);
-
-        if (snapshot.date < arrivalDate || snapshot.date > departureDate) return false;
-        if (arrivalDate === departureDate) {
-            return snapshot.date === arrivalDate && snapshot.hour >= checkInHour && snapshot.hour < checkOutHour;
-        }
-        if (snapshot.date === arrivalDate) return snapshot.hour >= checkInHour;
-        if (snapshot.date === departureDate) return snapshot.hour < checkOutHour;
-        return snapshot.date > arrivalDate && snapshot.date < departureDate;
+        return snapshot.date >= arrivalDate && snapshot.date <= departureDate;
     }
 
     private async getCurrentlyStayingReservationIds(baseReservationIds: number[] | null = null, listingIds: number[] | null = null) {
@@ -1309,6 +1316,20 @@ export class ReviewService {
             visibility: { old: previousVisibility, new: review.visibility ?? null },
             isHidden: { old: previousHiddenState, new: review.isHidden },
         });
+
+        if (previousVisibility !== review.visibility) {
+            const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: Number(review.reservationId) } },
+            });
+            if (reviewCheckout?.slackThreadTs) {
+                new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+                    type: 'visibility',
+                    actor: userId,
+                    oldValue: previousVisibility,
+                    newValue: review.visibility ?? '',
+                }).catch((err) => logger.error('[ReviewService] Slack visibility activity post failed:', err));
+            }
+        }
 
         return review;
     }
@@ -2252,7 +2273,28 @@ export class ReviewService {
             this.getLatestRefundRequests(reservationIds),
         ]);
 
-        const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
+        const userMap = new Map(users.map(user => [
+            user.uid,
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid,
+        ]));
+        const userDisplayNameCache = new Map<string, string>();
+        const resolveUserDisplayName = async (value?: string | null) => {
+            const raw = String(value || "").trim();
+            if (!raw) return raw;
+            if (raw === "system") return "System";
+            if (userDisplayNameCache.has(raw)) return userDisplayNameCache.get(raw) || raw;
+
+            const localName = String(userMap.get(raw) || "").trim();
+            if (localName) {
+                userDisplayNameCache.set(raw, localName);
+                return localName;
+            }
+
+            const authName = await this.getSupabaseUserDisplayName(raw);
+            const displayName = authName || raw;
+            userDisplayNameCache.set(raw, displayName);
+            return displayName;
+        };
         const issues = issuesResult.issues;
         const actionItems = actionItemsResult.actionItems;
 
@@ -2301,20 +2343,12 @@ export class ReviewService {
             return {
                 ...rc,
                 assignee: rc.assignee || null,
-                assigneeName: rc.assignee ? (userMap.get(rc.assignee) || rc.assignee) : null,
-                createdBy: userMap.get(rc.createdBy) || rc.createdBy,
-                updatedBy: latestReservationUpdate?.changedBy === 'system'
-                    ? 'System'
-                    : (latestReservationUpdate?.changedBy
-                        ? (userMap.get(latestReservationUpdate.changedBy) || latestReservationUpdate.changedBy)
-                        : (userMap.get(rc.updatedBy) || rc.updatedBy)),
-                deletedBy: userMap.get(rc.deletedBy) || rc.deletedBy,
-                createdByName: userMap.get(rc.createdBy) || rc.createdBy,
-                updatedByName: latestReservationUpdate?.changedBy === 'system'
-                    ? 'System'
-                    : (latestReservationUpdate?.changedBy
-                        ? (userMap.get(latestReservationUpdate.changedBy) || latestReservationUpdate.changedBy)
-                        : (userMap.get(rc.updatedBy) || rc.updatedBy)),
+                assigneeName: rc.assignee ? await resolveUserDisplayName(rc.assignee) : null,
+                createdBy: await resolveUserDisplayName(rc.createdBy),
+                updatedBy: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
+                deletedBy: await resolveUserDisplayName(rc.deletedBy),
+                createdByName: await resolveUserDisplayName(rc.createdBy),
+                updatedByName: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
                 updatedAt: latestReservationUpdate?.changedAt || rc.updatedAt,
                 reservationInfo: {
                     ...rc.reservationInfo,
@@ -2532,6 +2566,14 @@ export class ReviewService {
                     oldValue: previousState.comments,
                     newValue: data.comments ?? '',
                 }).catch((err) => logger.error('[ReviewService] Slack resolution notes activity post failed:', err));
+            }
+            if (data.visibility !== undefined && (data.visibility ?? null) !== (previousState.visibility ?? null)) {
+                slackService.postActivityToThread(id, {
+                    type: 'visibility',
+                    actor: userId,
+                    oldValue: previousState.visibility,
+                    newValue: data.visibility ?? '',
+                }).catch((err) => logger.error('[ReviewService] Slack visibility activity post failed:', err));
             }
         }
 

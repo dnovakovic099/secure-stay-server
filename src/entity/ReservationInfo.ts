@@ -184,6 +184,9 @@ export class ReservationInfoEntity {
     @Column({ length: 255, nullable: true })
     integration_nickname: string;
 
+    @Column({ type: 'text', nullable: true })
+    tags: string;
+
     @OneToOne(() => ReviewCheckout, (reviewCheckout) => reviewCheckout.reservationInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
     reviewCheckout: ReviewCheckout;
 

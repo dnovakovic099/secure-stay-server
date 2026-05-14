@@ -1,10 +1,11 @@
 import axios from "axios";
-import { format } from "date-fns";
+import { addDays, format } from "date-fns";
 import { appDatabase } from "../utils/database.util";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import { ReviewEntity } from "../entity/Review";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { UsersEntity } from "../entity/Users";
@@ -24,6 +25,7 @@ import { ReviewService } from "./ReviewService";
 import { formatCurrency } from "../helpers/helpers";
 import { UsersService } from "./UsersService";
 import { supabaseAdmin } from "../utils/supabase";
+import { In } from "typeorm";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -47,6 +49,7 @@ export class ResolutionsTeamSlackService {
     private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
+    private reviewRepo = appDatabase.getRepository(ReviewEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private reviewDiscussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
@@ -227,12 +230,87 @@ export class ResolutionsTeamSlackService {
         return formatCurrency(Number(reservation.owner_revenue));
     }
 
+    private extractPropertyTypeFromTags(tags?: string | null) {
+        const tagList = String(tags || "").split(",").map((tag) => tag.trim().toLowerCase());
+        if (tagList.includes("own")) return "Own";
+        if (tagList.includes("arb")) return "Arb";
+        if (tagList.includes("pm")) return "PM";
+        return null;
+    }
+
+    private extractServiceTypeFromTags(tags?: string | null) {
+        const tagList = String(tags || "").split(",").map((tag) => tag.trim().toLowerCase());
+        if (tagList.includes("full")) return "Full";
+        if (tagList.includes("pro")) return "Pro";
+        if (tagList.includes("launch")) return "Launch";
+        return null;
+    }
+
+    private isEligibleReminderChannel(channelName?: string | null) {
+        const normalized = String(channelName || "").toLowerCase();
+        return normalized.includes("airbnb") || normalized.includes("vrbo");
+    }
+
     private async getResolutionsAssigneeOptions() {
         const assigneeData = await this.usersService.fetchUserListByDepartment("resolutions");
         return assigneeData.allUsers.map((user) => ({
             label: user.displayName || user.name,
             value: user.uid,
         }));
+    }
+
+    private parseJsonValue<T>(value: any, fallback: T): T {
+        if (value == null || value === "") return fallback;
+        if (typeof value !== "string") return value as T;
+        try {
+            return JSON.parse(value) as T;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private normalizeReservationTags(value: any): string[] {
+        const source = Array.isArray(value) ? value : value == null ? [] : [value];
+        const seen = new Set<string>();
+        return source
+            .map((tag) => String(tag || "").trim().replace(/\s+/g, " "))
+            .filter((tag) => {
+                if (!tag) return false;
+                const key = tag.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    private async getResolutionTagOptions() {
+        const reservations = await this.reservationRepo
+            .createQueryBuilder("reservation")
+            .select(["reservation.id", "reservation.tags"])
+            .where("reservation.tags IS NOT NULL")
+            .andWhere("reservation.tags != :empty", { empty: "" })
+            .getMany();
+
+        const discoveredTags = reservations.flatMap((reservation) =>
+            this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []))
+        );
+
+        const settingsRows = await appDatabase.query(
+            "SELECT tag_order AS tagOrder FROM reservation_tag_settings WHERE id = 1 LIMIT 1"
+        );
+        const tagOrder = this.normalizeReservationTags(
+            this.parseJsonValue<string[]>(settingsRows?.[0]?.tagOrder, [])
+        );
+
+        const seen = new Set<string>();
+        return [...tagOrder, ...discoveredTags]
+            .filter((tag) => {
+                const key = tag.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .map((tag) => ({ label: tag, value: tag }));
     }
 
     private async updateRootMessage(
@@ -245,9 +323,10 @@ export class ResolutionsTeamSlackService {
         try {
             const { emoji } = this.getListingEmoji(listing?.tags);
             const reviewService = new ReviewService();
-            const [statusData, assigneeOptions] = await Promise.all([
+            const [statusData, assigneeOptions, tagOptions] = await Promise.all([
                 reviewService.getMitigationStatusOptions(),
                 this.getResolutionsAssigneeOptions(),
+                this.getResolutionTagOptions(),
             ]);
 
             const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
@@ -275,6 +354,8 @@ export class ResolutionsTeamSlackService {
                 reviewCheckoutId: reviewCheckout.id,
                 statusOptions: statusData.options,
                 assigneeOptions,
+                tagOptions,
+                selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
             });
 
             await axios.post(
@@ -318,9 +399,10 @@ export class ResolutionsTeamSlackService {
             ? await this.listingRepo.findOne({ where: { id: reservation.listingMapId } })
             : null;
         const { emoji } = this.getListingEmoji(listing?.tags);
-        const [statusData, assigneeOptions] = await Promise.all([
+        const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
+            this.getResolutionTagOptions(),
         ]);
 
         const hostifyUrl = reservation.reservationId
@@ -344,6 +426,8 @@ export class ResolutionsTeamSlackService {
             reviewCheckoutId: reviewCheckout.id,
             statusOptions: statusData.options,
             assigneeOptions,
+            tagOptions,
+            selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
         });
 
         const result = await sendSlackMessage(msgPayload);
@@ -421,9 +505,10 @@ export class ResolutionsTeamSlackService {
 
         // Get status options and assignees once
         const reviewService = new ReviewService();
-        const [statusData, assigneeOptions] = await Promise.all([
+        const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
+            this.getResolutionTagOptions(),
         ]);
 
         let posted = 0;
@@ -462,6 +547,8 @@ export class ResolutionsTeamSlackService {
                     reviewCheckoutId: rc.id,
                     statusOptions: statusData.options,
                     assigneeOptions,
+                    tagOptions,
+                    selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
                 });
 
                 const result = await sendSlackMessage(msgPayload);
@@ -551,8 +638,8 @@ export class ResolutionsTeamSlackService {
                 rc.slackThreadTs
             );
 
-            // If status or assignee changed, update the root message blocks too
-            if (activity.type === "status" || activity.type === "assignee") {
+            // Keep root controls in sync after edits from Slack or the app.
+            if (activity.type === "status" || activity.type === "assignee" || activity.type === "resolution_tag") {
                 const listing = rc.reservationInfo?.listingMapId
                     ? await this.listingRepo.findOne({
                           where: { id: rc.reservationInfo.listingMapId },
@@ -737,31 +824,10 @@ export class ResolutionsTeamSlackService {
             );
 
             const guestAnalysisService = new GuestAnalysisService();
-            const analysis = await guestAnalysisService.analyzeGuestCommunication(
+            await guestAnalysisService.analyzeGuestCommunication(
                 reservationId,
                 undefined,
                 "slack"
-            );
-
-            const flags = Array.isArray(analysis.flags) && analysis.flags.length > 0
-                ? `\n*Flags:* ${analysis.flags.map((f: any) => f.category || f).join(", ")}`
-                : "";
-
-            const details =
-                `*Summary:* ${analysis.summary}\n` +
-                `*Sentiment:* ${analysis.sentiment}\n` +
-                `*Reason:* ${analysis.sentimentReason}` +
-                flags;
-
-            const msgPayload = buildResolutionsActivityMessage({
-                type: "ai_analysis",
-                actor: "System",
-                details,
-            });
-
-            await sendSlackMessage(
-                { ...msgPayload, channel },
-                threadTs
             );
 
             logger.info(
@@ -784,5 +850,152 @@ export class ResolutionsTeamSlackService {
                 // best-effort
             }
         }
+    }
+
+    async sendDaysLeftReviewReminders(): Promise<void> {
+        const today = new Date();
+        const reminderTargets = [1, 2].map((daysLeft) => ({
+            daysLeft,
+            deadline: format(addDays(today, daysLeft), "yyyy-MM-dd"),
+        }));
+        const deadlines = reminderTargets.map((target) => target.deadline);
+        const daysLeftByDeadline = new Map(reminderTargets.map((target) => [target.deadline, target.daysLeft]));
+
+        const reviewCheckouts = await this.reviewCheckoutRepo.find({
+            where: { deletedAt: null as any },
+            relations: ["reservationInfo"],
+        });
+
+        const candidates = reviewCheckouts.filter((rc) =>
+            Boolean(
+                rc.slackThreadTs
+                && rc.reservationInfo
+                && deadlines.includes(String(rc.fourteenDaysAfterCheckout || "").slice(0, 10))
+            )
+        );
+
+        if (!candidates.length) {
+            logger.info("[ResolutionsTeam] No days-left reminder candidates found.");
+            return;
+        }
+
+        const reservationIds = candidates
+            .map((rc) => Number(rc.reservationInfo?.id))
+            .filter((id) => Number.isFinite(id));
+        const listingIds = candidates
+            .map((rc) => Number(rc.reservationInfo?.listingMapId))
+            .filter((id) => Number.isFinite(id));
+
+        const [reviews, listings] = await Promise.all([
+            reservationIds.length
+                ? this.reviewRepo.find({ where: { reservationId: In(reservationIds) } })
+                : [],
+            listingIds.length
+                ? this.listingRepo.find({ where: { id: In(listingIds) }, select: ["id", "tags"] })
+                : [],
+        ]);
+
+        const postedReviewReservationIds = new Set(
+            reviews
+                .filter((review) => Boolean(review.submittedAt || review.publicReview || review.rating))
+                .map((review) => Number(review.reservationId))
+        );
+        const listingTagMap = new Map<number, string | null | undefined>(
+            listings.map((listing) => [Number(listing.id), listing.tags] as [number, string | null | undefined])
+        );
+        const anjSlackId = await this.getAnjSlackUserId();
+
+        let sent = 0;
+        let skipped = 0;
+
+        for (const rc of candidates) {
+            const reservation = rc.reservationInfo;
+            const reservationId = Number(reservation?.id);
+            const deadline = String(rc.fourteenDaysAfterCheckout || "").slice(0, 10);
+            const daysLeft = daysLeftByDeadline.get(deadline);
+
+            if (!reservation || !daysLeft || postedReviewReservationIds.has(reservationId)) {
+                skipped++;
+                continue;
+            }
+
+            const listingTags = listingTagMap.get(Number(reservation.listingMapId)) || "";
+            const propertyType = this.extractPropertyTypeFromTags(listingTags);
+            const serviceType = this.extractServiceTypeFromTags(listingTags);
+            if (!["Own", "Arb"].includes(propertyType || "") || !["Full", "Pro"].includes(serviceType || "")) {
+                skipped++;
+                continue;
+            }
+
+            if (!this.isEligibleReminderChannel(reservation.channelName)) {
+                skipped++;
+                continue;
+            }
+
+            const reminderEntityType = `review_checkout_days_left_${daysLeft}`;
+            const existingReminder = await this.slackMessageRepo.findOne({
+                where: {
+                    entityType: reminderEntityType,
+                    entityId: rc.id,
+                },
+            });
+            if (existingReminder) {
+                skipped++;
+                continue;
+            }
+
+            const mention = rc.assignee
+                ? await this.getAssigneeActivityLabel(rc.assignee)
+                : (anjSlackId ? `<@${anjSlackId}>` : "Anj");
+            const dayLabel = daysLeft === 1 ? "1 day" : `${daysLeft} days`;
+            const text = `⏰ ${mention} review reminder: ${dayLabel} left for ${reservation.guestName || "Guest"} at ${reservation.listingName || "Unknown Property"}.`;
+
+            const result = await sendSlackMessage(
+                {
+                    channel: rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL,
+                    text,
+                    blocks: [
+                        {
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `${text}\nNo review has been posted yet.`
+                            }
+                        },
+                        {
+                            type: "actions",
+                            elements: [
+                                {
+                                    type: "button",
+                                    text: { type: "plain_text", text: "View Mitigation Detail", emoji: true },
+                                    url: `https://securestay.ai/mitigation?reservationId=${reservationId}`,
+                                }
+                            ]
+                        }
+                    ],
+                    unfurl_links: false,
+                    unfurl_media: false,
+                },
+                rc.slackThreadTs
+            );
+
+            if (result?.ok && result?.ts) {
+                const slackMsgRecord = this.slackMessageRepo.create({
+                    channel: result.channel || rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL,
+                    messageTs: result.ts,
+                    threadTs: rc.slackThreadTs,
+                    entityType: reminderEntityType,
+                    entityId: rc.id,
+                    originalMessage: JSON.stringify({ reservationId, daysLeft, deadline }),
+                });
+                await this.slackMessageRepo.save(slackMsgRecord);
+                sent++;
+            } else {
+                skipped++;
+                logger.error(`[ResolutionsTeam] Failed to send ${daysLeft}-day review reminder for reviewCheckout ${rc.id}: ${result?.error || "unknown error"}`);
+            }
+        }
+
+        logger.info(`[ResolutionsTeam] Days-left reminders complete — sent: ${sent}, skipped: ${skipped}`);
     }
 }

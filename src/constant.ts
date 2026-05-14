@@ -71,6 +71,7 @@ export const slackInteractivityEventNames={
     APPROVE_REFUND_REQUEST: "approve_refund_request",
     DENY_REFUND_REQUEST: "deny_refund_request",
     PAID_REFUND_REQUEST: "paid_refund_request",
+    UPDATE_REFUND_REQUEST_STATUS: "update_refund_request_status",
     UPDATE_ISSUE_STATUS: "update_issue_status",
     UPDATE_ACTION_ITEM_STATUS: "update_action_item_status",
     UPDATE_EXPENSE_STATUS: "update_expense_status",
@@ -81,6 +82,7 @@ export const slackInteractivityEventNames={
     UPDATE_ITEM_SUPPLY_REQUEST_STATUS: "update_item_supply_request_status",
     UPDATE_REVIEW_CHECKOUT_STATUS: "update_review_checkout_status",
     UPDATE_REVIEW_CHECKOUT_ASSIGNEE: "update_review_checkout_assignee",
+    UPDATE_REVIEW_CHECKOUT_TAGS: "update_review_checkout_tags",
 }
 
 

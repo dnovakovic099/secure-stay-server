@@ -11,6 +11,8 @@ import { GuestAnalysisSettingsService } from "./GuestAnalysisSettingsService";
 import logger from "../utils/logger.utils";
 import { v4 as uuidv4 } from "uuid";
 import { Listing } from "../entity/Listing";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 /**
  * Sentiment types for guest analysis
@@ -142,6 +144,7 @@ export class GuestAnalysisService {
     private analysisRepo = appDatabase.getRepository(GuestAnalysisEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
+    private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
     private communicationService: GuestCommunicationService;
     private settingsService: GuestAnalysisSettingsService;
 
@@ -204,7 +207,42 @@ export class GuestAnalysisService {
 
         const saved = await this.analysisRepo.save(analysis);
         logger.info(`[GuestAnalysisService] Analysis saved for reservation ${reservationId}`);
+        this.postAnalysisGeneratedToSlack(saved).catch((error) => {
+            logger.error(`[GuestAnalysisService] Failed to post AI analysis Slack update for reservation ${reservationId}:`, error);
+        });
         return saved;
+    }
+
+    private buildAnalysisGeneratedSlackText(analysis: GuestAnalysisEntity) {
+        const flags = Array.isArray(analysis.flags) ? analysis.flags : [];
+        const greenFlags = flags.filter((flag: any) => flag?.polarity === "positive").length;
+        const redFlags = flags.filter((flag: any) => flag?.polarity !== "positive").length;
+        const sentimentReason = String(analysis.sentimentReason || "—").trim() || "—";
+
+        return [
+            "*AI ANALYSIS*",
+            `*Green Flags:* ${greenFlags} | *Red Flags:* ${redFlags}`,
+            "",
+            `*👩🏻‍💻 Overall sentiment reason:* ${sentimentReason}`,
+        ].join("\n");
+    }
+
+    private async postAnalysisGeneratedToSlack(analysis: GuestAnalysisEntity) {
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+            where: { reservationInfo: { id: Number(analysis.reservationId) } },
+        });
+
+        if (!reviewCheckout?.slackChannelId || !reviewCheckout?.slackThreadTs) {
+            return;
+        }
+
+        await sendSlackMessage(
+            {
+                channel: reviewCheckout.slackChannelId,
+                text: this.buildAnalysisGeneratedSlackText(analysis),
+            },
+            reviewCheckout.slackThreadTs
+        );
     }
 
     /**
