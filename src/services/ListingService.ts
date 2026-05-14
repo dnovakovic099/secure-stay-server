@@ -694,15 +694,17 @@ export class ListingService {
 
     if (propertyTypes && propertyTypes.length > 0) {
       query.andWhere(new Brackets(qb => {
-        propertyTypes.forEach((type, index) => {
-          const normalizedType = String(type || '').trim().toLowerCase();
-          const clause = "FIND_IN_SET(:type" + index + ", REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', '')) > 0";
-          if (index === 0) {
-            qb.where(clause, { ["type" + index]: normalizedType });
-          } else {
-            qb.orWhere(clause, { ["type" + index]: normalizedType });
-          }
+        let clauseIndex = 0;
+        propertyTypes.forEach((type) => {
+          this.getPropertyTypeTagAliases(type).forEach((normalizedType) => {
+            const clause = `${this.normalizedListingTagsSql()} LIKE :type${clauseIndex}`;
+            const params = { [`type${clauseIndex}`]: `%,${normalizedType},%` };
+            if (clauseIndex === 0) qb.where(clause, params);
+            else qb.orWhere(clause, params);
+            clauseIndex += 1;
+          });
         });
+        if (clauseIndex === 0) qb.where("1 = 0");
       }));
     }
 
@@ -728,19 +730,41 @@ export class ListingService {
 
     if (serviceTypes && serviceTypes.length > 0) {
       query.andWhere(new Brackets(qb => {
-        serviceTypes.forEach((type, index) => {
-          const normalizedType = String(type || '').trim().toLowerCase();
-          const clause = "FIND_IN_SET(:serviceType" + index + ", REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', '')) > 0";
-          if (index === 0) {
-            qb.where(clause, { ["serviceType" + index]: normalizedType });
-          } else {
-            qb.orWhere(clause, { ["serviceType" + index]: normalizedType });
-          }
+        let clauseIndex = 0;
+        serviceTypes.forEach((type) => {
+          this.getServiceTypeTagAliases(type).forEach((normalizedType) => {
+            const clause = `${this.normalizedListingTagsSql()} LIKE :serviceType${clauseIndex}`;
+            const params = { [`serviceType${clauseIndex}`]: `%,${normalizedType},%` };
+            if (clauseIndex === 0) qb.where(clause, params);
+            else qb.orWhere(clause, params);
+            clauseIndex += 1;
+          });
         });
+        if (clauseIndex === 0) qb.where("1 = 0");
       }));
     }
 
     return await query.getMany();
+  }
+
+  private normalizedListingTagsSql() {
+    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '-', ''), '/', ','), ';', ','), ',')";
+  }
+
+  private getPropertyTypeTagAliases(type: string) {
+    const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
+    if (['own', 'owned', 'owner'].includes(normalizedType)) return ['own', 'owned', 'owner', 'ownarb'];
+    if (['arb', 'arbitrage'].includes(normalizedType)) return ['arb', 'arbitrage', 'ownarb'];
+    if (['pm', 'propertymanagement', 'propertymanager'].includes(normalizedType)) return ['pm', 'propertymanagement', 'propertymanager'];
+    return normalizedType ? [normalizedType] : [];
+  }
+
+  private getServiceTypeTagAliases(type: string) {
+    const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
+    if (['full', 'fullservice'].includes(normalizedType)) return ['full', 'fullservice'];
+    if (normalizedType === 'pro') return ['pro'];
+    if (normalizedType === 'launch') return ['launch'];
+    return normalizedType ? [normalizedType] : [];
   }
 
   async getPmListings(includeDeleted: boolean = false) {

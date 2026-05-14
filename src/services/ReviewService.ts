@@ -85,6 +85,24 @@ interface Filter {
     refundStatus?: string[] | null | undefined;
     rating?: number[] | null | undefined;
     reservationId?: string | number | null | undefined;
+    confirmationCode?: string | null | undefined;
+    totalPaidOperator?: string | null | undefined;
+    totalPaidMin?: string | number | null | undefined;
+    totalPaidMax?: string | number | null | undefined;
+    ownerPayoutOperator?: string | null | undefined;
+    ownerPayoutMin?: string | number | null | undefined;
+    ownerPayoutMax?: string | number | null | undefined;
+    latestUpdateSearch?: string | null | undefined;
+    resolutionNotes?: string[] | null | undefined;
+    resolutionNotesSearch?: string | null | undefined;
+    issuesEntry?: string[] | null | undefined;
+    issueCategory?: string[] | null | undefined;
+    issueDescriptionSearch?: string | null | undefined;
+    aiRedFlag?: string[] | null | undefined;
+    aiGreenFlag?: string[] | null | undefined;
+    aiAnalysis?: string[] | null | undefined;
+    aiAnalysisSearch?: string | null | undefined;
+    publicReviewSearch?: string | null | undefined;
 }
 
 
@@ -576,9 +594,8 @@ export class ReviewService {
     }
 
     private extractServiceTypeFromTags(tags: string | null | undefined): string | null {
-        if (!tags) return null;
-        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
-        if (tagList.includes('full')) return 'Full';
+        const tagList = this.getNormalizedListingTagTokens(tags);
+        if (tagList.includes('full') || tagList.includes('fullservice')) return 'Full';
         if (tagList.includes('pro')) return 'Pro';
         if (tagList.includes('launch')) return 'Launch';
         return null;
@@ -1274,12 +1291,41 @@ export class ReviewService {
 
 
     private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
-        if (!tags) return null;
-        const tagList = tags.split(',').map(t => t.trim().toLowerCase());
-        if (tagList.includes('own')) return 'Own';
-        if (tagList.includes('arb')) return 'Arb';
+        const tagList = this.getNormalizedListingTagTokens(tags);
+        if (tagList.includes('own') || tagList.includes('owned') || tagList.includes('owner') || tagList.includes('ownarb')) return 'Own';
+        if (tagList.includes('arb') || tagList.includes('arbitrage')) return 'Arb';
         if (tagList.includes('pm')) return 'PM';
         return null;
+    }
+
+    private getNormalizedListingTagTokens(tags: string | null | undefined): string[] {
+        return String(tags || '')
+            .toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[;/]/g, ',')
+            .split(',')
+            .map((tag) => tag.replace(/-/g, ''))
+            .filter(Boolean);
+    }
+
+    private applyNumberRangeFilter(
+        query: any,
+        column: string,
+        paramPrefix: string,
+        operator?: string | null,
+        minValue?: string | number | null,
+        maxValue?: string | number | null,
+    ) {
+        const op = String(operator || '').trim();
+        if (!op) return;
+        const min = Number(minValue);
+        const max = Number(maxValue);
+        if ((op === 'gt' || op === 'lt' || op === 'eq') && Number.isNaN(min)) return;
+        if (op === 'between' && (Number.isNaN(min) || Number.isNaN(max))) return;
+        if (op === 'gt') query.andWhere(`${column} > :${paramPrefix}Min`, { [`${paramPrefix}Min`]: min });
+        if (op === 'lt') query.andWhere(`${column} < :${paramPrefix}Min`, { [`${paramPrefix}Min`]: min });
+        if (op === 'eq') query.andWhere(`${column} = :${paramPrefix}Min`, { [`${paramPrefix}Min`]: min });
+        if (op === 'between') query.andWhere(`${column} BETWEEN :${paramPrefix}Min AND :${paramPrefix}Max`, { [`${paramPrefix}Min`]: min, [`${paramPrefix}Max`]: max });
     }
 
     private async getListingIdsByOwnerName(ownerName: string) {
@@ -1768,6 +1814,24 @@ export class ReviewService {
             rating: rawRating,
             currentlyStaying,
             reservationId,
+            confirmationCode,
+            totalPaidOperator,
+            totalPaidMin,
+            totalPaidMax,
+            ownerPayoutOperator,
+            ownerPayoutMin,
+            ownerPayoutMax,
+            latestUpdateSearch,
+            resolutionNotes: rawResolutionNotes,
+            resolutionNotesSearch,
+            issuesEntry: rawIssuesEntry,
+            issueCategory: rawIssueCategory,
+            issueDescriptionSearch,
+            aiRedFlag: rawAiRedFlag,
+            aiGreenFlag: rawAiGreenFlag,
+            aiAnalysis: rawAiAnalysis,
+            aiAnalysisSearch,
+            publicReviewSearch,
         } = filters;
 
         // qs parses a single repeated query param as a string, not an array.
@@ -1787,6 +1851,12 @@ export class ReviewService {
         const owner = toArr(rawOwner);
         const refundStatus = toArr(rawRefundStatus);
         const rating = toArr(rawRating);
+        const resolutionNotes = toArr(rawResolutionNotes);
+        const issuesEntry = toArr(rawIssuesEntry);
+        const issueCategory = toArr(rawIssueCategory);
+        const aiRedFlag = toArr(rawAiRedFlag);
+        const aiGreenFlag = toArr(rawAiGreenFlag);
+        const aiAnalysis = toArr(rawAiAnalysis);
         const actionItemsStatus = toArr(rawActionItemsStatus);
         const issuesStatus = toArr(rawIssuesStatus);
         const requestedReservationId = reservationId != null && reservationId !== ''
@@ -1890,6 +1960,13 @@ export class ReviewService {
             query.andWhere("reservationInfo.guestName LIKE :guestName", { guestName: `${guestName}%` });
         }
 
+        if (confirmationCode) {
+            query.andWhere("reservationInfo.confirmation_code LIKE :confirmationCode", { confirmationCode: `%${confirmationCode}%` });
+        }
+
+        this.applyNumberRangeFilter(query, "reservationInfo.totalPrice", "totalPaid", totalPaidOperator, totalPaidMin, totalPaidMax);
+        this.applyNumberRangeFilter(query, "reservationInfo.owner_revenue", "ownerPayout", ownerPayoutOperator, ownerPayoutMin, ownerPayoutMax);
+
         // Channel filter
         if (channel && channel.length > 0) {
             query.andWhere("reservationInfo.channelId IN (:...channel)", { channel: channel.map(id => Number(id)) });
@@ -1927,6 +2004,34 @@ export class ReviewService {
                     query.andWhere('reservationInfo.id NOT IN (:...updateReservationIds)', { updateReservationIds });
                 }
             }
+        }
+
+        if (latestUpdateSearch) {
+            const updateRows = await this.discussionMessageRepo
+                .createQueryBuilder('message')
+                .select('DISTINCT message.reservationId', 'reservationId')
+                .where('message.sourceType = :sourceType', { sourceType: 'note' })
+                .andWhere('message.body LIKE :latestUpdateSearch', { latestUpdateSearch: `%${latestUpdateSearch}%` })
+                .getRawMany();
+            const updateReservationIds = updateRows.map((row: { reservationId: string | number | null }) => Number(row.reservationId)).filter((id) => !Number.isNaN(id));
+            query.andWhere(
+                updateReservationIds.length > 0 ? 'reservationInfo.id IN (:...latestUpdateSearchIds)' : '1 = 0',
+                updateReservationIds.length > 0 ? { latestUpdateSearchIds: updateReservationIds } : {},
+            );
+        }
+
+        if (resolutionNotes.length > 0) {
+            const wantsWith = resolutionNotes.includes('with-entry');
+            const wantsNo = resolutionNotes.includes('no-entry');
+            if (wantsWith !== wantsNo) {
+                query.andWhere(wantsWith
+                    ? "(reviewCheckout.comments IS NOT NULL AND TRIM(reviewCheckout.comments) != '')"
+                    : "(reviewCheckout.comments IS NULL OR TRIM(reviewCheckout.comments) = '')");
+            }
+        }
+
+        if (resolutionNotesSearch) {
+            query.andWhere("reviewCheckout.comments LIKE :resolutionNotesSearch", { resolutionNotesSearch: `%${resolutionNotesSearch}%` });
         }
 
         if (fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
@@ -1973,6 +2078,46 @@ export class ReviewService {
                 ratingIds.length > 0 ? 'reservationInfo.id IN (:...ratingIds)' : '1 = 0',
                 ratingIds.length > 0 ? { ratingIds } : {}
             );
+        }
+
+        if (publicReviewSearch) {
+            const publicReviewRows = await this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId')
+                .where('review.publicReview LIKE :publicReviewSearch', { publicReviewSearch: `%${publicReviewSearch}%` })
+                .getRawMany();
+            const publicReviewIds = publicReviewRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(
+                publicReviewIds.length > 0 ? 'reservationInfo.id IN (:...publicReviewIds)' : '1 = 0',
+                publicReviewIds.length > 0 ? { publicReviewIds } : {}
+            );
+        }
+
+        if (issuesEntry.length > 0 || issueCategory.length > 0 || issueDescriptionSearch) {
+            const wantsWithIssues = issuesEntry.includes('with-entry');
+            const wantsNoIssues = issuesEntry.includes('no-entry');
+            const issueQb = this.issueRepo
+                .createQueryBuilder('issue')
+                .select('DISTINCT issue.reservation_id', 'reservationId');
+            let hasIssuePredicate = false;
+            if (issueCategory.length > 0) {
+                issueQb.where('issue.category IN (:...issueCategory)', { issueCategory });
+                hasIssuePredicate = true;
+            }
+            if (issueDescriptionSearch) {
+                const clause = 'issue.issue_description LIKE :issueDescriptionSearch';
+                const params = { issueDescriptionSearch: `%${issueDescriptionSearch}%` };
+                if (hasIssuePredicate) issueQb.andWhere(clause, params);
+                else issueQb.where(clause, params);
+                hasIssuePredicate = true;
+            }
+            const issueRows = await issueQb.getRawMany();
+            const issueIds = issueRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            if (wantsNoIssues && !wantsWithIssues && !issueCategory.length && !issueDescriptionSearch) {
+                query.andWhere(issueIds.length > 0 ? 'reservationInfo.id NOT IN (:...issueIds)' : '1 = 1', issueIds.length > 0 ? { issueIds } : {});
+            } else {
+                query.andWhere(issueIds.length > 0 ? 'reservationInfo.id IN (:...issueIds)' : '1 = 0', issueIds.length > 0 ? { issueIds } : {});
+            }
         }
 
         // Keyword search filter (searches reservation, review, AI analysis, and issue data)
@@ -2156,6 +2301,31 @@ export class ReviewService {
                 flagIds.length > 0 ? 'reservationInfo.id IN (:...flagIds)' : '1 = 0',
                 flagIds.length > 0 ? { flagIds } : {}
             );
+        }
+
+        if (aiRedFlag.length > 0 || aiGreenFlag.length > 0 || aiAnalysis.length > 0 || aiAnalysisSearch) {
+            const analysisQb = this.guestAnalysisRepo
+                .createQueryBuilder('analysis')
+                .select('DISTINCT analysis.reservationId', 'reservationId')
+                .where('analysis.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = analysis.reservationId)');
+            const analysisClauses: string[] = [];
+            const analysisParams: Record<string, any> = {};
+            const pushPresenceClause = (fieldValues: string[], withClause: string, noClause: string) => {
+                const wantsWith = fieldValues.includes('with-entry');
+                const wantsNo = fieldValues.includes('no-entry');
+                if (wantsWith !== wantsNo) analysisClauses.push(wantsWith ? withClause : noClause);
+            };
+            pushPresenceClause(aiAnalysis, "(analysis.summary IS NOT NULL AND TRIM(analysis.summary) != '')", "(analysis.summary IS NULL OR TRIM(analysis.summary) = '')");
+            pushPresenceClause(aiRedFlag, "(CAST(analysis.flags AS CHAR) LIKE '%\"polarity\":\"negative\"%' OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"positive\"%')", "(analysis.flags IS NULL OR CAST(analysis.flags AS CHAR) = '[]' OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"negative\"%')");
+            pushPresenceClause(aiGreenFlag, "CAST(analysis.flags AS CHAR) LIKE '%\"polarity\":\"positive\"%'", "(analysis.flags IS NULL OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"positive\"%')");
+            if (aiAnalysisSearch) {
+                analysisClauses.push("(analysis.summary LIKE :aiAnalysisSearch OR analysis.sentimentReason LIKE :aiAnalysisSearch OR CAST(analysis.flags AS CHAR) LIKE :aiAnalysisSearch)");
+                analysisParams.aiAnalysisSearch = `%${aiAnalysisSearch}%`;
+            }
+            analysisClauses.forEach((clause) => analysisQb.andWhere(clause, analysisParams));
+            const analysisRows = await analysisQb.getRawMany();
+            const analysisIds = analysisRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            query.andWhere(analysisIds.length > 0 ? 'reservationInfo.id IN (:...analysisIds)' : '1 = 0', analysisIds.length > 0 ? { analysisIds } : {});
         }
 
         // Owner filter — resolve owner name to listing IDs
