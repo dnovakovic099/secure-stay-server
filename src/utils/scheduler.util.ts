@@ -527,6 +527,21 @@ export function scheduleGetReservation() {
 
   // GR Tasks Daily Reminder - 10 AM EST for In Progress tasks
   schedule.scheduleJob(
+    { hour: 9, minute: 15, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("[ResolutionsTeam] Processing days-left review reminders...");
+        const resolutionsService = new ResolutionsTeamSlackService();
+        await resolutionsService.sendDaysLeftReviewReminders();
+        logger.info("[ResolutionsTeam] Days-left review reminders completed.");
+      } catch (error) {
+        logger.error("[ResolutionsTeam] Error processing days-left review reminders:", error);
+      }
+    }
+  );
+
+  // GR Tasks Daily Reminder - 10 AM EST for In Progress tasks
+  schedule.scheduleJob(
     { hour: 10, minute: 0, tz: "America/New_York" },
     async () => {
       try {
@@ -560,4 +575,3 @@ export function scheduleGetReservation() {
     }
   );
 }
-

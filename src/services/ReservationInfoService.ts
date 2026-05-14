@@ -1291,6 +1291,121 @@ export class ReservationInfoService {
     return reservationLogs;
   }
 
+  private parseJsonValue<T>(value: any, fallback: T): T {
+    if (value == null || value === "") return fallback;
+    if (typeof value !== "string") return value as T;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private serializeReservationTags(tags: string[]) {
+    return JSON.stringify(this.normalizeReservationTags(tags));
+  }
+
+  async getSharedReservationTags() {
+    const reservations = await this.reservationInfoRepository
+      .createQueryBuilder("reservation")
+      .select(["reservation.id", "reservation.tags"])
+      .where("reservation.tags IS NOT NULL")
+      .andWhere("reservation.tags != :empty", { empty: "" })
+      .getMany();
+
+    const tagMap: Record<string, string[]> = {};
+    reservations.forEach((reservation) => {
+      const tags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+      if (tags.length) {
+        tagMap[String(reservation.id)] = tags;
+      }
+    });
+
+    const settingsRows = await appDatabase.query(
+      "SELECT tag_colors AS tagColors, tag_order AS tagOrder FROM reservation_tag_settings WHERE id = 1 LIMIT 1"
+    );
+    const settings = settingsRows?.[0] || {};
+
+    return {
+      tagMap,
+      tagColors: this.parseJsonValue<Record<string, string>>(settings.tagColors, {}),
+      tagOrder: this.parseJsonValue<string[]>(settings.tagOrder, []),
+    };
+  }
+
+  async updateReservationTags(reservationId: number, tags: string[], changedBy: string) {
+    const reservation = await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
+    if (!reservation) {
+      return null;
+    }
+
+    const previousTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+    const nextTags = this.normalizeReservationTags(tags);
+    reservation.tags = this.serializeReservationTags(nextTags);
+    await this.reservationInfoRepository.save(reservation);
+
+    if (JSON.stringify(previousTags) !== JSON.stringify(nextTags)) {
+      await this.createReservationEditHistory(reservationId, changedBy, {
+        tags: { old: previousTags, new: nextTags },
+      });
+    }
+
+    return this.getSharedReservationTags();
+  }
+
+  async updateSharedReservationTagSettings(tagColors: Record<string, string>, tagOrder: string[]) {
+    await appDatabase.query(
+      `INSERT INTO reservation_tag_settings (id, tag_colors, tag_order)
+       VALUES (1, ?, ?)
+       ON DUPLICATE KEY UPDATE tag_colors = VALUES(tag_colors), tag_order = VALUES(tag_order)`,
+      [
+        JSON.stringify(tagColors || {}),
+        JSON.stringify(this.normalizeReservationTags(tagOrder || [])),
+      ]
+    );
+
+    return this.getSharedReservationTags();
+  }
+
+  async replaceSharedReservationTag(
+    targetTag: string,
+    replacementTag: string | null | undefined,
+    tagColors: Record<string, string>,
+    tagOrder: string[],
+    changedBy: string
+  ) {
+    const normalizedTarget = this.normalizeReservationTags([targetTag])[0];
+    const normalizedReplacement = replacementTag ? this.normalizeReservationTags([replacementTag])[0] : "";
+    if (!normalizedTarget) return this.getSharedReservationTags();
+
+    const reservations = await this.reservationInfoRepository
+      .createQueryBuilder("reservation")
+      .select(["reservation.id", "reservation.tags"])
+      .where("reservation.tags IS NOT NULL")
+      .andWhere("reservation.tags != :empty", { empty: "" })
+      .getMany();
+
+    for (const reservation of reservations) {
+      const previousTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+      const nextTags = this.normalizeReservationTags(previousTags.flatMap((tag) => (
+        tag.toLowerCase() === normalizedTarget.toLowerCase()
+          ? (normalizedReplacement ? [normalizedReplacement] : [])
+          : [tag]
+      )));
+
+      if (JSON.stringify(previousTags) !== JSON.stringify(nextTags)) {
+        reservation.tags = this.serializeReservationTags(nextTags);
+        await this.reservationInfoRepository.save(reservation);
+        await this.createReservationEditHistory(reservation.id, changedBy, {
+          tags: { old: previousTags, new: nextTags },
+        });
+      }
+    }
+
+    await this.updateSharedReservationTagSettings(tagColors || {}, tagOrder || []);
+    return this.getSharedReservationTags();
+  }
+
   async getReservationEditHistory(reservationId: number) {
     return this.reservationHistoryService.getReservationHistory(reservationId);
   }

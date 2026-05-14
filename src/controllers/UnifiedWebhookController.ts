@@ -20,6 +20,7 @@ import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { ReviewService } from "../services/ReviewService";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
 
 export class UnifiedWebhookController {
 
@@ -85,6 +86,10 @@ export class UnifiedWebhookController {
                     // Acknowledgment handled by response.send() below; service updates original message + posts thread reply
                     break;
                 }
+                case slackInteractivityEventNames.UPDATE_REFUND_REQUEST_STATUS: {
+                    logger.info(`Refund request status update request`);
+                    break;
+                }
                 case slackInteractivityEventNames.UPDATE_ISSUE_STATUS: {
                     logger.info(`Issue status update request`);
                     break;
@@ -124,6 +129,10 @@ export class UnifiedWebhookController {
                 }
                 case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_ASSIGNEE: {
                     logger.info(`Review checkout assignee update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_TAGS: {
+                    logger.info(`Review checkout tags update request`);
                     break;
                 }
                 default: {
@@ -185,6 +194,22 @@ export class UnifiedWebhookController {
                         }
                     } catch (error) {
                         logger.error(`Error marking refund request as paid: ${error}`);
+                    }
+
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_REFUND_REQUEST_STATUS}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
+                        const refundRequestService = new RefundRequestService();
+                        const refundRequest = await refundRequestService.updateRefundRequestStatus(Number(requestObj.id), requestObj.status, user, false);
+                        if (refundRequest) {
+                            logger.info(`User ${user} updated refund request ${requestObj.id} status to ${requestObj.status}`);
+                        } else {
+                            logger.error(`Failed to update refund request ${requestObj.id} status to ${requestObj.status}`);
+                        }
+                    } catch (error) {
+                        logger.error(`Error updating refund request status: ${error}`);
                     }
 
                     break;
@@ -337,6 +362,38 @@ export class UnifiedWebhookController {
                         logger.info(`${user} updated review checkout ${reviewCheckoutId} assignee to ${assignee || 'Unassigned'}`);
                     } catch (error) {
                         logger.error(`Error updating review checkout assignee: ${error}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_TAGS}`: {
+                    try {
+                        const selectedOptions = action.selected_options || [];
+                        const selectedTags = selectedOptions
+                            .map((option: any) => JSON.parse(option.value || "{}")?.tag)
+                            .filter(Boolean);
+                        const reviewCheckoutIdFromBlock = String(action.block_id || "").match(/review_checkout_actions:(\d+)/)?.[1];
+                        const reviewCheckoutId = selectedOptions.length
+                            ? JSON.parse(selectedOptions[0].value || "{}")?.reviewCheckoutId
+                            : reviewCheckoutIdFromBlock || JSON.parse(action.value || "{}")?.reviewCheckoutId;
+
+                        const reviewCheckout = await appDatabase.getRepository(ReviewCheckout).findOne({
+                            where: { id: Number(reviewCheckoutId) },
+                            relations: ["reservationInfo"],
+                        });
+
+                        if (!reviewCheckout?.reservationInfo?.id) {
+                            throw new Error(`Review checkout ${reviewCheckoutId} was not found`);
+                        }
+
+                        const reservationInfoService = new ReservationInfoService();
+                        await reservationInfoService.updateReservationTags(
+                            Number(reviewCheckout.reservationInfo.id),
+                            selectedTags,
+                            user
+                        );
+                        logger.info(`${user} updated review checkout ${reviewCheckoutId} tags to ${selectedTags.join(", ") || "none"}`);
+                    } catch (error) {
+                        logger.error(`Error updating review checkout tags: ${error}`);
                     }
                     break;
                 }

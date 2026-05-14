@@ -9,12 +9,14 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         listingName: Joi.string().required(),
         checkIn: Joi.date().required(),
         checkOut: Joi.date().required(),
-        issueId: Joi.string().required(),
+        issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
-        requestedBy: Joi.string().required(),
+        requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied", "Cancelled"),
         paymentMethod: Joi.string().optional().allow(null, ''),
+        paymentDetails: Joi.string().optional().allow(null, ''),
+        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
         notes: Joi.string().optional().allow(null, '')
     });
 
@@ -35,12 +37,14 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         listingName: Joi.string().required(),
         checkIn: Joi.date().required(),
         checkOut: Joi.date().required(),
-        issueId: Joi.string().required(),
+        issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
-        requestedBy: Joi.string().required(),
+        requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied", "Cancelled"),
         paymentMethod: Joi.string().optional().allow(null, ''),
+        paymentDetails: Joi.string().optional().allow(null, ''),
+        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
         notes: Joi.string().optional().allow(null,'')
     });
 

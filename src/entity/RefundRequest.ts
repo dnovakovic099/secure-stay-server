@@ -48,6 +48,15 @@ export class RefundRequestEntity {
     @Column({ nullable: false })
     status: string;
 
+    @Column({ nullable: true })
+    paymentMethod: string;
+
+    @Column({ type: "text", nullable: true })
+    paymentDetails: string;
+
+    @Column({ type: "tinyint", default: 0 })
+    chargeToClient: number;
+
     @Column({ type: "text", nullable: true })
     notes: string;
 

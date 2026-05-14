@@ -59,6 +59,50 @@ const normalizeSlackField = (value?: unknown, fallback = "—") => {
     return normalized || fallback;
 };
 
+const parseRefundIssueIds = (issueId?: string | null): string[] => {
+    if (!issueId) return [];
+    try {
+        const parsed = JSON.parse(issueId);
+        return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch {
+        return [];
+    }
+};
+
+const buildRefundIssueLink = (refundRequest: RefundRequestEntity) => {
+    const issueIds = parseRefundIssueIds(refundRequest.issueId);
+    return issueIds.length
+        ? `*<https://securestay.ai/issues?id=${issueIds.join(",")}|View Issue>*`
+        : "";
+};
+
+const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "Paid", "Denied", "Cancelled"];
+
+const getRefundStatusLabelWithEmoji = (status?: string | null) => {
+    const normalized = status || "Pending";
+    const emoji = normalized === "Approved" ? "✅"
+        : normalized === "Denied" ? "❌"
+        : normalized === "Paid" ? "💰"
+        : normalized === "Cancelled" ? "🚫"
+        : "⏳";
+    return `${emoji} ${normalized}`;
+};
+
+const buildRefundStatusOption = (refundRequest: RefundRequestEntity, status: string) => ({
+    text: {
+        type: "plain_text",
+        text: getRefundStatusLabelWithEmoji(status),
+        emoji: true
+    },
+    value: JSON.stringify({
+        id: refundRequest.id,
+        status,
+        guestName: refundRequest.guestName,
+        listingName: refundRequest.listingName,
+        amount: refundRequest.refundAmount
+    })
+});
+
 const escapeSlackLinkText = (value: string) =>
     value
         .replace(/&/g, "&amp;")
@@ -186,7 +230,7 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity, sl
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*You have a new refund request:* *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                    text: `*You have a new refund request:* ${buildRefundIssueLink(refundRequest)}`
                 }
             },
             {
@@ -312,7 +356,7 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
             type: "section",
             text: {
                 type: "mrkdwn",
-                text: `*Refund request:* *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                text: `*Refund request:* ${buildRefundIssueLink(refundRequest)}`
             }
         },
         {
@@ -338,6 +382,109 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
     };
 };
 
+export const buildMitigationRefundRequestMessage = (
+    refundRequest: RefundRequestEntity,
+    options: { anjSlackId?: string | null; submittedBy?: string | null; }
+) => {
+    const currentStatus = REFUND_REQUEST_STATUS_OPTIONS.includes(refundRequest.status)
+        ? refundRequest.status
+        : "Pending";
+    const refundUrl = `https://securestay.ai/luxury-lodging/refund-requests?id=${refundRequest.id}`;
+    const mitigationUrl = `https://securestay.ai/mitigation?reservationId=${refundRequest.reservationId}`;
+    const anjMention = options.anjSlackId ? `<@${options.anjSlackId}>` : "Anj";
+    const submittedBy = normalizeSlackField(options.submittedBy, "SecureStay User");
+    const paymentLines = [
+        `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}`,
+        refundRequest.paymentMethod ? `*Payment Method:*\n${refundRequest.paymentMethod}` : "",
+        refundRequest.paymentDetails ? `*Payment Details:*\n${refundRequest.paymentDetails}` : "",
+        refundRequest.chargeToClient ? `*Charge to Client:*\nYes` : "",
+    ].filter(Boolean).join("\n");
+
+    return {
+        text: `💸 Refund Request — ${formatCurrency(refundRequest.refundAmount)} | ${anjMention} please review`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `💸 *Refund Request* | ${anjMention} please review`
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*Reservation:*\n${normalizeSlackField(refundRequest.guestName)}` },
+                    { type: "mrkdwn", text: `*Listing:*\n${normalizeSlackField(refundRequest.listingName)}` },
+                    { type: "mrkdwn", text: paymentLines },
+                    { type: "mrkdwn", text: `*Explanation:*\n${normalizeSlackField(refundRequest.explaination)}` }
+                ]
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "static_select",
+                        action_id: slackInteractivityEventNames.UPDATE_REFUND_REQUEST_STATUS,
+                        placeholder: {
+                            type: "plain_text",
+                            text: "Update Status",
+                            emoji: true
+                        },
+                        initial_option: buildRefundStatusOption(refundRequest, currentStatus),
+                        options: REFUND_REQUEST_STATUS_OPTIONS.map((status) => buildRefundStatusOption(refundRequest, status))
+                    },
+                    {
+                        type: "button",
+                        text: { type: "plain_text", text: "View Refund Request", emoji: true },
+                        url: refundUrl,
+                        value: JSON.stringify({ id: refundRequest.id })
+                    },
+                    {
+                        type: "button",
+                        text: { type: "plain_text", text: "View Mitigation Detail", emoji: true },
+                        url: mitigationUrl,
+                        value: JSON.stringify({ reservationId: refundRequest.reservationId })
+                    }
+                ]
+            },
+            {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Submitted By: ${submittedBy}` }]
+            }
+        ],
+        unfurl_links: false,
+        unfurl_media: false,
+    };
+};
+
+export const buildMitigationRefundRequestUpdateMessage = (
+    refundRequest: RefundRequestEntity,
+    options: { description: string; updatedBy?: string | null; }
+) => {
+    const description = options.description.trim().startsWith("💸")
+        ? options.description.trim()
+        : `💸 ${options.description.trim()}`;
+
+    return {
+        text: description,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `${description}\n*Refund Request:* <https://securestay.ai/luxury-lodging/refund-requests?id=${refundRequest.id}|${normalizeSlackField(refundRequest.guestName)} — ${formatCurrency(refundRequest.refundAmount)}>`
+                }
+            },
+            {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Updated By: ${normalizeSlackField(options.updatedBy, "SecureStay User")}` }]
+            }
+        ],
+        unfurl_links: false,
+        unfurl_media: false,
+    };
+};
+
 export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEntity[]) => {
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
@@ -358,7 +505,7 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
                         { type: "mrkdwn", text: `*Listing:*\n${request.listingName}` },
                         { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(request.refundAmount)}` },
                         { type: "mrkdwn", text: `*Explanation:*\n${request.explaination}` },
-                        { type: "mrkdwn", text: `*<https://securestay.ai/issues?id=${JSON.parse(request.issueId).join(",")}|View Issue>*` }
+                        ...(buildRefundIssueLink(request) ? [{ type: "mrkdwn", text: buildRefundIssueLink(request) }] : [])
                     ]
                 },
                 {
@@ -2132,13 +2279,15 @@ export interface ResolutionsCheckoutMessageData {
     reviewCheckoutId: number;
     statusOptions: string[];
     assigneeOptions: { label: string; value: string }[];
+    tagOptions?: { label: string; value: string }[];
+    selectedTags?: string[];
 }
 
 export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
     const {
         emoji, listingName, guestName, hostifyUrl, channelName,
         checkIn, checkOut, totalPaid, ownerRevenue, status, assignee, ssUrl,
-        reviewCheckoutId, statusOptions, assigneeOptions,
+        reviewCheckoutId, statusOptions, assigneeOptions, tagOptions = [], selectedTags = [],
     } = data;
 
     const guestText = hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
@@ -2158,6 +2307,18 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
 
     const currentStatusOption = statusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || statusSelectOptions[0];
     const currentAssigneeOption = assigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || assigneeSelectOptions[0];
+    const normalizedSelectedTags = new Set(selectedTags.map((tag) => tag.toLowerCase()));
+    const tagSelectOptions = tagOptions.slice(0, 100).map((tag) => ({
+        text: { type: 'plain_text' as const, text: tag.label },
+        value: JSON.stringify({ reviewCheckoutId, tag: tag.value }),
+    }));
+    const currentTagOptions = tagSelectOptions.filter((option) => {
+        try {
+            return normalizedSelectedTags.has(String(JSON.parse(option.value).tag || '').toLowerCase());
+        } catch {
+            return false;
+        }
+    });
 
     return {
         channel: RESOLUTIONS_TEAM_CHANNEL,
@@ -2169,6 +2330,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
             },
             {
                 type: 'actions',
+                block_id: `review_checkout_actions:${reviewCheckoutId}`,
                 elements: [
                     {
                         type: 'static_select',
@@ -2184,6 +2346,13 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                         ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
                         options: assigneeSelectOptions,
                     },
+                    ...(tagSelectOptions.length ? [{
+                        type: 'multi_static_select',
+                        action_id: 'update_review_checkout_tags',
+                        placeholder: { type: 'plain_text', text: 'Tags' },
+                        ...(currentTagOptions.length ? { initial_options: currentTagOptions } : {}),
+                        options: tagSelectOptions,
+                    }] : []),
                     {
                         type: 'button',
                         text: { type: 'plain_text', text: 'View in SecureStay' },
@@ -2236,7 +2405,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             break;
         }
         case 'visibility':
-            text = `👁 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
+            text = `🌟 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
             break;
         case 'resolution_notes': {
             const previousNote = String(oldValue || '').trim() || '—';

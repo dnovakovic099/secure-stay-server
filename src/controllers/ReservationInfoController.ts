@@ -185,6 +185,96 @@ export class ReservationInfoController {
         }
     }
 
+    async getSharedReservationTags(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const result = await reservationInfoService.getSharedReservationTags();
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateReservationTags(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const reservationId = Number(request.params.reservationId);
+            const tags = request.body?.tags;
+
+            if (!reservationId || Number.isNaN(reservationId)) {
+                return response.status(400).json({
+                    status: false,
+                    message: "Valid reservation ID is required",
+                });
+            }
+
+            if (!Array.isArray(tags)) {
+                return response.status(400).json({
+                    status: false,
+                    message: "Tags must be an array",
+                });
+            }
+
+            const result = await reservationInfoService.updateReservationTags(
+                reservationId,
+                tags,
+                request.user?.id || "system"
+            );
+
+            if (!result) {
+                return response.status(404).json({
+                    status: false,
+                    message: "Reservation not found",
+                });
+            }
+
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateSharedReservationTagSettings(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const result = await reservationInfoService.updateSharedReservationTagSettings(
+                request.body?.tagColors || {},
+                request.body?.tagOrder || []
+            );
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async replaceSharedReservationTag(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const result = await reservationInfoService.replaceSharedReservationTag(
+                request.body?.targetTag,
+                request.body?.replacementTag,
+                request.body?.tagColors || {},
+                request.body?.tagOrder || [],
+                request.user?.id || "system"
+            );
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async createReservationEditHistory(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reservationInfoService = new ReservationInfoService();
