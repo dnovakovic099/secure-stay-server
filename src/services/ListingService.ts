@@ -748,7 +748,7 @@ export class ListingService {
   }
 
   private normalizedListingTagsSql() {
-    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '-', ''), '/', ','), ';', ','), ',')";
+    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '-', ''), '_', ''), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), '{', ''), '}', ''), ',,', ','), ',')";
   }
 
   private getPropertyTypeTagAliases(type: string) {
