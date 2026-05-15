@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
+const scheduleValues = ["weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"];
+const managedByValues = ["LL", "LL-auto", "Client", "NA", "weekly", "client", "doesNotApply"];
+
 export const validateCreateContact = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string().valid('active', 'active-backup', 'inactive').required(),
@@ -12,9 +15,10 @@ export const validateCreateContact = (request: Request, response: Response, next
         website_name: Joi.string().required().allow(null),
         website_link: Joi.string().required().allow(null),
         rate: Joi.string().required().allow(null),
-        paymentScheduleType: Joi.string().required().valid(
-            "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis","as required"
-        ).allow(null),
+        managedBy: Joi.string().optional().valid(...managedByValues).allow(null),
+        workSchedule: Joi.string().optional().valid(...scheduleValues).allow(null),
+        paymentScheduleType: Joi.string().required().valid(...scheduleValues).allow(null),
+        payoutDetails: Joi.string().optional().allow(null),
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
         paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
         paymentWeekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
@@ -100,9 +104,10 @@ export const validateUpdateContact = (request: Request, response: Response, next
         website_name: Joi.string().required().allow(null),
         website_link: Joi.string().required().allow(null),
         rate: Joi.string().required().allow(null),
-        paymentScheduleType: Joi.string().required().valid(
-            "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
-        ).allow(null),
+        managedBy: Joi.string().optional().valid(...managedByValues).allow(null),
+        workSchedule: Joi.string().optional().valid(...scheduleValues).allow(null),
+        paymentScheduleType: Joi.string().required().valid(...scheduleValues).allow(null),
+        payoutDetails: Joi.string().optional().allow(null),
         paymentIntervalMonth: Joi.number().integer().min(1).max(12).required().allow(null),
         paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).allow(null),
         paymentWeekOfMonth: Joi.number().integer().min(1).max(5).required().allow(null),
@@ -201,6 +206,9 @@ export const validateGetContacts = (request: Request, response: Response, next: 
         rate: Joi.string().optional(),
         paymentMethod: Joi.array().items(Joi.string().valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),).optional(),
         isAutoPay: Joi.boolean().optional(),
+        managedBy: Joi.array().items(Joi.string().valid(...managedByValues)).optional(),
+        workSchedule: Joi.array().items(Joi.string().valid(...scheduleValues)).optional(),
+        paymentScheduleType: Joi.array().items(Joi.string().valid(...scheduleValues)).optional(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         email: Joi.string().email().optional().allow(null),
         source: Joi.array().items(Joi.string().valid("Owner", "Turno", "LL")).optional().allow(null),
@@ -284,9 +292,10 @@ export const validateBulkUpdateContacts = (request: Request, response: Response,
             website_name: Joi.string().optional().allow(null),
             website_link: Joi.string().optional().allow(null),
             rate: Joi.string().optional().allow(null),
-            paymentScheduleType: Joi.string().valid(
-                "weekly", "bi-weekly", "monthly", "quarterly", "annually", "check-out basis", "as required"
-            ).optional().allow(null),
+            managedBy: Joi.string().valid(...managedByValues).optional().allow(null),
+            workSchedule: Joi.string().valid(...scheduleValues).optional().allow(null),
+            paymentScheduleType: Joi.string().valid(...scheduleValues).optional().allow(null),
+            payoutDetails: Joi.string().optional().allow(null),
             paymentIntervalMonth: Joi.number().integer().min(1).max(12).optional().allow(null),
             paymentDayOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6).required()).optional().allow(null),
             paymentWeekOfMonth: Joi.number().integer().min(1).max(5).optional().allow(null),
@@ -308,4 +317,3 @@ export const validateBulkUpdateContacts = (request: Request, response: Response,
     }
     next();
 };
-

@@ -195,6 +195,8 @@ export class ReviewService {
         mitigation: 'ui-settings:mitigation',
         issues: 'ui-settings:issues',
         'issues-grouped': 'ui-settings:issues-grouped',
+        vendors: 'ui-settings:vendors',
+        'vendor-contacts': 'ui-settings:vendor-contacts',
         mitigationStatuses: 'ui-settings:mitigation-statuses',
     } as const;
 
@@ -240,7 +242,7 @@ export class ReviewService {
         return this.settingsRepo.save(setting);
     }
 
-    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped') {
+    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts') {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
         const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
@@ -253,13 +255,15 @@ export class ReviewService {
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped', payload: { defaultView?: any; defaultFilter?: any }, userId: string) {
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
         const displayNames: Record<typeof pageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
             issues: 'Shared Issues UI Settings',
             'issues-grouped': 'Shared Grouped Issues UI Settings',
+            vendors: 'Shared Vendors UI Settings',
+            'vendor-contacts': 'Shared Vendor Contacts UI Settings',
         };
         await this.upsertJsonSetting(
             this.reviewUiSettingsKeys[pageKey],
