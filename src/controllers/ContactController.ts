@@ -47,17 +47,26 @@ export class ContactController {
                 role: request.query.role as string[],
                 name: request.query.name as string,
                 contact: request.query.contact as string,
-                website_name: request.query.website_name as string,
+                website_name: request.query.website_name as string[],
                 rate: request.query.rate as string,
+                rateOperator: request.query.rateOperator as string,
+                rateFrom: request.query.rateFrom as string,
+                rateTo: request.query.rateTo as string,
                 paymentMethod: request.query.paymentMethod as string[],
                 managedBy: request.query.managedBy as string[],
                 workSchedule: request.query.workSchedule as string[],
                 paymentScheduleType: request.query.paymentScheduleType as string[],
                 isAutoPay: request.query.isAutoPay ? request.query.isAutoPay === 'true' : undefined,
                 propertyType: request.query.propertyType as any[],
+                serviceType: request.query.serviceType as any[],
                 email: request.query.email as string,
                 source: request.query.source as string[],
                 keyword: request.query.keyword as string,
+                notesKeyword: request.query.notesKeyword as string,
+                createdBy: request.query.createdBy as string[],
+                updatedBy: request.query.updatedBy as string[],
+                createdOn: request.query.createdOn as string,
+                updatedOn: request.query.updatedOn as string,
                 state: request.query.state as string[],
                 city: request.query.city as string[],
                 paidBy: request.query.paidBy as string[],
@@ -91,7 +100,7 @@ export class ContactController {
     async deleteContactRole(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const contactService = new ContactService();
-            await contactService.deleteContactRole(Number(request.params.id), request.user.id);
+            await contactService.deleteContactRole(Number(request.params.id), request.user.id, request.body);
             return response.status(200).json({ message: "Contact role deleted successfully." });
         } catch (error) {
             next(error);

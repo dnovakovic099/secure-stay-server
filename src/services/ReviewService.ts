@@ -1308,7 +1308,7 @@ export class ReviewService {
             .replace(/\s+/g, '')
             .replace(/[;/]/g, ',')
             .split(',')
-            .map((tag) => tag.replace(/-/g, ''))
+            .map((tag) => tag.replace(/[-_"'[\]{}]/g, ''))
             .filter(Boolean);
     }
 
@@ -2319,9 +2319,24 @@ export class ReviewService {
                 const wantsNo = fieldValues.includes('no-entry');
                 if (wantsWith !== wantsNo) analysisClauses.push(wantsWith ? withClause : noClause);
             };
+            const pushFlagCategoryClause = (fieldValues: string[], polarity: 'positive' | 'negative', paramPrefix: string) => {
+                const categories = fieldValues
+                    .filter((value) => String(value || '').startsWith('category:'))
+                    .map((value) => String(value).replace(/^category:/, '').trim().toLowerCase())
+                    .filter(Boolean);
+                if (!categories.length) return;
+                const categoryClauses = categories.map((category, index) => {
+                    const paramName = `${paramPrefix}Category${index}`;
+                    analysisParams[paramName] = `%${category}%`;
+                    return `(LOWER(CAST(analysis.flags AS CHAR)) LIKE '%"polarity":"${polarity}"%' AND LOWER(CAST(analysis.flags AS CHAR)) LIKE :${paramName})`;
+                });
+                analysisClauses.push(`(${categoryClauses.join(' OR ')})`);
+            };
             pushPresenceClause(aiAnalysis, "(analysis.summary IS NOT NULL AND TRIM(analysis.summary) != '')", "(analysis.summary IS NULL OR TRIM(analysis.summary) = '')");
-            pushPresenceClause(aiRedFlag, "(CAST(analysis.flags AS CHAR) LIKE '%\"polarity\":\"negative\"%' OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"positive\"%')", "(analysis.flags IS NULL OR CAST(analysis.flags AS CHAR) = '[]' OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"negative\"%')");
+            pushPresenceClause(aiRedFlag, "CAST(analysis.flags AS CHAR) LIKE '%\"polarity\":\"negative\"%'", "(analysis.flags IS NULL OR CAST(analysis.flags AS CHAR) = '[]' OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"negative\"%')");
             pushPresenceClause(aiGreenFlag, "CAST(analysis.flags AS CHAR) LIKE '%\"polarity\":\"positive\"%'", "(analysis.flags IS NULL OR CAST(analysis.flags AS CHAR) NOT LIKE '%\"polarity\":\"positive\"%')");
+            pushFlagCategoryClause(aiRedFlag, 'negative', 'redFlag');
+            pushFlagCategoryClause(aiGreenFlag, 'positive', 'greenFlag');
             if (aiAnalysisSearch) {
                 analysisClauses.push("(analysis.summary LIKE :aiAnalysisSearch OR analysis.sentimentReason LIKE :aiAnalysisSearch OR CAST(analysis.flags AS CHAR) LIKE :aiAnalysisSearch)");
                 analysisParams.aiAnalysisSearch = `%${aiAnalysisSearch}%`;

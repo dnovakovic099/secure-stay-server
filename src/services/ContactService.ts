@@ -1,7 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import { Contact } from "../entity/Contact";
 import CustomErrorHandler from "../middleware/customError.middleware";
-import { ILike, In } from "typeorm";
+import { ILike, In, Raw } from "typeorm";
 import { ListingService } from "./ListingService";
 import { UsersEntity } from "../entity/Users";
 import { Listing } from "../entity/Listing";
@@ -18,17 +18,26 @@ interface FilterQuery {
     role?: string[];
     name?: string;
     contact?: string;
-    website_name?: string;
+    website_name?: string[];
     rate?: string;
+    rateOperator?: string;
+    rateFrom?: string;
+    rateTo?: string;
     paymentMethod?: string[];
     managedBy?: string[];
     workSchedule?: string[];
     paymentScheduleType?: string[];
     isAutoPay?: boolean;
     propertyType?: string[];
+    serviceType?: string[];
     source?: string[];
     email?: string;
     keyword?: string;
+    notesKeyword?: string;
+    createdBy?: string[];
+    updatedBy?: string[];
+    createdOn?: string;
+    updatedOn?: string;
     state?: string[];
     city?: string[];
     paidBy?: string[];
@@ -42,6 +51,13 @@ export class ContactService {
     private contactRoleRepo = appDatabase.getRepository(ContactRole);
     private contactUpdatesRepo = appDatabase.getRepository(ContactUpdates);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
+
+    private getRoleAliases(role: Partial<ContactRole>) {
+        return Array.from(new Set([
+            role.role,
+            role.workCategory
+        ].filter((value): value is string => Boolean(value && value.trim()))));
+    }
 
     async createContact(body: Partial<Contact>, userId: string) {
         // Validate active cleaner constraint
@@ -126,40 +142,58 @@ export class ContactService {
             contact,
             website_name,
             rate,
+            rateOperator,
+            rateFrom,
+            rateTo,
             paymentMethod,
             managedBy,
             workSchedule,
             paymentScheduleType,
             isAutoPay,
             propertyType,
+            serviceType,
             source,
             email,
             keyword,
+            notesKeyword,
+            createdBy,
+            updatedBy,
+            createdOn,
+            updatedOn,
             state,
             city,
             paidBy
         } = query;
 
-        let listingIds = [];
+        let listingIds: any[] | undefined = undefined;
         const listingService = new ListingService();
         const listings = await listingService.getListingNames(userId);
         
         const hasPropertyType = propertyType && propertyType.length > 0;
+        const hasServiceType = serviceType && serviceType.length > 0;
         const hasState = state && state.length > 0;
         const hasCity = city && city.length > 0;
 
-        if (hasPropertyType) {
-            let listings = await listingService.getListingsByPropertyTypes(propertyType as any, userId);
+        if (hasPropertyType || hasServiceType) {
+            let filteredListings = hasPropertyType
+                ? await listingService.getListingsByPropertyTypes(propertyType as any, userId)
+                : listings;
+
+            if (hasServiceType) {
+                const serviceListings = await listingService.getListingsByServiceTypes(serviceType as any, userId);
+                const serviceListingIds = new Set(serviceListings.map(l => Number(l.id)));
+                filteredListings = filteredListings.filter(l => serviceListingIds.has(Number(l.id)));
+            }
 
             if (hasState) {
-                listings = listings.filter(l => l.state && state.includes(l.state));
+                filteredListings = filteredListings.filter(l => l.state && state.includes(l.state));
             }
 
             if (hasCity) {
-                listings = listings.filter(l => l.city && city.includes(l.city));
+                filteredListings = filteredListings.filter(l => l.city && city.includes(l.city));
             }
 
-            listingIds = listings.map(l => l.id);
+            listingIds = filteredListings.map(l => l.id);
         } else {
             let listings: any[] = [];
 
@@ -176,6 +210,26 @@ export class ContactService {
             listingIds = listings.length > 0 ? listings.map(l => l.id) : listingId;
         }
 
+        if (listingId && listingId.length > 0) {
+            listingIds = listingIds && listingIds.length > 0
+                ? listingIds.filter(id => listingId.map(String).includes(String(id)))
+                : listingId;
+        }
+
+        const rateFilter = (() => {
+            const operator = rateOperator || 'equal';
+            if (operator === 'between' && (rateFrom || rateTo)) {
+                const min = Number(rateFrom || 0);
+                const max = Number(rateTo || Number.MAX_SAFE_INTEGER);
+                return Raw((alias) => `CAST(${alias} AS DECIMAL(10,2)) BETWEEN :minRate AND :maxRate`, { minRate: min, maxRate: max });
+            }
+            if (!rate) return undefined;
+            const numericRate = Number(rate);
+            if (Number.isNaN(numericRate)) return rate;
+            if (operator === 'moreThan') return Raw((alias) => `CAST(${alias} AS DECIMAL(10,2)) > :rate`, { rate: numericRate });
+            if (operator === 'lessThan') return Raw((alias) => `CAST(${alias} AS DECIMAL(10,2)) < :rate`, { rate: numericRate });
+            return Raw((alias) => `CAST(${alias} AS DECIMAL(10,2)) = :rate`, { rate: numericRate });
+        })();
 
         const baseWhere: any = {
             ...(status && status.length > 0 && { status: In(status) }),
@@ -188,10 +242,15 @@ export class ContactService {
             ...(isAutoPay !== undefined && { isAutoPay }),
             ...(name && { name: ILike(`%${name}%`) }),
             ...(contact && { contact: ILike(`%${contact}%`) }),
-            ...(website_name && { website_name: ILike(`%${website_name}%`) }),
-            ...(rate && { rate }),
+            ...(website_name && website_name.length > 0 && { website_name: In(website_name) }),
+            ...(rateFilter && { rate: rateFilter }),
             ...(source && source.length > 0 && { source: In(source) }),
             ...(email && { email }),
+            ...(notesKeyword && { notes: ILike(`%${notesKeyword}%`) }),
+            ...(createdBy && createdBy.length > 0 && { createdBy: In(createdBy) }),
+            ...(updatedBy && updatedBy.length > 0 && { updatedBy: In(updatedBy) }),
+            ...(createdOn && { createdAt: Raw((alias) => `DATE(${alias}) = :createdOn`, { createdOn }) }),
+            ...(updatedOn && { updatedAt: Raw((alias) => `DATE(${alias}) = :updatedOn`, { updatedOn }) }),
             ...(paidBy && paidBy.length > 0 && { paidBy: In(paidBy) }),
         };
 
@@ -223,14 +282,18 @@ export class ContactService {
         const listingSchedules = await this.listingScheduleRepo.find();
 
         const transformedData = data.map(d => {
+            const listingMeta = listings.find((listing) => listing.id == Number(d.listingId));
             return {
                 ...d,
                 listingDetail: listingDetails.find(ld => ld.listingId == Number(d.listingId)) || null,
                 listingSchedule: listingSchedules.filter(ls => ls.listingId == Number(d.listingId)) || null,
-                listingName: listings.find((listing) => listing.id == Number(d.listingId))?.internalListingName,
+                listingName: listingMeta?.internalListingName,
+                tags: listingMeta?.tags,
+                propertyType: listingMeta?.propertyType,
+                createdById: d.createdBy,
+                updatedById: d.updatedBy,
                 createdBy: userMap.get(d.createdBy) || d.createdBy,
                 updatedBy: userMap.get(d.updatedBy) || d.updatedBy,
-                propertyType: "N/A",
                 contactUpdates: d.contactUpdates.map(update => ({
                     ...update,
                     createdBy: userMap.get(update.createdBy) || update.createdBy,
@@ -259,18 +322,41 @@ export class ContactService {
             throw CustomErrorHandler.notFound(`Contact Role with ID ${body.id} not found.`);
         }
 
+        const previousAliases = this.getRoleAliases(existingRole);
+        const nextRoleName = body.role || body.workCategory;
         const updatedRole = this.contactRoleRepo.merge(existingRole, {
             ...body,
             updatedBy: userId,
         });
 
-        return await this.contactRoleRepo.save(updatedRole);
+        const savedRole = await this.contactRoleRepo.save(updatedRole);
+
+        if (nextRoleName && previousAliases.length > 0 && !previousAliases.includes(nextRoleName)) {
+            await this.contactRepo.update(
+                { role: In(previousAliases) },
+                { role: nextRoleName, updatedBy: userId }
+            );
+        }
+
+        return savedRole;
     }
 
-    async deleteContactRole(id: number, userId: string) {
+    async deleteContactRole(id: number, userId: string, options?: { replacementRole?: string; role?: string; workCategory?: string; }) {
         const contactRole = await this.contactRoleRepo.findOneBy({ id });
         if (!contactRole) {
             throw CustomErrorHandler.notFound(`Contact Role with ID ${id} not found.`);
+        }
+
+        const roleAliases = this.getRoleAliases({
+            role: options?.role || contactRole.role,
+            workCategory: options?.workCategory || contactRole.workCategory
+        });
+
+        if (options?.replacementRole && roleAliases.length > 0) {
+            await this.contactRepo.update(
+                { role: In(roleAliases) },
+                { role: options.replacementRole, updatedBy: userId }
+            );
         }
 
         contactRole.deletedBy = userId;
@@ -280,7 +366,16 @@ export class ContactService {
 
     async getContactRoles() {
         const contactRoles = await this.contactRoleRepo.find();
-        return contactRoles;
+        return await Promise.all(contactRoles.map(async (role) => {
+            const aliases = this.getRoleAliases(role);
+            const contactCount = aliases.length
+                ? await this.contactRepo.count({ where: { role: In(aliases) } })
+                : 0;
+            return {
+                ...role,
+                contactCount
+            };
+        }));
     }
 
 
