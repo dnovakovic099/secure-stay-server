@@ -17,7 +17,6 @@ import { ActionItems } from "../entity/ActionItems";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
-import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
@@ -314,21 +313,11 @@ export class IssuesService {
   }
 
   private extractPropertyTypeTag(tags?: string | null): string | null {
-    const normalized = String(tags || "").toLowerCase();
-    if (!normalized) return null;
-    if (normalized.includes(String(tagIds.PM))) return "PM";
-    if (normalized.includes(String(tagIds.ARB))) return "Arb";
-    if (normalized.includes(String(tagIds.OWN))) return "Own";
-    return null;
+    return ListingService.extractPropertyTypeFromTags(tags);
   }
 
   private extractServiceTypeTag(tags?: string | null): string | null {
-    const normalized = String(tags || "").toLowerCase();
-    if (!normalized) return null;
-    if (normalized.includes(String(tagIds.FULL_SERVICE))) return "Full";
-    if (normalized.includes(String(tagIds.PRO_SERVICE))) return "Pro";
-    if (normalized.includes(String(tagIds.LAUNCH_SERVICE))) return "Launch";
-    return null;
+    return ListingService.extractServiceTypeFromTags(tags);
   }
 
   private normalizeCategory(category?: string | null): string {
@@ -1104,10 +1093,25 @@ export class IssuesService {
   }
 
   public async getIssuesByReservationId(reservationId: string) {
-    return await this.issueRepo.find({
+    const issues = await this.issueRepo.find({
       where: {
         reservation_id: reservationId,
       },
+    });
+
+    const listingIds = Array.from(new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean)));
+    const listings = listingIds.length
+      ? await appDatabase.getRepository(Listing).find({ where: { id: In(listingIds as number[]) } })
+      : [];
+    const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+
+    return issues.map((issue) => {
+      const listing = listingMap.get(Number(issue.listing_id));
+      return {
+        ...issue,
+        propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
+        serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
+      };
     });
   }
 
@@ -1363,20 +1367,36 @@ export class IssuesService {
       vendorThreadStatus,
       issueResolution,
       guestSentiment,
+      serviceType,
       resolutionNotesStatus,
       resolutionNotesKeyword,
       managerNotesStatus,
       managerNotesKeyword,
     } = body;
 
-    let listingIds = [];
+    const hasListingTypeFilter = Boolean(propertyType?.length || serviceType?.length);
+    let listingIds = Array.isArray(listingId) ? listingId : [];
+    const listingService = new ListingService();
     if (propertyType && propertyType.length > 0) {
-      const listingService = new ListingService();
-      listingIds = (
+      const propertyTypeListingIds = (
         await listingService.getListingsByPropertyTypes(propertyType, userId)
       ).map((l) => l.id);
-    } else {
-      listingIds = listingId;
+      listingIds = listingIds.length > 0
+        ? listingIds.filter((id: any) => propertyTypeListingIds.map(String).includes(String(id)))
+        : propertyTypeListingIds;
+    }
+
+    if (serviceType && serviceType.length > 0) {
+      const serviceTypeListingIds = (
+        await listingService.getListingsByServiceTypes(serviceType, userId)
+      ).map((l) => l.id);
+      listingIds = listingIds.length > 0
+        ? listingIds.filter((id: any) => serviceTypeListingIds.map(String).includes(String(id)))
+        : serviceTypeListingIds;
+    }
+
+    if (hasListingTypeFilter && listingIds.length === 0) {
+      return { issues: [], total: 0 };
     }
 
     let issueStatus = status;

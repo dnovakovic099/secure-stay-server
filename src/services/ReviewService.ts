@@ -598,11 +598,7 @@ export class ReviewService {
     }
 
     private extractServiceTypeFromTags(tags: string | null | undefined): string | null {
-        const tagList = this.getNormalizedListingTagTokens(tags);
-        if (tagList.includes('full') || tagList.includes('fullservice')) return 'Full';
-        if (tagList.includes('pro')) return 'Pro';
-        if (tagList.includes('launch')) return 'Launch';
-        return null;
+        return ListingService.extractServiceTypeFromTags(tags);
     }
 
     private mergeListingIds(current: number[] | null, incoming: Array<number | string>) {
@@ -1295,11 +1291,7 @@ export class ReviewService {
 
 
     private extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
-        const tagList = this.getNormalizedListingTagTokens(tags);
-        if (tagList.includes('own') || tagList.includes('owned') || tagList.includes('owner') || tagList.includes('ownarb')) return 'Own';
-        if (tagList.includes('arb') || tagList.includes('arbitrage')) return 'Arb';
-        if (tagList.includes('pm')) return 'PM';
-        return null;
+        return ListingService.extractPropertyTypeFromTags(tags);
     }
 
     private getNormalizedListingTagTokens(tags: string | null | undefined): string[] {
