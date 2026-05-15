@@ -21,6 +21,9 @@ interface FilterQuery {
     website_name?: string;
     rate?: string;
     paymentMethod?: string[];
+    managedBy?: string[];
+    workSchedule?: string[];
+    paymentScheduleType?: string[];
     isAutoPay?: boolean;
     propertyType?: string[];
     source?: string[];
@@ -124,6 +127,9 @@ export class ContactService {
             website_name,
             rate,
             paymentMethod,
+            managedBy,
+            workSchedule,
+            paymentScheduleType,
             isAutoPay,
             propertyType,
             source,
@@ -176,6 +182,9 @@ export class ContactService {
             ...(listingIds && { listingId: In(listingIds) }),
             ...(role && role.length > 0 && { role: In(role) }),
             ...(paymentMethod && paymentMethod.length > 0 && { paymentMethod: In(paymentMethod) }),
+            ...(managedBy && managedBy.length > 0 && { managedBy: In(managedBy) }),
+            ...(workSchedule && workSchedule.length > 0 && { workSchedule: In(workSchedule) }),
+            ...(paymentScheduleType && paymentScheduleType.length > 0 && { paymentScheduleType: In(paymentScheduleType) }),
             ...(isAutoPay !== undefined && { isAutoPay }),
             ...(name && { name: ILike(`%${name}%`) }),
             ...(contact && { contact: ILike(`%${contact}%`) }),
@@ -359,6 +368,12 @@ export class ContactService {
                 if (updateData.rate !== undefined) {
                     contact.rate = updateData.rate;
                 }
+                if (updateData.managedBy !== undefined) {
+                    contact.managedBy = updateData.managedBy;
+                }
+                if (updateData.workSchedule !== undefined) {
+                    contact.workSchedule = updateData.workSchedule;
+                }
                 if (updateData.paymentMethod !== undefined) {
                     contact.paymentMethod = updateData.paymentMethod;
                 }
@@ -406,6 +421,9 @@ export class ContactService {
                 }
                 if(updateData.paidBy !== undefined) {
                     contact.paidBy = updateData.paidBy;
+                }
+                if (updateData.payoutDetails !== undefined) {
+                    contact.payoutDetails = updateData.payoutDetails;
                 }
                 
                 contact.updatedBy = userId;

@@ -40,7 +40,16 @@ export class Contact {
     rate: string;
 
     @Column({ nullable: true })
+    managedBy: string;
+
+    @Column({ nullable: true })
+    workSchedule: string;
+
+    @Column({ nullable: true })
     paymentScheduleType: string;
+
+    @Column({ type: "text", nullable: true })
+    payoutDetails: string;
 
     @Column({ nullable: true })
     paymentIntervalMonth: number;
