@@ -1,7 +1,7 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import logger from "./logger.utils";
 
-const sendSlackMessage = async (message: any, threadTs?: string) => {
+const sendSlackMessage = async (message: any, threadTs?: string, attempt = 1): Promise<any> => {
     try {
         let payload = threadTs ? { ...message, thread_ts: threadTs } : message;
 
@@ -26,11 +26,15 @@ const sendSlackMessage = async (message: any, threadTs?: string) => {
             }
         });
 
-        // logger.info(JSON.stringify(response.data));
-        // logger.info(`Message sent to Slack: ${JSON.stringify(payload)}`);
-
         return response.data;
     } catch (err) {
+        const axiosErr = err as AxiosError;
+        if (axiosErr.response?.status === 429 && attempt === 1) {
+            const retryAfter = parseInt(axiosErr.response.headers['retry-after'] || '1', 10);
+            logger.warn(`Slack rate limited (429). Retrying after ${retryAfter}s`);
+            await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+            return sendSlackMessage(message, threadTs, 2);
+        }
         logger.error("Error sending message to Slack:", err);
     }
 };
