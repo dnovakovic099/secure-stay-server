@@ -767,6 +767,7 @@ export class RentalAgreementSigningService {
             checkingInTomorrow: RentalAgreementSummaryCard;
             checkingInNext7Days: RentalAgreementSummaryCard;
         };
+        overallSummary: RentalAgreementSummaryCard;
         records: RentalAgreementOverviewRow[];
         availableChannels: string[];
         total: number;
@@ -1003,7 +1004,7 @@ export class RentalAgreementSigningService {
         const tomorrow = addDays(today, 1);
         const nextSevenEnd = addDays(today, 6);
 
-        const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days] = await Promise.all([
+        const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days, overallSummary] = await Promise.all([
             buildSummaryCard("Ongoing Stay", "reservation.arrivalDate < :today AND reservation.departureDate >= :today", {
                 today: format(today, "yyyy-MM-dd"),
             }),
@@ -1017,6 +1018,7 @@ export class RentalAgreementSigningService {
                 today: format(today, "yyyy-MM-dd"),
                 nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
             }),
+            buildSummaryCard("Overall", "reservation.arrivalDate IS NOT NULL", {}),
         ]);
 
         return {
@@ -1026,6 +1028,7 @@ export class RentalAgreementSigningService {
                 checkingInTomorrow,
                 checkingInNext7Days,
             },
+            overallSummary,
             records,
             availableChannels,
             total,
