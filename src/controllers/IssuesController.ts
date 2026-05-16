@@ -584,8 +584,28 @@ export class IssuesController {
   ) {
     try {
       const issueId = Number(request.params.id);
+      const userId = request.user.id;
       const issuesService = new IssuesService();
-      const result = await issuesService.generateResolutionAnalysis(issueId);
+      const result = await issuesService.generateResolutionAnalysis(issueId, userId);
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async refreshResolutionAnalysisIfStale(
+    request: any,
+    response: Response,
+    next: NextFunction
+  ) {
+    try {
+      const issueId = Number(request.params.id);
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.refreshResolutionAnalysisIfStale(issueId, userId);
       return response.status(200).json({
         status: true,
         data: result,

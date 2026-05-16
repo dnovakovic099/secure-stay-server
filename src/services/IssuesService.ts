@@ -981,6 +981,14 @@ export class IssuesService {
       data.mistakeResolvedOn = format(new Date(), "yyyy-MM-dd");
     }
 
+    if (
+      Object.prototype.hasOwnProperty.call(data, "manager_feedback") &&
+      String(issue.manager_feedback || "").trim() !== String(data.manager_feedback || "").trim()
+    ) {
+      data.manager_feedback_updated_at = new Date();
+      data.manager_feedback_updated_by = userId;
+    }
+
     let listing_name = "";
     if (data.listing_id) {
       listing_name =
@@ -1690,6 +1698,8 @@ export class IssuesService {
         created_by: userMap.get(issue.created_by)?.name || issue.created_by,
         updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
         completed_by: userMap.get(issue.completed_by)?.name || issue.completed_by,
+        resolution_refreshed_by_name: userMap.get(issue.resolution_refreshed_by)?.name || (issue.resolution_refreshed_by === "system" ? "System" : issue.resolution_refreshed_by),
+        manager_feedback_updated_by_name: userMap.get(issue.manager_feedback_updated_by)?.name || issue.manager_feedback_updated_by,
         issueUpdates: issue.issueUpdates.map((update) => {
           const isSlack = update.source === "slack";
           const isSystem = update.source === "system";
@@ -2394,6 +2404,13 @@ export class IssuesService {
         if (updateData.resolution !== undefined) {
           issue.resolution = updateData.resolution;
         }
+        if (
+          updateData.manager_feedback !== undefined &&
+          String(issue.manager_feedback || "").trim() !== String(updateData.manager_feedback || "").trim()
+        ) {
+          issue.manager_feedback_updated_at = new Date();
+          issue.manager_feedback_updated_by = userId;
+        }
         if (updateData.claim_resolution_status !== undefined) {
           issue.claim_resolution_status = updateData.claim_resolution_status;
         }
@@ -2409,6 +2426,9 @@ export class IssuesService {
         }
         if (updateData.owner_notes !== undefined) {
           issue.owner_notes = updateData.owner_notes;
+        }
+        if (updateData.manager_feedback !== undefined) {
+          issue.manager_feedback = updateData.manager_feedback;
         }
         if (updateData.next_steps !== undefined) {
           issue.next_steps = updateData.next_steps;
@@ -2592,7 +2612,91 @@ export class IssuesService {
     return "—";
   }
 
-  async generateResolutionAnalysis(issueId: number) {
+  private async getLatestResolutionSourceUpdateAt(issueId: number) {
+    const latest = await this.issueUpdatesRepo
+      .createQueryBuilder("update")
+      .where("update.issueId = :issueId", { issueId })
+      .andWhere("update.deletedAt IS NULL")
+      .andWhere("COALESCE(update.source, 'securestay') <> :systemSource", { systemSource: "system" })
+      .andWhere("TRIM(COALESCE(update.updates, '')) <> ''")
+      .orderBy("update.createdAt", "DESC")
+      .getOne();
+    return latest?.createdAt || null;
+  }
+
+  private hasResolutionSourceUpdateSinceRefresh(issue: Issue, latestUpdateAt: Date | null) {
+    if (!latestUpdateAt) return false;
+    if (!issue.resolution_refreshed_at) return true;
+    return new Date(latestUpdateAt).getTime() > new Date(issue.resolution_refreshed_at).getTime();
+  }
+
+  private async getIssueUserDisplayName(uid?: string | null) {
+    if (!uid) return null;
+    if (uid === "system") return "System";
+    const user = await this.usersRepo.findOne({ where: { uid } });
+    return user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || uid : uid;
+  }
+
+  async refreshResolutionAnalysisIfStale(issueId: number, userId?: string) {
+    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const latestUpdateAt = await this.getLatestResolutionSourceUpdateAt(issueId);
+    if (!this.hasResolutionSourceUpdateSinceRefresh(issue, latestUpdateAt)) {
+      return {
+        refreshed: false,
+        latestUpdateAt,
+        issueResolution: issue.ai_resolution_status,
+        guestSentiment: issue.ai_guest_sentiment,
+        resolution: issue.resolution,
+        resolutionRefreshedAt: issue.resolution_refreshed_at,
+        resolutionRefreshedBy: issue.resolution_refreshed_by,
+        resolutionRefreshedByName: await this.getIssueUserDisplayName(issue.resolution_refreshed_by),
+      };
+    }
+
+    return {
+      refreshed: true,
+      latestUpdateAt,
+      ...(await this.generateResolutionAnalysis(issueId, userId || "system")),
+    };
+  }
+
+  async refreshStaleResolutionAnalyses() {
+    const rows = await appDatabase.query(
+      `
+      SELECT i.id
+      FROM issues i
+      WHERE i.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM issues_updates u
+          WHERE u.issueId = i.id
+            AND u.deletedAt IS NULL
+            AND COALESCE(u.source, 'securestay') <> 'system'
+            AND TRIM(COALESCE(u.updates, '')) <> ''
+            AND (i.resolution_refreshed_at IS NULL OR u.createdAt > i.resolution_refreshed_at)
+        )
+      ORDER BY i.id ASC
+      `
+    );
+
+    let refreshed = 0;
+    for (const row of rows || []) {
+      try {
+        await this.generateResolutionAnalysis(Number(row.id), "system");
+        refreshed += 1;
+      } catch (error) {
+        logger.warn(`[IssuesService] Failed scheduled resolution refresh for issue ${row.id}: ${error}`);
+      }
+    }
+
+    return { checked: rows?.length || 0, refreshed };
+  }
+
+  async generateResolutionAnalysis(issueId: number, refreshedBy = "system") {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
       relations: ["issueUpdates"],
@@ -2627,11 +2731,16 @@ export class IssuesService {
       issue.ai_resolution_status = fallback.issueResolution;
       issue.ai_guest_sentiment = fallback.guestSentiment;
       issue.resolution = fallback.resolution;
+      issue.resolution_refreshed_at = new Date();
+      issue.resolution_refreshed_by = refreshedBy;
       const saved = await this.issueRepo.save(issue);
       return {
         issueResolution: saved.ai_resolution_status,
         guestSentiment: saved.ai_guest_sentiment,
         resolution: saved.resolution,
+        resolutionRefreshedAt: saved.resolution_refreshed_at,
+        resolutionRefreshedBy: saved.resolution_refreshed_by,
+        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
       };
     }
 
@@ -2677,23 +2786,33 @@ export class IssuesService {
       issue.ai_resolution_status = issueResolution;
       issue.ai_guest_sentiment = guestSentiment;
       issue.resolution = resolution;
+      issue.resolution_refreshed_at = new Date();
+      issue.resolution_refreshed_by = refreshedBy;
       const saved = await this.issueRepo.save(issue);
 
       return {
         issueResolution: saved.ai_resolution_status,
         guestSentiment: saved.ai_guest_sentiment,
         resolution: saved.resolution,
+        resolutionRefreshedAt: saved.resolution_refreshed_at,
+        resolutionRefreshedBy: saved.resolution_refreshed_by,
+        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
       };
     } catch (error) {
       logger.warn(`[IssuesService] Failed to generate resolution analysis: ${error}`);
       issue.ai_resolution_status = fallback.issueResolution;
       issue.ai_guest_sentiment = fallback.guestSentiment;
       issue.resolution = fallback.resolution;
+      issue.resolution_refreshed_at = new Date();
+      issue.resolution_refreshed_by = refreshedBy;
       const saved = await this.issueRepo.save(issue);
       return {
         issueResolution: saved.ai_resolution_status,
         guestSentiment: saved.ai_guest_sentiment,
         resolution: saved.resolution,
+        resolutionRefreshedAt: saved.resolution_refreshed_at,
+        resolutionRefreshedBy: saved.resolution_refreshed_by,
+        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
       };
     }
   }

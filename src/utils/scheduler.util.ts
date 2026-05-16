@@ -28,6 +28,7 @@ import { CleanerNotificationService } from "../services/CleanerNotificationServi
 import { EscalationService } from "../services/EscalationService";
 import { CheckInNotificationService } from "../services/CheckInNotificationService";
 import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
+import { IssuesService } from "../services/IssuesService";
 
 
 export function scheduleGetReservation() {
@@ -133,6 +134,19 @@ export function scheduleGetReservation() {
         logger.error("Error processing checkout date upsells:", error);
       }
     })
+
+  schedule.scheduleJob(
+    { hour: 8, minute: 0, tz: "America/New_York" }, // Daily at 8 AM EST
+    async () => {
+      try {
+        logger.info('Refreshing stale issue resolution notes...');
+        const issuesService = new IssuesService();
+        const result = await issuesService.refreshStaleResolutionAnalyses();
+        logger.info(`Refreshed stale issue resolution notes. Checked: ${result.checked}, refreshed: ${result.refreshed}`);
+      } catch (error) {
+        logger.error("Error refreshing stale issue resolution notes", error);
+      }
+    });
 
   schedule.scheduleJob(
     { hour: 8, minute: 0, tz: "America/New_York" }, // Daily at 8 AM EST
