@@ -2378,11 +2378,12 @@ export interface ResolutionsActivityData {
     oldValue?: string | null;
     newValue?: string | null;
     anjSlackId?: string;
+    notificationMentions?: string[];
     rating?: number | null;
 }
 
 export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
-    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, rating } = data;
+    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, notificationMentions = [], rating } = data;
     const actorLabel = actor || 'SecureStay';
 
     let text = '';
@@ -2420,9 +2421,12 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const nextTag = String(newValue || details || '').trim();
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
+            const mentionLine = action === 'Added' && notificationMentions.length
+                ? `\n${notificationMentions.join(' ')}`
+                : '';
             text = previousTag && nextTag
                 ? `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n~▸ ${previousTag}~\n──────────`
-                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n──────────`;
+                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}${mentionLine}\n──────────`;
             break;
         }
         case 'comment':
@@ -2496,6 +2500,9 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const nextTag = String(newValue || details || '').trim();
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
+            const mentionElements = action === 'Added' && notificationMentions.length
+                ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notificationMentions.join(' ') }] }]
+                : [];
 
             blocks = previousTag && nextTag
                 ? [
@@ -2507,6 +2514,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                 : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Tag ${action} By: ${actorLabel}` }] },
                     { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${shownTag}` } },
+                    ...mentionElements,
                     { type: 'divider' },
                 ];
         } else {

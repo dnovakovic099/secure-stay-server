@@ -32,6 +32,14 @@ interface SlackMessageEvent {
         bot_id?: string;
         subtype?: string;
     };
+    message?: {
+        ts?: string;
+        thread_ts?: string;
+        user?: string;
+        text?: string;
+        bot_id?: string;
+        subtype?: string;
+    };
 }
 
 interface SlackAppMentionEvent {
@@ -60,6 +68,11 @@ export class SlackEventsService {
         try {
             if (event.subtype === 'message_deleted') {
                 await this.handleDeletedMessageEvent(event);
+                return;
+            }
+
+            if (event.subtype === 'message_changed') {
+                await this.handleChangedMessageEvent(event);
                 return;
             }
 
@@ -211,6 +224,42 @@ export class SlackEventsService {
         } catch (error) {
             logger.error('[SlackEventsService] Error handling message event:', error);
         }
+    }
+
+    /**
+     * Keep SecureStay timeline rows current when a tracked Slack reply is edited.
+     * Slack nests the edited payload under event.message for message_changed.
+     */
+    private async handleChangedMessageEvent(event: SlackMessageEvent): Promise<void> {
+        const changed = event.message;
+        const changedTs = changed?.ts || event.ts;
+        if (!changedTs) {
+            logger.warn('[SlackEventsService] message_changed event missing message.ts');
+            return;
+        }
+
+        const issueUpdate = await this.issueUpdateRepo.findOne({
+            where: { slackMessageTs: changedTs },
+            withDeleted: true,
+        });
+        if (!issueUpdate) {
+            logger.debug(`[SlackEventsService] No synced issue timeline entry found for edited Slack ts=${changedTs}`);
+            return;
+        }
+        if (issueUpdate.deletedAt) {
+            logger.debug(`[SlackEventsService] Ignoring edit for deleted issue timeline entry Slack ts=${changedTs}`);
+            return;
+        }
+
+        const slackUsers = await getSlackUsers();
+        const processedText = replaceSlackIdsWithMentions(changed?.text || '', slackUsers);
+        const slackUserName = changed?.user ? await this.getSlackUserDisplayName(changed.user) : 'Slack';
+
+        issueUpdate.updates = processedText;
+        issueUpdate.updatedBy = `${slackUserName} (via Slack)`;
+        await this.issueUpdateRepo.save(issueUpdate);
+
+        logger.info(`[SlackEventsService] Synced Slack edit to issue timeline update for ts=${changedTs}`);
     }
 
     /**

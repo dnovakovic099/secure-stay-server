@@ -33,6 +33,7 @@ interface ActivityPayload {
     details?: string;
     oldValue?: string | null;
     newValue?: string | null;
+    notificationMentions?: string[];
     rating?: number | null;
 }
 
@@ -215,6 +216,21 @@ export class ResolutionsTeamSlackService {
         }
 
         return displayName;
+    }
+
+    private async getResolutionTagAddedMentions(assigneeValue?: string | null) {
+        const mentions = new Set<string>();
+        const anjSlackId = await this.getAnjSlackUserId();
+        if (anjSlackId) {
+            mentions.add(`<@${anjSlackId}>`);
+        }
+
+        const assigneeLabel = await this.getAssigneeActivityLabel(assigneeValue);
+        if (assigneeLabel && !["Unassigned", "Unknown assignee"].includes(assigneeLabel)) {
+            mentions.add(assigneeLabel);
+        }
+
+        return [...mentions];
     }
 
     private getTotalPaidDisplay(reservation: ReservationInfoEntity) {
@@ -622,6 +638,9 @@ export class ResolutionsTeamSlackService {
                     newValue: await this.getAssigneeActivityLabel(activity.newValue || activity.details),
                 }
                 : {};
+            const resolutionTagMentions = activity.type === "resolution_tag" && !activity.oldValue && (activity.newValue || activity.details)
+                ? await this.getResolutionTagAddedMentions(rc.assignee)
+                : [];
 
             const msgPayload = buildResolutionsActivityMessage({
                 ...activity,
@@ -629,6 +648,7 @@ export class ResolutionsTeamSlackService {
                 actorIconUrl: actorPresentation.iconUrl,
                 ...assigneeLabels,
                 anjSlackId: anjSlackId || undefined,
+                notificationMentions: resolutionTagMentions,
             });
 
             const channelId = rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL;
