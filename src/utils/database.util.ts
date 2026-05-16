@@ -37,3 +37,24 @@ export async function initDatabase() {
 
   return appDatabase;
 }
+
+export async function ensureIssueMetadataColumns() {
+  if (!appDatabase.isInitialized) return;
+
+  const addColumnIfMissing = async (column: string, definition: string) => {
+    const existing = await appDatabase.query("SHOW COLUMNS FROM issues LIKE ?", [column]);
+    if (Array.isArray(existing) && existing.length > 0) return;
+    await appDatabase.query(`ALTER TABLE issues ADD COLUMN ${column} ${definition}`);
+    logger.info(`Added missing issues.${column} column`);
+  };
+
+  try {
+    await addColumnIfMissing("resolution_refreshed_at", "DATETIME NULL");
+    await addColumnIfMissing("resolution_refreshed_by", "VARCHAR(255) NULL");
+    await addColumnIfMissing("manager_feedback_updated_at", "DATETIME NULL");
+    await addColumnIfMissing("manager_feedback_updated_by", "VARCHAR(255) NULL");
+  } catch (error) {
+    logger.error("Failed to ensure issue metadata columns:", error);
+    throw error;
+  }
+}

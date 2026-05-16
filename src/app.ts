@@ -7,7 +7,7 @@ import express from "express";
 import qs from "qs";
 import { scheduleGetReservation } from "./utils/scheduler.util";
 import { createRouting } from "./utils/router.util";
-import { initDatabase } from "./utils/database.util";
+import { ensureIssueMetadataColumns, initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
@@ -26,6 +26,7 @@ process.on("unhandledRejection", (reason, promise) => {
 const main = async () => {
   // STEP 1: Connect to DB BEFORE starting server
   await initDatabase();
+  await ensureIssueMetadataColumns();
 
   const app = express();
   // Trust one layer of reverse proxy (Nginx) so req.ip reflects the real client IP
@@ -71,4 +72,3 @@ const main = async () => {
 main().catch((err) => {
   logger.error("Fatal startup error:", err);
 });
-

@@ -38,6 +38,7 @@ router.route('/slack-thread-preview').get(verifySession, issuesController.previe
 router.route('/slack-file').get(verifySession, issuesController.proxySlackFile);
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
+router.route('/:id/resolution-analysis/refresh-if-stale').post(verifySession, issuesController.refreshResolutionAnalysisIfStale);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 router.route('/:id/vendor-thread')
     .get(verifySession, issuesController.getIssueVendorThread)

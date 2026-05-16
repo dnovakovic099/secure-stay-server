@@ -142,6 +142,12 @@ export class Issue {
     @Column({ type: "text", nullable: true })
     resolution: string;
 
+    @Column({ type: 'datetime', nullable: true })
+    resolution_refreshed_at: Date;
+
+    @Column({ nullable: true })
+    resolution_refreshed_by: string;
+
     @Column({ type: "text", nullable: true })
     ai_short_title: string;
 
@@ -150,6 +156,12 @@ export class Issue {
 
     @Column({ type: "text", nullable: true })
     manager_feedback: string;
+
+    @Column({ type: 'datetime', nullable: true })
+    manager_feedback_updated_at: Date;
+
+    @Column({ nullable: true })
+    manager_feedback_updated_by: string;
 
     @Column({ type: "boolean", nullable: true })
     preventable_flag: boolean;
