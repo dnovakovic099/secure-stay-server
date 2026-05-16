@@ -1350,20 +1350,16 @@ export class RentalAgreementSigningService {
 
         let browser: any;
         try {
-            const propertyName = reservationInfo.listingName || "";
             const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   body { font-family: Arial, sans-serif; margin: 40px; color: #333; line-height: 1.6; }
-  h2 { text-align: center; margin-bottom: 4px; }
-  .property-name { text-align: center; color: #555; margin-top: 0; margin-bottom: 30px; }
-  .agreement-header-block, .agreement-footer-block { margin-bottom: 24px; }
-  .agreement-body { border-top: 1px solid #ddd; padding-top: 20px; }
+  .agreement-header-block { display: none !important; }
+  .agreement-footer-block { margin-bottom: 24px; }
+  .agreement-body { padding-top: 20px; }
   .sig-section { margin-top: 40px; border-top: 2px solid #333; padding-top: 20px; }
   .sig-img { max-width: 300px; border: 1px solid #ccc; display: block; margin-top: 10px; }
   .timestamp { margin-top: 10px; font-size: 12px; color: #777; }
 </style></head><body>
-  <h2>Rental Agreement</h2>
-  <p class="property-name">${propertyName}</p>
   <div class="agreement-body">${signing.renderedHtml}</div>
   <div class="sig-section">
     <p><strong>Signed by:</strong> ${signing.signedByName}</p>
