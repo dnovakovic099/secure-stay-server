@@ -660,17 +660,15 @@ export class UnifiedWebhookController {
 
             logger.info(`Received Stripe webhook for event: ${event.type}`);
 
-            if (event.type === 'issuing_dispute.closed') {
-                logger.info(`Stripe issuing_dispute.closed event body: ${JSON.stringify(event)}`);
+                logger.info(`Stripe ${event.type} event body: ${JSON.stringify(event)}`);
                 await sendEmail(
-                    "Stripe Issuing Dispute Closed Notification",
-                    `<p>A Stripe <b>issuing_dispute.closed</b> event has occurred.</p>
+                    `Stripe ${event.type} Notification`,
+                    `<p>A Stripe <b>${event.type}</b> event has occurred.</p>
                      <p><b>Event Body:</b></p>
                      <pre>${JSON.stringify(event)}</pre>`,
                     process.env.EMAIL_FROM,
                     "prasannakb440@gmail.com"
                 );
-            }
 
             return response.status(200).send("Ok");
         } catch (error: any) {
