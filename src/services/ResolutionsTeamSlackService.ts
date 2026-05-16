@@ -987,6 +987,7 @@ export class ResolutionsTeamSlackService {
                             elements: [
                                 {
                                     type: "button",
+                                    action_id: "view_mitigation_detail",
                                     text: { type: "plain_text", text: "View Mitigation Detail", emoji: true },
                                     url: `https://securestay.ai/mitigation?reservationId=${reservationId}`,
                                 }

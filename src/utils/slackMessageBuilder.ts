@@ -2355,6 +2355,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                     }] : []),
                     {
                         type: 'button',
+                        action_id: 'view_in_securestay',
                         text: { type: 'plain_text', text: 'View in SecureStay' },
                         url: ssUrl,
                     },
