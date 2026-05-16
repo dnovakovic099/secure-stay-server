@@ -121,7 +121,10 @@ export class RentalAgreementController {
                 return res.status(400).json({ success: false, message: "signatureDataUrl and signedByName are required" });
             }
 
-            const ip = req.ip || "";
+            const forwarded = req.headers["x-forwarded-for"] as string | undefined;
+            const realIp = req.headers["x-real-ip"] as string | undefined;
+            const rawIp = (forwarded?.split(",")[0] || realIp || req.ip || "").trim();
+            const ip = rawIp.replace(/^::ffff:/, "");
             const userAgent = (req.headers["user-agent"] as string) || "";
 
             const result = await rentalAgreementSigningService.submitSigning(
