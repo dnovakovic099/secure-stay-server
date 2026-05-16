@@ -76,7 +76,9 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallb
     if (mimetype && extname) {
         cb(null, true);
     } else {
-        cb(null, false);
+        const error: Error & { status?: number } = new Error(`Unsupported file type for ${file.originalname}. Please upload an image, PDF, Word, Excel, or CSV file.`);
+        error.status = 400;
+        cb(error);
     }
 };
 

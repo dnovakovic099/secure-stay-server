@@ -28,6 +28,17 @@ export const errorHandler = (
     logger.error(`413 Error: Payload too large from ${req.ip} at ${req.originalUrl}`);
   }
 
+  if (err.name === "MulterError") {
+    statusCode = 400;
+    data.message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "File is too large. Maximum attachment size is 15MB."
+        : err.message || "File upload failed.";
+  } else if (err.status && err.status >= 400 && err.status < 500) {
+    statusCode = err.status;
+    data.message = err.message || "Request failed.";
+  }
+
   if (err instanceof CustomErrorHandler) {
     const customError = err as CustomErrorHandler;
     statusCode = customError.status;
