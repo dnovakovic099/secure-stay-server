@@ -4,6 +4,7 @@ import { CityStateInfo } from "../entity/CityStateInfo";
 import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import logger from "../utils/logger.utils";
+import redis from "../utils/redisConnection";
 import { Between, In, LessThanOrEqual, MoreThanOrEqual, Not } from "typeorm";
 import { QuoteService, QuoteBreakdown } from "./QuoteService";
 
@@ -67,6 +68,7 @@ interface PropertyWithDistance {
     text: string;
     value: number;
   };
+  distanceFromCache?: boolean;
 }
 
 export interface SearchResult {
@@ -76,6 +78,33 @@ export interface SearchResult {
     petFilterError?: string;
     totalFound: number;
   };
+}
+
+interface DistanceResult {
+  distance: { text: string; value: number };
+  duration: { text: string; value: number };
+}
+
+const DISTANCE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days — Google Maps ToS limit
+
+function buildDistanceCacheKey(oLat: number, oLng: number, dLat: number, dLng: number): string {
+  const r = (n: number) => Math.round(n * 10000) / 10000;
+  return `distance:matrix:${r(oLat)},${r(oLng)}:${r(dLat)},${r(dLng)}`;
+}
+
+async function getCachedDistance(oLat: number, oLng: number, dLat: number, dLng: number): Promise<DistanceResult | null> {
+  try {
+    const cached = await redis.get(buildDistanceCacheKey(oLat, oLng, dLat, dLng));
+    return cached ? (JSON.parse(cached) as DistanceResult) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedDistance(oLat: number, oLng: number, dLat: number, dLng: number, result: DistanceResult): Promise<void> {
+  try {
+    await redis.set(buildDistanceCacheKey(oLat, oLng, dLat, dLng), JSON.stringify(result), "EX", DISTANCE_CACHE_TTL_SECONDS);
+  } catch { /* non-fatal */ }
 }
 
 export class MapsService {
@@ -581,43 +610,57 @@ export class MapsService {
 
       for (let i = 0; i < properties.length; i += batchSize) {
         const batch = properties.slice(i, i + batchSize);
-        const destinations = batch
-          .map((p) => `${p.lat},${p.lng}`)
-          .join("|");
+        const oLat = referenceProperty.lat;
+        const oLng = referenceProperty.lng;
 
-        const origin = `${referenceProperty.lat},${referenceProperty.lng}`;
-
-        const response = await axios.get(
-          `https://maps.googleapis.com/maps/api/distancematrix/json`,
-          {
-            params: {
-              origins: origin,
-              destinations: destinations,
-              units: "imperial",
-              key: apiKey,
-            },
-          }
+        const cacheHits = await Promise.all(
+          batch.map((p) => getCachedDistance(oLat, oLng, p.lat, p.lng))
         );
 
-        if (response.data.status === "OK" && response.data.rows?.[0]?.elements) {
-          const elements = response.data.rows[0].elements;
+        const batchResults: PropertyWithDistance[] = new Array(batch.length);
+        const missIndices: number[] = [];
 
-          batch.forEach((property, index) => {
-            const element = elements[index];
-            if (element.status === "OK") {
-              results.push({
-                ...property,
-                distance: element.distance,
-                duration: element.duration,
-              });
-            } else {
-              results.push(property);
-            }
-          });
-        } else {
-          logger.warn("Distance Matrix API returned non-OK status:", response.data.status);
-          results.push(...batch);
+        batch.forEach((property, idx) => {
+          const hit = cacheHits[idx];
+          if (hit) {
+            batchResults[idx] = { ...property, distance: hit.distance, duration: hit.duration, distanceFromCache: true };
+          } else {
+            missIndices.push(idx);
+          }
+        });
+
+        if (missIndices.length > 0) {
+          const missProps = missIndices.map((idx) => batch[idx]);
+          const destinations = missProps.map((p) => `${p.lat},${p.lng}`).join("|");
+          const origin = `${oLat},${oLng}`;
+
+          const response = await axios.get(
+            `https://maps.googleapis.com/maps/api/distancematrix/json`,
+            { params: { origins: origin, destinations, units: "imperial", key: apiKey } }
+          );
+
+          if (response.data.status === "OK" && response.data.rows?.[0]?.elements) {
+            const elements = response.data.rows[0].elements;
+            await Promise.all(
+              missIndices.map(async (batchIdx, apiIdx) => {
+                const property = batch[batchIdx];
+                const element = elements[apiIdx];
+                if (element.status === "OK") {
+                  const freshResult: DistanceResult = { distance: element.distance, duration: element.duration };
+                  await setCachedDistance(oLat, oLng, property.lat, property.lng, freshResult);
+                  batchResults[batchIdx] = { ...property, ...freshResult, distanceFromCache: false };
+                } else {
+                  batchResults[batchIdx] = property;
+                }
+              })
+            );
+          } else {
+            logger.warn("Distance Matrix API returned non-OK status:", response.data.status);
+            missIndices.forEach((batchIdx) => { batchResults[batchIdx] = batch[batchIdx]; });
+          }
         }
+
+        results.push(...batchResults);
       }
 
       // Sort by distance
@@ -655,6 +698,9 @@ export class MapsService {
     }
 
     try {
+      const cached = await getCachedDistance(property1.lat, property1.lng, property2.lat, property2.lng);
+      if (cached) return { distance: cached.distance, duration: cached.duration };
+
       const response = await axios.get(
         `https://maps.googleapis.com/maps/api/distancematrix/json`,
         {
@@ -669,10 +715,9 @@ export class MapsService {
 
       if (response.data.status === "OK" && response.data.rows?.[0]?.elements?.[0]?.status === "OK") {
         const element = response.data.rows[0].elements[0];
-        return {
-          distance: element.distance,
-          duration: element.duration,
-        };
+        const freshResult: DistanceResult = { distance: element.distance, duration: element.duration };
+        await setCachedDistance(property1.lat, property1.lng, property2.lat, property2.lng, freshResult);
+        return freshResult;
       }
 
       return null;
