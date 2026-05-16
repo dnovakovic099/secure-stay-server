@@ -200,6 +200,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         category: Joi.array().items(Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA")).min(1).optional(),
         listingId: Joi.array().items(Joi.number()).min(1).optional(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
+        serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
         fromDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),

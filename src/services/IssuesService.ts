@@ -17,7 +17,6 @@ import { ActionItems } from "../entity/ActionItems";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { UsersEntity } from "../entity/Users";
 import { ListingService } from "./ListingService";
-import { tagIds } from "../constant";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
@@ -314,21 +313,11 @@ export class IssuesService {
   }
 
   private extractPropertyTypeTag(tags?: string | null): string | null {
-    const normalized = String(tags || "").toLowerCase();
-    if (!normalized) return null;
-    if (normalized.includes(String(tagIds.PM))) return "PM";
-    if (normalized.includes(String(tagIds.ARB))) return "Arb";
-    if (normalized.includes(String(tagIds.OWN))) return "Own";
-    return null;
+    return ListingService.extractPropertyTypeFromTags(tags);
   }
 
   private extractServiceTypeTag(tags?: string | null): string | null {
-    const normalized = String(tags || "").toLowerCase();
-    if (!normalized) return null;
-    if (normalized.includes(String(tagIds.FULL_SERVICE))) return "Full";
-    if (normalized.includes(String(tagIds.PRO_SERVICE))) return "Pro";
-    if (normalized.includes(String(tagIds.LAUNCH_SERVICE))) return "Launch";
-    return null;
+    return ListingService.extractServiceTypeFromTags(tags);
   }
 
   private normalizeCategory(category?: string | null): string {
@@ -356,16 +345,79 @@ export class IssuesService {
     return ids;
   }
 
-  private async deleteTrackedIssueUpdateSlackMessage(updateId: number) {
+  private async getTrackedIssueUpdateSlackMessage(issueUpdate: IssueUpdates) {
     const trackedSlackUpdate = await this.slackMessageRepo.findOne({
       where: {
         entityType: "issue-updates",
-        entityId: updateId,
+        entityId: Number(issueUpdate.id),
       },
       order: {
         createdAt: "DESC",
       },
     });
+
+    if (trackedSlackUpdate) return trackedSlackUpdate;
+
+    if (!issueUpdate.slackMessageTs || !issueUpdate.issue?.id) return null;
+
+    const mainIssueThread = await this.getMainIssueSlackThread(Number(issueUpdate.issue.id));
+    if (!mainIssueThread) return null;
+
+    return {
+      ...mainIssueThread,
+      messageTs: issueUpdate.slackMessageTs,
+      threadTs: mainIssueThread.threadTs || mainIssueThread.messageTs,
+    } as SlackMessageEntity;
+  }
+
+  private async postIssueUpdateToSlackThread(issueUpdate: IssueUpdates, issue: Issue, userId: string) {
+    if (issueUpdate.source !== "securestay") return issueUpdate;
+
+    const mainIssueThread = await this.getMainIssueSlackThread(Number(issue.id));
+    if (!mainIssueThread) return issueUpdate;
+
+    try {
+      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+      const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+      const listingInfo = await appDatabase.getRepository(Listing).findOne({
+        where: {
+          id: Number(issue.listing_id),
+        },
+      });
+      const slackMessage = buildIssueUpdateMessage(issueUpdate, listingInfo?.internalListingName, user);
+      const payload = {
+        ...slackMessage,
+        channel: mainIssueThread.channel,
+      };
+      const slackResponse = await sendSlackMessage(payload, mainIssueThread.threadTs || mainIssueThread.messageTs);
+
+      if (!slackResponse?.ok || !slackResponse.ts) {
+        logger.warn(`Slack issue update post failed for update ${issueUpdate.id}: ${slackResponse?.error || "unknown_error"}`);
+        return issueUpdate;
+      }
+
+      issueUpdate.slackMessageTs = slackResponse.ts;
+      const savedUpdate = await this.issueUpdatesRepo.save(issueUpdate);
+
+      const trackedSlackUpdate = this.slackMessageRepo.create({
+        channel: mainIssueThread.channel,
+        messageTs: slackResponse.ts,
+        threadTs: mainIssueThread.threadTs || mainIssueThread.messageTs,
+        entityType: "issue-updates",
+        entityId: Number(savedUpdate.id),
+        originalMessage: JSON.stringify(payload),
+      });
+      await this.slackMessageRepo.save(trackedSlackUpdate);
+
+      return savedUpdate;
+    } catch (error) {
+      logger.error(`Slack issue update post failed for update ${issueUpdate.id}`, error);
+      return issueUpdate;
+    }
+  }
+
+  private async deleteTrackedIssueUpdateSlackMessage(issueUpdate: IssueUpdates) {
+    const trackedSlackUpdate = await this.getTrackedIssueUpdateSlackMessage(issueUpdate);
 
     if (!trackedSlackUpdate) return;
 
@@ -392,9 +444,11 @@ export class IssuesService {
         throw new Error(response.data?.error || "unknown_error");
       }
 
-      await this.slackMessageRepo.remove(trackedSlackUpdate);
+      if (trackedSlackUpdate.entityType === "issue-updates") {
+        await this.slackMessageRepo.remove(trackedSlackUpdate);
+      }
     } catch (error: any) {
-      logger.error(`Slack issue update delete failed for update ${updateId}`, error);
+      logger.error(`Slack issue update delete failed for update ${issueUpdate.id}`, error);
       throw CustomErrorHandler.validationError(`Slack delete failed: ${error?.message || "unknown_error"}`);
     }
   }
@@ -1104,10 +1158,25 @@ export class IssuesService {
   }
 
   public async getIssuesByReservationId(reservationId: string) {
-    return await this.issueRepo.find({
+    const issues = await this.issueRepo.find({
       where: {
         reservation_id: reservationId,
       },
+    });
+
+    const listingIds = Array.from(new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean)));
+    const listings = listingIds.length
+      ? await appDatabase.getRepository(Listing).find({ where: { id: In(listingIds as number[]) } })
+      : [];
+    const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+
+    return issues.map((issue) => {
+      const listing = listingMap.get(Number(issue.listing_id));
+      return {
+        ...issue,
+        propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
+        serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
+      };
     });
   }
 
@@ -1212,7 +1281,7 @@ export class IssuesService {
         source: source === "system" ? "system" : "securestay",
       });
 
-      const result = await this.issueUpdatesRepo.save(newUpdate);
+      let result = await this.issueUpdatesRepo.save(newUpdate);
       if (fileInfo?.length) {
         for (const file of fileInfo) {
           const fileRecord = this.fileInfoRepo.create({
@@ -1228,6 +1297,7 @@ export class IssuesService {
         }
       }
 
+      result = await this.postIssueUpdateToSlackThread(result, issue, userId);
       createdUpdates.push(result);
     }
 
@@ -1272,15 +1342,7 @@ export class IssuesService {
     existingIssueUpdate.updatedBy = userId;
 
     const result = await this.issueUpdatesRepo.save(existingIssueUpdate);
-    const trackedSlackUpdate = await this.slackMessageRepo.findOne({
-      where: {
-        entityType: "issue-updates",
-        entityId: result.id,
-      },
-      order: {
-        createdAt: "DESC",
-      },
-    });
+    const trackedSlackUpdate = await this.getTrackedIssueUpdateSlackMessage(result);
     if (trackedSlackUpdate) {
       try {
         const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
@@ -1320,7 +1382,10 @@ export class IssuesService {
   }
 
   async deleteIssueUpdates(id: number, userId: string) {
-    const issueUpdate = await this.issueUpdatesRepo.findOneBy({ id });
+    const issueUpdate = await this.issueUpdatesRepo.findOne({
+      where: { id },
+      relations: ["issue"],
+    });
     if (!issueUpdate) {
       throw CustomErrorHandler.notFound(
         `Issue update with the id ${id} not found`
@@ -1328,7 +1393,7 @@ export class IssuesService {
     }
 
     if (issueUpdate.source !== "slack") {
-      await this.deleteTrackedIssueUpdateSlackMessage(Number(issueUpdate.id));
+      await this.deleteTrackedIssueUpdateSlackMessage(issueUpdate);
     }
 
     issueUpdate.deletedAt = new Date();
@@ -1363,20 +1428,36 @@ export class IssuesService {
       vendorThreadStatus,
       issueResolution,
       guestSentiment,
+      serviceType,
       resolutionNotesStatus,
       resolutionNotesKeyword,
       managerNotesStatus,
       managerNotesKeyword,
     } = body;
 
-    let listingIds = [];
+    const hasListingTypeFilter = Boolean(propertyType?.length || serviceType?.length);
+    let listingIds = Array.isArray(listingId) ? listingId : [];
+    const listingService = new ListingService();
     if (propertyType && propertyType.length > 0) {
-      const listingService = new ListingService();
-      listingIds = (
+      const propertyTypeListingIds = (
         await listingService.getListingsByPropertyTypes(propertyType, userId)
       ).map((l) => l.id);
-    } else {
-      listingIds = listingId;
+      listingIds = listingIds.length > 0
+        ? listingIds.filter((id: any) => propertyTypeListingIds.map(String).includes(String(id)))
+        : propertyTypeListingIds;
+    }
+
+    if (serviceType && serviceType.length > 0) {
+      const serviceTypeListingIds = (
+        await listingService.getListingsByServiceTypes(serviceType, userId)
+      ).map((l) => l.id);
+      listingIds = listingIds.length > 0
+        ? listingIds.filter((id: any) => serviceTypeListingIds.map(String).includes(String(id)))
+        : serviceTypeListingIds;
+    }
+
+    if (hasListingTypeFilter && listingIds.length === 0) {
+      return { issues: [], total: 0 };
     }
 
     let issueStatus = status;

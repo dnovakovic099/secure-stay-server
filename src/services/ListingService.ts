@@ -414,6 +414,8 @@ export class ListingService {
   }
 
   private normalizeListingOverview(listing: any) {
+    const propertyTypeTag = ListingService.extractPropertyTypeFromTags(listing?.tags);
+    const serviceTypeTag = ListingService.extractServiceTypeFromTags(listing?.tags);
     const resolvedTimeZone = this.resolveTimeZone(listing);
     const timeZoneIdentifier = resolvedTimeZone.timeZone;
     const checkInLocalRaw =
@@ -475,6 +477,9 @@ export class ListingService {
         listing?.property_type ||
         listing?.roomType ||
         "",
+      propertyTypeTag,
+      serviceTypeTag,
+      serviceType: listing?.serviceType || listing?.service_type || serviceTypeTag || "",
       timezoneIdentifier: timeZoneIdentifier || null,
       timezoneName: timeZoneIdentifier ? this.getReadableTimeZone(timeZoneIdentifier) : null,
       checkInLocal,
@@ -751,19 +756,45 @@ export class ListingService {
     return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '-', ''), '_', ''), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), '{', ''), '}', ''), ',,', ','), ',')";
   }
 
+  static extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
+    const tagList = ListingService.getNormalizedListingTagTokens(tags);
+    if (tagList.some((tag) => ['own', 'owned', 'owner', 'ownarb', String(tagIds.OWN)].includes(tag))) return 'Own';
+    if (tagList.some((tag) => ['arb', 'arbitrage', 'ownarb', String(tagIds.ARB)].includes(tag))) return 'Arb';
+    if (tagList.some((tag) => ['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)].includes(tag))) return 'PM';
+    return null;
+  }
+
+  static extractServiceTypeFromTags(tags: string | null | undefined): string | null {
+    const tagList = ListingService.getNormalizedListingTagTokens(tags);
+    if (tagList.some((tag) => ['full', 'fullservice', String(tagIds.FULL_SERVICE)].includes(tag))) return 'Full';
+    if (tagList.some((tag) => ['pro', String(tagIds.PRO_SERVICE)].includes(tag))) return 'Pro';
+    if (tagList.some((tag) => ['launch', String(tagIds.LAUNCH_SERVICE)].includes(tag))) return 'Launch';
+    return null;
+  }
+
+  private static getNormalizedListingTagTokens(tags: string | null | undefined): string[] {
+    return String(tags || '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[;/]/g, ',')
+      .split(',')
+      .map((tag) => tag.replace(/[-_"'[\]{}]/g, ''))
+      .filter(Boolean);
+  }
+
   private getPropertyTypeTagAliases(type: string) {
     const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
-    if (['own', 'owned', 'owner'].includes(normalizedType)) return ['own', 'owned', 'owner', 'ownarb'];
-    if (['arb', 'arbitrage'].includes(normalizedType)) return ['arb', 'arbitrage', 'ownarb'];
-    if (['pm', 'propertymanagement', 'propertymanager'].includes(normalizedType)) return ['pm', 'propertymanagement', 'propertymanager'];
+    if (['own', 'owned', 'owner', String(tagIds.OWN)].includes(normalizedType)) return ['own', 'owned', 'owner', 'ownarb', String(tagIds.OWN)];
+    if (['arb', 'arbitrage', String(tagIds.ARB)].includes(normalizedType)) return ['arb', 'arbitrage', 'ownarb', String(tagIds.ARB)];
+    if (['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)].includes(normalizedType)) return ['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)];
     return normalizedType ? [normalizedType] : [];
   }
 
   private getServiceTypeTagAliases(type: string) {
     const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
-    if (['full', 'fullservice'].includes(normalizedType)) return ['full', 'fullservice'];
-    if (normalizedType === 'pro') return ['pro'];
-    if (normalizedType === 'launch') return ['launch'];
+    if (['full', 'fullservice', String(tagIds.FULL_SERVICE)].includes(normalizedType)) return ['full', 'fullservice', String(tagIds.FULL_SERVICE)];
+    if (['pro', String(tagIds.PRO_SERVICE)].includes(normalizedType)) return ['pro', String(tagIds.PRO_SERVICE)];
+    if (['launch', String(tagIds.LAUNCH_SERVICE)].includes(normalizedType)) return ['launch', String(tagIds.LAUNCH_SERVICE)];
     return normalizedType ? [normalizedType] : [];
   }
 
