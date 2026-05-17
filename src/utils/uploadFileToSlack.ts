@@ -15,7 +15,8 @@ const web = new WebClient(token);
 export async function uploadFileToSlack(
     channelId: string,
     fileNames: string[],
-    moduleFolder: string
+    moduleFolder: string,
+    threadTs?: string
 ): Promise<void> {
     for (const fileName of fileNames) {
         const filePath = path.join(__dirname, `../../public/${moduleFolder}`, fileName);
@@ -26,12 +27,21 @@ export async function uploadFileToSlack(
         }
 
         try {
-            const result = await web.files.uploadV2({
-                channel_id: channelId,
-                initial_comment: ``,
-                file: fs.createReadStream(filePath),
-                filename: fileName,
-            });
+            const uploadArgs: Parameters<typeof web.files.uploadV2>[0] = threadTs
+                ? {
+                    channels: channelId,
+                    thread_ts: threadTs,
+                    initial_comment: ``,
+                    file: fs.createReadStream(filePath),
+                    filename: fileName,
+                }
+                : {
+                    channel_id: channelId,
+                    initial_comment: ``,
+                    file: fs.createReadStream(filePath),
+                    filename: fileName,
+                };
+            const result = await web.files.uploadV2(uploadArgs);
 
             if (result.ok) {
                 logger.info(`Uploaded ${fileName} to Slack successfully.`);

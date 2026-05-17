@@ -634,6 +634,11 @@ export class ReviewDiscussionService {
         const normalizedSort = this.normalizeSort(sort);
         const { mentionKeys } = await this.getUserDisplay(currentUserId);
 
+        // Actively pull thread replies from Slack (fire-and-forget — the next poll will show them)
+        new ResolutionsTeamSlackService()
+            .syncSlackThreadReplies(Number(reservationId))
+            .catch(() => {});
+
         const storedMessages = await this.messageRepo.find({
             where: { reservationId: Number(reservationId) },
             order: { createdAt: "ASC" },
