@@ -26,6 +26,12 @@ const sendSlackMessage = async (message: any, threadTs?: string, attempt = 1): P
             }
         });
 
+        if (!response.data?.ok) {
+            logger.error(
+                `[sendSlackMessage] Slack API error: ${response.data?.error} — channel=${payload.channel} blocks=${Array.isArray(payload.blocks) ? payload.blocks.length : 'none'}`
+            );
+        }
+
         return response.data;
     } catch (err) {
         const axiosErr = err as AxiosError;

@@ -2308,13 +2308,16 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     } = data;
 
     const guestLabel = `${isCancelled ? '❌ ' : ''}${guestName}`;
-    const guestText = hostifyUrl ? `<${hostifyUrl}|${escapeSlackLinkText(guestLabel)}>` : guestLabel;
+    // escapeSlackLinkText handles &, <, >, | — apply it to all plain-text fields that land in mrkdwn
+    const guestText = hostifyUrl
+        ? `<${hostifyUrl}|${escapeSlackLinkText(guestLabel)}>`
+        : escapeSlackLinkText(guestLabel);
     const normalizedChannelName = normalizeSlackField(channelName, "");
     const normalizedIntegrationName = normalizeSlackField(integrationName, "");
     const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
         ? `${normalizedChannelName} - ${normalizedIntegrationName}`
         : normalizedChannelName;
-    const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelLabel} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
+    const headerText = `${emoji} *${escapeSlackLinkText(listingName)}* | ${guestText} | ${escapeSlackLinkText(channelLabel)} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
     // Slack static_select requires at least 1 option — fall back to defaults if caller passed nothing
     const effectiveStatusOptions = statusOptions.length

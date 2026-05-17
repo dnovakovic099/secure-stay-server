@@ -522,9 +522,26 @@ export class ResolutionsTeamSlackService {
             isCancelled: isLateCancelled,
         });
 
-        const result = await sendSlackMessage(msgPayload);
+        let result = await sendSlackMessage(msgPayload);
         if (!result?.ok || !result?.ts) {
-            throw new Error(`Failed to create Slack thread for reservation ${reservationId}: ${result?.error || "unknown error"}`);
+            // Log the exact blocks that Slack rejected so we can diagnose the problem
+            logger.error(
+                `[ResolutionsTeam] Slack rejected message for reservation ${reservationId} (error: ${result?.error}). Blocks payload:\n${JSON.stringify(msgPayload.blocks, null, 2)}`
+            );
+            // Fallback: try a plain-text message with no blocks so the thread can always be created
+            const fallbackPayload = {
+                channel: msgPayload.channel,
+                text: msgPayload.text,
+                username: "Resolutions Team",
+                icon_url: RESOLUTIONS_TEAM_ICON_URL,
+                unfurl_links: false,
+                unfurl_media: false,
+            };
+            result = await sendSlackMessage(fallbackPayload);
+            if (!result?.ok || !result?.ts) {
+                throw new Error(`Failed to create Slack thread for reservation ${reservationId}: ${result?.error || "unknown error"}`);
+            }
+            logger.info(`[ResolutionsTeam] Created Slack thread via fallback plain-text message for reservation ${reservationId}`);
         }
 
         reviewCheckout.slackThreadTs = result.ts;
