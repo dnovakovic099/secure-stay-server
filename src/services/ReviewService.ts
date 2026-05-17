@@ -248,7 +248,7 @@ export class ReviewService {
 
     async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts') {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
-        const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any }>(
+        const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
             {}
         ) || {};
@@ -256,11 +256,24 @@ export class ReviewService {
         return {
             defaultView: payload.defaultView ?? null,
             defaultFilter: payload.defaultFilter ?? null,
+            sharedFilterViews: Array.isArray(payload.sharedFilterViews) ? payload.sharedFilterViews : [],
+            sharedSavedViews: Array.isArray(payload.sharedSavedViews) ? payload.sharedSavedViews : [],
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any }, userId: string) {
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
+        return this.saveReviewUiSettings(pageKey, payload);
+    }
+
+    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+        return this.saveReviewUiSettings(pageKey, {
+            ...(Array.isArray(payload.sharedFilterViews) ? { sharedFilterViews: payload.sharedFilterViews } : {}),
+            ...(Array.isArray(payload.sharedSavedViews) ? { sharedSavedViews: payload.sharedSavedViews } : {}),
+        });
+    }
+
+    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         const displayNames: Record<typeof pageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
@@ -269,12 +282,18 @@ export class ReviewService {
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
         };
+        const currentPayload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
+            await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys[pageKey] } }),
+            {}
+        ) || {};
         await this.upsertJsonSetting(
             this.reviewUiSettingsKeys[pageKey],
             displayNames[pageKey],
             {
-                defaultView: payload.defaultView ?? null,
-                defaultFilter: payload.defaultFilter ?? null,
+                defaultView: payload.defaultView !== undefined ? payload.defaultView : currentPayload.defaultView ?? null,
+                defaultFilter: payload.defaultFilter !== undefined ? payload.defaultFilter : currentPayload.defaultFilter ?? null,
+                sharedFilterViews: Array.isArray(payload.sharedFilterViews) ? payload.sharedFilterViews : Array.isArray(currentPayload.sharedFilterViews) ? currentPayload.sharedFilterViews : [],
+                sharedSavedViews: Array.isArray(payload.sharedSavedViews) ? payload.sharedSavedViews : Array.isArray(currentPayload.sharedSavedViews) ? currentPayload.sharedSavedViews : [],
             }
         );
         return this.getReviewUiSettings(pageKey);
@@ -599,8 +618,13 @@ export class ReviewService {
         return Array.from(new Set(statuses));
     }
 
-    private normalizePropertyTypeFilters(values?: string[] | string | null) {
+    private normalizeTagFilterValues(values?: string[] | string | null) {
         const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
+        return arr.flatMap((value) => String(value || '').split(','));
+    }
+
+    private normalizePropertyTypeFilters(values?: string[] | string | null) {
+        const arr = this.normalizeTagFilterValues(values);
         return Array.from(
             new Set(
                 arr
@@ -617,7 +641,7 @@ export class ReviewService {
     }
 
     private normalizeServiceTypeFilters(values?: string[] | string | null) {
-        const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
+        const arr = this.normalizeTagFilterValues(values);
         return Array.from(
             new Set(
                 arr

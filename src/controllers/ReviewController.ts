@@ -186,6 +186,20 @@ export class ReviewController {
         }
     }
 
+    async updateReviewSharedViews(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const pageKey = request.params.pageKey as 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts';
+            if (!['reviews', 'mitigation', 'issues', 'issues-grouped', 'vendors', 'vendor-contacts'].includes(pageKey)) {
+                return response.status(400).json({ success: false, message: 'Invalid pageKey' });
+            }
+            const data = await reviewService.updateReviewSharedViews(pageKey, request.body || {});
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async getMitigationStatusOptions(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
