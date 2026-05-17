@@ -2248,6 +2248,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 
 export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
 export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422c";
+const SLACK_SELECT_OPTION_LIMIT = 100;
 
 const RESOLUTIONS_STATUS_EMOJIS: Record<string, string> = {
     New: "🔵",
@@ -2263,12 +2264,26 @@ const formatResolutionsStatusLabel = (status?: string | null) => {
     return emoji ? `${emoji} ${normalizedStatus}` : normalizedStatus;
 };
 
+const limitSlackSelectOptions = <T>(options: T[], currentOption?: T | null, isSameOption?: (left: T, right: T) => boolean) => {
+    const limited = options.slice(0, SLACK_SELECT_OPTION_LIMIT);
+    if (!currentOption || !isSameOption || limited.some((option) => isSameOption(option, currentOption))) {
+        return limited;
+    }
+    return [...limited.slice(0, SLACK_SELECT_OPTION_LIMIT - 1), currentOption];
+};
+
+const truncateSlackOptionText = (value: string) => {
+    const normalized = String(value || "—").trim() || "—";
+    return normalized.length > 75 ? `${normalized.slice(0, 72)}...` : normalized;
+};
+
 export interface ResolutionsCheckoutMessageData {
     emoji: string;
     listingName: string;
     guestName: string;
     hostifyUrl: string;
     channelName: string;
+    integrationName?: string;
     checkIn: string;
     checkOut: string;
     totalPaid: string;
@@ -2281,35 +2296,53 @@ export interface ResolutionsCheckoutMessageData {
     assigneeOptions: { label: string; value: string }[];
     tagOptions?: { label: string; value: string }[];
     selectedTags?: string[];
+    isCancelled?: boolean;
 }
 
 export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
     const {
-        emoji, listingName, guestName, hostifyUrl, channelName,
+        emoji, listingName, guestName, hostifyUrl, channelName, integrationName,
         checkIn, checkOut, totalPaid, ownerRevenue, status, assignee, ssUrl,
         reviewCheckoutId, statusOptions, assigneeOptions, tagOptions = [], selectedTags = [],
+        isCancelled = false,
     } = data;
 
-    const guestText = hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
-    const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelName} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
+    const guestLabel = `${isCancelled ? '❌ ' : ''}${guestName}`;
+    const guestText = hostifyUrl ? `<${hostifyUrl}|${escapeSlackLinkText(guestLabel)}>` : guestLabel;
+    const normalizedChannelName = normalizeSlackField(channelName, "");
+    const normalizedIntegrationName = normalizeSlackField(integrationName, "");
+    const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
+        ? `${normalizedChannelName} - ${normalizedIntegrationName}`
+        : normalizedChannelName;
+    const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelLabel} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
-    const statusSelectOptions = statusOptions.map((s) => ({
-        text: { type: 'plain_text' as const, text: formatResolutionsStatusLabel(s) },
+    const allStatusSelectOptions = statusOptions.map((s) => ({
+        text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: JSON.stringify({ reviewCheckoutId, newStatus: s }),
     }));
-    const assigneeSelectOptions = [
+    const allAssigneeSelectOptions = [
         { text: { type: 'plain_text' as const, text: 'Unassigned' }, value: JSON.stringify({ reviewCheckoutId, assignee: '' }) },
         ...assigneeOptions.map((a) => ({
-            text: { type: 'plain_text' as const, text: a.label },
+            text: { type: 'plain_text' as const, text: truncateSlackOptionText(a.label) },
             value: JSON.stringify({ reviewCheckoutId, assignee: a.value }),
         })),
     ];
 
-    const currentStatusOption = statusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || statusSelectOptions[0];
-    const currentAssigneeOption = assigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || assigneeSelectOptions[0];
+    const currentStatusOption = allStatusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || allStatusSelectOptions[0];
+    const currentAssigneeOption = allAssigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || allAssigneeSelectOptions[0];
+    const statusSelectOptions = limitSlackSelectOptions(
+        allStatusSelectOptions,
+        currentStatusOption,
+        (left, right) => JSON.parse(left.value).newStatus === JSON.parse(right.value).newStatus
+    );
+    const assigneeSelectOptions = limitSlackSelectOptions(
+        allAssigneeSelectOptions,
+        currentAssigneeOption,
+        (left, right) => JSON.parse(left.value).assignee === JSON.parse(right.value).assignee
+    );
     const normalizedSelectedTags = new Set(selectedTags.map((tag) => tag.toLowerCase()));
     const tagSelectOptions = tagOptions.slice(0, 100).map((tag) => ({
-        text: { type: 'plain_text' as const, text: tag.label },
+        text: { type: 'plain_text' as const, text: truncateSlackOptionText(tag.label) },
         value: JSON.stringify({ reviewCheckoutId, tag: tag.value }),
     }));
     const currentTagOptions = tagSelectOptions.filter((option) => {
@@ -2369,7 +2402,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2381,10 +2414,12 @@ export interface ResolutionsActivityData {
     anjSlackId?: string;
     notificationMentions?: string[];
     rating?: number | null;
+    reviewSentiment?: string | null;
+    reviewSentimentReason?: string | null;
 }
 
 export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
-    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, notificationMentions = [], rating } = data;
+    const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, notificationMentions = [], rating, reviewSentiment, reviewSentimentReason } = data;
     const actorLabel = actor || 'SecureStay';
 
     let text = '';
@@ -2403,9 +2438,19 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const safeRating = Math.max(1, Math.min(5, Math.round(Number(rating || 0) > 5 ? Number(rating || 0) / 2 : Number(rating || 0))));
             const stars = '⭐️'.repeat(safeRating || 1);
             const reviewText = String(details || '').trim() || 'No review text provided.';
-            text = `${stars}\n_${reviewText}_`;
+            const sentimentLabel = String(reviewSentiment || '').trim();
+            const sentimentLine = sentimentLabel
+                ? `Review Sentiment: ${sentimentLabel}${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                : '';
+            const assessmentLine = safeRating < 5 && notificationMentions.length
+                ? `For assessment if we’re keeping ${notificationMentions.join(' ')}`
+                : '';
+            text = `${stars}\n_${reviewText}_${sentimentLine ? `\n${sentimentLine}` : ''}${assessmentLine ? `\n${assessmentLine}` : ''}`;
             break;
         }
+        case 'reservation_cancelled':
+            text = `❌ ${details || 'Reservation was cancelled after check-in time.'}`;
+            break;
         case 'visibility':
             text = `🌟 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
             break;
@@ -2518,6 +2563,27 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                     ...mentionElements,
                     { type: 'divider' },
                 ];
+        } else if (type === 'review_posted') {
+            const safeRating = Math.max(1, Math.min(5, Math.round(Number(rating || 0) > 5 ? Number(rating || 0) / 2 : Number(rating || 0))));
+            const stars = '⭐️'.repeat(safeRating || 1);
+            const reviewText = String(details || '').trim() || 'No review text provided.';
+            const sentimentLabel = String(reviewSentiment || '').trim();
+            const sentimentLine = sentimentLabel
+                ? `Review Sentiment: *${sentimentLabel}*${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                : '';
+            const sentimentHelpText = String(reviewSentimentReason || '').trim();
+            const assessmentLine = safeRating < 5 && notificationMentions.length
+                ? `For assessment if we’re keeping ${notificationMentions.join(' ')}`
+                : '';
+            blocks = [
+                { type: 'section', text: { type: 'mrkdwn', text: `${stars}\n_${reviewText}_` } },
+                ...(sentimentLine
+                    ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: sentimentHelpText ? `${sentimentLine} — ${sentimentHelpText}` : sentimentLine }] }]
+                    : []),
+                ...(assessmentLine
+                    ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: assessmentLine }] }]
+                    : []),
+            ];
         } else {
             blocks = [
                 { type: 'section', text: { type: 'mrkdwn', text } },

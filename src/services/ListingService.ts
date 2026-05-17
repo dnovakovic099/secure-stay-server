@@ -753,49 +753,48 @@ export class ListingService {
   }
 
   private normalizedListingTagsSql() {
-    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '-', ''), '_', ''), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), '{', ''), '}', ''), ',,', ','), ',')";
+    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), ',,', ','), ',')";
   }
 
   static extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
     const tagList = ListingService.getNormalizedListingTagTokens(tags);
-    if (tagList.some((tag) => ['own', 'owned', 'owner', 'ownarb', String(tagIds.OWN)].includes(tag))) return 'Own';
-    if (tagList.some((tag) => ['arb', 'arbitrage', 'ownarb', String(tagIds.ARB)].includes(tag))) return 'Arb';
-    if (tagList.some((tag) => ['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)].includes(tag))) return 'PM';
+    if (tagList.includes('pm')) return 'PM';
+    if (tagList.includes('arb')) return 'Arb';
+    if (tagList.includes('own')) return 'Own';
     return null;
   }
 
   static extractServiceTypeFromTags(tags: string | null | undefined): string | null {
     const tagList = ListingService.getNormalizedListingTagTokens(tags);
-    if (tagList.some((tag) => ['full', 'fullservice', String(tagIds.FULL_SERVICE)].includes(tag))) return 'Full';
-    if (tagList.some((tag) => ['pro', String(tagIds.PRO_SERVICE)].includes(tag))) return 'Pro';
-    if (tagList.some((tag) => ['launch', String(tagIds.LAUNCH_SERVICE)].includes(tag))) return 'Launch';
+    if (tagList.includes('full')) return 'Full';
+    if (tagList.includes('pro')) return 'Pro';
+    if (tagList.includes('launch')) return 'Launch';
     return null;
   }
 
   private static getNormalizedListingTagTokens(tags: string | null | undefined): string[] {
     return String(tags || '')
       .toLowerCase()
-      .replace(/\s+/g, '')
       .replace(/[;/]/g, ',')
       .split(',')
-      .map((tag) => tag.replace(/[-_"'[\]{}]/g, ''))
+      .map((tag) => tag.trim().replace(/^["'[\]{}]+|["'[\]{}]+$/g, ''))
       .filter(Boolean);
   }
 
   private getPropertyTypeTagAliases(type: string) {
-    const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
-    if (['own', 'owned', 'owner', String(tagIds.OWN)].includes(normalizedType)) return ['own', 'owned', 'owner', 'ownarb', String(tagIds.OWN)];
-    if (['arb', 'arbitrage', String(tagIds.ARB)].includes(normalizedType)) return ['arb', 'arbitrage', 'ownarb', String(tagIds.ARB)];
-    if (['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)].includes(normalizedType)) return ['pm', 'propertymanagement', 'propertymanager', String(tagIds.PM)];
-    return normalizedType ? [normalizedType] : [];
+    const normalizedType = String(type || '').trim().toLowerCase();
+    if (normalizedType === 'own') return ['own'];
+    if (normalizedType === 'arb') return ['arb'];
+    if (normalizedType === 'pm') return ['pm'];
+    return [];
   }
 
   private getServiceTypeTagAliases(type: string) {
-    const normalizedType = String(type || '').trim().toLowerCase().replace(/[\s_\-/]+/g, '');
-    if (['full', 'fullservice', String(tagIds.FULL_SERVICE)].includes(normalizedType)) return ['full', 'fullservice', String(tagIds.FULL_SERVICE)];
-    if (['pro', String(tagIds.PRO_SERVICE)].includes(normalizedType)) return ['pro', String(tagIds.PRO_SERVICE)];
-    if (['launch', String(tagIds.LAUNCH_SERVICE)].includes(normalizedType)) return ['launch', String(tagIds.LAUNCH_SERVICE)];
-    return normalizedType ? [normalizedType] : [];
+    const normalizedType = String(type || '').trim().toLowerCase();
+    if (normalizedType === 'full') return ['full'];
+    if (normalizedType === 'pro') return ['pro'];
+    if (normalizedType === 'launch') return ['launch'];
+    return [];
   }
 
   async getPmListings(includeDeleted: boolean = false) {

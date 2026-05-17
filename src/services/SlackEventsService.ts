@@ -5,6 +5,9 @@ import { ClientTicketUpdates } from "../entity/ClientTicketUpdates";
 import { ThreadMessageEntity } from "../entity/ThreadMessage";
 import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+import { ReviewDiscussionReactionEntity } from "../entity/ReviewDiscussionReaction";
 import { Issue } from "../entity/Issue";
 import { IssueUpdates } from "../entity/IsssueUpdates";
 import { FileInfo } from "../entity/FileInfo";
@@ -76,6 +79,9 @@ export class SlackEventsService {
     private threadMessageRepo = appDatabase.getRepository(ThreadMessageEntity);
     private zapierEventRepo = appDatabase.getRepository(ZapierTriggerEvent);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
+    private reviewDiscussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
+    private reviewDiscussionReactionRepo = appDatabase.getRepository(ReviewDiscussionReactionEntity);
     private issueRepo = appDatabase.getRepository(Issue);
     private issueUpdateRepo = appDatabase.getRepository(IssueUpdates);
 
@@ -289,18 +295,43 @@ export class SlackEventsService {
             where: { slackMessageTs: changedTs },
             withDeleted: true,
         });
+
+        const slackUsers = await getSlackUsers();
+        const processedText = replaceSlackIdsWithMentions(changed?.text || '', slackUsers);
+        const slackUserName = changed?.user ? await this.getSlackUserDisplayName(changed.user) : 'Slack';
+
+        const discussionMessage = await this.findReviewDiscussionMessageBySlackTs(changedTs);
+        if (discussionMessage?.sourceType === 'note') {
+            discussionMessage.content = processedText;
+            discussionMessage.mentions = this.extractSlackMentionTokens(changed?.text || processedText);
+            discussionMessage.metadata = {
+                ...(discussionMessage.metadata || {}),
+                editedAt: new Date().toISOString(),
+            };
+            await this.reviewDiscussionMessageRepo.save(discussionMessage);
+
+            const reviewCheckoutUpdate = await this.reviewCheckoutUpdatesRepo.findOne({
+                where: { slackMessageTs: changedTs },
+                withDeleted: true,
+            });
+            if (reviewCheckoutUpdate && !reviewCheckoutUpdate.deletedAt) {
+                reviewCheckoutUpdate.updates = processedText;
+                reviewCheckoutUpdate.updatedBy = `${slackUserName} (via Slack)`;
+                await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
+            }
+
+            logger.info(`[SlackEventsService] Synced Slack edit to review discussion message for ts=${changedTs}`);
+            return;
+        }
+
         if (!issueUpdate) {
-            logger.debug(`[SlackEventsService] No synced issue timeline entry found for edited Slack ts=${changedTs}`);
+            logger.debug(`[SlackEventsService] No synced timeline entry found for edited Slack ts=${changedTs}`);
             return;
         }
         if (issueUpdate.deletedAt) {
             logger.debug(`[SlackEventsService] Ignoring edit for deleted issue timeline entry Slack ts=${changedTs}`);
             return;
         }
-
-        const slackUsers = await getSlackUsers();
-        const processedText = replaceSlackIdsWithMentions(changed?.text || '', slackUsers);
-        const slackUserName = changed?.user ? await this.getSlackUserDisplayName(changed.user) : 'Slack';
 
         issueUpdate.updates = processedText;
         issueUpdate.updatedBy = `${slackUserName} (via Slack)`;
@@ -353,7 +384,61 @@ export class SlackEventsService {
             return;
         }
 
+        const discussionMessage = await this.findReviewDiscussionMessageBySlackTs(deletedTs);
+        if (discussionMessage?.sourceType === 'note') {
+            await this.deleteReviewDiscussionMessageCascade(discussionMessage);
+
+            const reviewCheckoutUpdate = await this.reviewCheckoutUpdatesRepo.findOne({
+                where: { slackMessageTs: deletedTs },
+                withDeleted: true,
+            });
+            if (reviewCheckoutUpdate && !reviewCheckoutUpdate.deletedAt) {
+                reviewCheckoutUpdate.deletedAt = new Date();
+                reviewCheckoutUpdate.deletedBy = deletedBy;
+                await this.reviewCheckoutUpdatesRepo.save(reviewCheckoutUpdate);
+            }
+
+            logger.info(`[SlackEventsService] Deleted review discussion note for Slack ts=${deletedTs}`);
+            return;
+        }
+
         logger.debug(`[SlackEventsService] No synced timeline entry found for deleted Slack ts=${deletedTs}`);
+    }
+
+    private async findReviewDiscussionMessageBySlackTs(slackMessageTs: string) {
+        return this.reviewDiscussionMessageRepo
+            .createQueryBuilder("msg")
+            .where("JSON_UNQUOTE(JSON_EXTRACT(msg.metadata, '$.slackMessageTs')) = :ts", { ts: slackMessageTs })
+            .getOne();
+    }
+
+    private async deleteReviewDiscussionMessageCascade(message: ReviewDiscussionMessageEntity) {
+        const stack = [message];
+        const messagesToDelete: ReviewDiscussionMessageEntity[] = [];
+
+        while (stack.length) {
+            const current = stack.pop();
+            if (!current) continue;
+            messagesToDelete.push(current);
+            const replies = await this.reviewDiscussionMessageRepo.find({ where: { parentMessageId: current.id } });
+            stack.push(...replies);
+        }
+
+        for (const item of messagesToDelete.reverse()) {
+            await this.reviewDiscussionReactionRepo.delete({ messageId: item.id });
+            await this.reviewDiscussionMessageRepo.delete({ id: item.id });
+        }
+    }
+
+    private extractSlackMentionTokens(text: string) {
+        const slackMatches = Array.from(String(text || '').matchAll(/<@([A-Za-z0-9]+)(?:\|[^>]+)?>/g))
+            .map((match) => `<@${match[1]}>`);
+        const handleMatches = Array.from(String(text || '').matchAll(/(^|[^<])@([a-zA-Z0-9._-]+)/g))
+            .map((match) => `@${match[2]}`);
+        return Array.from(new Set([
+            ...slackMatches.map((match) => match.toLowerCase()),
+            ...handleMatches.map((match) => match.toLowerCase()),
+        ]));
     }
 
     /**
@@ -492,16 +577,38 @@ export class SlackEventsService {
                     return null;
                 });
 
-            if (!slackMsgRecord) {
+            let trackedEntity = slackMsgRecord
+                ? {
+                    entityType: slackMsgRecord.entityType,
+                    entityId: slackMsgRecord.entityId,
+                }
+                : null;
+
+            if (!trackedEntity) {
+                const rc = await this.reviewCheckoutRepo.findOne({
+                    where: { slackThreadTs: threadTs },
+                    select: ["id", "slackThreadTs"],
+                });
+
+                if (rc) {
+                    trackedEntity = {
+                        entityType: "review_checkout",
+                        entityId: rc.id,
+                    };
+                    logger.info(`[SlackEventsService] App mention matched ReviewCheckout ${rc.id} via slackThreadTs fallback — channel=${event.channel} thread=${threadTs}`);
+                }
+            }
+
+            if (!trackedEntity) {
                 logger.warn(`[SlackEventsService] No tracked entity found for mention — channel=${event.channel} thread=${threadTs}. Mention will not be answered by AI.`);
                 return;
             }
 
             // If this is a review_checkout thread, trigger AI guest analysis instead
-            if (slackMsgRecord.entityType === 'review_checkout') {
+            if (trackedEntity.entityType === 'review_checkout') {
                 const resolutionsService = new ResolutionsTeamSlackService();
                 const rc = await this.reviewCheckoutRepo.findOne({
-                    where: { id: slackMsgRecord.entityId },
+                    where: { id: trackedEntity.entityId },
                     relations: ['reservationInfo'],
                 });
                 if (rc?.reservationInfo?.id) {
@@ -516,7 +623,7 @@ export class SlackEventsService {
                 return;
             }
 
-            logger.info(`[SlackEventsService] Found GR task ${slackMsgRecord.entityId} for mention — channel=${event.channel} thread=${threadTs}`);
+            logger.info(`[SlackEventsService] Found GR task ${trackedEntity.entityId} for mention — channel=${event.channel} thread=${threadTs}`);
 
             // Use AI Manager to generate a response
             let response: string | null = null;
@@ -537,7 +644,7 @@ export class SlackEventsService {
                     logger.error(`[SlackEventsService] Failed to post AI reply — channel=${event.channel} thread=${threadTs}: ${postError}`);
                 }
             } else {
-                logger.warn(`[SlackEventsService] AI mention produced no response — channel=${event.channel} thread=${threadTs} taskId=${slackMsgRecord.entityId}`);
+                logger.warn(`[SlackEventsService] AI mention produced no response — channel=${event.channel} thread=${threadTs} taskId=${trackedEntity.entityId}`);
             }
 
         } catch (error) {

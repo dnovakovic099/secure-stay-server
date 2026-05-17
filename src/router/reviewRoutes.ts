@@ -13,6 +13,8 @@ const reviewDetailController = new ReviewDetailController();
 router.route('/ui-settings/:pageKey')
     .get(verifySession, reviewController.getReviewUiSettings.bind(reviewController))
     .put(verifySession, reviewController.updateReviewUiSettings.bind(reviewController));
+router.route('/ui-settings/:pageKey/shared-views')
+    .put(verifySession, reviewController.updateReviewSharedViews.bind(reviewController));
 
 router.route('/mitigation-statuses')
     .get(verifySession, reviewController.getMitigationStatusOptions.bind(reviewController))
@@ -50,7 +52,8 @@ router.route('/discussion/attachment/:fileName')
     .get(verifySession, reviewController.getDiscussionAttachment.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/:messageId')
-    .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController));
+    .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController))
+    .delete(verifySession, reviewController.deleteReservationDiscussionMessage.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/reactions')
     .post(verifySession, reviewController.toggleReservationDiscussionReaction.bind(reviewController));

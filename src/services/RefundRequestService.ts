@@ -21,6 +21,7 @@ import { RefundRequestSettingsService } from "./RefundRequestSettingsService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
+import { ReviewDiscussionService } from "./ReviewDiscussionService";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -51,6 +52,32 @@ export class RefundRequestService {
       default:
         return ExpenseStatus.NA;
     }
+  }
+
+  private getUserDisplayName(user?: UsersEntity | null) {
+    if (!user) return null;
+    return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid || null;
+  }
+
+  private async decorateRefundRequests<T extends RefundRequestEntity | RefundRequestEntity[] | null>(refundRequests: T): Promise<T> {
+    const rows = Array.isArray(refundRequests) ? refundRequests : refundRequests ? [refundRequests] : [];
+    if (!rows.length) return refundRequests;
+
+    const userIds = Array.from(new Set(
+      rows.flatMap((request) => [request.createdBy, request.updatedBy, request.deletedBy]).filter(Boolean)
+    ));
+    const users = userIds.length
+      ? await this.usersRepo.find({ where: { uid: In(userIds) } })
+      : [];
+    const userMap = new Map(users.map((user) => [user.uid, this.getUserDisplayName(user)]));
+
+    rows.forEach((request: any) => {
+      request.createdByName = userMap.get(request.createdBy) || request.requestedBy || request.createdBy || null;
+      request.updatedByName = userMap.get(request.updatedBy) || request.updatedBy || null;
+      request.deletedByName = userMap.get(request.deletedBy) || request.deletedBy || null;
+    });
+
+    return refundRequests;
   }
 
   private async findMitigationThreadForRefundRequest(refundRequest: Partial<RefundRequestEntity>) {
@@ -151,6 +178,31 @@ export class RefundRequestService {
       action: "UPDATE",
       manager,
     });
+  }
+
+  private async recordRefundRequestSystemUpdate(
+    refundRequest: Partial<RefundRequestEntity>,
+    content: string,
+    userId: string,
+    metadata: Record<string, any> = {}
+  ) {
+    if (!refundRequest.reservationId) return;
+
+    try {
+      await new ReviewDiscussionService().createSystemMessageByReservation(
+        Number(refundRequest.reservationId),
+        content,
+        {
+          source: "refund_request",
+          eventType: "refund_request",
+          actor: userId,
+          refundRequestId: refundRequest.id,
+          ...metadata,
+        }
+      );
+    } catch (error) {
+      logger.error("[RefundRequestService] Review discussion refund request system update failed:", error);
+    }
   }
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
@@ -338,6 +390,18 @@ export class RefundRequestService {
       await this.saveFileInfo(fileInfo, savedRefundRequest, userId);
     }
 
+    await this.recordRefundRequestSystemUpdate(
+      savedRefundRequest,
+      isStatusChanged
+        ? `Refund request status changed from ${previousStatus || "blank"} to ${savedRefundRequest.status || "blank"}.`
+        : "Refund request updated.",
+      userId,
+      {
+        oldStatus: previousStatus,
+        newStatus: savedRefundRequest.status,
+      }
+    );
+
     return savedRefundRequest;
   }
 
@@ -387,6 +451,16 @@ export class RefundRequestService {
     if (fileInfo && fileInfo.length > 0) {
       await this.saveFileInfo(fileInfo, newRefundRequest, userId);
     }
+
+    await this.recordRefundRequestSystemUpdate(
+      newRefundRequest,
+      `Refund request added for ${formatCurrency(newRefundRequest.refundAmount)}.`,
+      userId,
+      {
+        amount: newRefundRequest.refundAmount,
+        status: newRefundRequest.status,
+      }
+    );
 
     return newRefundRequest;
   }
@@ -479,11 +553,13 @@ export class RefundRequestService {
     }
 
     async getRefundRequestByReservationId(reservationId: number) {
-        return await this.refundRequestRepo.findOne({ where: { reservationId } });
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { reservationId } });
+        return await this.decorateRefundRequests(refundRequest);
     }
 
     async getRefundRequestById(id: number) {
-        return await this.refundRequestRepo.findOne({ where: { id } });
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        return await this.decorateRefundRequests(refundRequest);
     }
 
     async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; }) {
@@ -528,6 +604,7 @@ export class RefundRequestService {
             skip: offset,
         });
 
+        await this.decorateRefundRequests(data);
         return { data, total };
     }
 
@@ -586,6 +663,17 @@ export class RefundRequestService {
         }
       }
       await this.sendEmailForUpdatedRefundRequest(refundRequest);
+      if (isStatusChanged) {
+        await this.recordRefundRequestSystemUpdate(
+          refundRequest,
+          `Refund request status changed from ${previousStatus || "blank"} to ${status || "blank"}.`,
+          userId,
+          {
+            oldStatus: previousStatus,
+            newStatus: status,
+          }
+        );
+      }
       return refundRequest
     }
 
@@ -843,7 +931,11 @@ export class RefundRequestService {
         }
         refundRequest.deletedBy = userId;
         refundRequest.deletedAt = new Date();
-        return await this.refundRequestRepo.save(refundRequest);
+        const saved = await this.refundRequestRepo.save(refundRequest);
+        await this.recordRefundRequestSystemUpdate(saved, "Refund request deleted.", userId, {
+            deletedAt: saved.deletedAt,
+        });
+        return saved;
     }
 
 }

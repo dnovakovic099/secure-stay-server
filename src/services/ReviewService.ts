@@ -39,6 +39,10 @@ import { FileInfo } from "../entity/FileInfo";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { generateSlackMessageLink } from "../helpers/helpers";
 import { supabaseAdmin } from "../utils/supabase";
+import { ReservationInfoLog } from "../entity/ReservationInfologs";
+import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
+import { ReviewDiscussionService } from "./ReviewDiscussionService";
+import { OpenAIService } from "./OpenAIService";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -244,7 +248,7 @@ export class ReviewService {
 
     async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts') {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
-        const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any }>(
+        const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
             {}
         ) || {};
@@ -252,11 +256,24 @@ export class ReviewService {
         return {
             defaultView: payload.defaultView ?? null,
             defaultFilter: payload.defaultFilter ?? null,
+            sharedFilterViews: Array.isArray(payload.sharedFilterViews) ? payload.sharedFilterViews : [],
+            sharedSavedViews: Array.isArray(payload.sharedSavedViews) ? payload.sharedSavedViews : [],
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any }, userId: string) {
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
+        return this.saveReviewUiSettings(pageKey, payload);
+    }
+
+    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+        return this.saveReviewUiSettings(pageKey, {
+            ...(Array.isArray(payload.sharedFilterViews) ? { sharedFilterViews: payload.sharedFilterViews } : {}),
+            ...(Array.isArray(payload.sharedSavedViews) ? { sharedSavedViews: payload.sharedSavedViews } : {}),
+        });
+    }
+
+    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         const displayNames: Record<typeof pageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
@@ -265,12 +282,18 @@ export class ReviewService {
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
         };
+        const currentPayload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
+            await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys[pageKey] } }),
+            {}
+        ) || {};
         await this.upsertJsonSetting(
             this.reviewUiSettingsKeys[pageKey],
             displayNames[pageKey],
             {
-                defaultView: payload.defaultView ?? null,
-                defaultFilter: payload.defaultFilter ?? null,
+                defaultView: payload.defaultView !== undefined ? payload.defaultView : currentPayload.defaultView ?? null,
+                defaultFilter: payload.defaultFilter !== undefined ? payload.defaultFilter : currentPayload.defaultFilter ?? null,
+                sharedFilterViews: Array.isArray(payload.sharedFilterViews) ? payload.sharedFilterViews : Array.isArray(currentPayload.sharedFilterViews) ? currentPayload.sharedFilterViews : [],
+                sharedSavedViews: Array.isArray(payload.sharedSavedViews) ? payload.sharedSavedViews : Array.isArray(currentPayload.sharedSavedViews) ? currentPayload.sharedSavedViews : [],
             }
         );
         return this.getReviewUiSettings(pageKey);
@@ -408,6 +431,8 @@ export class ReviewService {
     private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private reservationHistoryService = new ReservationHistoryService();
+    private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
+    private openAIService: OpenAIService | null = null;
 
     private async logReservationFieldChanges(
         reservationInfoId: number | null | undefined,
@@ -531,6 +556,39 @@ export class ReviewService {
         }
     }
 
+    private formatSystemChangeValue(value: any, fallback = "blank") {
+        const normalized = String(value ?? "").trim();
+        return normalized || fallback;
+    }
+
+    private async formatAssigneeSystemValue(value: string | null | undefined) {
+        const raw = String(value || "").trim();
+        if (!raw) return "Unassigned";
+        return await this.getSupabaseUserDisplayName(raw) || raw;
+    }
+
+    private async recordReviewCheckoutSystemUpdates(
+        reservationId: number | null | undefined,
+        userId: string,
+        changes: Array<{ field: string; oldValue: any; newValue: any; content: string }>
+    ) {
+        if (!reservationId || !changes.length) return;
+
+        const discussionService = new ReviewDiscussionService();
+        await Promise.all(changes.map((change) => discussionService.createSystemMessageByReservation(
+            reservationId,
+            change.content,
+            {
+                source: "review_checkout",
+                eventType: "field_change",
+                actor: userId,
+                field: change.field,
+                oldValue: change.oldValue,
+                newValue: change.newValue,
+            }
+        )));
+    }
+
     private async getLatestRefundRequests(reservationIds: number[]) {
         if (!reservationIds.length) return new Map<number, RefundRequestEntity>();
         const refunds = await this.refundRequestRepo.find({
@@ -560,17 +618,19 @@ export class ReviewService {
         return Array.from(new Set(statuses));
     }
 
-    private normalizePropertyTypeFilters(values?: string[] | string | null) {
+    private normalizeTagFilterValues(values?: string[] | string | null) {
         const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
+        return arr.flatMap((value) => String(value || '').split(','));
+    }
+
+    private normalizePropertyTypeFilters(values?: string[] | string | null) {
+        const arr = this.normalizeTagFilterValues(values);
         return Array.from(
             new Set(
                 arr
                     .map((value) => String(value || '').trim().toLowerCase())
                     .flatMap((value) => {
                         if (!value) return [];
-                        if (value === 'own-arb' || value === 'own / arb' || value === 'own,arb' || value === 'own+arb') {
-                            return ['own', 'arb'];
-                        }
                         if (value === 'own') return ['own'];
                         if (value === 'arb') return ['arb'];
                         if (value === 'pm') return ['pm'];
@@ -581,7 +641,7 @@ export class ReviewService {
     }
 
     private normalizeServiceTypeFilters(values?: string[] | string | null) {
-        const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
+        const arr = this.normalizeTagFilterValues(values);
         return Array.from(
             new Set(
                 arr
@@ -661,6 +721,43 @@ export class ReviewService {
             : 'America/New_York';
         const snapshot = this.getTimeZoneSnapshot(timeZoneName);
         return snapshot.date >= arrivalDate && snapshot.date <= departureDate;
+    }
+
+    private async getLateCancelledReservationMap(
+        reservations: Array<Pick<ReservationInfoEntity, 'id' | 'arrivalDate' | 'checkInTime' | 'status' | 'listingMapId'>>,
+        listingMap: Map<number, Pick<Listing, 'timeZoneName' | 'checkInTimeStart'> | undefined>,
+    ) {
+        const cancelledReservations = reservations.filter((reservation) => isCancelledStatus(reservation.status));
+        if (!cancelledReservations.length) return new Map<number, { isLateCancelled: boolean; cancelledAt: Date | null }>();
+
+        const logs = await this.reservationInfoLogsRepo.find({
+            where: { reservationInfoId: In(cancelledReservations.map((reservation) => Number(reservation.id))), action: 'UPDATE' as any },
+            order: { changedAt: 'ASC', id: 'ASC' },
+        });
+
+        const cancellationLogByReservation = new Map<number, ReservationInfoLog>();
+        logs.forEach((log) => {
+            if (cancellationLogByReservation.has(Number(log.reservationInfoId))) return;
+            const statusDiff = log.diff?.status;
+            const newStatus = statusDiff?.new ?? log.newData?.status;
+            const oldStatus = statusDiff?.old ?? log.oldData?.status;
+            if (isCancelledStatus(newStatus) && !isCancelledStatus(oldStatus)) {
+                cancellationLogByReservation.set(Number(log.reservationInfoId), log);
+            }
+        });
+
+        const result = new Map<number, { isLateCancelled: boolean; cancelledAt: Date | null }>();
+        cancelledReservations.forEach((reservation) => {
+            const cancellationLog = cancellationLogByReservation.get(Number(reservation.id));
+            const cancelledAt = cancellationLog?.changedAt || null;
+            const listing = listingMap.get(Number(reservation.listingMapId)) || null;
+            result.set(Number(reservation.id), {
+                isLateCancelled: Boolean(cancelledAt && isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt)),
+                cancelledAt,
+            });
+        });
+
+        return result;
     }
 
     private async getCurrentlyStayingReservationIds(baseReservationIds: number[] | null = null, listingIds: number[] | null = null) {
@@ -1051,6 +1148,8 @@ export class ReviewService {
                     'no review': 'No Review',
                     'no-review': 'No Review',
                     keep: 'Keep',
+                    'to be removed': 'To be Removed',
+                    'to-be-removed': 'To be Removed',
                     removed: 'Removed',
                 };
                 const explicitVisibilityStates = Array.from(
@@ -1195,6 +1294,10 @@ export class ReviewService {
                 ? await this.listingRepo.find({ where: { id: In(reviewListingIds) } })
                 : [];
             const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+            const lateCancelledMap = await this.getLateCancelledReservationMap(
+                reservationInfoList.filter(Boolean) as ReservationInfoEntity[],
+                listingMap,
+            );
 
             const reviewList = await Promise.all(reviews.map(async (review, index) => {
                 const reservationInfo = reservationInfoList[index];
@@ -1220,6 +1323,9 @@ export class ReviewService {
                 const refundAmount = latestRefund?.refundAmount ?? null;
                 const refundPercent = ownerRevenue && refundAmount
                     ? Math.round((Number(refundAmount) / Number(ownerRevenue)) * 100)
+                    : null;
+                const lateCancellationInfo = reservationInfo
+                    ? lateCancelledMap.get(Number(reservationInfo.id))
                     : null;
 
                 return {
@@ -1253,6 +1359,9 @@ export class ReviewService {
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
+                    reservationStatus: reservationInfo?.status || null,
+                    isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
+                    cancelledAt: lateCancellationInfo?.cancelledAt || null,
                 };
             }));
 
@@ -1337,7 +1446,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'Removed', 'Archived'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'To be Removed', 'Removed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }
@@ -1423,10 +1532,36 @@ export class ReviewService {
                 type: "review_posted",
                 details: reviewText,
                 rating: ratingValue,
+                reviewSentiment: review.reviewSentiment,
+                reviewSentimentReason: review.reviewSentimentReason,
             });
         } catch (error) {
             logger.error("[ReviewService] Failed to post review-published message to Slack:", error);
         }
+    }
+
+    private getOpenAIService() {
+        if (!this.openAIService) {
+            this.openAIService = new OpenAIService();
+        }
+        return this.openAIService;
+    }
+
+    private async ensureReviewSentiment(review: ReviewEntity) {
+        const privateReviewText = String(review.privateReview || "").trim();
+        if (!privateReviewText || review.reviewSentiment) {
+            return review;
+        }
+
+        try {
+            const analysis = await this.getOpenAIService().analyzePrivateReviewSentiment(privateReviewText);
+            review.reviewSentiment = analysis.sentiment;
+            review.reviewSentimentReason = analysis.reason;
+        } catch (error) {
+            logger.error(`[ReviewService] Failed to analyze private review sentiment for review ${review.id}:`, error);
+        }
+
+        return review;
     }
 
 
@@ -1476,6 +1611,10 @@ export class ReviewService {
                     existingReview.channelName = channelList.find(channel => channel.channelId == reviewData.channelId).channelName;
                     existingReview.isHidden = existingReview.updatedBy ? existingReview.isHidden : (reviewData?.isHidden || 0);
                     existingReview.reservationId = reviewData?.reservationId || null;
+                    if ((reviewData as any)?.feedback) {
+                        existingReview.privateReview = (reviewData as any).feedback;
+                    }
+                    await this.ensureReviewSentiment(existingReview);
                     this.applyAutoVisibility(existingReview);
                     await this.reviewRepository.save(existingReview);
                     if (!hadPostedReview && existingReview.publicReview && existingReview.rating) {
@@ -1505,7 +1644,9 @@ export class ReviewService {
                         channelName: channelList.find(channel => channel.channelId == reviewData.channelId).channelName,
                         isHidden: reviewData?.isHidden || 0,
                         reservationId: reviewData?.reservationId || null,
+                        privateReview: (reviewData as any)?.feedback || null,
                     });
+                    await this.ensureReviewSentiment(newReview);
                     this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
                     if (newReview.publicReview && newReview.rating) {
@@ -1574,6 +1715,7 @@ export class ReviewService {
                         reservationId: reviewData?.reservation_id || null,
                         privateReview: reviewData?.feedback || null,
                     });
+                    await this.ensureReviewSentiment(newReview);
                     this.applyAutoVisibility(newReview);
                     await this.reviewRepository.save(newReview);
                     if (newReview.publicReview && newReview.rating) {
@@ -1588,6 +1730,20 @@ export class ReviewService {
                         (reservationInfo.channelName != "Booking.com" && reviewData.rating == 5)
                     ) {
                         await this.process5StarRatings(reviewData);
+                    }
+                } else {
+                    const hadPostedReview = Boolean(existingReview.publicReview && existingReview.rating);
+                    existingReview.reviewerName = existingReview.reviewerName || reviewData.reviewerName;
+                    existingReview.rating = existingReview.channelName == "Booking.com" ? reviewData.rating / 2 : reviewData.rating;
+                    existingReview.publicReview = reviewData.comments;
+                    existingReview.submittedAt = reviewData.review_published_at;
+                    existingReview.reservationId = reviewData?.reservation_id || existingReview.reservationId || null;
+                    existingReview.privateReview = reviewData?.feedback || existingReview.privateReview || null;
+                    await this.ensureReviewSentiment(existingReview);
+                    this.applyAutoVisibility(existingReview);
+                    await this.reviewRepository.save(existingReview);
+                    if (!hadPostedReview && existingReview.publicReview && existingReview.rating) {
+                        await this.postReviewPublishedToSlack(existingReview);
                     }
                 }
             }
@@ -2484,10 +2640,14 @@ export class ReviewService {
             ...reviews.map(r => Number(r.listingMapId)),
             ...reviewCheckoutList.map(rc => Number(rc.reservationInfo?.listingMapId)),
         ].filter(Boolean))];
-            const listingTagRecords = uniqueListingIds.length > 0
-            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags', 'timeZoneName', 'checkOutTime'] })
+        const listingTagRecords = uniqueListingIds.length > 0
+            ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags', 'timeZoneName', 'checkInTimeStart', 'checkOutTime'] })
             : [];
         const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l]));
+        const lateCancelledMap = await this.getLateCancelledReservationMap(
+            reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[],
+            listingTagMap,
+        );
 
         const transformedData = await Promise.all(reviewCheckoutList.map(async (rc) => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
@@ -2521,6 +2681,7 @@ export class ReviewService {
             const refundPercent = ownerRevenue && refundAmount
                 ? Math.round((Number(refundAmount) / Number(ownerRevenue)) * 100)
                 : null;
+            const lateCancellationInfo = lateCancelledMap.get(Number(rc.reservationInfo?.id));
             return {
                 ...rc,
                 assignee: rc.assignee || null,
@@ -2549,6 +2710,9 @@ export class ReviewService {
                     refundPercent,
                     checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.checkOutTime ?? null,
                     timeZoneName: listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.timeZoneName ?? 'America/New_York',
+                    reservationStatus: rc.reservationInfo?.status || null,
+                    isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
+                    cancelledAt: lateCancellationInfo?.cancelledAt || null,
                 },
                 reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
                     return {
@@ -2720,6 +2884,55 @@ export class ReviewService {
             isActive: { old: previousState.isActive, new: reviewCheckout.isActive ?? null },
             visibility: { old: previousState.visibility, new: reviewCheckout.visibility ?? null },
         });
+
+        try {
+            const systemChanges: Array<{ field: string; oldValue: any; newValue: any; content: string }> = [];
+            if (data.status !== undefined && (reviewCheckout.status ?? null) !== (previousState.status ?? null)) {
+                systemChanges.push({
+                    field: "status",
+                    oldValue: previousState.status,
+                    newValue: reviewCheckout.status ?? null,
+                    content: `Status changed from ${this.formatSystemChangeValue(previousState.status)} to ${this.formatSystemChangeValue(reviewCheckout.status)}.`,
+                });
+            }
+            if (data.assignee !== undefined && (reviewCheckout.assignee ?? null) !== (previousState.assignee ?? null)) {
+                const previousAssignee = await this.formatAssigneeSystemValue(previousState.assignee);
+                const nextAssignee = await this.formatAssigneeSystemValue(reviewCheckout.assignee);
+                systemChanges.push({
+                    field: "assignee",
+                    oldValue: previousState.assignee,
+                    newValue: reviewCheckout.assignee ?? null,
+                    content: `Assignee changed from ${previousAssignee} to ${nextAssignee}.`,
+                });
+            }
+            if (data.comments !== undefined && (reviewCheckout.comments ?? null) !== (previousState.comments ?? null)) {
+                systemChanges.push({
+                    field: "resolutionNotes",
+                    oldValue: previousState.comments,
+                    newValue: reviewCheckout.comments ?? null,
+                    content: reviewCheckout.comments ? "Resolution notes updated." : "Resolution notes cleared.",
+                });
+            }
+            if (data.visibility !== undefined && (reviewCheckout.visibility ?? null) !== (previousState.visibility ?? null)) {
+                systemChanges.push({
+                    field: "visibility",
+                    oldValue: previousState.visibility,
+                    newValue: reviewCheckout.visibility ?? null,
+                    content: `Visibility changed from ${this.formatSystemChangeValue(previousState.visibility)} to ${this.formatSystemChangeValue(reviewCheckout.visibility)}.`,
+                });
+            }
+            if (data.isActive !== undefined && (reviewCheckout.isActive ?? null) !== (previousState.isActive ?? null)) {
+                systemChanges.push({
+                    field: "isActive",
+                    oldValue: previousState.isActive,
+                    newValue: reviewCheckout.isActive ?? null,
+                    content: `Review mitigation ${reviewCheckout.isActive ? "activated" : "deactivated"}.`,
+                });
+            }
+            await this.recordReviewCheckoutSystemUpdates(reviewCheckout.reservationInfo?.id, userId, systemChanges);
+        } catch (error) {
+            logger.error("[ReviewService] Failed to record review checkout discussion system update:", error);
+        }
 
         // Post activity to Slack thread (fire-and-forget, never blocks the main flow)
         if (reviewCheckout.slackThreadTs) {
@@ -3619,6 +3832,8 @@ export class ReviewService {
                     externalReservationId: review.externalReservationId,
                     publicReview: review.publicReview,
                     privateReview: review.privateReview,
+                    reviewSentiment: review.reviewSentiment,
+                    reviewSentimentReason: review.reviewSentimentReason,
                     submittedAt: review.submittedAt,
                     arrivalDate: review.arrivalDate,
                     departureDate: review.departureDate,
@@ -3748,6 +3963,8 @@ export class ReviewService {
                     assigneeName: row.assignee || null,
                     publicReview: matchedReview?.publicReview ?? null,
                     privateReview: matchedReview?.privateReview ?? null,
+                    reviewSentiment: matchedReview?.reviewSentiment ?? null,
+                    reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,
                     submittedAt: matchedReview?.submittedAt ?? null,
                     createdAt: row.createdAt,
                     updatedAt: row.updatedAt,
