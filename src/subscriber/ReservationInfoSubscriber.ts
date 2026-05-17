@@ -9,6 +9,8 @@ import { getDiff } from '../helpers/helpers';
 import { ReservationInfoEntity } from '../entity/ReservationInfo';
 import { ReservationInfoLog } from '../entity/ReservationInfologs';
 import logger from '../utils/logger.utils';
+import { isCancelledStatus } from '../utils/reservationCancellation.util';
+import { ResolutionsTeamSlackService } from '../services/ResolutionsTeamSlackService';
 
 @EventSubscriber()
 export class ReservationInfoSubscriber
@@ -53,6 +55,15 @@ export class ReservationInfoSubscriber
             action: 'UPDATE',
         });
         await manager.save(log);
+
+        const previousStatus = (oldData as any).status;
+        const nextStatus = (newData as any).status;
+        const reservationId = Number((entity as any).id ?? (databaseEntity as any).id);
+        if (reservationId && isCancelledStatus(nextStatus) && !isCancelledStatus(previousStatus)) {
+            new ResolutionsTeamSlackService()
+                .handleLateCancelledReservation(reservationId, new Date())
+                .catch((error) => logger.error(`ReservationInfoSubscriber: late cancellation Slack sync failed for reservation ${reservationId}`, error));
+        }
     }
 
     async afterRemove(event: RemoveEvent<ReservationInfoEntity>) {

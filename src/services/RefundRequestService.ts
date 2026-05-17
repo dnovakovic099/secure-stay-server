@@ -21,6 +21,7 @@ import { RefundRequestSettingsService } from "./RefundRequestSettingsService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
+import { ReviewDiscussionService } from "./ReviewDiscussionService";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -151,6 +152,31 @@ export class RefundRequestService {
       action: "UPDATE",
       manager,
     });
+  }
+
+  private async recordRefundRequestSystemUpdate(
+    refundRequest: Partial<RefundRequestEntity>,
+    content: string,
+    userId: string,
+    metadata: Record<string, any> = {}
+  ) {
+    if (!refundRequest.reservationId) return;
+
+    try {
+      await new ReviewDiscussionService().createSystemMessageByReservation(
+        Number(refundRequest.reservationId),
+        content,
+        {
+          source: "refund_request",
+          eventType: "refund_request",
+          actor: userId,
+          refundRequestId: refundRequest.id,
+          ...metadata,
+        }
+      );
+    } catch (error) {
+      logger.error("[RefundRequestService] Review discussion refund request system update failed:", error);
+    }
   }
 
     async createRefundRequest(transactionalEntityManager: EntityManager, body: Partial<RefundRequestEntity>, userId: string, attachments: string[]) {
@@ -338,6 +364,18 @@ export class RefundRequestService {
       await this.saveFileInfo(fileInfo, savedRefundRequest, userId);
     }
 
+    await this.recordRefundRequestSystemUpdate(
+      savedRefundRequest,
+      isStatusChanged
+        ? `Refund request status changed from ${previousStatus || "blank"} to ${savedRefundRequest.status || "blank"}.`
+        : "Refund request updated.",
+      userId,
+      {
+        oldStatus: previousStatus,
+        newStatus: savedRefundRequest.status,
+      }
+    );
+
     return savedRefundRequest;
   }
 
@@ -387,6 +425,16 @@ export class RefundRequestService {
     if (fileInfo && fileInfo.length > 0) {
       await this.saveFileInfo(fileInfo, newRefundRequest, userId);
     }
+
+    await this.recordRefundRequestSystemUpdate(
+      newRefundRequest,
+      `Refund request added for ${formatCurrency(newRefundRequest.refundAmount)}.`,
+      userId,
+      {
+        amount: newRefundRequest.refundAmount,
+        status: newRefundRequest.status,
+      }
+    );
 
     return newRefundRequest;
   }
@@ -586,6 +634,17 @@ export class RefundRequestService {
         }
       }
       await this.sendEmailForUpdatedRefundRequest(refundRequest);
+      if (isStatusChanged) {
+        await this.recordRefundRequestSystemUpdate(
+          refundRequest,
+          `Refund request status changed from ${previousStatus || "blank"} to ${status || "blank"}.`,
+          userId,
+          {
+            oldStatus: previousStatus,
+            newStatus: status,
+          }
+        );
+      }
       return refundRequest
     }
 
@@ -843,7 +902,11 @@ export class RefundRequestService {
         }
         refundRequest.deletedBy = userId;
         refundRequest.deletedAt = new Date();
-        return await this.refundRequestRepo.save(refundRequest);
+        const saved = await this.refundRequestRepo.save(refundRequest);
+        await this.recordRefundRequestSystemUpdate(saved, "Refund request deleted.", userId, {
+            deletedAt: saved.deletedAt,
+        });
+        return saved;
     }
 
 }

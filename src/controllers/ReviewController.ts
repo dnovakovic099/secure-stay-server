@@ -383,6 +383,20 @@ export class ReviewController {
         }
     }
 
+    async deleteReservationDiscussionMessage(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new ReviewDiscussionService();
+            const data = await service.deleteMessageByReservation(
+                request.params.reservationId,
+                Number(request.params.messageId),
+                request.user.id
+            );
+            return response.status(200).json({ success: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();

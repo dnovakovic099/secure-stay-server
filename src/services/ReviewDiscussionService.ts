@@ -41,6 +41,7 @@ interface DiscussionItemDTO {
     canReply: boolean;
     canReact: boolean;
     canEdit: boolean;
+    canDelete: boolean;
 }
 
 interface DiscussionThreadDTO {
@@ -101,8 +102,14 @@ export class ReviewDiscussionService {
     }
 
     private extractMentions(content: string) {
-        const matches = content.match(/@([a-zA-Z0-9._-]+)/g) || [];
-        return Array.from(new Set(matches.map((match) => match.toLowerCase())));
+        const slackMatches = Array.from(content.matchAll(/<@([A-Za-z0-9]+)(?:\|[^>]+)?>/g))
+            .map((match) => `<@${match[1]}>`);
+        const handleMatches = Array.from(content.matchAll(/(^|[^<])@([a-zA-Z0-9._-]+)/g))
+            .map((match) => `@${match[2]}`);
+        return Array.from(new Set([
+            ...slackMatches.map((match) => match.toLowerCase()),
+            ...handleMatches.map((match) => match.toLowerCase()),
+        ]));
     }
 
     private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
@@ -145,6 +152,7 @@ export class ReviewDiscussionService {
         if (fullName) mentionKeys.add(`@${fullName.toLowerCase().replace(/\s+/g, ".")}`);
         if (user.email) mentionKeys.add(`@${user.email.toLowerCase().split("@")[0]}`);
         if (user.uid) mentionKeys.add(`@${user.uid.toLowerCase()}`);
+        if (employee?.slackUserId) mentionKeys.add(`<@${String(employee.slackUserId).toLowerCase()}>`);
 
         const profilePhotoId = Number(employee?.profilePhoto);
         const photoInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
@@ -186,6 +194,10 @@ export class ReviewDiscussionService {
         );
     }
 
+    private canDeleteMessage(message: ReviewDiscussionMessageEntity, currentUserId: string) {
+        return this.canEditMessage(message, currentUserId);
+    }
+
     private async findMessageDtoById(
         fetchFeed: Promise<{ items: DiscussionItemDTO[] }>,
         messageId: number
@@ -224,6 +236,7 @@ export class ReviewDiscussionService {
             canReply: false,
             canReact: false,
             canEdit: false,
+            canDelete: false,
         });
 
         if (reviewDetail?.createdAt) {
@@ -242,6 +255,7 @@ export class ReviewDiscussionService {
                 canReply: false,
                 canReact: false,
                 canEdit: false,
+                canDelete: false,
             });
         }
 
@@ -267,6 +281,7 @@ export class ReviewDiscussionService {
                     canReply: false,
                     canReact: false,
                     canEdit: false,
+                    canDelete: false,
                 });
             });
         }
@@ -296,6 +311,7 @@ export class ReviewDiscussionService {
                     canReply: false,
                     canReact: false,
                     canEdit: false,
+                    canDelete: false,
                 });
             });
         }
@@ -373,6 +389,7 @@ export class ReviewDiscussionService {
             canReply: message.sourceType === "note" && !message.parentMessageId,
             canReact: true,
             canEdit: this.canEditMessage(message, currentUserId),
+            canDelete: this.canDeleteMessage(message, currentUserId),
         };
     }
 
@@ -578,6 +595,7 @@ export class ReviewDiscussionService {
                 canReply: false,
                 canReact: false,
                 canEdit: false,
+                canDelete: false,
             });
         });
 
@@ -604,6 +622,7 @@ export class ReviewDiscussionService {
                 canReply: false,
                 canReact: false,
                 canEdit: false,
+                canDelete: false,
             });
         });
 
@@ -793,6 +812,55 @@ export class ReviewDiscussionService {
         );
     }
 
+    private async deleteMessageCascade(message: ReviewDiscussionMessageEntity) {
+        const stack = [message];
+        const messagesToDelete: ReviewDiscussionMessageEntity[] = [];
+
+        while (stack.length) {
+            const current = stack.pop();
+            if (!current) continue;
+            messagesToDelete.push(current);
+            const replies = await this.messageRepo.find({ where: { parentMessageId: current.id } });
+            stack.push(...replies);
+        }
+
+        for (const item of messagesToDelete.reverse()) {
+            await this.reactionRepo.delete({ messageId: item.id });
+            await this.messageRepo.delete({ id: item.id });
+        }
+    }
+
+    async deleteMessageByReservation(reservationId: string, messageId: number, userId: string) {
+        const message = await this.messageRepo.findOne({
+            where: { id: messageId, reservationId: Number(reservationId) },
+        });
+        if (!message) {
+            throw CustomErrorHandler.notFound(`Message ${messageId} not found`);
+        }
+
+        if (!this.canDeleteMessage(message, userId)) {
+            throw CustomErrorHandler.forbidden("This discussion entry cannot be deleted");
+        }
+
+        const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim();
+        if (slackMessageTs) {
+            try {
+                const rc = await this.reviewCheckoutRepo.findOne({
+                    where: { reservationInfo: { id: Number(reservationId) } },
+                    select: ["id", "slackThreadTs"],
+                });
+                if (rc?.slackThreadTs && slackMessageTs !== rc.slackThreadTs) {
+                    await new ResolutionsTeamSlackService().deleteActivityMessageInThread(rc.id, slackMessageTs);
+                }
+            } catch (err) {
+                logger.error("[ReviewDiscussion] Failed to delete note from Slack thread:", err);
+            }
+        }
+
+        await this.deleteMessageCascade(message);
+        return { deleted: true, id: messageId };
+    }
+
     async toggleReactionByReservation(reservationId: string, messageId: number, reaction: string, userId: string) {
         if (!ALLOWED_REACTIONS.includes(reaction as ReviewDiscussionReactionType)) {
             throw CustomErrorHandler.validationError("Unsupported reaction");
@@ -838,6 +906,31 @@ export class ReviewDiscussionService {
             authorName: "SecureStay",
             authorAvatar: null,
             content: content.trim(),
+            mentions: [],
+            metadata,
+        });
+
+        return this.messageRepo.save(message);
+    }
+
+    async createSystemMessageByReservation(
+        reservationId: number | string,
+        content: string,
+        metadata: Record<string, any> | null = null
+    ) {
+        const normalizedReservationId = Number(reservationId);
+        const normalizedContent = String(content || "").trim();
+        if (!normalizedReservationId || Number.isNaN(normalizedReservationId) || !normalizedContent) return null;
+
+        const message = this.messageRepo.create({
+            reviewId: null,
+            reservationId: normalizedReservationId,
+            parentMessageId: null,
+            sourceType: "system",
+            authorId: null,
+            authorName: "SecureStay",
+            authorAvatar: null,
+            content: normalizedContent,
             mentions: [],
             metadata,
         });
