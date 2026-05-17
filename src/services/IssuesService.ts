@@ -31,6 +31,7 @@ import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { buildIssueUpdateMessage, formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import { uploadFileToSlack } from "../utils/uploadFileToSlack";
 import { OpenPhoneService } from "./OpenPhoneService";
 
 export class IssuesService {
@@ -398,6 +399,24 @@ export class IssuesService {
 
       issueUpdate.slackMessageTs = slackResponse.ts;
       const savedUpdate = await this.issueUpdatesRepo.save(issueUpdate);
+
+      // Upload any locally stored file attachments into the Slack thread
+      try {
+        const attachedFiles = await this.fileInfoRepo.find({
+          where: { entityType: "issue-updates", entityId: Number(issueUpdate.id) },
+        });
+        const localFiles = attachedFiles.filter((f) => f.localPath && f.fileName);
+        if (localFiles.length > 0) {
+          await uploadFileToSlack(
+            mainIssueThread.channel,
+            localFiles.map((f) => f.fileName),
+            "issues",
+            slackResponse.ts
+          );
+        }
+      } catch (uploadError) {
+        logger.warn(`Failed to upload attachments to Slack for issue update ${issueUpdate.id}`, uploadError);
+      }
 
       const trackedSlackUpdate = this.slackMessageRepo.create({
         channel: mainIssueThread.channel,
@@ -1289,7 +1308,7 @@ export class IssuesService {
         source: source === "system" ? "system" : "securestay",
       });
 
-      let result = await this.issueUpdatesRepo.save(newUpdate);
+      let result = await this.issueUpdatesRepo.save(newUpdate, { listeners: false });
       if (fileInfo?.length) {
         for (const file of fileInfo) {
           const fileRecord = this.fileInfoRepo.create({
@@ -1745,9 +1764,22 @@ export class IssuesService {
 
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
-    const persistedUpdates = (issue.issueUpdates || []).filter((update) => !update.deletedAt).map((update) => {
+
+    const nonDeletedUpdates = (issue.issueUpdates || []).filter((update) => !update.deletedAt);
+    const updateIds = nonDeletedUpdates.map((u) => u.id);
+    const allFileInfos = updateIds.length
+      ? await this.fileInfoRepo.find({ where: { entityType: "issue-updates", entityId: In(updateIds) } })
+      : [];
+    const fileInfoByUpdateId = new Map<number, FileInfo[]>();
+    for (const fi of allFileInfos) {
+      if (!fileInfoByUpdateId.has(fi.entityId)) fileInfoByUpdateId.set(fi.entityId, []);
+      fileInfoByUpdateId.get(fi.entityId)!.push(fi);
+    }
+
+    const persistedUpdates = nonDeletedUpdates.map((update) => {
       const isSlack = update.source === "slack";
       const isSystem = update.source === "system";
+      const files = fileInfoByUpdateId.get(update.id) || [];
       return {
         id: update.id,
         updates: update.updates,
@@ -1763,6 +1795,16 @@ export class IssuesService {
         createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
         updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
         userAvatar: isSlack || isSystem ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
+        fileInfo: files.map((fi) => ({
+          id: fi.id,
+          fileName: fi.fileName,
+          originalName: fi.originalName,
+          mimeType: fi.mimetype,
+          url: fi.webContentLink || (fi.fileName ? `/getfile/issues/${fi.fileName}` : null),
+          webViewLink: fi.webViewLink,
+          webContentLink: fi.webContentLink,
+          link: fi.webContentLink || (fi.fileName ? `/getfile/issues/${fi.fileName}` : null),
+        })),
       };
     });
 

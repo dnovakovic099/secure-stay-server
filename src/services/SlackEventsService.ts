@@ -7,6 +7,7 @@ import { ZapierTriggerEvent } from "../entity/ZapierTriggerEvent";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { Issue } from "../entity/Issue";
 import { IssueUpdates } from "../entity/IsssueUpdates";
+import { FileInfo } from "../entity/FileInfo";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import sendSlackMessage from "../utils/sendSlackMsg";
@@ -14,6 +15,22 @@ import logger from "../utils/logger.utils";
 import axios from "axios";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { replaceSlackIdsWithMentions } from "../helpers/helpers";
+
+interface SlackMessageFile {
+    id: string;
+    name?: string;
+    title?: string;
+    mimetype?: string;
+    filetype?: string;
+    url_private?: string;
+    url_private_download?: string;
+    permalink_public?: string;
+    permalink?: string;
+    thumb_1024?: string;
+    thumb_720?: string;
+    thumb_480?: string;
+    thumb_360?: string;
+}
 
 interface SlackMessageEvent {
     type: string;
@@ -25,6 +42,7 @@ interface SlackMessageEvent {
     thread_ts?: string;
     bot_id?: string;
     deleted_ts?: string;
+    files?: SlackMessageFile[];
     previous_message?: {
         ts?: string;
         thread_ts?: string;
@@ -172,6 +190,35 @@ export class SlackEventsService {
                     slackMessageTs: event.ts,
                 });
                 await this.issueUpdateRepo.save(newUpdate);
+
+                if (Array.isArray(event.files) && event.files.length > 0) {
+                    const fileInfoRepo = appDatabase.getRepository(FileInfo);
+                    for (const file of event.files) {
+                        const rawUrl =
+                            file.url_private_download || file.url_private ||
+                            file.permalink_public || file.permalink || null;
+                        if (!rawUrl) continue;
+                        const previewRawUrl =
+                            file.thumb_1024 || file.thumb_720 || file.thumb_480 ||
+                            file.thumb_360 || rawUrl;
+                        const previewProxyUrl = `/issues/slack-file?url=${encodeURIComponent(previewRawUrl)}`;
+                        const downloadProxyUrl = `/issues/slack-file?url=${encodeURIComponent(rawUrl)}`;
+                        await fileInfoRepo.save(fileInfoRepo.create({
+                            entityType: 'issue-updates',
+                            entityId: newUpdate.id,
+                            fileName: file.name || `slack_file_${file.id}`,
+                            originalName: file.title || file.name || 'Slack file',
+                            mimetype: file.mimetype || file.filetype || '',
+                            webContentLink: previewProxyUrl,
+                            webViewLink: file.permalink_public || file.permalink || rawUrl,
+                            localPath: null,
+                            status: 'uploaded',
+                            createdBy: `${slackUserName} (via Slack)`,
+                        }));
+                    }
+                    logger.info(`[SlackEventsService] Stored ${event.files.length} file(s) for issue update ${newUpdate.id}`);
+                }
+
                 logger.info(`[SlackEventsService] Synced Slack reply to issue ${issue.id}`);
                 return;
             }
