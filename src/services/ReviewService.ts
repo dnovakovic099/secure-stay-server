@@ -304,7 +304,9 @@ export class ReviewService {
             await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys.mitigationStatuses } }),
             {}
         ) || {};
-        const options = Array.from(new Set((payload.options || this.getDefaultMitigationStatuses()).map((status) => String(status).trim()).filter(Boolean)));
+        // Use `?.length` so an empty array [] falls through to the defaults ([] is truthy, so plain `||` wouldn't)
+        const rawOptions = payload.options?.length ? payload.options : this.getDefaultMitigationStatuses();
+        const options = Array.from(new Set(rawOptions.map((status) => String(status).trim()).filter(Boolean)));
         const usageRows = await this.reviewCheckoutRepo
             .createQueryBuilder('reviewCheckout')
             .select('reviewCheckout.status', 'status')
