@@ -50,7 +50,8 @@ router.route('/discussion/attachment/:fileName')
     .get(verifySession, reviewController.getDiscussionAttachment.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/:messageId')
-    .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController));
+    .put(verifySession, reviewController.updateReservationDiscussionMessage.bind(reviewController))
+    .delete(verifySession, reviewController.deleteReservationDiscussionMessage.bind(reviewController));
 
 router.route('/reservationdiscussion/:reservationId/reactions')
     .post(verifySession, reviewController.toggleReservationDiscussionReaction.bind(reviewController));

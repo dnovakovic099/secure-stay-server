@@ -11,6 +11,7 @@ import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage
 import { UsersEntity } from "../entity/Users";
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
+import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { GuestAnalysisService } from "./GuestAnalysisService";
 import {
     buildResolutionsCheckoutMessage,
@@ -26,6 +27,7 @@ import { formatCurrency } from "../helpers/helpers";
 import { UsersService } from "./UsersService";
 import { supabaseAdmin } from "../utils/supabase";
 import { In } from "typeorm";
+import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -35,6 +37,8 @@ interface ActivityPayload {
     newValue?: string | null;
     notificationMentions?: string[];
     rating?: number | null;
+    reviewSentiment?: string | null;
+    reviewSentimentReason?: string | null;
 }
 
 const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
@@ -56,6 +60,7 @@ export class ResolutionsTeamSlackService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private employeeRepo = appDatabase.getRepository(Employee);
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
+    private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private usersService = new UsersService();
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -218,6 +223,38 @@ export class ResolutionsTeamSlackService {
         return displayName;
     }
 
+    private normalizeReviewRatingToStars(rating?: number | null) {
+        const value = Number(rating || 0);
+        if (!Number.isFinite(value) || value <= 0) return null;
+        return Math.max(1, Math.min(5, Math.round(value > 5 ? value / 2 : value)));
+    }
+
+    private async getAssigneeSlackMention(assigneeValue?: string | null) {
+        const rawValue = String(assigneeValue || "").trim();
+        if (!rawValue) return null;
+
+        const user = await this.usersRepo.findOne({ where: { uid: rawValue } });
+        if (!user) return null;
+
+        const employee = await this.employeeRepo.findOne({
+            where: { userId: user.id, deletedAt: null as any },
+            select: ["userId", "slackUserId", "slackId"],
+        });
+        const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+        return slackMemberId ? `<@${slackMemberId}>` : null;
+    }
+
+    private async getLowReviewAssessmentMentions(assigneeValue?: string | null) {
+        const mentions = new Set<string>();
+        const assigneeMention = await this.getAssigneeSlackMention(assigneeValue);
+        if (assigneeMention) mentions.add(assigneeMention);
+
+        const anjSlackId = await this.getAnjSlackUserId();
+        if (anjSlackId) mentions.add(`<@${anjSlackId}>`);
+
+        return [...mentions];
+    }
+
     private async getResolutionTagAddedMentions(assigneeValue?: string | null) {
         const mentions = new Set<string>();
         const anjSlackId = await this.getAnjSlackUserId();
@@ -332,12 +369,14 @@ export class ResolutionsTeamSlackService {
     private async updateRootMessage(
         reviewCheckout: ReviewCheckout,
         reservation: ReservationInfoEntity,
-        listing: Listing | null
+        listing: Listing | null,
+        isLateCancelledOverride?: boolean,
     ): Promise<void> {
         if (!reviewCheckout.slackThreadTs || !reviewCheckout.slackChannelId) return;
 
         try {
             const { emoji } = this.getListingEmoji(listing?.tags);
+            const isLateCancelled = isLateCancelledOverride ?? await this.isLateCancelledReservation(reservation, listing);
             const reviewService = new ReviewService();
             const [statusData, assigneeOptions, tagOptions] = await Promise.all([
                 reviewService.getMitigationStatusOptions(),
@@ -356,6 +395,7 @@ export class ResolutionsTeamSlackService {
                 guestName: reservation.guestName || "Guest",
                 hostifyUrl,
                 channelName: reservation.channelName || "",
+                integrationName: reservation.integration_nickname || "",
                 checkIn: reservation.arrivalDate
                     ? format(new Date(reservation.arrivalDate), "MMM d")
                     : "",
@@ -372,6 +412,7 @@ export class ResolutionsTeamSlackService {
                 assigneeOptions,
                 tagOptions,
                 selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
+                isCancelled: isLateCancelled,
             });
 
             await axios.post(
@@ -392,6 +433,33 @@ export class ResolutionsTeamSlackService {
         } catch (err) {
             logger.error(`[ResolutionsTeam] Failed to update root message for reviewCheckout ${reviewCheckout.id}:`, err);
         }
+    }
+
+    private async getCancellationChangedAt(reservationId: number): Promise<Date | null> {
+        const logs = await this.reservationInfoLogsRepo.find({
+            where: { reservationInfoId: reservationId, action: "UPDATE" as any },
+            order: { changedAt: "ASC", id: "ASC" },
+        });
+
+        const cancellationLog = logs.find((log) => {
+            const statusDiff = log.diff?.status;
+            const newStatus = statusDiff?.new ?? log.newData?.status;
+            const oldStatus = statusDiff?.old ?? log.oldData?.status;
+            return isCancelledStatus(newStatus) && !isCancelledStatus(oldStatus);
+        });
+
+        return cancellationLog?.changedAt || null;
+    }
+
+    private async isLateCancelledReservation(
+        reservation: ReservationInfoEntity,
+        listing: Listing | null,
+        cancelledAtOverride?: Date | null,
+    ) {
+        if (!isCancelledStatus(reservation.status)) return false;
+        const cancelledAt = cancelledAtOverride || await this.getCancellationChangedAt(Number(reservation.id));
+        if (!cancelledAt) return false;
+        return isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt);
     }
 
     async ensureThreadForReservation(reservationId: number, userId?: string | null) {
@@ -415,6 +483,7 @@ export class ResolutionsTeamSlackService {
             ? await this.listingRepo.findOne({ where: { id: reservation.listingMapId } })
             : null;
         const { emoji } = this.getListingEmoji(listing?.tags);
+        const isLateCancelled = await this.isLateCancelledReservation(reservation, listing);
         const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
@@ -432,6 +501,7 @@ export class ResolutionsTeamSlackService {
             guestName: reservation.guestName || "Guest",
             hostifyUrl,
             channelName: reservation.channelName || "",
+            integrationName: reservation.integration_nickname || "",
             checkIn: reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d") : "",
             checkOut: reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d") : "",
             totalPaid: this.getTotalPaidDisplay(reservation),
@@ -444,6 +514,7 @@ export class ResolutionsTeamSlackService {
             assigneeOptions,
             tagOptions,
             selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
+            isCancelled: isLateCancelled,
         });
 
         const result = await sendSlackMessage(msgPayload);
@@ -474,11 +545,43 @@ export class ResolutionsTeamSlackService {
         return reviewCheckout;
     }
 
-    // ─── Daily checkout message posting ───────────────────────────────────────
+    async handleLateCancelledReservation(reservationId: number, cancelledAt: Date = new Date()) {
+        try {
+            const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
+            if (!reservation) return;
+
+            const listing = reservation.listingMapId
+                ? await this.listingRepo.findOne({ where: { id: reservation.listingMapId } })
+                : null;
+            const isLateCancelled = isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt);
+            if (!isLateCancelled) return;
+
+            const reviewCheckout = await this.ensureThreadForReservation(reservationId, "system");
+            const hydratedReservation = reviewCheckout.reservationInfo || reservation;
+
+            await this.updateRootMessage(reviewCheckout, hydratedReservation, listing, true);
+            await this.postActivityToThread(reviewCheckout.id, {
+                type: "reservation_cancelled",
+                actor: "SecureStay",
+                details: `Reservation for ${reservation.guestName || "Guest"} was cancelled after check-in time.`,
+            });
+        } catch (error) {
+            logger.error(`[ResolutionsTeam] Failed to process late cancellation for reservation ${reservationId}:`, error);
+        }
+    }
+
+    // ─── Daily check-in message posting ───────────────────────────────────────
 
     async postDailyCheckoutMessages(): Promise<void> {
         const today = format(new Date(), "yyyy-MM-dd");
-        logger.info(`[ResolutionsTeam] Posting daily checkout messages for ${today}`);
+        logger.info(`[ResolutionsTeam] Posting daily check-in messages for ${today}`);
+
+        const reviewService = new ReviewService();
+        try {
+            await reviewService.processReviewCheckout();
+        } catch (error) {
+            logger.error("[ResolutionsTeam] Failed to ensure review checkout records before daily Slack post:", error);
+        }
 
         // Fetch all reservations checking in today that have a ReviewCheckout record
         const reviewCheckouts = await this.reviewCheckoutRepo
@@ -492,7 +595,7 @@ export class ResolutionsTeamSlackService {
             .getMany();
 
         if (reviewCheckouts.length === 0) {
-            logger.info("[ResolutionsTeam] No checkout reservations to post for today");
+            logger.info("[ResolutionsTeam] No check-in reservations to post for today");
             return;
         }
 
@@ -520,7 +623,6 @@ export class ResolutionsTeamSlackService {
             .sort((a, b) => a.sortOrder - b.sortOrder);
 
         // Get status options and assignees once
-        const reviewService = new ReviewService();
         const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
@@ -549,6 +651,7 @@ export class ResolutionsTeamSlackService {
                     guestName: reservation.guestName || "Guest",
                     hostifyUrl,
                     channelName: reservation.channelName || "",
+                    integrationName: reservation.integration_nickname || "",
                     checkIn: reservation.arrivalDate
                         ? format(new Date(reservation.arrivalDate), "MMM d")
                         : "",
@@ -641,6 +744,14 @@ export class ResolutionsTeamSlackService {
             const resolutionTagMentions = activity.type === "resolution_tag" && !activity.oldValue && (activity.newValue || activity.details)
                 ? await this.getResolutionTagAddedMentions(rc.assignee)
                 : [];
+            const normalizedReviewRating = this.normalizeReviewRatingToStars(activity.rating);
+            const needsReviewSentimentMentions = activity.type === "review_posted"
+                && Boolean(activity.reviewSentiment)
+                && String(activity.reviewSentiment).toLowerCase() !== "positive";
+            const reviewAssessmentMentions = activity.type === "review_posted"
+                && ((normalizedReviewRating !== null && normalizedReviewRating < 5) || needsReviewSentimentMentions)
+                ? await this.getLowReviewAssessmentMentions(rc.assignee)
+                : [];
 
             const msgPayload = buildResolutionsActivityMessage({
                 ...activity,
@@ -648,7 +759,11 @@ export class ResolutionsTeamSlackService {
                 actorIconUrl: actorPresentation.iconUrl,
                 ...assigneeLabels,
                 anjSlackId: anjSlackId || undefined,
-                notificationMentions: resolutionTagMentions,
+                notificationMentions: activity.notificationMentions?.length
+                    ? activity.notificationMentions
+                    : resolutionTagMentions.length
+                        ? resolutionTagMentions
+                        : reviewAssessmentMentions,
             });
 
             const channelId = rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL;
@@ -735,6 +850,47 @@ export class ResolutionsTeamSlackService {
         } catch (err) {
             logger.error(
                 `[ResolutionsTeam] Failed to update activity message ${messageTs} for reviewCheckout ${reviewCheckoutId}:`,
+                err
+            );
+        }
+    }
+
+    async deleteActivityMessageInThread(
+        reviewCheckoutId: number,
+        messageTs: string
+    ): Promise<void> {
+        try {
+            const rc = await this.reviewCheckoutRepo.findOne({
+                where: { id: reviewCheckoutId },
+                select: ["id", "slackThreadTs", "slackChannelId"],
+            });
+
+            if (!rc?.slackThreadTs || !rc.slackChannelId || !messageTs || messageTs === rc.slackThreadTs) {
+                return;
+            }
+
+            const response = await axios.post(
+                "https://slack.com/api/chat.delete",
+                {
+                    channel: rc.slackChannelId,
+                    ts: messageTs,
+                },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                    },
+                }
+            );
+
+            if (!response.data?.ok && !["message_not_found", "message_deleted"].includes(response.data?.error)) {
+                logger.warn(
+                    `[ResolutionsTeam] Slack refused delete for activity message ${messageTs}: ${response.data?.error || "unknown error"}`
+                );
+            }
+        } catch (err) {
+            logger.error(
+                `[ResolutionsTeam] Failed to delete activity message ${messageTs} for reviewCheckout ${reviewCheckoutId}:`,
                 err
             );
         }

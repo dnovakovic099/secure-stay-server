@@ -8,6 +8,33 @@ interface CustomRequest extends Request {
 }
 
 export class OpenAIController {
+    public async translateTextToEnglish(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { text } = req.body || {};
+            const normalizedText = String(text || "").trim();
+
+            if (!normalizedText) {
+                return res.status(400).json({ error: "Text is required" });
+            }
+
+            const openAIService = new OpenAIService();
+            const translatedText = await openAIService.translateTextToEnglish(normalizedText);
+
+            return res.status(200).json({
+                success: true,
+                data: { translatedText },
+            });
+        } catch (error: any) {
+            if (error.message?.includes("OPENAI_API_KEY")) {
+                return res.status(500).json({ error: "OpenAI API key not configured" });
+            }
+            if (error.message?.includes("Text")) {
+                return res.status(400).json({ error: error.message });
+            }
+            next(error);
+        }
+    }
+
     /**
      * Generate full listing descriptions for a property
      * POST /openai/generate-listing-descriptions/:propertyId

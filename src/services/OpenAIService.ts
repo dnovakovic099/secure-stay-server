@@ -96,6 +96,13 @@ export interface PropertyDataForGeneration {
     squareMeters: number | null;
 }
 
+export type ReviewSentiment = "Positive" | "Neutral" | "Negative" | "Mixed";
+
+export interface ReviewSentimentAnalysis {
+    sentiment: ReviewSentiment;
+    reason: string;
+}
+
 export class OpenAIService {
     private openai: OpenAI;
     private ruleSetContent: string;
@@ -127,6 +134,84 @@ export class OpenAIService {
             logger.error("Error loading rule set:", error);
             return "";
         }
+    }
+
+    async translateTextToEnglish(text: string): Promise<string> {
+        const normalizedText = String(text || "").trim();
+        if (!normalizedText) {
+            throw new Error("Text is required");
+        }
+        if (normalizedText.length > 10000) {
+            throw new Error("Text must be 10000 characters or fewer");
+        }
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                {
+                    role: "system",
+                    content: [
+                        "Translate the user's review text to clear, natural English.",
+                        "If the text is already English, return it unchanged.",
+                        "Preserve names, property names, dates, numbers, and the guest's meaning.",
+                        "Return only the translated text with no labels, notes, markdown, or quotes.",
+                    ].join(" "),
+                },
+                { role: "user", content: normalizedText },
+            ],
+            temperature: 0,
+        });
+
+        const translatedText = response.choices[0]?.message?.content?.trim();
+        if (!translatedText) {
+            throw new Error("No response from OpenAI");
+        }
+
+        return translatedText;
+    }
+
+    async analyzePrivateReviewSentiment(text: string): Promise<ReviewSentimentAnalysis> {
+        const normalizedText = String(text || "").trim();
+        if (!normalizedText) {
+            throw new Error("Private review text is required");
+        }
+        if (normalizedText.length > 10000) {
+            throw new Error("Private review text must be 10000 characters or fewer");
+        }
+
+        const response = await this.openai.chat.completions.create({
+            model: "gpt-4.1",
+            messages: [
+                {
+                    role: "system",
+                    content: [
+                        "Analyze the private guest review sentiment for a hospitality operations team.",
+                        "Return strict JSON only with keys sentiment and reason.",
+                        "The sentiment must be exactly one of: Positive, Neutral, Negative, Mixed.",
+                        "Use Positive when the private review is clearly favorable.",
+                        "Use Negative when it is clearly unfavorable or highlights problems.",
+                        "Use Mixed when it has meaningful praise and meaningful criticism.",
+                        "Use Neutral when there is not enough emotional signal.",
+                        "Keep reason to one concise sentence.",
+                    ].join(" "),
+                },
+                { role: "user", content: normalizedText },
+            ],
+            temperature: 0,
+            response_format: { type: "json_object" },
+        });
+
+        const content = response.choices[0]?.message?.content?.trim();
+        if (!content) {
+            throw new Error("No response from OpenAI");
+        }
+
+        const parsed = JSON.parse(content);
+        const allowed: ReviewSentiment[] = ["Positive", "Neutral", "Negative", "Mixed"];
+        const sentiment = allowed.includes(parsed?.sentiment) ? parsed.sentiment : "Neutral";
+        const reason = String(parsed?.reason || sentiment).trim().slice(0, 500);
+
+        return { sentiment, reason };
     }
 
     /**

@@ -492,21 +492,24 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Scheduled AI Guest Analysis - Daily at 10:00 AM EST
-  // Generates AI analysis for reservations with checkout in the last 14 days
-  schedule.scheduleJob(
-    { hour: 10, minute: 0, tz: "America/New_York" },
-    async () => {
-      try {
-        logger.info('[GuestAnalysis] Scheduled AI analysis job started...');
-        const guestAnalysisService = new GuestAnalysisService();
-        const result = await guestAnalysisService.processScheduledAnalysis();
-        logger.info(`[GuestAnalysis] Scheduled job completed - Processed: ${result.processed}, Failed: ${result.failed}, Skipped: ${result.skipped}`);
-      } catch (error) {
-        logger.error("[GuestAnalysis] Error in scheduled AI analysis job:", error);
+  // Scheduled AI Guest Analysis - inactive unless explicitly enabled.
+  if (process.env.ENABLE_SCHEDULED_AI_ANALYSIS === "true") {
+    schedule.scheduleJob(
+      { hour: 10, minute: 0, tz: "America/New_York" },
+      async () => {
+        try {
+          logger.info('[GuestAnalysis] Scheduled AI analysis job started...');
+          const guestAnalysisService = new GuestAnalysisService();
+          const result = await guestAnalysisService.processScheduledAnalysis();
+          logger.info(`[GuestAnalysis] Scheduled job completed - Processed: ${result.processed}, Failed: ${result.failed}, Skipped: ${result.skipped}`);
+        } catch (error) {
+          logger.error("[GuestAnalysis] Error in scheduled AI analysis job:", error);
+        }
       }
-    }
-  );
+    );
+  } else {
+    logger.info("[GuestAnalysis] Scheduled AI analysis job inactive. Set ENABLE_SCHEDULED_AI_ANALYSIS=true to enable it.");
+  }
 
   // GR Tasks Overdue Escalation - Every 5 minutes
   schedule.scheduleJob(
@@ -524,7 +527,7 @@ export function scheduleGetReservation() {
   );
 
   // Resolutions Team — daily check-in messages to #resolutions-team at 9:05 AM EST
-  // (9:05 to ensure the hourly processReviewCheckout job at 9:00 AM has finished creating records)
+  // The Slack service also ensures today's review-checkout records before posting.
   schedule.scheduleJob(
     { hour: 9, minute: 5, tz: "America/New_York" },
     async () => {

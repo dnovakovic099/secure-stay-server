@@ -30,6 +30,7 @@ import { VelocityAlertService } from "./VelocityAlertService";
 import { ReservationHistoryService } from "./ReservationHistoryService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReviewDiscussionService } from "./ReviewDiscussionService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -1448,6 +1449,23 @@ export class ReservationInfoService {
       where: { reservationInfo: { id: reservationId } },
       relations: ["reservationInfo"],
     });
+
+    try {
+      const content = activityValues.oldValue && activityValues.newValue
+        ? `Resolution tags changed from ${activityValues.oldValue} to ${activityValues.newValue}.`
+        : activityValues.newValue
+          ? `Resolution tag added: ${activityValues.newValue}.`
+          : `Resolution tag removed: ${activityValues.oldValue}.`;
+      await new ReviewDiscussionService().createSystemMessageByReservation(reservationId, content, {
+        source: "reservation_tags",
+        eventType: "resolution_tag",
+        actor: changedBy,
+        oldValue: activityValues.oldValue,
+        newValue: activityValues.newValue,
+      });
+    } catch (error) {
+      logger.error("[ReservationInfoService] Review discussion reservation tag system update failed:", error);
+    }
 
     if (!reviewCheckout?.slackThreadTs) return;
 

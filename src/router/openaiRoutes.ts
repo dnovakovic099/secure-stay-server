@@ -9,8 +9,14 @@ const openAIController = new OpenAIController();
  * 
  * POST /generate-listing-descriptions/:propertyId - Generate full listing descriptions
  * POST /generate-titles/:propertyId - Generate only title options
+ * POST /translate-to-english - Translate text to English
  * GET /property-data/:propertyId - Get property data for preview/debugging
  */
+
+router.post(
+    "/translate-to-english",
+    openAIController.translateTextToEnglish.bind(openAIController)
+);
 
 // Generate full listing descriptions for a property
 router.post(
