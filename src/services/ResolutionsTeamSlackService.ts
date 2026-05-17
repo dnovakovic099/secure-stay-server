@@ -23,7 +23,8 @@ import {
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 import { ReviewService } from "./ReviewService";
-import { formatCurrency } from "../helpers/helpers";
+import { formatCurrency, replaceSlackIdsWithMentions } from "../helpers/helpers";
+import { getSlackUsers } from "../utils/getSlackUsers";
 import { UsersService } from "./UsersService";
 import { supabaseAdmin } from "../utils/supabase";
 import { In } from "typeorm";
@@ -48,6 +49,10 @@ const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
     pro:    { emoji: "🔵", sortOrder: 4 },
     launch: { emoji: "🟤", sortOrder: 5 },
 };
+
+// Module-level rate-limit: at most one Slack thread sync per reservation per minute
+const slackThreadSyncTimestamps = new Map<number, number>();
+const SLACK_SYNC_INTERVAL_MS = 60_000;
 
 export class ResolutionsTeamSlackService {
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
@@ -905,17 +910,6 @@ export class ResolutionsTeamSlackService {
         slackMessageTs: string
     ): Promise<void> {
         try {
-            // Dedup: check if we already saved this Slack message
-            const existing = await this.reviewCheckoutUpdatesRepo.findOne({
-                where: { slackMessageTs },
-            });
-            if (existing) {
-                logger.debug(
-                    `[ResolutionsTeam] Duplicate Slack reply detected, skipping: ${slackMessageTs}`
-                );
-                return;
-            }
-
             const rc = await this.reviewCheckoutRepo.findOne({
                 where: { id: reviewCheckoutId },
                 relations: ["reservationInfo"],
@@ -929,23 +923,44 @@ export class ResolutionsTeamSlackService {
 
             const displayName = await this.getSlackUserDisplayName(slackUserId);
 
-            const newUpdate = this.reviewCheckoutUpdatesRepo.create({
-                updates: text,
-                createdBy: `${displayName} (via Slack)`,
-                reviewCheckout: rc,
-                source: "slack",
-                slackMessageTs,
+            // Save to review_checkout_updates only if not already there (independent dedup)
+            const existingUpdate = await this.reviewCheckoutUpdatesRepo.findOne({
+                where: { slackMessageTs },
             });
+            if (!existingUpdate) {
+                const newUpdate = this.reviewCheckoutUpdatesRepo.create({
+                    updates: text,
+                    createdBy: `${displayName} (via Slack)`,
+                    reviewCheckout: rc,
+                    source: "slack",
+                    slackMessageTs,
+                });
+                await this.reviewCheckoutUpdatesRepo.save(newUpdate);
+                logger.info(
+                    `[ResolutionsTeam] Synced Slack reply to reviewCheckout ${reviewCheckoutId}`
+                );
+            } else {
+                logger.debug(
+                    `[ResolutionsTeam] Duplicate Slack reply for review_checkout_updates, skipping: ${slackMessageTs}`
+                );
+            }
 
-            await this.reviewCheckoutUpdatesRepo.save(newUpdate);
-            logger.info(
-                `[ResolutionsTeam] Synced Slack reply to reviewCheckout ${reviewCheckoutId}`
-            );
+            // Sync to review_discussion_messages — always attempted, with its own independent dedup
+            let reservationId = rc.reservationInfo?.id ?? null;
+            if (!reservationId) {
+                // Fallback: recover reservationId from the SlackMessageEntity originalMessage field
+                const slackRecord = await this.slackMessageRepo.findOne({
+                    where: { entityType: "review_checkout", entityId: reviewCheckoutId },
+                });
+                if (slackRecord?.originalMessage) {
+                    try {
+                        const parsed = JSON.parse(slackRecord.originalMessage);
+                        reservationId = parsed.reservationId ?? null;
+                    } catch { /* ignore parse errors */ }
+                }
+            }
 
-            // Also sync to review_discussion_messages for the "Updates & Discussions" feed
-            const reservationId = rc.reservationInfo?.id ?? null;
             if (reservationId) {
-                // Dedup: skip if this Slack message was already saved to the discussion feed
                 const existingDiscussionMsg = await this.reviewDiscussionMessageRepo
                     .createQueryBuilder("msg")
                     .where("msg.reservationId = :reservationId", { reservationId })
@@ -972,13 +987,73 @@ export class ResolutionsTeamSlackService {
                     logger.info(
                         `[ResolutionsTeam] Synced Slack reply to review_discussion_messages for reservation ${reservationId}`
                     );
+                } else {
+                    logger.debug(
+                        `[ResolutionsTeam] Duplicate Slack reply for review_discussion_messages, skipping: ${slackMessageTs}`
+                    );
                 }
+            } else {
+                logger.warn(
+                    `[ResolutionsTeam] Could not resolve reservationId for reviewCheckout ${reviewCheckoutId} — skipping review_discussion_messages sync`
+                );
             }
         } catch (err) {
             logger.error(
                 `[ResolutionsTeam] Failed to sync Slack reply to SS:`,
                 err
             );
+        }
+    }
+
+    // ─── Pull Slack thread replies → SS (active sync fallback) ───────────────
+
+    async syncSlackThreadReplies(reservationId: number): Promise<void> {
+        const now = Date.now();
+        const lastSync = slackThreadSyncTimestamps.get(reservationId) || 0;
+        if (now - lastSync < SLACK_SYNC_INTERVAL_MS) {
+            logger.debug(`[ResolutionsTeam] Skipping Slack thread sync for reservation ${reservationId} — synced ${Math.round((now - lastSync) / 1000)}s ago`);
+            return;
+        }
+        slackThreadSyncTimestamps.set(reservationId, now);
+
+        try {
+            const rc = await this.reviewCheckoutRepo.findOne({
+                where: { reservationInfo: { id: reservationId } },
+                relations: ["reservationInfo"],
+            });
+            if (!rc?.slackThreadTs || !rc.slackChannelId) {
+                logger.debug(`[ResolutionsTeam] No Slack thread for reservation ${reservationId} — skipping thread sync`);
+                return;
+            }
+
+            const response = await axios.get("https://slack.com/api/conversations.replies", {
+                headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+                params: { channel: rc.slackChannelId, ts: rc.slackThreadTs, limit: 100 },
+                timeout: 8000,
+            });
+
+            if (!response.data?.ok) {
+                logger.warn(`[ResolutionsTeam] conversations.replies not ok for reservation ${reservationId}: ${response.data?.error}`);
+                return;
+            }
+
+            const slackUsers = await getSlackUsers();
+            const messages: any[] = response.data.messages || [];
+            let synced = 0;
+
+            for (const msg of messages) {
+                if (msg.ts === rc.slackThreadTs) continue;           // skip root message
+                if (msg.bot_id || msg.subtype === "bot_message") continue; // skip bot messages
+                if (!msg.user) continue;                              // skip anonymous messages
+
+                const processedText = replaceSlackIdsWithMentions(msg.text || "", slackUsers);
+                await this.syncSlackReplyToSS(rc.id, msg.user, processedText, msg.ts);
+                synced++;
+            }
+
+            logger.info(`[ResolutionsTeam] Pulled ${synced} new reply(ies) from Slack thread for reservation ${reservationId}`);
+        } catch (err) {
+            logger.error(`[ResolutionsTeam] Failed to pull Slack thread replies for reservation ${reservationId}:`, err);
         }
     }
 
