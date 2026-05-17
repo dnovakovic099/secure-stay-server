@@ -54,6 +54,32 @@ export class RefundRequestService {
     }
   }
 
+  private getUserDisplayName(user?: UsersEntity | null) {
+    if (!user) return null;
+    return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid || null;
+  }
+
+  private async decorateRefundRequests<T extends RefundRequestEntity | RefundRequestEntity[] | null>(refundRequests: T): Promise<T> {
+    const rows = Array.isArray(refundRequests) ? refundRequests : refundRequests ? [refundRequests] : [];
+    if (!rows.length) return refundRequests;
+
+    const userIds = Array.from(new Set(
+      rows.flatMap((request) => [request.createdBy, request.updatedBy, request.deletedBy]).filter(Boolean)
+    ));
+    const users = userIds.length
+      ? await this.usersRepo.find({ where: { uid: In(userIds) } })
+      : [];
+    const userMap = new Map(users.map((user) => [user.uid, this.getUserDisplayName(user)]));
+
+    rows.forEach((request: any) => {
+      request.createdByName = userMap.get(request.createdBy) || request.requestedBy || request.createdBy || null;
+      request.updatedByName = userMap.get(request.updatedBy) || request.updatedBy || null;
+      request.deletedByName = userMap.get(request.deletedBy) || request.deletedBy || null;
+    });
+
+    return refundRequests;
+  }
+
   private async findMitigationThreadForRefundRequest(refundRequest: Partial<RefundRequestEntity>) {
     if (!refundRequest.reservationId) return null;
     const reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
@@ -527,11 +553,13 @@ export class RefundRequestService {
     }
 
     async getRefundRequestByReservationId(reservationId: number) {
-        return await this.refundRequestRepo.findOne({ where: { reservationId } });
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { reservationId } });
+        return await this.decorateRefundRequests(refundRequest);
     }
 
     async getRefundRequestById(id: number) {
-        return await this.refundRequestRepo.findOne({ where: { id } });
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        return await this.decorateRefundRequests(refundRequest);
     }
 
     async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; }) {
@@ -576,6 +604,7 @@ export class RefundRequestService {
             skip: offset,
         });
 
+        await this.decorateRefundRequests(data);
         return { data, total };
     }
 

@@ -503,6 +503,7 @@ export class IssuesService {
       return {
         uid: user.uid,
         name: employee?.preferredName || fullName || user.uid,
+        email: String(user.email || "").trim().toLowerCase() || null,
         department: employee?.department || user.department || null,
         avatarUrl: employee?.avatarUrl || null,
       };
@@ -1177,11 +1178,25 @@ export class IssuesService {
       ? await appDatabase.getRepository(Listing).find({ where: { id: In(listingIds as number[]) } })
       : [];
     const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
+    const userEmailMap = new Map(
+      userDirectory
+        .filter((user) => user.email)
+        .map((user) => [user.email as string, user])
+    );
 
     return issues.map((issue) => {
       const listing = listingMap.get(Number(issue.listing_id));
+      const creatorEmail = String(issue.creator || "").trim().toLowerCase();
+      const createdByUser = userMap.get(issue.created_by) || (creatorEmail ? userEmailMap.get(creatorEmail) : undefined);
+      const creatorName = createdByUser?.name || issue.creator || issue.created_by || null;
       return {
         ...issue,
+        creator: creatorName,
+        created_by: createdByUser?.name || issue.created_by,
+        createdByName: createdByUser?.name || null,
+        creatorName,
         propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
         serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
       };

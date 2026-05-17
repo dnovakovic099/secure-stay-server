@@ -2248,6 +2248,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 
 export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
 export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422c";
+const SLACK_SELECT_OPTION_LIMIT = 100;
 
 const RESOLUTIONS_STATUS_EMOJIS: Record<string, string> = {
     New: "🔵",
@@ -2261,6 +2262,19 @@ const formatResolutionsStatusLabel = (status?: string | null) => {
     if (!normalizedStatus) return "—";
     const emoji = RESOLUTIONS_STATUS_EMOJIS[normalizedStatus];
     return emoji ? `${emoji} ${normalizedStatus}` : normalizedStatus;
+};
+
+const limitSlackSelectOptions = <T>(options: T[], currentOption?: T | null, isSameOption?: (left: T, right: T) => boolean) => {
+    const limited = options.slice(0, SLACK_SELECT_OPTION_LIMIT);
+    if (!currentOption || !isSameOption || limited.some((option) => isSameOption(option, currentOption))) {
+        return limited;
+    }
+    return [...limited.slice(0, SLACK_SELECT_OPTION_LIMIT - 1), currentOption];
+};
+
+const truncateSlackOptionText = (value: string) => {
+    const normalized = String(value || "—").trim() || "—";
+    return normalized.length > 75 ? `${normalized.slice(0, 72)}...` : normalized;
 };
 
 export interface ResolutionsCheckoutMessageData {
@@ -2302,23 +2316,33 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         : normalizedChannelName;
     const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelLabel} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
-    const statusSelectOptions = statusOptions.map((s) => ({
-        text: { type: 'plain_text' as const, text: formatResolutionsStatusLabel(s) },
+    const allStatusSelectOptions = statusOptions.map((s) => ({
+        text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: JSON.stringify({ reviewCheckoutId, newStatus: s }),
     }));
-    const assigneeSelectOptions = [
+    const allAssigneeSelectOptions = [
         { text: { type: 'plain_text' as const, text: 'Unassigned' }, value: JSON.stringify({ reviewCheckoutId, assignee: '' }) },
         ...assigneeOptions.map((a) => ({
-            text: { type: 'plain_text' as const, text: a.label },
+            text: { type: 'plain_text' as const, text: truncateSlackOptionText(a.label) },
             value: JSON.stringify({ reviewCheckoutId, assignee: a.value }),
         })),
     ];
 
-    const currentStatusOption = statusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || statusSelectOptions[0];
-    const currentAssigneeOption = assigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || assigneeSelectOptions[0];
+    const currentStatusOption = allStatusSelectOptions.find((o) => JSON.parse(o.value).newStatus === status) || allStatusSelectOptions[0];
+    const currentAssigneeOption = allAssigneeSelectOptions.find((o) => JSON.parse(o.value).assignee === (assignee || '')) || allAssigneeSelectOptions[0];
+    const statusSelectOptions = limitSlackSelectOptions(
+        allStatusSelectOptions,
+        currentStatusOption,
+        (left, right) => JSON.parse(left.value).newStatus === JSON.parse(right.value).newStatus
+    );
+    const assigneeSelectOptions = limitSlackSelectOptions(
+        allAssigneeSelectOptions,
+        currentAssigneeOption,
+        (left, right) => JSON.parse(left.value).assignee === JSON.parse(right.value).assignee
+    );
     const normalizedSelectedTags = new Set(selectedTags.map((tag) => tag.toLowerCase()));
     const tagSelectOptions = tagOptions.slice(0, 100).map((tag) => ({
-        text: { type: 'plain_text' as const, text: tag.label },
+        text: { type: 'plain_text' as const, text: truncateSlackOptionText(tag.label) },
         value: JSON.stringify({ reviewCheckoutId, tag: tag.value }),
     }));
     const currentTagOptions = tagSelectOptions.filter((option) => {

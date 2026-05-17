@@ -13,6 +13,8 @@ const reviewDetailController = new ReviewDetailController();
 router.route('/ui-settings/:pageKey')
     .get(verifySession, reviewController.getReviewUiSettings.bind(reviewController))
     .put(verifySession, reviewController.updateReviewUiSettings.bind(reviewController));
+router.route('/ui-settings/:pageKey/shared-views')
+    .put(verifySession, reviewController.updateReviewSharedViews.bind(reviewController));
 
 router.route('/mitigation-statuses')
     .get(verifySession, reviewController.getMitigationStatusOptions.bind(reviewController))
