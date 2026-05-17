@@ -2316,7 +2316,11 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         : normalizedChannelName;
     const headerText = `${emoji} *${listingName}* | ${guestText} | ${channelLabel} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
-    const allStatusSelectOptions = statusOptions.map((s) => ({
+    // Slack static_select requires at least 1 option — fall back to defaults if caller passed nothing
+    const effectiveStatusOptions = statusOptions.length
+        ? statusOptions
+        : ['New', 'In Progress', 'Completed'];
+    const allStatusSelectOptions = effectiveStatusOptions.map((s) => ({
         text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: JSON.stringify({ reviewCheckoutId, newStatus: s }),
     }));
