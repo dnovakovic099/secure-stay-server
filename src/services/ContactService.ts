@@ -59,6 +59,63 @@ export class ContactService {
         ].filter((value): value is string => Boolean(value && value.trim()))));
     }
 
+    private normalizeContactAuditValue(value: any): string | null {
+        if (value === undefined || value === null || value === '') return null;
+        if (value instanceof Date) return value.toISOString();
+        if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null && item !== '').join(', ') || null;
+        if (typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+    }
+
+    private getContactAuditChanges(existing: Contact, next: Partial<Contact>) {
+        const fields: Array<{ key: keyof Contact; label: string; nextValue?: any }> = [
+            { key: 'status', label: 'Status', nextValue: next.status },
+            { key: 'listingId', label: 'Property', nextValue: next.listingId },
+            { key: 'role', label: 'Role', nextValue: next.role },
+            { key: 'name', label: 'Vendor Name', nextValue: next.name },
+            { key: 'contact', label: 'Phone Number', nextValue: next.contact },
+            { key: 'email', label: 'Email', nextValue: next.email },
+            { key: 'source', label: 'Source', nextValue: next.source },
+            { key: 'notes', label: 'Notes', nextValue: next.notes },
+            { key: 'website_name', label: 'Website Name', nextValue: next.website_name },
+            { key: 'website_link', label: 'Website Link', nextValue: next.website_link },
+            { key: 'rate', label: 'Rate', nextValue: next.rate },
+            { key: 'managedBy', label: 'Managed By', nextValue: next.managedBy },
+            { key: 'workSchedule', label: 'Work Schedule', nextValue: next.workSchedule },
+            { key: 'paymentScheduleType', label: 'Payment Schedule', nextValue: next.paymentScheduleType },
+            { key: 'paymentMethod', label: 'Payment Method', nextValue: next.paymentMethod },
+            { key: 'isAutoPay', label: 'Auto Pay', nextValue: next.isAutoPay },
+            { key: 'costRating', label: 'Cost Rating', nextValue: next.costRating },
+            { key: 'trustLevel', label: 'Trust Level', nextValue: next.trustLevel },
+            { key: 'speed', label: 'Speed', nextValue: next.speed },
+            { key: 'paidBy', label: 'Paid By', nextValue: next.paidBy },
+            { key: 'payoutDetails', label: 'Payout Details', nextValue: next.payoutDetails },
+            { key: 'paymentIntervalMonth', label: 'Payment Interval Month', nextValue: next.paymentIntervalMonth },
+            { key: 'paymentDayOfWeek', label: 'Payment Day Of Week', nextValue: next.paymentDayOfWeek },
+            { key: 'paymentWeekOfMonth', label: 'Payment Week Of Month', nextValue: next.paymentWeekOfMonth },
+            { key: 'paymentDayOfMonth', label: 'Payment Day Of Month', nextValue: next.paymentDayOfMonth },
+        ];
+
+        return fields.flatMap(({ key, label, nextValue }) => {
+            if (nextValue === undefined) return [];
+            const previous = this.normalizeContactAuditValue((existing as any)[key]);
+            const nextNormalized = this.normalizeContactAuditValue(nextValue);
+            if (previous === nextNormalized) return [];
+            return [{ label, oldValue: previous, newValue: nextNormalized }];
+        });
+    }
+
+    private async createContactChangeUpdate(contact: Contact, changes: Array<{ label: string; oldValue: string | null; newValue: string | null }>, userId: string) {
+        if (!changes.length) return;
+        const update = this.contactUpdatesRepo.create({
+            contact,
+            updates: changes.map((change) => `${change.label}: ${change.oldValue || '—'} → ${change.newValue || '—'}`).join('\n'),
+            createdBy: userId,
+            updatedBy: userId,
+        });
+        await this.contactUpdatesRepo.save(update);
+    }
+
     async createContact(body: Partial<Contact>, userId: string) {
         // Validate active cleaner constraint
         if (body.role === 'Cleaner' && body.status === 'active') {
@@ -111,13 +168,19 @@ export class ContactService {
             }
         }
 
-        const updated = this.contactRepo.merge(existing, {
+        const nextValues = {
             ...body,
             updatedBy: userId,
-            paymentDayOfWeek: body.paymentDayOfWeek ? JSON.stringify(body.paymentDayOfWeek) : null
-        });
+        };
+        if (body.paymentDayOfWeek !== undefined) {
+            (nextValues as Partial<Contact>).paymentDayOfWeek = body.paymentDayOfWeek ? JSON.stringify(body.paymentDayOfWeek) : null;
+        }
+        const changes = this.getContactAuditChanges(existing, nextValues);
+        const updated = this.contactRepo.merge(existing, nextValues);
 
-        return await this.contactRepo.save(updated);
+        const saved = await this.contactRepo.save(updated);
+        await this.createContactChangeUpdate(saved, changes, userId);
+        return saved;
     }
 
     async deleteContact(id: number, userId: string) {
@@ -443,86 +506,116 @@ export class ContactService {
             }
 
             // Update all contacts with the provided data
-            const updatePromises = existingContacts.map(contact => {
+            const updatePromises = existingContacts.map(async contact => {
+                const originalContact = { ...contact } as Contact;
+                const auditPayload: Partial<Contact> = {};
                 // Only update fields that are provided in updateData
                 if (updateData.name !== undefined) {
+                    auditPayload.name = updateData.name;
                     contact.name = updateData.name;
                 }
                 if (updateData.contact !== undefined) {
+                    auditPayload.contact = updateData.contact;
                     contact.contact = updateData.contact;
                 }
                 if (updateData.email !== undefined) {
+                    auditPayload.email = updateData.email;
                     contact.email = updateData.email;
                 }
                 if (updateData.website_name !== undefined) {
+                    auditPayload.website_name = updateData.website_name;
                     contact.website_name = updateData.website_name;
                 }
                 if (updateData.website_link !== undefined) {
+                    auditPayload.website_link = updateData.website_link;
                     contact.website_link = updateData.website_link;
                 }
                 if (updateData.rate !== undefined) {
+                    auditPayload.rate = updateData.rate;
                     contact.rate = updateData.rate;
                 }
                 if (updateData.managedBy !== undefined) {
+                    auditPayload.managedBy = updateData.managedBy;
                     contact.managedBy = updateData.managedBy;
                 }
                 if (updateData.workSchedule !== undefined) {
+                    auditPayload.workSchedule = updateData.workSchedule;
                     contact.workSchedule = updateData.workSchedule;
                 }
                 if (updateData.paymentMethod !== undefined) {
+                    auditPayload.paymentMethod = updateData.paymentMethod;
                     contact.paymentMethod = updateData.paymentMethod;
                 }
                 if (updateData.isAutoPay !== undefined) {
+                    auditPayload.isAutoPay = updateData.isAutoPay;
                     contact.isAutoPay = updateData.isAutoPay;
                 }
                 if (updateData.source !== undefined) {
+                    auditPayload.source = updateData.source;
                     contact.source = updateData.source;
                 }
                 if (updateData.status !== undefined) {
+                    auditPayload.status = updateData.status;
                     contact.status = updateData.status;
                 }
                 if (updateData.role !== undefined) {
+                    auditPayload.role = updateData.role;
                     contact.role = updateData.role;
                 }
                 if (updateData.listingId !== undefined) {
+                    auditPayload.listingId = updateData.listingId;
                     contact.listingId = updateData.listingId;
                 }
                 if (updateData.notes !== undefined) {
+                    auditPayload.notes = updateData.notes;
                     contact.notes = updateData.notes;
                 }
                 if (updateData.paymentDayOfWeek !== undefined) {
-                    contact.paymentDayOfWeek = updateData.paymentDayOfWeek ? JSON.stringify(updateData.paymentDayOfWeek) : null;
+                    auditPayload.paymentDayOfWeek = updateData.paymentDayOfWeek ? JSON.stringify(updateData.paymentDayOfWeek) : null;
+                    contact.paymentDayOfWeek = auditPayload.paymentDayOfWeek;
                 }
                 if (updateData.paymentScheduleType !== undefined) {
+                    auditPayload.paymentScheduleType = updateData.paymentScheduleType;
                     contact.paymentScheduleType = updateData.paymentScheduleType;
                 }
                 if (updateData.paymentIntervalMonth !== undefined) {
+                    auditPayload.paymentIntervalMonth = updateData.paymentIntervalMonth;
                     contact.paymentIntervalMonth = updateData.paymentIntervalMonth;
                 }
                 if (updateData.paymentWeekOfMonth !== undefined) {
+                    auditPayload.paymentWeekOfMonth = updateData.paymentWeekOfMonth;
                     contact.paymentWeekOfMonth = updateData.paymentWeekOfMonth;
                 }
                 if (updateData.paymentDayOfMonth !== undefined) {
+                    auditPayload.paymentDayOfMonth = updateData.paymentDayOfMonth;
                     contact.paymentDayOfMonth = updateData.paymentDayOfMonth;
                 }
                 if (updateData.costRating !== undefined) {
+                    auditPayload.costRating = updateData.costRating;
                     contact.costRating = updateData.costRating;
                 }
                 if (updateData.trustLevel !== undefined) {
+                    auditPayload.trustLevel = updateData.trustLevel;
                     contact.trustLevel = updateData.trustLevel;
                 }
                 if (updateData.speed !== undefined) {
+                    auditPayload.speed = updateData.speed;
                     contact.speed = updateData.speed;
                 }
                 if(updateData.paidBy !== undefined) {
+                    auditPayload.paidBy = updateData.paidBy;
                     contact.paidBy = updateData.paidBy;
                 }
                 if (updateData.payoutDetails !== undefined) {
+                    auditPayload.payoutDetails = updateData.payoutDetails;
                     contact.payoutDetails = updateData.payoutDetails;
                 }
                 
+                const changes = this.getContactAuditChanges(originalContact, auditPayload);
                 contact.updatedBy = userId;
-                return this.contactRepo.save(contact);
+                const saved = await this.contactRepo.save(contact);
+                await this.createContactChangeUpdate(saved, changes, userId);
+                return saved;
             });
 
             const updatedContacts = await Promise.all(updatePromises);
