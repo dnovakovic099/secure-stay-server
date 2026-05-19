@@ -17,6 +17,7 @@ import logger from "../utils/logger.utils";
 import { ListingBedTypes } from "../entity/ListingBedTypes";
 import { ListingAmenities } from "../entity/ListingAmenities";
 import { Hostify } from "../client/Hostify";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 
 
 interface ListingUpdate {
@@ -721,6 +722,10 @@ export class ListingService {
   }
 
   async getListingsByServiceTypes(serviceTypes: string[], userId?: string, includeDeleted: boolean = false) {
+    const normalizedServiceTypes = Array.from(
+      new Set((serviceTypes || []).flatMap((type) => this.getServiceTypeTagAliases(type)))
+    );
+    const serviceInfoListingIds = await this.getListingIdsByPropertyServiceTypes(normalizedServiceTypes);
     const query = this.listingRepository
       .createQueryBuilder("listing")
       .select([
@@ -739,20 +744,67 @@ export class ListingService {
     if (serviceTypes && serviceTypes.length > 0) {
       query.andWhere(new Brackets(qb => {
         let clauseIndex = 0;
-        serviceTypes.forEach((type) => {
-          this.getServiceTypeTagAliases(type).forEach((normalizedType) => {
+        normalizedServiceTypes.forEach((normalizedType) => {
             const clause = this.getListingTagMatchClauses(normalizedType, `serviceType${clauseIndex}`);
             const params = this.getListingTagMatchParams(normalizedType, `serviceType${clauseIndex}`);
             if (clauseIndex === 0) qb.where(clause, params);
             else qb.orWhere(clause, params);
             clauseIndex += 1;
-          });
         });
+        if (serviceInfoListingIds.length > 0) {
+          const clause = "listing.id IN (:...serviceInfoListingIds)";
+          const params = { serviceInfoListingIds };
+          if (clauseIndex === 0) qb.where(clause, params);
+          else qb.orWhere(clause, params);
+          clauseIndex += 1;
+        }
         if (clauseIndex === 0) qb.where("1 = 0");
       }));
     }
 
     return await query.getMany();
+  }
+
+  private async getListingIdsByPropertyServiceTypes(normalizedServiceTypes: string[]) {
+    if (!normalizedServiceTypes.length) return [];
+
+    const rows = await appDatabase
+      .getRepository(ClientPropertyEntity)
+      .createQueryBuilder("property")
+      .leftJoin("property.serviceInfo", "serviceInfo", "serviceInfo.deletedAt IS NULL")
+      .select("property.listingId", "listingId")
+      .where("property.deletedAt IS NULL")
+      .andWhere("property.listingId IS NOT NULL")
+      .andWhere(new Brackets((qb) => {
+        normalizedServiceTypes.forEach((type, index) => {
+          const clause = this.getServiceInfoTypeMatchClause(`propertyServiceType${index}`);
+          const params = this.getServiceInfoTypeMatchParams(type, `propertyServiceType${index}`);
+          if (index === 0) qb.where(clause, params);
+          else qb.orWhere(clause, params);
+        });
+      }))
+      .getRawMany();
+
+    return Array.from(
+      new Set(rows.map((row) => Number(row.listingId)).filter(Boolean))
+    );
+  }
+
+  private getServiceInfoTypeMatchClause(paramPrefix: string) {
+    const normalizedServiceTypeSql = "REPLACE(REPLACE(LOWER(TRIM(COALESCE(serviceInfo.serviceType, ''))), ' ', ''), '-', '')";
+    return [
+      `LOWER(TRIM(COALESCE(serviceInfo.serviceType, ''))) = :${paramPrefix}Exact`,
+      `${normalizedServiceTypeSql} = :${paramPrefix}Compact`,
+      `${normalizedServiceTypeSql} LIKE :${paramPrefix}Prefix`,
+    ].join(" OR ");
+  }
+
+  private getServiceInfoTypeMatchParams(normalizedType: string, paramPrefix: string) {
+    return {
+      [`${paramPrefix}Exact`]: normalizedType,
+      [`${paramPrefix}Compact`]: normalizedType,
+      [`${paramPrefix}Prefix`]: `${normalizedType}%`,
+    };
   }
 
   private normalizedListingTagsSql() {

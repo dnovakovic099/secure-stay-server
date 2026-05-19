@@ -75,6 +75,7 @@ interface Filter {
     tab?: string | null | undefined;
     propertyType?: string[] | null | undefined;
     serviceType?: string[] | null | undefined;
+    tags?: string[] | null | undefined;
     integration?: string[] | null | undefined;
     fromDate?: string | undefined;
     toDate?: string | undefined;
@@ -659,6 +660,57 @@ export class ReviewService {
         );
     }
 
+    private normalizeReservationTagFilters(values?: string[] | string | null) {
+        const arr = this.normalizeTagFilterValues(values);
+        const seen = new Set<string>();
+        return arr
+            .map((value) => String(value || '').trim().replace(/\s+/g, ' '))
+            .filter((value) => {
+                if (!value) return false;
+                const key = value.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    private getReservationTagMatchClause(alias: string, paramPrefix: string) {
+        const rawTagsSql = `LOWER(COALESCE(${alias}.tags, ''))`;
+        const normalizedTagsSql = `CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${rawTagsSql}, ' ', ''), '\"', ''), '[', ''), ']', ''), ';', ','), ',,', ','), ',')`;
+        return `${normalizedTagsSql} LIKE :${paramPrefix}Token`;
+    }
+
+    private getReservationTagMatchParams(tag: string, paramPrefix: string) {
+        return {
+            [`${paramPrefix}Token`]: `%,${String(tag || '').trim().toLowerCase().replace(/\s+/g, '')},%`,
+        };
+    }
+
+    private applyReservationTagsFilter(query: any, alias: string, tags: string[], paramPrefix = 'reservationTag') {
+        if (!tags.length) return query;
+        query.andWhere(new Brackets((qb) => {
+            tags.forEach((tag, index) => {
+                const key = `${paramPrefix}${index}`;
+                const clause = this.getReservationTagMatchClause(alias, key);
+                const params = this.getReservationTagMatchParams(tag, key);
+                if (index === 0) qb.where(clause, params);
+                else qb.orWhere(clause, params);
+            });
+        }));
+        return query;
+    }
+
+    private async getReservationIdsByTags(tags: string[]) {
+        if (!tags.length) return [];
+        const query = this.reservationInfoRepo
+            .createQueryBuilder('reservation')
+            .select('reservation.id', 'id');
+
+        this.applyReservationTagsFilter(query, 'reservation', tags, 'reviewTag');
+        const rows = await query.getRawMany();
+        return rows.map((row: { id: string | number | null }) => Number(row.id)).filter(Boolean);
+    }
+
     private extractServiceTypeFromTags(tags: string | null | undefined): string | null {
         return ListingService.extractServiceTypeFromTags(tags);
     }
@@ -1020,6 +1072,7 @@ export class ReviewService {
         keyword,
         propertyType,
         serviceType,
+        tags,
         dateType,
         channel,
         integration,
@@ -1031,6 +1084,7 @@ export class ReviewService {
             let listingIds: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
+            const normalizedTags = this.normalizeReservationTagFilters(tags as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
                 : String(status || '').trim()
@@ -1123,6 +1177,11 @@ export class ReviewService {
                         condition.reservationId = Not(In(updateReservationIds));
                     }
                 }
+            }
+
+            if (normalizedTags.length > 0) {
+                const tagReservationIds = await this.getReservationIdsByTags(normalizedTags);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, tagReservationIds);
             }
 
             if (filteredReservationIds !== null) {
@@ -1958,6 +2017,7 @@ export class ReviewService {
             channel: rawChannel,
             todayDate, status: rawStatus, isActive, tab, keyword,
             propertyType, serviceType,
+            tags: rawTags,
             integration: rawIntegration,
             assignee: rawAssignee,
             fromDate, toDate, dateType,
@@ -2016,12 +2076,14 @@ export class ReviewService {
         const aiAnalysis = toArr(rawAiAnalysis);
         const actionItemsStatus = toArr(rawActionItemsStatus);
         const issuesStatus = toArr(rawIssuesStatus);
+        const tags = toArr(rawTags);
         const requestedReservationId = reservationId != null && reservationId !== ''
             ? Number(reservationId)
             : null;
 
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
+        const normalizedTags = this.normalizeReservationTagFilters(tags as string[] | null | undefined);
 
         //fetch reviewCheckoutList
         const query = this.reviewCheckoutRepo
@@ -2111,6 +2173,8 @@ export class ReviewService {
                 serviceTypeListingIds.length > 0 ? { stListingIds: serviceTypeListingIds } : {}
             );
         }
+
+        this.applyReservationTagsFilter(query, 'reservationInfo', normalizedTags, 'checkoutTag');
 
         // Guest name filter
         if (guestName) {

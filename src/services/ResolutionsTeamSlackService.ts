@@ -501,7 +501,8 @@ export class ResolutionsTeamSlackService {
             : "";
         const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
-        const msgPayload = buildResolutionsCheckoutMessage({
+        const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+        const buildMessagePayload = (includeTags: boolean) => buildResolutionsCheckoutMessage({
             emoji,
             listingName: reservation.listingName || "Unknown Property",
             guestName: reservation.guestName || "Guest",
@@ -518,31 +519,26 @@ export class ResolutionsTeamSlackService {
             reviewCheckoutId: reviewCheckout.id,
             statusOptions: statusData.options,
             assigneeOptions,
-            tagOptions,
-            selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
+            tagOptions: includeTags ? tagOptions : [],
+            selectedTags: includeTags ? selectedTags : [],
             isCancelled: isLateCancelled,
         });
 
+        let msgPayload = buildMessagePayload(true);
         let result = await sendSlackMessage(msgPayload);
         if (!result?.ok || !result?.ts) {
             // Log the exact blocks that Slack rejected so we can diagnose the problem
             logger.error(
                 `[ResolutionsTeam] Slack rejected message for reservation ${reservationId} (error: ${result?.error}). Blocks payload:\n${JSON.stringify(msgPayload.blocks, null, 2)}`
             );
-            // Fallback: try a plain-text message with no blocks so the thread can always be created
-            const fallbackPayload = {
-                channel: msgPayload.channel,
-                text: msgPayload.text,
-                username: "Resolutions Team",
-                icon_url: RESOLUTIONS_TEAM_ICON_URL,
-                unfurl_links: false,
-                unfurl_media: false,
-            };
-            result = await sendSlackMessage(fallbackPayload);
-            if (!result?.ok || !result?.ts) {
-                throw new Error(`Failed to create Slack thread for reservation ${reservationId}: ${result?.error || "unknown error"}`);
+            if (tagOptions.length > 0) {
+                logger.warn(`[ResolutionsTeam] Retrying reservation ${reservationId} Slack thread without Tags select while keeping Status, Assignee, and View controls.`);
+                msgPayload = buildMessagePayload(false);
+                result = await sendSlackMessage(msgPayload);
             }
-            logger.info(`[ResolutionsTeam] Created Slack thread via fallback plain-text message for reservation ${reservationId}`);
+        }
+        if (!result?.ok || !result?.ts) {
+            throw new Error(`Failed to create Slack thread for reservation ${reservationId}: ${result?.error || "unknown error"}`);
         }
 
         reviewCheckout.slackThreadTs = result.ts;
