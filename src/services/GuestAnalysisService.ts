@@ -207,9 +207,11 @@ export class GuestAnalysisService {
 
         const saved = await this.analysisRepo.save(analysis);
         logger.info(`[GuestAnalysisService] Analysis saved for reservation ${reservationId}`);
-        this.postAnalysisGeneratedToSlack(saved).catch((error) => {
-            logger.error(`[GuestAnalysisService] Failed to post AI analysis Slack update for reservation ${reservationId}:`, error);
-        });
+        if (!["auto", "auto-report"].includes(triggeredBy)) {
+            this.postAnalysisGeneratedToSlack(saved).catch((error) => {
+                logger.error(`[GuestAnalysisService] Failed to post AI analysis Slack update for reservation ${reservationId}:`, error);
+            });
+        }
         return saved;
     }
 
