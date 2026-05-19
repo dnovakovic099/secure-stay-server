@@ -702,10 +702,13 @@ export class ListingService {
         let clauseIndex = 0;
         propertyTypes.forEach((type) => {
           this.getPropertyTypeTagAliases(type).forEach((normalizedType) => {
-            const clause = `${this.normalizedListingTagsSql()} LIKE :type${clauseIndex}`;
-            const params = { [`type${clauseIndex}`]: `%,${normalizedType},%` };
-            if (clauseIndex === 0) qb.where(clause, params);
-            else qb.orWhere(clause, params);
+            const tagClause = `(${this.getListingTagMatchClauses(normalizedType, `type${clauseIndex}`)} OR LOWER(COALESCE(listing.propertyType, '')) = :propertyType${clauseIndex})`;
+            const params = {
+              ...this.getListingTagMatchParams(normalizedType, `type${clauseIndex}`),
+              [`propertyType${clauseIndex}`]: normalizedType,
+            };
+            if (clauseIndex === 0) qb.where(tagClause, params);
+            else qb.orWhere(tagClause, params);
             clauseIndex += 1;
           });
         });
@@ -738,8 +741,8 @@ export class ListingService {
         let clauseIndex = 0;
         serviceTypes.forEach((type) => {
           this.getServiceTypeTagAliases(type).forEach((normalizedType) => {
-            const clause = `${this.normalizedListingTagsSql()} LIKE :serviceType${clauseIndex}`;
-            const params = { [`serviceType${clauseIndex}`]: `%,${normalizedType},%` };
+            const clause = this.getListingTagMatchClauses(normalizedType, `serviceType${clauseIndex}`);
+            const params = this.getListingTagMatchParams(normalizedType, `serviceType${clauseIndex}`);
             if (clauseIndex === 0) qb.where(clause, params);
             else qb.orWhere(clause, params);
             clauseIndex += 1;
@@ -753,7 +756,28 @@ export class ListingService {
   }
 
   private normalizedListingTagsSql() {
-    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), ',,', ','), ',')";
+    return "CONCAT(',', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(COALESCE(listing.tags, '')), ' ', ''), '/', ','), ';', ','), '\"', ''), '''', ''), '[', ''), ']', ''), ',,', ','), ',')";
+  }
+
+  private getListingTagMatchClauses(normalizedType: string, paramPrefix: string) {
+    const normalizedTagsSql = this.normalizedListingTagsSql();
+    return [
+      `${normalizedTagsSql} LIKE :${paramPrefix}Token`,
+      `${normalizedTagsSql} LIKE :${paramPrefix}Name`,
+      `${normalizedTagsSql} LIKE :${paramPrefix}Tag`,
+      `${normalizedTagsSql} LIKE :${paramPrefix}Label`,
+      `${normalizedTagsSql} LIKE :${paramPrefix}Value`,
+    ].join(" OR ");
+  }
+
+  private getListingTagMatchParams(normalizedType: string, paramPrefix: string) {
+    return {
+      [`${paramPrefix}Token`]: `%,${normalizedType},%`,
+      [`${paramPrefix}Name`]: `%name:${normalizedType}%`,
+      [`${paramPrefix}Tag`]: `%tag:${normalizedType}%`,
+      [`${paramPrefix}Label`]: `%label:${normalizedType}%`,
+      [`${paramPrefix}Value`]: `%value:${normalizedType}%`,
+    };
   }
 
   static extractPropertyTypeFromTags(tags: string | null | undefined): string | null {
@@ -773,11 +797,36 @@ export class ListingService {
   }
 
   private static getNormalizedListingTagTokens(tags: string | null | undefined): string[] {
-    return String(tags || '')
+    const rawTags = String(tags || '').trim();
+    if (!rawTags) return [];
+
+    if ((rawTags.startsWith("[") || rawTags.startsWith("{")) && (rawTags.endsWith("]") || rawTags.endsWith("}"))) {
+      try {
+        const parsed = JSON.parse(rawTags);
+        const collectTokens = (value: any): string[] => {
+          if (!value) return [];
+          if (Array.isArray(value)) return value.flatMap(collectTokens);
+          if (typeof value === "object") {
+            return collectTokens(value.name || value.tag || value.label || value.value || value.id || value.tagId);
+          }
+          return String(value)
+            .toLowerCase()
+            .replace(/[;/]/g, ",")
+            .split(",")
+            .map((tag) => tag.trim().replace(/^["'[\]{}]+|["'[\]{}]+$/g, ""))
+            .filter(Boolean);
+        };
+        return collectTokens(parsed);
+      } catch {
+        // Fall through to legacy string splitting.
+      }
+    }
+
+    return rawTags
       .toLowerCase()
       .replace(/[;/]/g, ',')
       .split(',')
-      .map((tag) => tag.trim().replace(/^["'[\]{}]+|["'[\]{}]+$/g, ''))
+      .map((tag) => tag.trim().replace(/^["'[\]{}]+|["'[\]{}]+$/g, '').replace(/^(name|tag|label|value|id|tagId)\s*:\s*/i, ''))
       .filter(Boolean);
   }
 

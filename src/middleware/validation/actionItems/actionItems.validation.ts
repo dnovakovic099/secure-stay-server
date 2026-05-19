@@ -110,7 +110,7 @@ export const validateUpdateLatestUpdate = (request: Request, response: Response,
 export const validateActionItemMigrationToIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New").required(),
+        status: Joi.string().valid("In Progress", "Completed", "Need Help", "New", "Scheduled").required(),
         category: Joi.string().required().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA")
     });
 
@@ -194,5 +194,4 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
     }
     next();
 };
-
 

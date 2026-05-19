@@ -5,6 +5,25 @@ import fs from "fs";
 
 const UPLOADS_PATH = path.join(process.cwd(), "public/issues");
 
+const parseIssueFileNames = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((fileName): fileName is string => typeof fileName === "string" && fileName.length > 0);
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((fileName): fileName is string => typeof fileName === "string" && fileName.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 export class IssuesController {
   async getIssues(request: Request, response: Response) {
     const issuesService = new IssuesService();
@@ -112,7 +131,7 @@ export class IssuesController {
 
       // Get current issue
       const currentIssue = await issuesService.getIssueById(id);
-      const currentFiles = JSON.parse(currentIssue.fileNames || "[]");
+      const currentFiles = parseIssueFileNames(currentIssue.fileNames);
 
       // Process deleted files
       const deletedFiles = JSON.parse(request.body.deletedFiles || "[]");

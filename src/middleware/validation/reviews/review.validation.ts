@@ -294,7 +294,7 @@ export const validateGetBadReview = (request: Request, response: Response, next:
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),
         issues: Joi.array().items(
-            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+            Joi.string().required().valid("In Progress", "Completed", "Need Help", "New", "Scheduled")
         ).optional(),
         channel: Joi.array().items(Joi.string()).optional(),
         keyword: Joi.string().optional(),

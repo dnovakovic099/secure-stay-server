@@ -7,7 +7,7 @@ import {
   In,
   MoreThan,
   Like,
-  LessThanOrEqual,
+  Raw,
 } from "typeorm";
 import * as XLSX from "xlsx";
 import { sendUnresolvedIssuesEmail } from "./IssuesEmailService";
@@ -46,6 +46,22 @@ export class IssuesService {
   private openai: OpenAI | null = process.env.OPENAI_API_KEY
     ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     : null;
+
+  private buildIssueCalendarDateFilter(fromDate?: string, toDate?: string) {
+    if (fromDate && toDate) {
+      return Raw(
+        (alias) => `DATE(${alias}) BETWEEN :fromDate AND :toDate`,
+        { fromDate, toDate }
+      );
+    }
+    if (fromDate) {
+      return Raw((alias) => `DATE(${alias}) >= :fromDate`, { fromDate });
+    }
+    if (toDate) {
+      return Raw((alias) => `DATE(${alias}) <= :toDate`, { toDate });
+    }
+    return undefined;
+  }
 
   private parseSlackThreadLink(slackLink: string): { channel: string; threadTs: string; messageTs: string; url: string } {
     const trimmedLink = String(slackLink || "").trim();
@@ -864,7 +880,7 @@ export class IssuesService {
       listing_name: listing_name,
       fileNames: fileInfo
         ? JSON.stringify(fileInfo.map((file) => file.fileName))
-        : "",
+        : "[]",
     });
 
     const savedIssue = await this.issueRepo.save(newIssue);
@@ -1502,17 +1518,8 @@ export class IssuesService {
       return { issues: [], total: 0 };
     }
 
-    let issueStatus = status;
-    let currentDate = format(new Date(), "yyyy-MM-dd");
-    let isOverdue = false;
-    if (
-      issueStatus &&
-      issueStatus.length == 1 &&
-      issueStatus[0] === "Overdue"
-    ) {
-      issueStatus = ["New", "In Progress", "Need Help", "Scheduled", "Overdue"];
-      isOverdue = true;
-    }
+    const issueStatus = status;
+    const currentDate = format(new Date(), "yyyy-MM-dd");
 
     // dateType=created/updated/completed/due filters on the Issue table directly.
     // dateType=check_in/check_out and stayStatus require resolving matching
@@ -1565,12 +1572,15 @@ export class IssuesService {
     const effectiveReservationIds = resolvedReservationIds ?? reservationId;
 
     let dateColumn: "created_at" | "updated_at" | "completed_at" | "due_date" | null = null;
-    if (fromDate && toDate) {
+    if (fromDate || toDate) {
       if (dateType === "updated") dateColumn = "updated_at";
       else if (dateType === "completed") dateColumn = "completed_at";
       else if (dateType === "due") dateColumn = "due_date";
       else if (!dateType || dateType === "created") dateColumn = "created_at";
     }
+    const dateColumnFilter = dateColumn
+      ? this.buildIssueCalendarDateFilter(fromDate, toDate)
+      : undefined;
 
     const normalizedAssignee = Array.isArray(assignee)
       ? assignee.filter(Boolean)
@@ -1668,7 +1678,7 @@ export class IssuesService {
           listingIds.length > 0 && { listing_id: In(listingIds) }),
         ...(issueStatus &&
           issueStatus.length > 0 && { status: In(issueStatus) }),
-        ...(dateColumn && fromDate && toDate && { [dateColumn]: Between(fromDate, toDate) }),
+        ...(dateColumn && dateColumnFilter && { [dateColumn]: dateColumnFilter }),
         ...(guestName && { guest_name: guestName }),
         ...(effectiveIssueIds &&
           effectiveIssueIds.length > 0 && { id: In(effectiveIssueIds) }),
@@ -1680,14 +1690,12 @@ export class IssuesService {
         ...(activityUser && { [activityColumn]: activityUser }),
         ...(issueResolution && { ai_resolution_status: issueResolution }),
         ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
-        ...(isOverdue && { nextUpdateDate: LessThanOrEqual(currentDate) }),
       },
       relations: ["issueUpdates"],
       take: limit,
       skip: (Number(page) - 1) * Number(limit),
       order: {
-        ...(!isOverdue && { id: "DESC" }),
-        ...(isOverdue && { urgency: "DESC" }),
+        id: "DESC",
       },
     });
 

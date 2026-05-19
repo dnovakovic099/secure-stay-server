@@ -29,7 +29,7 @@ export const validateGetReservationList = (request: Request, response: Response,
             Joi.string().valid('incomplete', 'completed', 'expired', 'in progress').required()
         ).optional(),
         issues: Joi.array().items(
-            Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New")
+            Joi.string().required().valid("In Progress", "Completed", "Need Help", "New", "Scheduled")
         ).optional(),
         channel: Joi.array().items(Joi.string()).optional(),
         payment: Joi.array().items(

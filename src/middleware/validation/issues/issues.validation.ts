@@ -9,10 +9,12 @@ const dueDateSchema = Joi.string()
         'string.pattern.base': 'Due Date must be in the format "yyyy-mm-dd" or "yyyy-mm-dd hh:mm:ss"',
     });
 
+const issueStatusSchema = Joi.string().valid("In Progress", "Completed", "Need Help", "New", "Scheduled");
+
 export const validateCreateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled")
+            .valid("In Progress", "Completed", "Need Help", "New", "Scheduled")
             .default("In Progress")
             .required(),
         listing_id: Joi.number().required(),
@@ -78,7 +80,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
 export const validateUpdateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         status: Joi.string()
-            .valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
+            .valid("In Progress", "Completed", "Need Help", "New", "Scheduled"),
         listing_id: Joi.number().empty(''),
         listing_name: Joi.string().allow(null, ''),
         reservation_id: Joi.string().allow(null, ''),
@@ -207,7 +209,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         toDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).optional(),
-        status: Joi.array().items(Joi.string().valid("New", "In Progress", "Overdue", "Completed", "Need Help", "Scheduled")).min(1).optional(),
+        status: Joi.array().items(issueStatusSchema).min(1).optional(),
         guestName: Joi.string().optional(),
         page: Joi.number().required(),
         limit: Joi.number().required(),
@@ -242,7 +244,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
     const schema = Joi.object({
         ids: Joi.array().items(Joi.number().required()).min(1).required(),
         updateData: Joi.object({
-            status: Joi.string().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled").optional(),
+            status: issueStatusSchema.optional(),
             category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").optional(),
             urgency: Joi.number().allow(null).optional(),
             assignee: Joi.string().allow('', null).optional(),
@@ -317,7 +319,7 @@ export const validateUpdateMistake = (request: Request, response: Response, next
 export const validateUpdateStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid("In Progress", "Overdue", "Completed", "Need Help", "New", "Scheduled"),
+        status: issueStatusSchema.required(),
     });
     const { error } = schema.validate(request.body);
     if (error) {

@@ -10,8 +10,6 @@ function getStatusColor(status: string): string {
   switch (status) {
     case "In Progress":
       return "#fff3cd";
-    case "Overdue":
-      return "#ffe1e1";
     case "Need Help":
       return "#ffe1e1";
     default:
