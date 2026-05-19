@@ -9,7 +9,7 @@ import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import logger from "../utils/logger.utils";
-import { Between, In, Like, MoreThanOrEqual, LessThanOrEqual, Raw } from "typeorm";
+import { Between, In, Like, MoreThan, MoreThanOrEqual, LessThan, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
 import { Hostify } from "../client/Hostify";
 import { format } from "date-fns";
@@ -66,7 +66,9 @@ interface TurnoverNotification {
     contactId?: number;
     contactName?: string;
     contactPhone?: string;
+    contactRole?: string;
     messagePreview?: string;
+    sentMessage?: string;
     turnoverNotes?: string;
     
     status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused';
@@ -478,19 +480,22 @@ export class TurnoverService {
 
     private async getReservationCleaningNotes(
         reservation: ReservationInfoEntity,
-        cache: Map<number, string | undefined>
+        cache: Map<number, string | undefined>,
+        forceLive = false
     ): Promise<string | undefined> {
         if (cache.has(reservation.id)) return cache.get(reservation.id);
 
         let notes = reservation.hostNote || undefined;
-        if (process.env.HOSTIFY_API_KEY) {
+        const hostifyApiKey = process.env.HOSTIFY_API_KEY || (forceLive ? HOSTIFY_API_KEY : undefined);
+        if (hostifyApiKey) {
             try {
                 const hostifyReservation = await Promise.race([
-                    this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY, reservation.id),
+                    this.hostifyClient.getReservationInfo(hostifyApiKey, reservation.id),
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
                 ]);
                 const liveReservation = (hostifyReservation as any)?.reservation || {};
                 notes = this.extractHostifyNoteValue(liveReservation, [
+                    "cleaning_notes",
                     "cleaning_note",
                     "cleaningNote",
                     "housekeeping_note",
@@ -522,6 +527,149 @@ export class TurnoverService {
                 await this.getReservationCleaningNotes(reservation, cache);
             }
         }));
+    }
+
+    async refreshReservationCleaningNotes(reservationId: number): Promise<{ reservationId: number; cleaningNotes?: string }> {
+        const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
+        if (!reservation) {
+            throw new Error("Reservation not found");
+        }
+
+        const cache = new Map<number, string | undefined>();
+        const cleaningNotes = await this.getReservationCleaningNotes(reservation, cache, true);
+        return { reservationId, cleaningNotes };
+    }
+
+    async getNextCheckInNotification(listingId: number, afterDate: string): Promise<TurnoverNotification | null> {
+        const reservation = await this.reservationRepo.findOne({
+            where: {
+                listingMapId: listingId,
+                arrivalDate: MoreThan(afterDate as any),
+                status: In(TURNOVER_RESERVATION_STATUSES)
+            },
+            order: { arrivalDate: 'ASC' as any }
+        });
+
+        if (!reservation) return null;
+
+        const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+        if (!listing) return null;
+
+        const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
+        const settings = await this.settingsRepo.findOne({ where: { listingId: listing.id } });
+        const preStayAudit = await this.preStayRepo.findOne({ where: { reservationId: reservation.id } });
+        const postStayAudit = await this.postStayRepo.findOne({ where: { reservationId: reservation.id } });
+        const contact = await this.resolvePreStayContact(reservation, preStayAudit, settings, globalSettings);
+        const listingTimezone = this.resolveTimeZone(listing);
+        const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
+        const upsells = await this.getApprovedUpsellsForReservation(reservation);
+        const cleaningNotes = await this.getReservationCleaningNotes(reservation, new Map<number, string | undefined>());
+
+        return {
+            id: reservation.id,
+            reservationId: reservation.id,
+            listingId: listing.id,
+            listingName: listing.name,
+            listingNickname: listing.internalListingName || listing.name,
+            address: listing.address || '',
+            propertyType: this.getPropertyTypeLabel(listing),
+            serviceType: this.getServiceTypeLabel(listing),
+            listingTimezone: listingTimezone || 'America/Chicago',
+            listingTimezoneLabel,
+            listingTags: listing.tags || '',
+            guestName: reservation.guestName || 'Unknown Guest',
+            checkInDate: this.formatDateOnly(reservation.arrivalDate),
+            checkOutDate: this.formatDateOnly(reservation.departureDate),
+            checkInTime: reservation.checkInTime ?? (listing.checkInTimeStart ?? 15),
+            checkOutTime: reservation.checkOutTime ?? (listing.checkOutTime ?? 11),
+            reservationCode: reservation.reservationId || '',
+            notificationType: 'pre-stay',
+            contactId: contact?.id,
+            contactName: contact?.name,
+            contactPhone: contact?.contact,
+            contactRole: contact?.role || undefined,
+            messagePreview: this.buildCheckInMessage(reservation, listing, upsells),
+            sentMessage: preStayAudit?.notificationMessage || undefined,
+            turnoverNotes: cleaningNotes,
+            status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
+            sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
+            error: undefined,
+            isSameDayTurnover: false,
+            preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
+            postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
+            ownerName: settings?.ownerName,
+            ownerEmail: settings?.ownerEmail,
+            ownerPhone: settings?.ownerPhone,
+            upsells: upsells.map((u) => ({ id: u.id, type: u.type, approved: true })),
+            createdAt: reservation.reservationDate || '',
+            updatedAt: preStayAudit?.updatedAt?.toISOString() || ''
+        };
+    }
+
+    async getLastCheckoutNotification(listingId: number, beforeDate: string): Promise<TurnoverNotification | null> {
+        const reservation = await this.reservationRepo.findOne({
+            where: {
+                listingMapId: listingId,
+                departureDate: LessThan(beforeDate as any),
+                status: In(TURNOVER_RESERVATION_STATUSES)
+            },
+            order: { departureDate: 'DESC' as any }
+        });
+
+        if (!reservation) return null;
+
+        const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+        if (!listing) return null;
+
+        const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
+        const settings = await this.settingsRepo.findOne({ where: { listingId: listing.id } });
+        const postStayAudit = await this.postStayRepo.findOne({ where: { reservationId: reservation.id } });
+        const preStayAudit = await this.preStayRepo.findOne({ where: { reservationId: reservation.id } });
+        const contact = await this.resolvePostStayContact(reservation, postStayAudit, settings, globalSettings);
+        const listingTimezone = this.resolveTimeZone(listing);
+        const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
+        const upsells = await this.getApprovedUpsellsForReservation(reservation);
+        const cleaningNotes = await this.getReservationCleaningNotes(reservation, new Map<number, string | undefined>());
+
+        return {
+            id: reservation.id + 1000000,
+            reservationId: reservation.id,
+            listingId: listing.id,
+            listingName: listing.name,
+            listingNickname: listing.internalListingName || listing.name,
+            address: listing.address || '',
+            propertyType: this.getPropertyTypeLabel(listing),
+            serviceType: this.getServiceTypeLabel(listing),
+            listingTimezone: listingTimezone || 'America/Chicago',
+            listingTimezoneLabel,
+            listingTags: listing.tags || '',
+            guestName: reservation.guestName || 'Unknown Guest',
+            checkInDate: this.formatDateOnly(reservation.arrivalDate),
+            checkOutDate: this.formatDateOnly(reservation.departureDate),
+            checkInTime: reservation.checkInTime ?? (listing.checkInTimeStart ?? 15),
+            checkOutTime: reservation.checkOutTime ?? (listing.checkOutTime ?? 11),
+            reservationCode: reservation.reservationId || '',
+            notificationType: 'post-stay',
+            contactId: contact?.id,
+            contactName: contact?.name,
+            contactPhone: contact?.contact,
+            contactRole: contact?.role || undefined,
+            messagePreview: this.buildCheckoutMessage(reservation, listing, upsells),
+            sentMessage: postStayAudit?.cleanerNotificationMessage || undefined,
+            turnoverNotes: cleaningNotes,
+            status: postStayAudit?.cleanerNotificationStatus as any || 'pending',
+            sentAt: postStayAudit?.cleanerNotificationSentAt?.toISOString(),
+            error: postStayAudit?.cleanerNotificationError || undefined,
+            isSameDayTurnover: false,
+            preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
+            postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
+            ownerName: settings?.ownerName,
+            ownerEmail: settings?.ownerEmail,
+            ownerPhone: settings?.ownerPhone,
+            upsells: upsells.map((u) => ({ id: u.id, type: u.type, approved: true })),
+            createdAt: reservation.reservationDate || '',
+            updatedAt: postStayAudit?.updatedAt?.toISOString() || ''
+        };
     }
 
     private async ensureCurrentBackendDefaults(settings: TurnoverSettings | null, listingId: number) {
@@ -636,29 +784,41 @@ export class TurnoverService {
         lines.push('');
         lines.push(`Reservation #${reservation.id}`);
         lines.push(`Guest: ${reservation.guestName || 'Unknown Guest'}`);
-        lines.push(`Check-In Date: ${reservation.arrivalDate ? new Date(reservation.arrivalDate).toLocaleDateString() : '-'}`);
+        const checkInDate = reservation.arrivalDate
+            ? new Date(reservation.arrivalDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : 'N/A';
+        lines.push(`Check-In Date: ${checkInDate}`);
+        lines.push('');
         if (upsells.length > 0) {
-            lines.push('');
-            lines.push('Upsells:');
+            lines.push('Approved Upsells:');
             upsells.forEach((upsell) => lines.push(`- ${upsell.type}`));
+        } else {
+            lines.push('No approved upsells for this reservation.');
         }
         return lines.join('\n');
     }
 
     private buildCheckoutMessage(reservation: ReservationInfoEntity, listing: Listing, upsells: UpsellOrder[]): string {
         const lines: string[] = [];
-        lines.push(`${listing.internalListingName || listing.name} Check-Out Notification`);
+        lines.push(`${listing.internalListingName || listing.name} Checkout Notification`);
         lines.push('');
         lines.push(`Address: ${listing.address || ''}`);
         lines.push('');
         lines.push(`Reservation #${reservation.id}`);
         lines.push(`Guest: ${reservation.guestName || 'Unknown Guest'}`);
-        lines.push(`Check-Out Date: ${reservation.departureDate ? new Date(reservation.departureDate).toLocaleDateString() : '-'}`);
+        const checkoutDate = reservation.departureDate
+            ? new Date(reservation.departureDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : 'N/A';
+        lines.push(`Checkout Date: ${checkoutDate}`);
+        lines.push('');
         if (upsells.length > 0) {
-            lines.push('');
-            lines.push('Upsells:');
+            lines.push('Approved Upsells:');
             upsells.forEach((upsell) => lines.push(`- ${upsell.type}`));
+        } else {
+            lines.push('No approved upsells for this reservation.');
         }
+        lines.push('');
+        lines.push('Please ensure property is cleaned and restocked.');
         return lines.join('\n');
     }
 
@@ -784,7 +944,9 @@ export class TurnoverService {
                         contactId: contact?.id,
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
+                        contactRole: contact?.role || undefined,
                         messagePreview,
+                        sentMessage: preStayAudit?.notificationMessage || undefined,
                         turnoverNotes: cleaningNotes,
                         
                         status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
@@ -886,7 +1048,9 @@ export class TurnoverService {
                         contactId: contact?.id,
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
+                        contactRole: contact?.role || undefined,
                         messagePreview,
+                        sentMessage: postStayAudit?.cleanerNotificationMessage || undefined,
                         turnoverNotes: cleaningNotes,
                         
                         status: postStayAudit?.cleanerNotificationStatus as any || 'pending',

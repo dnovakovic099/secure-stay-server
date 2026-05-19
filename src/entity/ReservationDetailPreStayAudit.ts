@@ -149,4 +149,7 @@ export class ReservationDetailPreStayAudit {
 
     @Column({ nullable: true, type: 'text' })
     notificationError: string;
+
+    @Column({ nullable: true, type: 'text' })
+    notificationMessage: string;
 }

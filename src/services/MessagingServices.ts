@@ -934,6 +934,7 @@ export class MessagingService {
         ]) ?? reservation.hostNote ?? null;
 
         const cleaningNote = this.extractHostifyNoteValue(liveReservation, [
+            "cleaning_notes",
             "cleaning_note",
             "cleaningNote",
             "housekeeping_note",

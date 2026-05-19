@@ -29,6 +29,7 @@ import { UsersService } from "./UsersService";
 import { supabaseAdmin } from "../utils/supabase";
 import { In } from "typeorm";
 import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
+import { getEasternDateString } from "../utils/easternTime.util";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -595,7 +596,7 @@ export class ResolutionsTeamSlackService {
     // ─── Daily check-in message posting ───────────────────────────────────────
 
     async postDailyCheckoutMessages(): Promise<void> {
-        const today = format(new Date(), "yyyy-MM-dd");
+        const today = getEasternDateString();
         logger.info(`[ResolutionsTeam] Posting daily check-in messages for ${today}`);
 
         const reviewService = new ReviewService();

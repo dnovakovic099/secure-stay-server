@@ -1,4 +1,4 @@
-import { Between, In, LessThanOrEqual, Like, MoreThanOrEqual } from "typeorm";
+import { Between, In, LessThanOrEqual, Like, MoreThanOrEqual, Raw } from "typeorm";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
@@ -31,6 +31,7 @@ import { ReservationHistoryService } from "./ReservationHistoryService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
+import { getEasternDateString } from "../utils/easternTime.util";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -1942,10 +1943,10 @@ export class ReservationInfoService {
   }
 
   async getCheckoutReservations() {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = getEasternDateString();
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
-        departureDate: Between(startOfDay(today), endOfDay(today)),
+        departureDate: Raw((alias) => `DATE(${alias}) = :today`, { today }),
         status: In(this.validStatus),
         // channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
       },
@@ -1957,10 +1958,10 @@ export class ReservationInfoService {
   }
 
   async getCheckinReservations() {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = getEasternDateString();
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
-        arrivalDate: Between(startOfDay(today), endOfDay(today)),
+        arrivalDate: Raw((alias) => `DATE(${alias}) = :today`, { today }),
         status: In(this.validStatus),
       },
       order: { arrivalDate: "ASC" },

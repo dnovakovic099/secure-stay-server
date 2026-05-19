@@ -252,6 +252,59 @@ export class TurnoverController {
     }
 
     /**
+     * Refresh cleaning notes from Hostify for one reservation
+     */
+    async refreshCleaningNotes(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const reservationId = parseInt(req.params.reservationId);
+            const result = await this.turnoverService.refreshReservationCleaningNotes(reservationId);
+
+            return res.status(200).json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Get the next check-in after a turnover date for a listing
+     */
+    async getNextCheckIn(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingId = parseInt(req.params.listingId);
+            const afterDate = req.query.afterDate as string;
+            const result = await this.turnoverService.getNextCheckInNotification(listingId, afterDate);
+
+            return res.status(200).json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Get the last checkout before a turnover date for a listing
+     */
+    async getLastCheckout(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const listingId = parseInt(req.params.listingId);
+            const beforeDate = req.query.beforeDate as string;
+            const result = await this.turnoverService.getLastCheckoutNotification(listingId, beforeDate);
+
+            return res.status(200).json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Bulk update settings
      */
     async bulkUpdateSettings(req: CustomRequest, res: Response, next: NextFunction) {

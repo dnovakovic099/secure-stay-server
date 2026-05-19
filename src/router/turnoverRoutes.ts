@@ -11,6 +11,9 @@ router.route('/notifications/summary').get(verifySession, turnoverController.get
 router.route('/notifications/:reservationId/:type/status').post(verifySession, turnoverController.updateNotificationStatus.bind(turnoverController));
 router.route('/notifications/:reservationId/:type/recipient').put(verifySession, turnoverController.updateNotificationRecipient.bind(turnoverController));
 router.route('/notifications/:reservationId/:type/retry').post(verifySession, turnoverController.retryNotification.bind(turnoverController));
+router.route('/notifications/:reservationId/cleaning-notes/refresh').post(verifySession, turnoverController.refreshCleaningNotes.bind(turnoverController));
+router.route('/notifications/:listingId/next-check-in').get(verifySession, turnoverController.getNextCheckIn.bind(turnoverController));
+router.route('/notifications/:listingId/last-checkout').get(verifySession, turnoverController.getLastCheckout.bind(turnoverController));
 
 // Settings
 router.route('/settings').get(verifySession, turnoverController.getSettings.bind(turnoverController));

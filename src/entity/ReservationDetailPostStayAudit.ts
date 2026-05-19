@@ -211,4 +211,7 @@ export class ReservationDetailPostStayAudit {
 
     @Column({ type: "text", nullable: true })
     cleanerNotificationError: string;
-} 
+
+    @Column({ type: "text", nullable: true })
+    cleanerNotificationMessage: string;
+}
