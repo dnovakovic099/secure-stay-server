@@ -130,7 +130,7 @@ export class CleanerNotificationService {
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
-            await this.updateNotificationStatus(reservationId, 'sent');
+            await this.updateNotificationStatus(reservationId, 'sent', undefined, message);
 
             logger.info(`[CleanerNotification] SMS sent successfully to ${cleaner.name} for reservation ${reservationId}`);
 
@@ -289,7 +289,8 @@ export class CleanerNotificationService {
     private async updateNotificationStatus(
         reservationId: number,
         status: 'pending' | 'sent' | 'failed' | 'skipped',
-        error?: string
+        error?: string,
+        message?: string
     ): Promise<void> {
         try {
             const postStay = await this.postStayRepo.findOne({
@@ -306,6 +307,9 @@ export class CleanerNotificationService {
 
             if (status === 'sent') {
                 postStay.cleanerNotificationSentAt = new Date();
+            }
+            if (message !== undefined) {
+                postStay.cleanerNotificationMessage = message;
             }
 
             await this.postStayRepo.save(postStay);

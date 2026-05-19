@@ -1149,6 +1149,9 @@ export class ReviewService {
                     visible: 'Visible',
                     'no review': 'No Review',
                     'no-review': 'No Review',
+                    'remove/keep?': 'Remove/Keep?',
+                    'remove keep': 'Remove/Keep?',
+                    'remove-or-keep': 'Remove/Keep?',
                     keep: 'Keep',
                     'to be removed': 'To be Removed',
                     'to-be-removed': 'To be Removed',
@@ -1448,7 +1451,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Keep', 'To be Removed', 'Removed', 'Archived'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }

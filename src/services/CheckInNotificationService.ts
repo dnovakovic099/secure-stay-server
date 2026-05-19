@@ -102,7 +102,7 @@ export class CheckInNotificationService {
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
-            await this.updateStatus(reservationId, 'sent', undefined, contact.id);
+            await this.updateStatus(reservationId, 'sent', undefined, contact.id, message);
 
             logger.info(`[CheckInNotification] SMS sent successfully to ${contact.name} for reservation ${reservationId}`);
 
@@ -251,7 +251,8 @@ export class CheckInNotificationService {
         reservationId: number,
         status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused',
         error?: string,
-        contactId?: number
+        contactId?: number,
+        message?: string
     ): Promise<void> {
         let audit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
         
@@ -274,6 +275,9 @@ export class CheckInNotificationService {
         }
         if (status === 'sent') {
             audit.notificationSentAt = new Date();
+        }
+        if (message !== undefined) {
+            audit.notificationMessage = message;
         }
         if (error !== undefined) {
             audit.notificationError = error;

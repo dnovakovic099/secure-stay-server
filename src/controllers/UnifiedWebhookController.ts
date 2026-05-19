@@ -24,6 +24,33 @@ import { ReviewCheckout } from "../entity/ReviewCheckout";
 
 export class UnifiedWebhookController {
 
+    private parseReviewCheckoutActionValue(value: any) {
+        const rawValue = String(value || "").trim();
+        if (!rawValue) return {};
+
+        if (rawValue.startsWith("{")) {
+            try {
+                return JSON.parse(rawValue);
+            } catch {
+                return {};
+            }
+        }
+
+        const separatorIndex = rawValue.indexOf(":");
+        const prefix = separatorIndex >= 0 ? rawValue.slice(0, separatorIndex) : "";
+        const actionValue = separatorIndex >= 0 ? rawValue.slice(separatorIndex + 1) : rawValue;
+
+        if (prefix === "status") return { newStatus: actionValue };
+        if (prefix === "assignee") return { assignee: actionValue };
+        if (prefix === "tag") return { tag: actionValue };
+        return {};
+    }
+
+    private getReviewCheckoutIdFromAction(action: any, parsedValue?: any) {
+        const reviewCheckoutIdFromBlock = String(action.block_id || "").match(/review_checkout_actions:(\d+)/)?.[1];
+        return parsedValue?.reviewCheckoutId || reviewCheckoutIdFromBlock || null;
+    }
+
     constructor() {
         this.handleSlackInteractivity = this.handleSlackInteractivity.bind(this);
         this.handleSlackEventsWebhook = this.handleSlackEventsWebhook.bind(this);
@@ -343,8 +370,9 @@ export class UnifiedWebhookController {
                 }
                 case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_STATUS}`: {
                     try {
-                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
-                        const { reviewCheckoutId, newStatus } = requestObj;
+                        const requestObj = this.parseReviewCheckoutActionValue(action.selected_option?.value || action.value);
+                        const reviewCheckoutId = this.getReviewCheckoutIdFromAction(action, requestObj);
+                        const { newStatus } = requestObj;
                         const reviewService = new ReviewService();
                         await reviewService.updateReviewCheckout(Number(reviewCheckoutId), { status: newStatus }, user);
                         logger.info(`${user} updated review checkout ${reviewCheckoutId} status to ${newStatus}`);
@@ -355,8 +383,9 @@ export class UnifiedWebhookController {
                 }
                 case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_ASSIGNEE}`: {
                     try {
-                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
-                        const { reviewCheckoutId, assignee } = requestObj;
+                        const requestObj = this.parseReviewCheckoutActionValue(action.selected_option?.value || action.value);
+                        const reviewCheckoutId = this.getReviewCheckoutIdFromAction(action, requestObj);
+                        const { assignee } = requestObj;
                         const reviewService = new ReviewService();
                         await reviewService.updateReviewCheckout(Number(reviewCheckoutId), { assignee: assignee || null }, user);
                         logger.info(`${user} updated review checkout ${reviewCheckoutId} assignee to ${assignee || 'Unassigned'}`);
@@ -369,12 +398,12 @@ export class UnifiedWebhookController {
                     try {
                         const selectedOptions = action.selected_options || [];
                         const selectedTags = selectedOptions
-                            .map((option: any) => JSON.parse(option.value || "{}")?.tag)
+                            .map((option: any) => this.parseReviewCheckoutActionValue(option.value)?.tag)
                             .filter(Boolean);
-                        const reviewCheckoutIdFromBlock = String(action.block_id || "").match(/review_checkout_actions:(\d+)/)?.[1];
-                        const reviewCheckoutId = selectedOptions.length
-                            ? JSON.parse(selectedOptions[0].value || "{}")?.reviewCheckoutId
-                            : reviewCheckoutIdFromBlock || JSON.parse(action.value || "{}")?.reviewCheckoutId;
+                        const firstSelectedValue = selectedOptions.length
+                            ? this.parseReviewCheckoutActionValue(selectedOptions[0].value)
+                            : this.parseReviewCheckoutActionValue(action.value);
+                        const reviewCheckoutId = this.getReviewCheckoutIdFromAction(action, firstSelectedValue);
 
                         const reviewCheckout = await appDatabase.getRepository(ReviewCheckout).findOne({
                             where: { id: Number(reviewCheckoutId) },

@@ -39,7 +39,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         owner: arrayOrSingle(Joi.string().required()).required(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
-        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Keep", "Removed", "Archived").required()).allow(null, ""),
+        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Archived").required()).allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: arrayOrSingle(Joi.string().required()),
         serviceType: arrayOrSingle(Joi.string().required()),
@@ -84,7 +84,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
 
 export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Keep", "Removed", "Archived"),
+        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Archived"),
     });
 
     const { error } = schema.validate(request.body);
