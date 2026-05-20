@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { EntityManager, ILike, In } from "typeorm";
+import { Between, EntityManager, ILike, In } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -22,11 +22,15 @@ import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
+import { Listing } from "../entity/Listing";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private listingRepo = appDatabase.getRepository(Listing);
+  private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private reservationHistoryService = new ReservationHistoryService();
 
@@ -46,6 +50,7 @@ export class RefundRequestService {
       case "Pending":
         return ExpenseStatus.PENDING;
       case "Approved":
+      case "For Processing":
         return ExpenseStatus.APPROVED;
       case "Paid":
         return ExpenseStatus.PAID;
@@ -57,6 +62,33 @@ export class RefundRequestService {
   private getUserDisplayName(user?: UsersEntity | null) {
     if (!user) return null;
     return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid || null;
+  }
+
+  private inferPropertyTypeTag(listing?: Listing | null) {
+    const explicit = String(listing?.propertyType || "").trim().toLowerCase();
+    if (explicit === "pm") return "PM";
+    if (explicit === "arb") return "Arb";
+    if (explicit === "own") return "Own";
+    const tokens = this.parseListingTags(listing?.tags);
+    if (tokens.includes("pm")) return "PM";
+    if (tokens.includes("arb")) return "Arb";
+    if (tokens.includes("own")) return "Own";
+    return null;
+  }
+
+  private inferServiceTypeTag(listing?: Listing | null) {
+    const tokens = this.parseListingTags(listing?.tags);
+    if (tokens.includes("full")) return "Full";
+    if (tokens.includes("pro")) return "Pro";
+    if (tokens.includes("launch")) return "Launch";
+    return null;
+  }
+
+  private parseListingTags(tags?: string | null) {
+    return String(tags || "")
+      .split(/[,;/]+/)
+      .map((tag) => tag.trim().toLowerCase().replace(/^["'[\]{}]+|["'[\]{}]+$/g, ""))
+      .filter(Boolean);
   }
 
   private async decorateRefundRequests<T extends RefundRequestEntity | RefundRequestEntity[] | null>(refundRequests: T): Promise<T> {
@@ -75,6 +107,24 @@ export class RefundRequestService {
       request.createdByName = userMap.get(request.createdBy) || request.requestedBy || request.createdBy || null;
       request.updatedByName = userMap.get(request.updatedBy) || request.updatedBy || null;
       request.deletedByName = userMap.get(request.deletedBy) || request.deletedBy || null;
+    });
+
+    const listingIds = Array.from(new Set(rows.map((request) => Number(request.listingId)).filter(Boolean)));
+    const reservationIds = Array.from(new Set(rows.map((request) => Number(request.reservationId)).filter(Boolean)));
+    const [listings, reservations] = await Promise.all([
+      listingIds.length ? this.listingRepo.find({ where: { id: In(listingIds) } }) : [],
+      reservationIds.length ? this.reservationInfoRepo.find({ where: { id: In(reservationIds) } }) : [],
+    ]);
+    const listingMap = new Map<number, Listing>(listings.map((listing) => [Number(listing.id), listing] as [number, Listing]));
+    const reservationMap = new Map<number, ReservationInfoEntity>(reservations.map((reservation) => [Number(reservation.id), reservation] as [number, ReservationInfoEntity]));
+
+    rows.forEach((request: any) => {
+      const listing = listingMap.get(Number(request.listingId));
+      const reservation = reservationMap.get(Number(request.reservationId));
+      request.propertyType = this.inferPropertyTypeTag(listing);
+      request.serviceType = this.inferServiceTypeTag(listing);
+      request.listingTags = listing?.tags || null;
+      request.channelName = reservation?.channelName || reservation?.source || null;
     });
 
     return refundRequests;
@@ -562,32 +612,83 @@ export class RefundRequestService {
         return await this.decorateRefundRequests(refundRequest);
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, propertyType } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod } = query;
         const offset = (page - 1) * limit;
 
+        const normalizeArray = (value: any): string[] => {
+          if (Array.isArray(value)) return value.map(String).filter(Boolean);
+          if (value == null || value === "") return [];
+          return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+        };
 
-        let listingIds = [];
+        let listingIds: number[] = [];
         const listingService = new ListingService();
-        
-        if (propertyType && propertyType.length > 0) {
-          listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
+        const propertyTypes = normalizeArray(propertyType);
+        const serviceTypes = normalizeArray(serviceType);
+        const listingIdFilters = normalizeArray(listingId);
+        const reservationIdFilters = normalizeArray(reservationId);
+        const statusFilters = normalizeArray(status);
+        const createdByFilters = normalizeArray(createdBy);
+        const paymentMethodFilters = normalizeArray(paymentMethod);
+
+        if (propertyTypes.length > 0 || serviceTypes.length > 0) {
+          const [propertyListings, serviceListings] = await Promise.all([
+            propertyTypes.length ? listingService.getListingsByPropertyTypes(propertyTypes as any) : Promise.resolve([]),
+            serviceTypes.length ? listingService.getListingsByServiceTypes(serviceTypes as any) : Promise.resolve([]),
+          ]);
+          const propertyIds = new Set(propertyListings.map((listing) => Number(listing.id)));
+          const serviceIds = new Set(serviceListings.map((listing) => Number(listing.id)));
+          const ids = propertyTypes.length && serviceTypes.length
+            ? Array.from(propertyIds).filter((id) => serviceIds.has(id))
+            : Array.from(new Set([...Array.from(propertyIds), ...Array.from(serviceIds)]));
+          listingIds = ids.filter(Boolean);
         }
         
         const whereConditions: any = {};
 
-        if (status && Array.isArray(status)) {
-            whereConditions.status = In(status);
+        if (statusFilters.length) {
+            whereConditions.status = In(statusFilters);
         }  
-        if(reservationId && Array.isArray(reservationId)) {
-            whereConditions.reservationId = In(reservationId);
+        if(reservationIdFilters.length) {
+            whereConditions.reservationId = In(reservationIdFilters);
         }
-        if (listingId && Array.isArray(listingId)) {
-            whereConditions.listingId = In(listingId);
+        if (listingIdFilters.length || propertyTypes.length || serviceTypes.length) {
+            const explicitListingIds = listingIdFilters.map(Number).filter(Boolean);
+            let effectiveListingIds = explicitListingIds;
+
+            if (propertyTypes.length || serviceTypes.length) {
+                effectiveListingIds = explicitListingIds.length
+                    ? explicitListingIds.filter((id) => listingIds.includes(id))
+                    : listingIds;
+            }
+
+            whereConditions.listingId = In(effectiveListingIds.length ? effectiveListingIds : [-1]);
         }
 
-        if (listingIds && listingIds.length > 0) {
-            whereConditions.listingId = In(listingIds);
+        if (chargeToClient === "true" || chargeToClient === "1") {
+            whereConditions.chargeToClient = 1;
+        } else if (chargeToClient === "false" || chargeToClient === "0") {
+            whereConditions.chargeToClient = 0;
+        }
+
+        if (createdByFilters.length) {
+            whereConditions.createdBy = In(createdByFilters);
+        }
+
+        if (paymentMethodFilters.length) {
+            whereConditions.paymentMethod = In(paymentMethodFilters);
+        }
+
+        const selectedDateField = dateType === "checkIn" ? "checkIn" : dateType === "checkOut" ? "checkOut" : dateType === "updatedAt" ? "updatedAt" : "createdAt";
+        if (fromDate || toDate) {
+            if (selectedDateField === "checkIn" || selectedDateField === "checkOut") {
+                whereConditions[selectedDateField] = Between(fromDate || "1970-01-01", toDate || "2999-12-31");
+            } else {
+                const start = fromDate ? new Date(`${fromDate}T00:00:00`) : new Date("1970-01-01T00:00:00");
+                const end = toDate ? new Date(`${toDate}T23:59:59`) : new Date("2999-12-31T23:59:59");
+                whereConditions[selectedDateField] = Between(start, end);
+            }
         }
         
         const where = keyword

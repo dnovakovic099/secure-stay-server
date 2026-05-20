@@ -76,11 +76,12 @@ const buildRefundIssueLink = (refundRequest: RefundRequestEntity) => {
         : "";
 };
 
-const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "Paid", "Denied", "Cancelled"];
+const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
 
 const getRefundStatusLabelWithEmoji = (status?: string | null) => {
     const normalized = status || "Pending";
     const emoji = normalized === "Approved" ? "✅"
+        : normalized === "For Processing" ? "🔄"
         : normalized === "Denied" ? "❌"
         : normalized === "Paid" ? "💰"
         : normalized === "Cancelled" ? "🚫"
@@ -306,6 +307,7 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
     });
 
     const statusEmoji = refundRequest.status.toLowerCase() === "approved" ? "✅"
+        : refundRequest.status.toLowerCase() === "for processing" ? "🔄"
         : refundRequest.status.toLowerCase() === "denied" ? "❌"
         : refundRequest.status.toLowerCase() === "paid" ? "💰"
         : refundRequest.status.toLowerCase() === "cancelled" ? "🚫"
@@ -338,7 +340,7 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
                 value: actionValue
             }
         ];
-    } else if (refundRequest.status === "Approved") {
+    } else if (refundRequest.status === "Approved" || refundRequest.status === "For Processing") {
         actionElements = [
             {
                 type: "button",
@@ -349,7 +351,7 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
             }
         ];
     }
-    // Paid / Denied / Cancelled → no action buttons
+    // Paid / Denied / Cancelled have no action buttons.
 
     const blocks: any[] = [
         {
@@ -582,7 +584,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
                 }
             },
         ]
@@ -2476,12 +2478,13 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const nextTag = String(newValue || details || '').trim();
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
+            const tagDisplay = action === 'Removed' && shownTag !== '—' ? `~${shownTag}~` : shownTag;
             const mentionLine = action === 'Added' && notificationMentions.length
                 ? `\n${notificationMentions.join(' ')}`
                 : '';
             text = previousTag && nextTag
                 ? `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n~▸ ${previousTag}~\n──────────`
-                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}${mentionLine}\n──────────`;
+                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${tagDisplay}${mentionLine}\n──────────`;
             break;
         }
         case 'comment':
@@ -2555,6 +2558,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const nextTag = String(newValue || details || '').trim();
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
+            const tagDisplay = action === 'Removed' && shownTag !== '—' ? `~${shownTag}~` : shownTag;
             const mentionElements = action === 'Added' && notificationMentions.length
                 ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notificationMentions.join(' ') }] }]
                 : [];
@@ -2568,7 +2572,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                 ]
                 : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Tag ${action} By: ${actorLabel}` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${shownTag}` } },
+                    { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${tagDisplay}` } },
                     ...mentionElements,
                     { type: 'divider' },
                 ];
