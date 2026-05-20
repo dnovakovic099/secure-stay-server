@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
+const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
+
 export const validateSaveRefundRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         reservationId: Joi.number().required(),
@@ -13,7 +15,7 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
-        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied", "Cancelled"),
+        status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
         paymentMethod: Joi.string().optional().allow(null, ''),
         paymentDetails: Joi.string().optional().allow(null, ''),
         chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
@@ -41,7 +43,7 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         explaination: Joi.string().required(),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
-        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied", "Cancelled"),
+        status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
         paymentMethod: Joi.string().optional().allow(null, ''),
         paymentDetails: Joi.string().optional().allow(null, ''),
         chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
@@ -60,7 +62,7 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
 export const validateRefundRequestStatus = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
         id: Joi.number().required(),
-        status: Joi.string().required().valid("Pending", "Approved", "Paid", "Denied", "Cancelled"),
+        status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
     });
 
     const { error } = schema.validate(request.body);

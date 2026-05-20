@@ -141,10 +141,15 @@ type DashboardDrilldownDimension =
     | 'review_rating'
     | 'review_channel'
     | 'review_month'
+    | 'review_visibility'
+    | 'review_sentiment'
     | 'mitigation_status'
     | 'mitigation_month'
     | 'mitigation_property_type'
-    | 'mitigation_assignee';
+    | 'mitigation_assignee'
+    | 'mitigation_refund_status'
+    | 'mitigation_sentiment'
+    | 'mitigation_tag';
 
 interface DashboardDrilldownFilters extends DashboardFilters {
     dimension?: DashboardDrilldownDimension | string | undefined;
@@ -1054,6 +1059,30 @@ export class ReviewService {
         }
 
         return query;
+    }
+
+    private parseDashboardJsonValue<T>(value: any, fallback: T): T {
+        if (value == null || value === "") return fallback;
+        if (typeof value !== "string") return value as T;
+        try {
+            return JSON.parse(value) as T;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private normalizeDashboardReservationTags(value: any): string[] {
+        const source = Array.isArray(value) ? value : value == null ? [] : [value];
+        const seen = new Set<string>();
+        return source
+            .map((tag) => String(tag || "").trim().replace(/\s+/g, " "))
+            .filter((tag) => {
+                if (!tag) return false;
+                const key = tag.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
     }
 
     public async getReviews({
@@ -3592,7 +3621,7 @@ export class ReviewService {
         const sixMonthsAgo = subMonths(new Date(), 6);
         const listingIds = await this.resolveDashboardListingIds(filters);
 
-        const [ratingDistribution, channelBreakdown, reviewMonthlyTrend, visibilityStats] = await Promise.all([
+        const [ratingDistribution, channelBreakdown, reviewMonthlyTrend, visibilityStats, reviewVisibilityBreakdown, reviewSentimentBreakdown] = await Promise.all([
             this.applyDashboardReviewFilters(
                 this.reviewRepository
                 .createQueryBuilder('r')
@@ -3641,6 +3670,26 @@ export class ReviewService {
                 filters,
                 listingIds
             ).getRawMany(),
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
+                .createQueryBuilder('r')
+                .select("CASE WHEN r.isHidden = 1 THEN 'Removed' WHEN r.visibility IS NULL OR TRIM(r.visibility) = '' THEN 'Visible' ELSE r.visibility END", 'visibility')
+                .addSelect('COUNT(*)', 'count')
+                .groupBy("CASE WHEN r.isHidden = 1 THEN 'Removed' WHEN r.visibility IS NULL OR TRIM(r.visibility) = '' THEN 'Visible' ELSE r.visibility END")
+                .orderBy('count', 'DESC'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardReviewFilters(
+                this.reviewRepository
+                .createQueryBuilder('r')
+                .select("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored')", 'sentiment')
+                .addSelect('COUNT(*)', 'count')
+                .groupBy("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored')")
+                .orderBy('count', 'DESC'),
+                filters,
+                listingIds
+            ).getRawMany(),
         ]);
 
         const [mitigationByStatus, mitigationMonthlyTrend, checkoutCountsByListing] = await Promise.all([
@@ -3678,7 +3727,7 @@ export class ReviewService {
             ).getRawMany(),
         ]);
 
-        const [reservationChannelBreakdown, mitigationAssigneeBreakdown] = await Promise.all([
+        const [reservationChannelBreakdown, mitigationAssigneeBreakdown, mitigationDashboardRows] = await Promise.all([
             this.applyDashboardReservationFilters(
                 this.reservationInfoRepo
                     .createQueryBuilder('ri')
@@ -3697,6 +3746,16 @@ export class ReviewService {
                     .addSelect('COUNT(*)', 'count')
                     .where('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
                     .groupBy('rc.assignee'),
+                filters,
+                listingIds
+            ).getRawMany(),
+            this.applyDashboardMitigationFilters(
+                this.reviewCheckoutRepo
+                    .createQueryBuilder('rc')
+                    .select('rc.id', 'id')
+                    .addSelect('ri.id', 'reservationId')
+                    .addSelect('ri.tags', 'tags')
+                    .where('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED }),
                 filters,
                 listingIds
             ).getRawMany(),
@@ -3790,6 +3849,45 @@ export class ReviewService {
             };
         }).sort((left, right) => right.count - left.count);
 
+        const mitigationReservationIds: number[] = Array.from(new Set<number>(
+            mitigationDashboardRows.map((row) => Number(row.reservationId)).filter(Boolean)
+        ));
+        const [latestRefundMap, analyses] = await Promise.all([
+            this.getLatestRefundRequests(mitigationReservationIds),
+            mitigationReservationIds.length > 0
+                ? this.guestAnalysisRepo.find({
+                    where: { reservationId: In(mitigationReservationIds) },
+                    order: { analyzedAt: 'DESC' },
+                })
+                : Promise.resolve([]),
+        ]);
+        const latestAnalysisByReservation = new Map<number, GuestAnalysisEntity>();
+        analyses.forEach((analysis) => {
+            const reservationId = Number(analysis.reservationId);
+            if (!latestAnalysisByReservation.has(reservationId)) {
+                latestAnalysisByReservation.set(reservationId, analysis);
+            }
+        });
+
+        const refundStatusCounts: Record<string, { count: number; amount: number }> = {};
+        const sentimentCounts: Record<string, number> = {};
+        const tagCounts: Record<string, number> = {};
+        mitigationDashboardRows.forEach((row) => {
+            const reservationId = Number(row.reservationId);
+            const refund = latestRefundMap.get(reservationId);
+            const refundStatus = String(refund?.status || 'No Refund').trim() || 'No Refund';
+            refundStatusCounts[refundStatus] = refundStatusCounts[refundStatus] || { count: 0, amount: 0 };
+            refundStatusCounts[refundStatus].count += 1;
+            refundStatusCounts[refundStatus].amount += Number(refund?.refundAmount || 0);
+
+            const sentiment = String(latestAnalysisByReservation.get(reservationId)?.sentiment || 'Unscored').trim() || 'Unscored';
+            sentimentCounts[sentiment] = (sentimentCounts[sentiment] || 0) + 1;
+
+            this.normalizeDashboardReservationTags(this.parseDashboardJsonValue<any>(row.tags, [])).forEach((tag) => {
+                tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+            });
+        });
+
         return {
             reviews: {
                 total: totalVisible + totalHidden,
@@ -3800,6 +3898,14 @@ export class ReviewService {
                 lowRatingCount,
                 ratingDistribution: ratingDist,
                 channelBreakdown: channelData,
+                visibilityBreakdown: reviewVisibilityBreakdown.map((row) => ({
+                    visibility: row.visibility || 'Unknown',
+                    count: Number(row.count || 0),
+                })),
+                reviewSentimentBreakdown: reviewSentimentBreakdown.map((row) => ({
+                    sentiment: row.sentiment || 'Unscored',
+                    count: Number(row.count || 0),
+                })),
                 monthlyTrend: reviewMonthlyTrend.map(m => ({
                     month: m.month,
                     count: Number(m.count),
@@ -3813,6 +3919,15 @@ export class ReviewService {
                 byStatus: mitigationStatusData,
                 monthlyTrend: mitigationMonthlyTrend.map(m => ({ month: m.month, count: Number(m.count) })),
                 propertyTypeDistribution: Object.entries(propertyTypeCounts).map(([type, count]) => ({ type, count })),
+                refundStatusBreakdown: Object.entries(refundStatusCounts)
+                    .map(([status, value]) => ({ status, count: value.count, amount: Number(value.amount.toFixed(2)) }))
+                    .sort((left, right) => right.count - left.count),
+                sentimentBreakdown: Object.entries(sentimentCounts)
+                    .map(([sentiment, count]) => ({ sentiment, count }))
+                    .sort((left, right) => right.count - left.count),
+                tagBreakdown: Object.entries(tagCounts)
+                    .map(([tag, count]) => ({ tag, count }))
+                    .sort((left, right) => right.count - left.count),
                 assigneeDistribution,
             },
         };
@@ -3830,10 +3945,15 @@ export class ReviewService {
             'review_rating',
             'review_channel',
             'review_month',
+            'review_visibility',
+            'review_sentiment',
             'mitigation_status',
             'mitigation_month',
             'mitigation_property_type',
             'mitigation_assignee',
+            'mitigation_refund_status',
+            'mitigation_sentiment',
+            'mitigation_tag',
         ];
 
         if (!allowedDimensions.includes(dimension)) {
@@ -3856,6 +3976,11 @@ export class ReviewService {
 
             switch (dimension) {
                 case 'review_rating': {
+                    if (value === '__low__') {
+                        reviewQuery.andWhere('r.rating <= 3');
+                        title = 'Low Rating Reviews';
+                        break;
+                    }
                     const rating = Number(value);
                     if (Number.isNaN(rating)) {
                         throw CustomErrorHandler.validationError('Invalid rating drilldown value.');
@@ -3873,60 +3998,132 @@ export class ReviewService {
                     title = `Reviews for ${value}`;
                     break;
                 case 'review_month':
-                    reviewQuery.andWhere("DATE_FORMAT(r.submittedAt, '%Y-%m') = :month", { month: value });
-                    title = `Reviews Submitted in ${value}`;
+                    if (value !== '__all__') {
+                        reviewQuery.andWhere("DATE_FORMAT(r.submittedAt, '%Y-%m') = :month", { month: value });
+                        title = `Reviews Submitted in ${value}`;
+                    } else {
+                        title = 'Review Records';
+                    }
+                    break;
+                case 'review_visibility':
+                    reviewQuery.andWhere("CASE WHEN r.isHidden = 1 THEN 'Removed' WHEN r.visibility IS NULL OR TRIM(r.visibility) = '' THEN 'Visible' ELSE r.visibility END = :visibility", { visibility: value });
+                    title = `${value} Reviews`;
+                    break;
+                case 'review_sentiment':
+                    reviewQuery.andWhere("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored') = :sentiment", { sentiment: value });
+                    title = `${value} Review Sentiment`;
                     break;
                 default:
                     break;
             }
 
             const reviews = await reviewQuery.getMany();
+            const reservationIds = Array.from(new Set(reviews.map((review) => Number(review.reservationId || 0)).filter(Boolean)));
             const listingIdsForResults = Array.from(new Set(reviews.map((review) => Number(review.listingMapId)).filter(Boolean)));
-            const listingRows = listingIdsForResults.length > 0
-                ? await this.listingRepo.find({ where: { id: In(listingIdsForResults) }, select: ['id', 'tags'] })
-                : [];
+            const [listingRows, mitigationRows] = await Promise.all([
+                listingIdsForResults.length > 0
+                    ? this.listingRepo.find({ where: { id: In(listingIdsForResults) }, select: ['id', 'tags'] })
+                    : Promise.resolve([]),
+                reservationIds.length > 0
+                    ? this.reviewCheckoutRepo
+                        .createQueryBuilder('rc')
+                        .leftJoinAndSelect('rc.reservationInfo', 'ri')
+                        .where('ri.id IN (:...reservationIds)', { reservationIds })
+                        .andWhere('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
+                        .orderBy('rc.updatedAt', 'DESC')
+                        .addOrderBy('rc.createdAt', 'DESC')
+                        .getMany()
+                    : Promise.resolve([]),
+            ]);
             const listingTagMap = new Map(listingRows.map((listing) => [Number(listing.id), listing.tags]));
+            const reviewMap = new Map<number, any>(reviews.map((review) => [Number(review.reservationId), review]));
+            const reviewRecords = reviews.map((review) => ({
+                recordType: 'review',
+                id: String(review.id),
+                reviewerName: review.reviewerName,
+                listingMapId: review.listingMapId,
+                channelId: review.channelId,
+                channelName: review.channelName,
+                rating: review.rating,
+                externalReservationId: review.externalReservationId,
+                publicReview: review.publicReview,
+                privateReview: review.privateReview,
+                reviewSentiment: review.reviewSentiment,
+                reviewSentimentReason: review.reviewSentimentReason,
+                submittedAt: review.submittedAt,
+                arrivalDate: review.arrivalDate,
+                departureDate: review.departureDate,
+                listingName: review.listingName,
+                externalListingName: review.externalListingName,
+                guestName: review.guestName || review.reviewerName,
+                createdAt: review.createdAt,
+                updatedAt: review.updatedAt,
+                isHidden: review.isHidden,
+                visibility: review.visibility,
+                reviewDetail: review.reviewDetail || null,
+                bookingAmount: review.bookingAmount,
+                reservationId: review.reservationId ? String(review.reservationId) : undefined,
+                createdBy: review.createdBy,
+                updatedBy: review.updatedBy,
+                propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))) || null,
+                status: review.reviewDetail?.claimResolutionStatus || null,
+            }));
+            const mitigationRecords = mitigationRows.map((row) => {
+                const reservationInfo = row.reservationInfo;
+                const matchedReview = reviewMap.get(Number(reservationInfo?.id || 0));
+                return {
+                    recordType: 'mitigation',
+                    id: String(row.id),
+                    reservationId: reservationInfo?.id,
+                    listingId: reservationInfo?.listingMapId,
+                    status: row.status || ReviewCheckoutStatus.NEW,
+                    channelName: reservationInfo?.channelName || '',
+                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || 'Unknown',
+                    listingName: reservationInfo?.listingName || matchedReview?.listingName || '',
+                    guestName: reservationInfo?.guestName || matchedReview?.guestName || matchedReview?.reviewerName || '',
+                    arrivalDate: reservationInfo?.arrivalDate || matchedReview?.arrivalDate || null,
+                    departureDate: reservationInfo?.departureDate || matchedReview?.departureDate || null,
+                    rating: matchedReview?.rating ?? null,
+                    isHidden: matchedReview?.isHidden ?? 0,
+                    visibility: matchedReview?.visibility ?? row.visibility ?? 'Awaiting Review',
+                    reviewId: matchedReview ? Number(matchedReview.id) : null,
+                    assignee: row.assignee || null,
+                    assigneeName: row.assignee || null,
+                    publicReview: matchedReview?.publicReview ?? null,
+                    privateReview: matchedReview?.privateReview ?? null,
+                    reviewSentiment: matchedReview?.reviewSentiment ?? null,
+                    reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,
+                    submittedAt: matchedReview?.submittedAt ?? null,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt,
+                    createdBy: row.createdBy,
+                    updatedBy: row.updatedBy,
+                    reviewDetail: matchedReview?.reviewDetail || null,
+                    confirmationCode: reservationInfo?.confirmation_code || '',
+                    phoneNumber: reservationInfo?.phone || '',
+                    totalPaid: reservationInfo?.totalPrice ? Number(reservationInfo.totalPrice) : null,
+                    ownerRevenue: reservationInfo?.owner_revenue ?? null,
+                    resolutionNotes: matchedReview?.reviewDetail?.notes ?? null,
+                    checkInTime: reservationInfo?.checkInTime ?? null,
+                    checkOutTime: reservationInfo?.checkOutTime ?? null,
+                    tags: [],
+                    integration: reservationInfo?.integration_nickname || '',
+                };
+            });
 
             return {
                 title,
                 kind: 'review',
-                records: reviews.map((review) => ({
-                    recordType: 'review',
-                    id: String(review.id),
-                    reviewerName: review.reviewerName,
-                    listingMapId: review.listingMapId,
-                    channelId: review.channelId,
-                    channelName: review.channelName,
-                    rating: review.rating,
-                    externalReservationId: review.externalReservationId,
-                    publicReview: review.publicReview,
-                    privateReview: review.privateReview,
-                    reviewSentiment: review.reviewSentiment,
-                    reviewSentimentReason: review.reviewSentimentReason,
-                    submittedAt: review.submittedAt,
-                    arrivalDate: review.arrivalDate,
-                    departureDate: review.departureDate,
-                    listingName: review.listingName,
-                    externalListingName: review.externalListingName,
-                    guestName: review.guestName || review.reviewerName,
-                    createdAt: review.createdAt,
-                    updatedAt: review.updatedAt,
-                    isHidden: review.isHidden,
-                    visibility: review.visibility,
-                    reviewDetail: review.reviewDetail || null,
-                    bookingAmount: review.bookingAmount,
-                    reservationId: review.reservationId ? String(review.reservationId) : undefined,
-                    createdBy: review.createdBy,
-                    updatedBy: review.updatedBy,
-                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))) || null,
-                    status: review.reviewDetail?.claimResolutionStatus || null,
-                })),
+                records: reviewRecords,
+                reviews: reviewRecords,
+                mitigation: mitigationRecords,
             };
         }
 
         const mitigationFilters: DashboardFilters = { ...filters };
         let listingIds = await this.resolveDashboardListingIds(mitigationFilters);
         let title = 'Mitigation Records';
+        let postFilterDimension: 'refund_status' | 'sentiment' | 'tag' | null = null;
 
         if (dimension === 'mitigation_property_type') {
             listingIds = await this.resolveDashboardListingIds({
@@ -3949,11 +4146,23 @@ export class ReviewService {
 
         switch (dimension) {
             case 'mitigation_status':
-                mitigationQuery.andWhere('COALESCE(rc.status, :emptyStatus) = :statusValue', {
-                    emptyStatus: '',
-                    statusValue: value,
-                });
-                title = `Mitigation Status: ${value}`;
+                if (value === '__open__') {
+                    mitigationQuery.andWhere('(rc.status IS NULL OR rc.status NOT IN (:...closedStatuses))', {
+                        closedStatuses: [ReviewCheckoutStatus.COMPLETED, ReviewCheckoutStatus.ARCHIVED],
+                    });
+                    title = 'Open Mitigation Records';
+                } else if (value === '__closed__') {
+                    mitigationQuery.andWhere('rc.status = :completedStatus', {
+                        completedStatus: ReviewCheckoutStatus.COMPLETED,
+                    });
+                    title = 'Closed Mitigation Records';
+                } else {
+                    mitigationQuery.andWhere('COALESCE(rc.status, :emptyStatus) = :statusValue', {
+                        emptyStatus: '',
+                        statusValue: value,
+                    });
+                    title = `Mitigation Status: ${value}`;
+                }
                 break;
             case 'mitigation_assignee':
                 if (value === '__unassigned__') {
@@ -3966,14 +4175,64 @@ export class ReviewService {
                 }
                 break;
             case 'mitigation_month':
-                mitigationQuery.andWhere("DATE_FORMAT(rc.createdAt, '%Y-%m') = :month", { month: value });
-                title = `Mitigation Created in ${value}`;
+                if (value !== '__all__') {
+                    mitigationQuery.andWhere("DATE_FORMAT(rc.createdAt, '%Y-%m') = :month", { month: value });
+                    title = `Mitigation Created in ${value}`;
+                } else {
+                    title = 'Mitigation Records';
+                }
+                break;
+            case 'mitigation_refund_status':
+                title = `${value} Refund Records`;
+                postFilterDimension = 'refund_status';
+                break;
+            case 'mitigation_sentiment':
+                title = `${value} Guest Sentiment`;
+                postFilterDimension = 'sentiment';
+                break;
+            case 'mitigation_tag':
+                title = `${value} Tagged Records`;
+                postFilterDimension = 'tag';
                 break;
             default:
                 break;
         }
 
-        const mitigationRows = await mitigationQuery.getMany();
+        let mitigationRows = await mitigationQuery.getMany();
+        if (postFilterDimension) {
+            const candidateReservationIds: number[] = Array.from(new Set<number>(
+                mitigationRows.map((row) => Number(row.reservationInfo?.id || 0)).filter(Boolean)
+            ));
+
+            if (postFilterDimension === 'refund_status') {
+                const latestRefunds = await this.getLatestRefundRequests(candidateReservationIds);
+                mitigationRows = mitigationRows.filter((row) => {
+                    const status = String(latestRefunds.get(Number(row.reservationInfo?.id || 0))?.status || 'No Refund').trim() || 'No Refund';
+                    return status === value;
+                });
+            } else if (postFilterDimension === 'sentiment') {
+                const analyses = candidateReservationIds.length > 0
+                    ? await this.guestAnalysisRepo.find({
+                        where: { reservationId: In(candidateReservationIds) },
+                        order: { analyzedAt: 'DESC' },
+                    })
+                    : [];
+                const latestAnalysisByReservation = new Map<number, GuestAnalysisEntity>();
+                analyses.forEach((analysis) => {
+                    const reservationId = Number(analysis.reservationId);
+                    if (!latestAnalysisByReservation.has(reservationId)) latestAnalysisByReservation.set(reservationId, analysis);
+                });
+                mitigationRows = mitigationRows.filter((row) => {
+                    const sentiment = String(latestAnalysisByReservation.get(Number(row.reservationInfo?.id || 0))?.sentiment || 'Unscored').trim() || 'Unscored';
+                    return sentiment === value;
+                });
+            } else if (postFilterDimension === 'tag') {
+                mitigationRows = mitigationRows.filter((row) => {
+                    const tags = this.normalizeDashboardReservationTags(this.parseDashboardJsonValue<any>(row.reservationInfo?.tags, []));
+                    return tags.some((tag) => tag.toLowerCase() === value.toLowerCase());
+                });
+            }
+        }
         const reservationIds = Array.from(
             new Set(
                 mitigationRows
@@ -4003,60 +4262,94 @@ export class ReviewService {
 
         const reviewMap = new Map(matchingReviews.map((review) => [Number(review.reservationId), review]));
         const listingTagMap = new Map(listings.map((listing) => [Number(listing.id), listing.tags]));
+        const reviewRecords = matchingReviews.map((review) => ({
+            recordType: 'review',
+            id: String(review.id),
+            reviewerName: review.reviewerName,
+            listingMapId: review.listingMapId,
+            channelId: review.channelId,
+            channelName: review.channelName,
+            rating: review.rating,
+            externalReservationId: review.externalReservationId,
+            publicReview: review.publicReview,
+            privateReview: review.privateReview,
+            reviewSentiment: review.reviewSentiment,
+            reviewSentimentReason: review.reviewSentimentReason,
+            submittedAt: review.submittedAt,
+            arrivalDate: review.arrivalDate,
+            departureDate: review.departureDate,
+            listingName: review.listingName,
+            externalListingName: review.externalListingName,
+            guestName: review.guestName || review.reviewerName,
+            createdAt: review.createdAt,
+            updatedAt: review.updatedAt,
+            isHidden: review.isHidden,
+            visibility: review.visibility,
+            reviewDetail: review.reviewDetail || null,
+            bookingAmount: review.bookingAmount,
+            reservationId: review.reservationId ? String(review.reservationId) : undefined,
+            createdBy: review.createdBy,
+            updatedBy: review.updatedBy,
+            propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))) || null,
+            status: review.reviewDetail?.claimResolutionStatus || null,
+        }));
+        const mitigationRecords = mitigationRows.map((row) => {
+            const reservationInfo = row.reservationInfo;
+            const matchedReview = reviewMap.get(Number(reservationInfo?.id || 0));
+            return {
+                recordType: 'mitigation',
+                id: String(row.id),
+                reservationId: reservationInfo?.id,
+                listingId: reservationInfo?.listingMapId,
+                status: row.status || ReviewCheckoutStatus.NEW,
+                channelName: reservationInfo?.channelName || '',
+                propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || 'Unknown',
+                listingName: reservationInfo?.listingName || matchedReview?.listingName || '',
+                guestName: reservationInfo?.guestName || matchedReview?.guestName || matchedReview?.reviewerName || '',
+                arrivalDate: reservationInfo?.arrivalDate || matchedReview?.arrivalDate || null,
+                departureDate: reservationInfo?.departureDate || matchedReview?.departureDate || null,
+                aiAnalysis: null,
+                issues: [],
+                rating: matchedReview?.rating ?? null,
+                isHidden: matchedReview?.isHidden ?? 0,
+                visibility: matchedReview?.visibility ?? row.visibility ?? 'Awaiting Review',
+                reviewId: matchedReview ? Number(matchedReview.id) : null,
+                assignee: row.assignee || null,
+                assigneeName: row.assignee || null,
+                publicReview: matchedReview?.publicReview ?? null,
+                privateReview: matchedReview?.privateReview ?? null,
+                reviewSentiment: matchedReview?.reviewSentiment ?? null,
+                reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,
+                submittedAt: matchedReview?.submittedAt ?? null,
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt,
+                createdBy: row.createdBy,
+                updatedBy: row.updatedBy,
+                reviewDetail: matchedReview?.reviewDetail || null,
+                confirmationCode: reservationInfo?.confirmation_code || '',
+                phoneNumber: reservationInfo?.phone || '',
+                totalPaid: reservationInfo?.totalPrice ? Number(reservationInfo.totalPrice) : null,
+                ownerRevenue: reservationInfo?.owner_revenue ?? null,
+                refundAmount: null,
+                refundStatus: null,
+                refundExplanation: null,
+                refundPercent: null,
+                refundRequestId: null,
+                resolutionNotes: matchedReview?.reviewDetail?.notes ?? null,
+                checkInTime: reservationInfo?.checkInTime ?? null,
+                checkOutTime: reservationInfo?.checkOutTime ?? null,
+                timeZoneName: null,
+                tags: [],
+                integration: reservationInfo?.integration_nickname || '',
+            };
+        });
 
         return {
             title,
             kind: 'mitigation',
-            records: mitigationRows.map((row) => {
-                const reservationInfo = row.reservationInfo;
-                const matchedReview = reviewMap.get(Number(reservationInfo?.id || 0));
-                return {
-                    recordType: 'mitigation',
-                    id: String(row.id),
-                    reservationId: reservationInfo?.id,
-                    listingId: reservationInfo?.listingMapId,
-                    status: row.status || ReviewCheckoutStatus.NEW,
-                    channelName: reservationInfo?.channelName || '',
-                    propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || 'Unknown',
-                    listingName: reservationInfo?.listingName || matchedReview?.listingName || '',
-                    guestName: reservationInfo?.guestName || matchedReview?.guestName || matchedReview?.reviewerName || '',
-                    arrivalDate: reservationInfo?.arrivalDate || matchedReview?.arrivalDate || null,
-                    departureDate: reservationInfo?.departureDate || matchedReview?.departureDate || null,
-                    aiAnalysis: null,
-                    issues: [],
-                    rating: matchedReview?.rating ?? null,
-                    isHidden: matchedReview?.isHidden ?? 0,
-                    visibility: matchedReview?.visibility ?? row.visibility ?? 'Awaiting Review',
-                    reviewId: matchedReview ? Number(matchedReview.id) : null,
-                    assignee: row.assignee || null,
-                    assigneeName: row.assignee || null,
-                    publicReview: matchedReview?.publicReview ?? null,
-                    privateReview: matchedReview?.privateReview ?? null,
-                    reviewSentiment: matchedReview?.reviewSentiment ?? null,
-                    reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,
-                    submittedAt: matchedReview?.submittedAt ?? null,
-                    createdAt: row.createdAt,
-                    updatedAt: row.updatedAt,
-                    createdBy: row.createdBy,
-                    updatedBy: row.updatedBy,
-                    reviewDetail: matchedReview?.reviewDetail || null,
-                    confirmationCode: reservationInfo?.confirmation_code || '',
-                    phoneNumber: reservationInfo?.phone || '',
-                    totalPaid: reservationInfo?.totalPrice ? Number(reservationInfo.totalPrice) : null,
-                    ownerRevenue: reservationInfo?.owner_revenue ?? null,
-                    refundAmount: null,
-                    refundStatus: null,
-                    refundExplanation: null,
-                    refundPercent: null,
-                    refundRequestId: null,
-                    resolutionNotes: matchedReview?.reviewDetail?.notes ?? null,
-                    checkInTime: reservationInfo?.checkInTime ?? null,
-                    checkOutTime: reservationInfo?.checkOutTime ?? null,
-                    timeZoneName: null,
-                    tags: [],
-                    integration: reservationInfo?.integration_nickname || '',
-                };
-            }),
+            records: mitigationRecords,
+            reviews: reviewRecords,
+            mitigation: mitigationRecords,
         };
     }
 

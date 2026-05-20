@@ -12,6 +12,7 @@ import { UsersEntity } from "../entity/Users";
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
+import { RefundRequestEntity } from "../entity/RefundRequest";
 import { GuestAnalysisService } from "./GuestAnalysisService";
 import {
     buildResolutionsCheckoutMessage,
@@ -67,6 +68,7 @@ export class ResolutionsTeamSlackService {
     private employeeRepo = appDatabase.getRepository(Employee);
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
+    private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersService = new UsersService();
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1164,12 +1166,18 @@ export class ResolutionsTeamSlackService {
             .map((rc) => Number(rc.reservationInfo?.listingMapId))
             .filter((id) => Number.isFinite(id));
 
-        const [reviews, listings] = await Promise.all([
+        const [reviews, listings, refundRequests] = await Promise.all([
             reservationIds.length
                 ? this.reviewRepo.find({ where: { reservationId: In(reservationIds) } })
                 : [],
             listingIds.length
                 ? this.listingRepo.find({ where: { id: In(listingIds) }, select: ["id", "tags"] })
+                : [],
+            reservationIds.length
+                ? this.refundRequestRepo.find({
+                    where: { reservationId: In(reservationIds), deletedAt: null as any },
+                    select: ["id", "reservationId", "status"],
+                })
                 : [],
         ]);
 
@@ -1180,6 +1188,12 @@ export class ResolutionsTeamSlackService {
         );
         const listingTagMap = new Map<number, string | null | undefined>(
             listings.map((listing) => [Number(listing.id), listing.tags] as [number, string | null | undefined])
+        );
+        const refundRequestReservationIds = new Set(
+            refundRequests
+                .filter((refundRequest) => String(refundRequest.status || "").toLowerCase() !== "cancelled")
+                .map((refundRequest) => Number(refundRequest.reservationId))
+                .filter((reservationId) => Number.isFinite(reservationId))
         );
         const anjSlackId = await this.getAnjSlackUserId();
 
@@ -1192,7 +1206,7 @@ export class ResolutionsTeamSlackService {
             const deadline = String(rc.fourteenDaysAfterCheckout || "").slice(0, 10);
             const daysLeft = daysLeftByDeadline.get(deadline);
 
-            if (!reservation || !daysLeft || postedReviewReservationIds.has(reservationId)) {
+            if (!reservation || !daysLeft || postedReviewReservationIds.has(reservationId) || refundRequestReservationIds.has(reservationId)) {
                 skipped++;
                 continue;
             }
