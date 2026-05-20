@@ -592,7 +592,7 @@ export class ResolutionsTeamSlackService {
     // ─── Daily check-in message posting ───────────────────────────────────────
 
     async postDailyCheckoutMessages(): Promise<void> {
-        const today = getEasternDateString();
+        const today = `2026-05-02`; //getEasternDateString();
         logger.info(`[ResolutionsTeam] Posting daily check-in messages for ${today}`);
 
         const reviewService = new ReviewService();
@@ -664,7 +664,8 @@ export class ResolutionsTeamSlackService {
                     : "";
                 const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
-                const msgPayload = buildResolutionsCheckoutMessage({
+                const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+                const buildMsgPayload = (includeTags: boolean) => buildResolutionsCheckoutMessage({
                     emoji,
                     listingName: reservation.listingName || "Unknown Property",
                     guestName: reservation.guestName || "Guest",
@@ -685,11 +686,23 @@ export class ResolutionsTeamSlackService {
                     reviewCheckoutId: rc.id,
                     statusOptions: statusData.options,
                     assigneeOptions,
-                    tagOptions,
-                    selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
+                    tagOptions: includeTags ? tagOptions : [],
+                    selectedTags: includeTags ? selectedTags : [],
                 });
 
-                const result = await sendSlackMessage(msgPayload);
+                let msgPayload = buildMsgPayload(true);
+                let result = await sendSlackMessage(msgPayload);
+
+                if (!result?.ok || !result?.ts) {
+                    logger.error(
+                        `[ResolutionsTeam] Slack rejected message for reservation ${reservation.id} (error: ${result?.error}). Blocks:\n${JSON.stringify(msgPayload.blocks, null, 2)}`
+                    );
+                    if (tagOptions.length > 0) {
+                        logger.warn(`[ResolutionsTeam] Retrying reservation ${reservation.id} without Tags select while keeping Status, Assignee, and View controls.`);
+                        msgPayload = buildMsgPayload(false);
+                        result = await sendSlackMessage(msgPayload);
+                    }
+                }
 
                 if (!result?.ok || !result?.ts) {
                     logger.error(

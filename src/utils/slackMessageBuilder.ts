@@ -2246,7 +2246,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 
 // ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
 
-export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
+export const RESOLUTIONS_TEAM_CHANNEL = "#anj-test";
 export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422c";
 const SLACK_SELECT_OPTION_LIMIT = 100;
 
