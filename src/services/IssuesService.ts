@@ -34,6 +34,10 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import { uploadFileToSlack } from "../utils/uploadFileToSlack";
 import { OpenPhoneService } from "./OpenPhoneService";
 
+// Module-level cache for the user directory (users + employees + avatars).
+// Avoids 3 DB queries per request; invalidates automatically after 2 minutes.
+let _userDirectoryCache: { data: any[]; expiresAt: number } | null = null;
+
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
   private actionItemRepo = appDatabase.getRepository(ActionItems);
@@ -503,6 +507,11 @@ export class IssuesService {
   }
 
   private async buildIssueUserDirectory() {
+    const now = Date.now();
+    if (_userDirectoryCache && now < _userDirectoryCache.expiresAt) {
+      return _userDirectoryCache.data;
+    }
+
     const users = await this.usersRepo.find();
     const employees = await this.employeeRepo.find({
       where: { deletedAt: null as any },
@@ -530,7 +539,7 @@ export class IssuesService {
       })
     );
 
-    return users.map((user) => {
+    const result = users.map((user) => {
       const employee = employeeMap.get(user.id);
       const firstName = String(user.firstName || "").trim();
       const lastName = String(user.lastName || "").trim();
@@ -543,6 +552,9 @@ export class IssuesService {
         avatarUrl: employee?.avatarUrl || null,
       };
     });
+
+    _userDirectoryCache = { data: result, expiresAt: now + 2 * 60 * 1000 };
+    return result;
   }
 
   private async resolveKeywordIssueIds(keyword: string): Promise<number[]> {
@@ -1611,27 +1623,24 @@ export class IssuesService {
       : issueId
       ? [Number(issueId)].filter((id: number) => Number.isFinite(id))
       : [];
-    const keywordIssueIds = normalizedKeyword
-      ? await this.resolveKeywordIssueIds(normalizedKeyword)
-      : undefined;
-    const activityKeywordIssueIds = normalizedActivityKeyword
-      ? await this.resolveActivityKeywordIssueIds(normalizedActivityKeyword)
-      : undefined;
-    const vendorThreadStatusIssueIds = normalizedVendorThreadStatus
-      ? await this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus)
-      : undefined;
-    const resolutionNotesKeywordIssueIds = normalizedResolutionNotesKeyword
-      ? await this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword)
-      : undefined;
-    const resolutionNotesPresenceIssueIds = normalizedResolutionNotesStatus
-      ? await this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus)
-      : undefined;
-    const managerNotesKeywordIssueIds = normalizedManagerNotesKeyword
-      ? await this.resolveManagerNotesKeywordIssueIds(normalizedManagerNotesKeyword)
-      : undefined;
-    const managerNotesPresenceIssueIds = normalizedManagerNotesStatus
-      ? await this.resolveManagerNotesPresenceIssueIds(normalizedManagerNotesStatus)
-      : undefined;
+    // Run all resolver queries in parallel to reduce filter latency.
+    const [
+      keywordIssueIds,
+      activityKeywordIssueIds,
+      vendorThreadStatusIssueIds,
+      resolutionNotesKeywordIssueIds,
+      resolutionNotesPresenceIssueIds,
+      managerNotesKeywordIssueIds,
+      managerNotesPresenceIssueIds,
+    ] = await Promise.all([
+      normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword) : Promise.resolve(undefined),
+      normalizedActivityKeyword ? this.resolveActivityKeywordIssueIds(normalizedActivityKeyword) : Promise.resolve(undefined),
+      normalizedVendorThreadStatus ? this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus) : Promise.resolve(undefined),
+      normalizedResolutionNotesKeyword ? this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword) : Promise.resolve(undefined),
+      normalizedResolutionNotesStatus ? this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus) : Promise.resolve(undefined),
+      normalizedManagerNotesKeyword ? this.resolveManagerNotesKeywordIssueIds(normalizedManagerNotesKeyword) : Promise.resolve(undefined),
+      normalizedManagerNotesStatus ? this.resolveManagerNotesPresenceIssueIds(normalizedManagerNotesStatus) : Promise.resolve(undefined),
+    ]);
     let effectiveIssueIds = requestedIssueIds.length > 0 ? requestedIssueIds : undefined;
 
     const applyIssueIdFilter = (ids?: number[]) => {
@@ -1691,13 +1700,32 @@ export class IssuesService {
         ...(issueResolution && { ai_resolution_status: issueResolution }),
         ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
       },
-      relations: ["issueUpdates"],
       take: limit,
       skip: (Number(page) - 1) * Number(limit),
       order: {
         id: "DESC",
       },
     });
+
+    // Batch-load issueUpdates for the current page in one query instead of the ORM eager join.
+    const pageIssueIdsForUpdates = issues.map((issue) => issue.id);
+    const pageIssueUpdates = pageIssueIdsForUpdates.length
+      ? await this.issueUpdatesRepo.find({
+          where: { issue: { id: In(pageIssueIdsForUpdates) } as any },
+          relations: ["issue"],
+        })
+      : [];
+    const updatesByIssueId = new Map<number, IssueUpdates[]>();
+    for (const update of pageIssueUpdates) {
+      const issueId = (update.issue as any)?.id;
+      if (issueId) {
+        if (!updatesByIssueId.has(issueId)) updatesByIssueId.set(issueId, []);
+        updatesByIssueId.get(issueId)!.push(update);
+      }
+    }
+    for (const issue of issues) {
+      (issue as any).issueUpdates = updatesByIssueId.get(issue.id) || [];
+    }
 
     const listingIdsToLoad = Array.from(
       new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean))
@@ -1707,24 +1735,47 @@ export class IssuesService {
       : [];
     const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
+    // Batch-load all reservations for the current page in one query (avoids N+1).
+    const reservationIdsToLoad = Array.from(new Set(
+      issues
+        .map((i) => i.reservation_id)
+        .filter((rid): rid is string => Boolean(rid) && rid !== "NA" && !Number.isNaN(Number(rid)))
+        .map(Number)
+    ));
+    const reservationMap = new Map<number, ReservationInfoEntity>();
+    if (reservationIdsToLoad.length > 0) {
+      const reservations = await appDatabase
+        .getRepository(ReservationInfoEntity)
+        .find({ where: { id: In(reservationIdsToLoad) } });
+      reservations.forEach((r) => reservationMap.set(r.id, r));
+    }
     for (const issue of issues) {
       const issueWithInfo = issue as Issue & { reservationInfo?: any };
-      if (issue.reservation_id && issue.reservation_id !== "NA") {
-        const reservationService = new ReservationInfoService();
-        issueWithInfo.reservationInfo =
-          await reservationService.getReservationById(
-            Number(issue.reservation_id)
-          );
-      } else {
-        issueWithInfo.reservationInfo = null;
-      }
+      issueWithInfo.reservationInfo =
+        issue.reservation_id && issue.reservation_id !== "NA"
+          ? (reservationMap.get(Number(issue.reservation_id)) ?? null)
+          : null;
     }
 
     const userDirectory = await this.buildIssueUserDirectory();
     const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
-    const fileInfoList = await this.fileInfoRepo.find({
-      where: [{ entityType: "issues" }, { entityType: "issue-updates" }],
-    });
+
+    // Scope file_info query to the current page's issue and update IDs (avoids full table scan).
+    const pageIssueIds = issues.map((issue) => issue.id);
+    const pageUpdateIds = issues.flatMap((issue) => (issue.issueUpdates || []).map((u) => u.id));
+    const fileInfoList =
+      pageIssueIds.length === 0 && pageUpdateIds.length === 0
+        ? []
+        : await this.fileInfoRepo.find({
+            where: [
+              ...(pageIssueIds.length > 0
+                ? [{ entityType: "issues", entityId: In(pageIssueIds) }]
+                : []),
+              ...(pageUpdateIds.length > 0
+                ? [{ entityType: "issue-updates", entityId: In(pageUpdateIds) }]
+                : []),
+            ],
+          });
 
     const transformedIssues = issues.map((issue) => {
       const listing = listingMap.get(Number(issue.listing_id));
@@ -1764,15 +1815,13 @@ export class IssuesService {
         serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
         ai_short_title: issue.ai_short_title,
         ai_checklist: parsedChecklist,
-        assigneeList: userDirectory.map((user) => {
-          return { uid: user.uid, name: user.name };
-        }),
       };
     });
 
     return {
       issues: transformedIssues,
       total,
+      assigneeList: userDirectory.map((user) => ({ uid: user.uid, name: user.name })),
     };
   }
 

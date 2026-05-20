@@ -438,7 +438,7 @@ export class IssuesController {
     try {
       const userId = request.user.id;
       const issuesService = new IssuesService();
-      const { issues, total } = await issuesService.getGuestIssues(
+      const { issues, total, assigneeList } = await issuesService.getGuestIssues(
         request.query,
         userId
       );
@@ -446,6 +446,7 @@ export class IssuesController {
         status: true,
         data: issues,
         total,
+        assigneeList,
       });
     } catch (error) {
       next(error);
