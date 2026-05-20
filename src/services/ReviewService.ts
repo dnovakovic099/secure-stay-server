@@ -2827,7 +2827,8 @@ export class ReviewService {
     }
 
 
-    getAdjustedDepartureDate(departureDate: Date): string {
+    getAdjustedDepartureDate(departureDate: Date | null | undefined): string {
+        if (!departureDate) return format(new Date(), 'yyyy-MM-dd');
         const dayOfWeek = getDay(departureDate); // Sunday = 0, Monday = 1, ..., Saturday = 6
         let adjustedDate = departureDate;
 
@@ -3084,7 +3085,7 @@ export class ReviewService {
         });
 
         if (!reviewCheckout) {
-            const departureDate = reservation.departureDate;
+            const departureDate = reservation.departureDate ?? new Date();
             reviewCheckout = this.reviewCheckoutRepo.create({
                 reservationInfo: reservation,
                 adjustedCheckoutDate: this.getAdjustedDepartureDate(departureDate),
