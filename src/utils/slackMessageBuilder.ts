@@ -2248,7 +2248,7 @@ export const buildItemSupplyRequestUpdateSlackMessage = (diff: Record<string, { 
 
 // ─── Resolutions Team (#resolutions-team) ──────────────────────────────────
 
-export const RESOLUTIONS_TEAM_CHANNEL = "#anj-test";
+export const RESOLUTIONS_TEAM_CHANNEL = "#resolutions-team";
 export const RESOLUTIONS_TEAM_ICON_URL = "https://securestay.ai/assets/Resolutions_Team.png?v=20260422c";
 const SLACK_SELECT_OPTION_LIMIT = 100;
 
@@ -2276,7 +2276,8 @@ const limitSlackSelectOptions = <T>(options: T[], currentOption?: T | null, isSa
 
 const truncateSlackOptionText = (value: string) => {
     const normalized = String(value || "—").trim() || "—";
-    return normalized.length > 75 ? `${normalized.slice(0, 72)}...` : normalized;
+    const truncated = normalized.length > 75 ? `${normalized.slice(0, 72)}...` : normalized;
+    return truncated.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 };
 
 const toSlackOptionValue = (prefix: string, value: string) => {

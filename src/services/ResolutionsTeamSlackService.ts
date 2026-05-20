@@ -594,7 +594,7 @@ export class ResolutionsTeamSlackService {
     // ─── Daily check-in message posting ───────────────────────────────────────
 
     async postDailyCheckoutMessages(): Promise<void> {
-        const today = `2026-05-02`; //getEasternDateString();
+        const today = getEasternDateString();
         logger.info(`[ResolutionsTeam] Posting daily check-in messages for ${today}`);
 
         const reviewService = new ReviewService();

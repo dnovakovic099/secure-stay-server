@@ -525,7 +525,7 @@ export function scheduleGetReservation() {
   // Resolutions Team — daily check-in messages to #resolutions-team at 9:05 AM EST
   // The Slack service also ensures today's review-checkout records before posting.
   schedule.scheduleJob(
-    { hour: 0, minute: 30, tz: "America/New_York" },
+    { hour: 9, minute: 5, tz: "America/New_York" },
     async () => {
       try {
         logger.info("[ResolutionsTeam] Posting daily check-in messages to #resolutions-team...");
