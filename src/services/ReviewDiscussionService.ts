@@ -14,6 +14,7 @@ import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import logger from "../utils/logger.utils";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { generateSlackMessageLink } from "../helpers/helpers";
+import { supabaseAdmin } from "../utils/supabase";
 
 type DiscussionFilter = "all" | "notes" | "system" | "ai" | "mentions";
 type DiscussionSort = "oldest" | "newest";
@@ -126,47 +127,199 @@ export class ReviewDiscussionService {
         return null;
     }
 
+    private looksLikeInternalIdentifier(value?: string | null) {
+        const rawValue = String(value || "").trim();
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawValue)
+            || /^[A-Za-z0-9_-]{20,}$/.test(rawValue);
+    }
+
+    private async getSupabaseUserDisplayName(userId: string): Promise<string | null> {
+        try {
+            const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+            if (error || !data?.user) return null;
+
+            const metadata = data.user.user_metadata || {};
+            const fullName = String(metadata.full_name || metadata.name || "").trim();
+            const firstName = String(metadata.first_name || metadata.firstName || "").trim();
+            const lastName = String(metadata.last_name || metadata.lastName || "").trim();
+
+            return fullName
+                || [firstName, lastName].filter(Boolean).join(" ").trim()
+                || data.user.email
+                || null;
+        } catch {
+            return null;
+        }
+    }
+
+    private async getSlackUserDisplay(slackUserId: string) {
+        const rawSlackUserId = String(slackUserId || "").trim();
+        if (!rawSlackUserId) {
+            return { displayName: null as string | null, avatarUrl: null as string | null };
+        }
+
+        const slackUsers = await getSlackUsers();
+        const slackUser = slackUsers.find((member: any) => member.id === rawSlackUserId);
+        const displayName = String(
+            slackUser?.display_name
+            || slackUser?.real_name
+            || slackUser?.name
+            || ""
+        ).trim();
+
+        return {
+            displayName: displayName || null,
+            avatarUrl: slackUser?.image || null,
+        };
+    }
+
+    private buildUserDisplayPayload(
+        user: UsersEntity | null,
+        employee?: Pick<Employee, "preferredName" | "profilePhoto" | "slackUserId" | "slackId"> | null,
+        fallbackName?: string | null
+    ) {
+        const firstName = String(user?.firstName || "").trim();
+        const lastName = String(user?.lastName || "").trim();
+        const preferredName = String(employee?.preferredName || "").trim();
+        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+        const email = String(user?.email || "").trim();
+        const fallback = String(fallbackName || "").trim();
+        const userName = preferredName
+            || fullName
+            || firstName
+            || email
+            || fallback
+            || "SecureStay User";
+        const mentionKeys = new Set<string>();
+
+        if (firstName) mentionKeys.add(`@${firstName.toLowerCase()}`);
+        if (lastName) mentionKeys.add(`@${lastName.toLowerCase()}`);
+        if (preferredName) mentionKeys.add(`@${preferredName.toLowerCase()}`);
+        if (fullName) mentionKeys.add(`@${fullName.toLowerCase().replace(/\s+/g, ".")}`);
+        if (email) mentionKeys.add(`@${email.toLowerCase().split("@")[0]}`);
+        if (user?.uid) mentionKeys.add(`@${user.uid.toLowerCase()}`);
+        if (employee?.slackUserId) mentionKeys.add(`<@${String(employee.slackUserId).toLowerCase()}>`);
+        if (employee?.slackId) mentionKeys.add(`<@${String(employee.slackId).toLowerCase()}>`);
+
+        return { userName, mentionKeys };
+    }
+
+    private decodeDiscussionEntities(content: string) {
+        return String(content || "")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'");
+    }
+
+    private stripSlackActivityWrapper(content: string) {
+        const withoutPrefix = String(content || "")
+            .replace(/^\s*(?:Resolution\s+)?Notes\s+(?:Added|Edited)\s+By:\s*[\s\S]*?(?:💬|:speech_balloon:|📝|:memo:)\s*/i, "");
+
+        return withoutPrefix
+            .split(/\r?\n/)
+            .filter((line) => !/^\s*[─_\-]{5,}\s*$/.test(line))
+            .join("\n")
+            .trim();
+    }
+
+    private async resolveDiscussionContent(content: string, stripSlackWrapper = false) {
+        const rawContent = String(content || "");
+        const matches = Array.from(rawContent.matchAll(/<@([A-Za-z0-9]+)(?:\|([^>]+))?>/g));
+        if (!matches.length) {
+            const decodedContent = this.decodeDiscussionEntities(rawContent);
+            return stripSlackWrapper ? this.stripSlackActivityWrapper(decodedContent) : decodedContent;
+        }
+
+        const slackUserIds = Array.from(new Set(matches.map((match) => match[1]).filter(Boolean)));
+        const displayBySlackId = new Map<string, string>();
+
+        await Promise.all(slackUserIds.map(async (slackUserId) => {
+            const { displayName } = await this.getSlackUserDisplay(slackUserId);
+            displayBySlackId.set(slackUserId, displayName || slackUserId);
+        }));
+
+        const resolvedContent = rawContent.replace(/<@([A-Za-z0-9]+)(?:\|([^>]+))?>/g, (_match, slackUserId, label) => {
+            const displayName = String(label || displayBySlackId.get(slackUserId) || slackUserId).trim();
+            return `@${displayName.replace(/^@+/, "")}`;
+        });
+        const decodedContent = this.decodeDiscussionEntities(resolvedContent);
+        return stripSlackWrapper ? this.stripSlackActivityWrapper(decodedContent) : decodedContent;
+    }
+
+    private normalizeAuthorName(authorName?: string | null) {
+        const rawAuthorName = String(authorName || "").trim();
+        if (!rawAuthorName) return "SecureStay User";
+        return this.looksLikeInternalIdentifier(rawAuthorName) ? "SecureStay User" : rawAuthorName;
+    }
+
     private async getUserDisplay(userId: string) {
-        const user = await this.userRepo.findOne({ where: { uid: userId } });
-        if (!user) {
+        const rawUserId = String(userId || "").trim();
+        const slackMentionMatch = rawUserId.match(/^<@([A-Z0-9]+)>$/i);
+        const normalizedUserId = slackMentionMatch?.[1] || rawUserId;
+
+        const employeeBySlack = await this.employeeRepo.findOne({
+            where: [
+                { slackUserId: normalizedUserId, deletedAt: null as any },
+                { slackId: normalizedUserId, deletedAt: null as any },
+            ],
+            select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
+        });
+        if (employeeBySlack) {
+            const user = await this.userRepo.findOne({ where: { id: employeeBySlack.userId } });
+            const slackDisplay = await this.getSlackUserDisplay(normalizedUserId);
+            const { userName, mentionKeys } = this.buildUserDisplayPayload(user, employeeBySlack, slackDisplay.displayName);
+            const profilePhotoId = Number(employeeBySlack.profilePhoto);
+            const photoInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
+                ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
+                : null;
+
             return {
-                userName: userId || "SecureStay User",
-                mentionKeys: userId ? [`@${String(userId).toLowerCase()}`] : [],
+                userName,
+                mentionKeys: Array.from(mentionKeys),
+                avatarUrl: this.buildEmployeePhotoUrl(photoInfo) || slackDisplay.avatarUrl,
+            };
+        }
+
+        if (/^U[A-Z0-9]+$/i.test(normalizedUserId)) {
+            const slackDisplay = await this.getSlackUserDisplay(normalizedUserId);
+            return {
+                userName: slackDisplay.displayName || "Slack User",
+                mentionKeys: [`<@${normalizedUserId.toLowerCase()}>`],
+                avatarUrl: slackDisplay.avatarUrl,
+            };
+        }
+
+        const user = await this.userRepo.findOne({ where: { uid: normalizedUserId } });
+        if (!user) {
+            const supabaseDisplayName = this.looksLikeInternalIdentifier(normalizedUserId)
+                ? await this.getSupabaseUserDisplayName(normalizedUserId)
+                : null;
+            return {
+                userName: supabaseDisplayName || (this.looksLikeInternalIdentifier(normalizedUserId) ? "SecureStay User" : normalizedUserId || "SecureStay User"),
+                mentionKeys: normalizedUserId ? [`@${String(normalizedUserId).toLowerCase()}`] : [],
                 avatarUrl: null as string | null,
             };
         }
 
         const employee = await this.employeeRepo.findOne({
             where: { userId: user.id, deletedAt: null as any },
-            select: ["userId", "preferredName", "profilePhoto", "slackUserId"],
+            select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
         });
-        const firstName = String(user.firstName || "").trim();
-        const lastName = String(user.lastName || "").trim();
-        const preferredName = String(employee?.preferredName || "").trim();
-        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-        const userName = preferredName || firstName || user.email || user.uid || "SecureStay User";
-        const mentionKeys = new Set<string>();
-        if (firstName) mentionKeys.add(`@${firstName.toLowerCase()}`);
-        if (lastName) mentionKeys.add(`@${lastName.toLowerCase()}`);
-        if (preferredName) mentionKeys.add(`@${preferredName.toLowerCase()}`);
-        if (fullName) mentionKeys.add(`@${fullName.toLowerCase().replace(/\s+/g, ".")}`);
-        if (user.email) mentionKeys.add(`@${user.email.toLowerCase().split("@")[0]}`);
-        if (user.uid) mentionKeys.add(`@${user.uid.toLowerCase()}`);
-        if (employee?.slackUserId) mentionKeys.add(`<@${String(employee.slackUserId).toLowerCase()}>`);
+        const { userName, mentionKeys } = this.buildUserDisplayPayload(user, employee);
 
         const profilePhotoId = Number(employee?.profilePhoto);
         const photoInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
             ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
             : null;
-        const slackUsers = await getSlackUsers();
-        const slackAvatarUrl = employee?.slackUserId
-            ? slackUsers.find((member: any) => member.id === employee.slackUserId)?.image || null
-            : null;
+        const slackDisplay = await this.getSlackUserDisplay(employee?.slackUserId || employee?.slackId || "");
 
         return {
             userName,
             mentionKeys: Array.from(mentionKeys),
-            avatarUrl: this.buildEmployeePhotoUrl(photoInfo) || slackAvatarUrl,
+            avatarUrl: this.buildEmployeePhotoUrl(photoInfo) || slackDisplay.avatarUrl,
         };
     }
 
@@ -362,10 +515,12 @@ export class ReviewDiscussionService {
         currentUserId: string,
         slackChannelId?: string | null
     ): Promise<DiscussionItemDTO> {
-        const isSlackSource = message.metadata?.source === "slack";
-        const authorDisplay = message.authorId && !isSlackSource
-            ? await this.getUserDisplay(message.authorId)
+        const authorKey = String(message.authorId || "").trim()
+            || (this.looksLikeInternalIdentifier(message.authorName) ? String(message.authorName || "").trim() : "");
+        const authorDisplay = authorKey
+            ? await this.getUserDisplay(authorKey)
             : null;
+        const content = await this.resolveDiscussionContent(message.content, message.metadata?.source === "slack");
         const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim() || null;
         const slackPermalink = this.buildSlackPermalink(slackChannelId, slackMessageTs);
 
@@ -375,9 +530,9 @@ export class ReviewDiscussionService {
             authorId: message.authorId,
             parentMessageId: message.parentMessageId ? String(message.parentMessageId) : null,
             sourceType: message.sourceType,
-            authorName: authorDisplay?.userName || message.authorName,
+            authorName: authorDisplay?.userName || this.normalizeAuthorName(message.authorName),
             authorAvatar: authorDisplay?.avatarUrl || message.authorAvatar || undefined,
-            content: message.content,
+            content,
             mentions: message.mentions || [],
             createdAt: message.createdAt.toISOString(),
             metadata: {
