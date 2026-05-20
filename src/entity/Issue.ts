@@ -1,11 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, Index } from "typeorm";
 import { IssueUpdates } from "./IsssueUpdates";
 
 @Entity('issues')
+@Index('idx_issues_status_listing_created', ['status', 'listing_id', 'created_at'])
 export class Issue {
     @PrimaryGeneratedColumn()
     id: number;
 
+    @Index()
     @Column({
         type: "enum",
         enum: ["New", "In Progress", "Overdue", "Completed", "Need Help", "Scheduled"],
@@ -13,12 +15,14 @@ export class Issue {
     })
     status: string;
 
+    @Index()
     @Column()
     listing_id: string;
 
     @Column({ nullable: true })
     listing_name: string;
 
+    @Index()
     @Column({ nullable: true })
     reservation_id: string;
 
@@ -31,6 +35,7 @@ export class Issue {
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
     reservation_amount: number;
 
+    @Index()
     @Column({ nullable: true })
     channel: string;
 
@@ -100,6 +105,7 @@ export class Issue {
     @Column({ nullable: true })
     completed_by: string;
 
+    @Index()
     @Column({ type: 'datetime', nullable: true })
     completed_at: Date;
 
@@ -112,9 +118,11 @@ export class Issue {
     @Column({ type: 'text', nullable: true })
     next_steps: string;
 
+    @Index()
     @CreateDateColumn()
     created_at: Date;
 
+    @Index()
     @UpdateDateColumn()
     updated_at: Date;
 
@@ -133,6 +141,7 @@ export class Issue {
     @Column({ type: 'text', nullable: true })
     fileNames: string;
 
+    @Index()
     @Column({ nullable: true })
     category: string;
 
@@ -172,9 +181,11 @@ export class Issue {
     @Column({ nullable: true })
     ai_guest_sentiment: string;
 
+    @Index()
     @Column({ nullable: true })
     assignee: string;
 
+    @Index()
     @Column({ nullable: true })
     urgency: number;
 
@@ -187,6 +198,7 @@ export class Issue {
     @Column({ nullable: true })
     nextUpdateDate: string;
 
+    @Index()
     @Column({ nullable: true })
     due_date: string;
 }
