@@ -471,6 +471,7 @@ export class ResolutionsTeamSlackService {
     }
 
     async ensureThreadForReservation(reservationId: number, userId?: string | null) {
+        try {
         const existing = await this.reviewCheckoutRepo.findOne({
             where: { reservationInfo: { id: reservationId } },
             relations: ["reservationInfo"],
@@ -564,6 +565,10 @@ export class ResolutionsTeamSlackService {
         }
 
         return reviewCheckout;
+        } catch (error: any) {
+            const msg = error?.message || 'Unknown error';
+            throw new Error(`Slack thread creation failed for reservation ${reservationId}: ${msg}`);
+        }
     }
 
     async handleLateCancelledReservation(reservationId: number, cancelledAt: Date = new Date()) {
