@@ -21,6 +21,9 @@ import { ResolutionService } from "./ResolutionService";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { generateSlackMessageLink } from "../helpers/helpers";
 
+const ACCOUNTING_TIME_ZONE = "America/New_York";
+const ACCOUNTING_TIMESTAMP_DATE_TYPES = new Set(["createdAt", "updatedAt"]);
+
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
     dateOfWork: string;
@@ -55,6 +58,72 @@ export class ExpenseService {
         const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
         if (!workspaceUrl || !slackMessage?.channel || !slackMessage?.threadTs) return null;
         return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), slackMessage.channel, slackMessage.threadTs);
+    }
+
+    private getTimeZoneOffsetMs(date: Date, timeZone: string) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+            hourCycle: "h23"
+        }).formatToParts(date);
+        const values = parts.reduce((acc, part) => {
+            if (part.type !== "literal") acc[part.type] = Number(part.value);
+            return acc;
+        }, {} as Record<string, number>);
+        const normalizedHour = values.hour === 24 ? 0 : values.hour;
+        const utcLikeTime = Date.UTC(values.year, values.month - 1, values.day, normalizedHour, values.minute, values.second);
+        return utcLikeTime - (date.getTime() - date.getMilliseconds());
+    }
+
+    private zonedDateTimeToUtc(dateString: string, hour: number, minute: number, second: number, millisecond: number) {
+        const [year, month, day] = dateString.split("-").map(Number);
+        const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+        const firstOffset = this.getTimeZoneOffsetMs(utcGuess, ACCOUNTING_TIME_ZONE);
+        const firstPass = new Date(utcGuess.getTime() - firstOffset);
+        const secondOffset = this.getTimeZoneOffsetMs(firstPass, ACCOUNTING_TIME_ZONE);
+        return new Date(utcGuess.getTime() - secondOffset);
+    }
+
+    private getAccountingTimestampRange(fromDate: string, toDate: string) {
+        return {
+            start: this.zonedDateTimeToUtc(fromDate, 0, 0, 0, 0),
+            end: this.zonedDateTimeToUtc(toDate, 23, 59, 59, 999)
+        };
+    }
+
+    private formatAccountingTimestamp(date?: Date | null) {
+        if (!date) return "";
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: ACCOUNTING_TIME_ZONE,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZoneName: "short"
+        }).format(date);
+    }
+
+    private extractTypeFromTags(tags: string | null | undefined, options: string[]) {
+        if (!tags) return null;
+        const tagList = tags.split(",").map(tag => tag.trim().toLowerCase());
+        const match = options.find(option => tagList.includes(option.toLowerCase()));
+        return match || null;
+    }
+
+    private extractPropertyType(listing?: Listing | null) {
+        return this.extractTypeFromTags(listing?.tags, ["Own", "Arb", "PM"]) || null;
+    }
+
+    private extractServiceType(listing?: Listing | null) {
+        return this.extractTypeFromTags(listing?.tags, ["Full", "Pro", "Launch"]) || null;
     }
 
     async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
@@ -175,6 +244,7 @@ export class ExpenseService {
             paymentMethod,
             tags,
             propertyType,
+            serviceType,
             keyword,
             expenseId,
             issueId,
@@ -202,8 +272,22 @@ export class ExpenseService {
         let listingIds = [];
         const listingService = new ListingService();
 
-        if (propertyType && Array.isArray(propertyType)) {
-            listingIds = (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id);
+        const hasPropertyTypeFilter = propertyType && Array.isArray(propertyType) && propertyType.length > 0;
+        const hasServiceTypeFilter = serviceType && Array.isArray(serviceType) && serviceType.length > 0;
+        const propertyTypeListingIds = hasPropertyTypeFilter
+            ? (await listingService.getListingsByPropertyTypes(propertyType as any)).map(l => l.id)
+            : [];
+        const serviceTypeListingIds = hasServiceTypeFilter
+            ? (await listingService.getListingsByServiceTypes(serviceType as any)).map(l => l.id)
+            : [];
+
+        if (hasPropertyTypeFilter || hasServiceTypeFilter) {
+            if (hasPropertyTypeFilter && hasServiceTypeFilter) {
+                listingIds = propertyTypeListingIds.filter(id => serviceTypeListingIds.includes(id));
+            } else {
+                listingIds = hasPropertyTypeFilter ? propertyTypeListingIds : serviceTypeListingIds;
+            }
+            if (listingIds.length === 0) listingIds = [-1];
         } else {
             listingIds = Array.isArray(listingId) ? listingId.map(Number) : (listingId ? [Number(listingId)] : []);
         }
@@ -211,6 +295,11 @@ export class ExpenseService {
         const normalizedContractorName = Array.isArray(contractorName) ? contractorName : (contractorName ? [String(contractorName)] : []);
         const normalizedStatus = Array.isArray(status) ? status : (status ? [String(status)] : []);
         const normalizedPaymentMethod = Array.isArray(paymentMethod) ? paymentMethod : (paymentMethod ? [String(paymentMethod)] : []);
+        const dateTypeString = String(dateType || "expenseDate");
+        const isTimestampDateType = ACCOUNTING_TIMESTAMP_DATE_TYPES.has(dateTypeString);
+        const accountingTimestampRange = fromDate && toDate && isTimestampDateType
+            ? this.getAccountingTimestampRange(String(fromDate), String(toDate))
+            : null;
 
         // Decide which listing IDs to use
         const effectiveListingIds =
@@ -232,7 +321,11 @@ export class ExpenseService {
                         listingMapId: In(effectiveListingIds),
                     }),
                     ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
-                    ...(fromDate && toDate && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
+                    ...(fromDate && toDate && {
+                        [dateTypeString]: accountingTimestampRange
+                            ? Between(accountingTimestampRange.start, accountingTimestampRange.end)
+                            : Between(String(fromDate), String(toDate))
+                    }),
                     ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
                     ...(normalizedStatus.length > 0 && {
                         status: In(normalizedStatus),
@@ -280,10 +373,10 @@ export class ExpenseService {
             withDeleted: true
         });
 
-        const listingNameMap = listings.reduce((acc, listing) => {
-            acc[listing.id] = listing.internalListingName;
+        const listingMap = listings.reduce((acc, listing) => {
+            acc[listing.id] = listing;
             return acc;
-        }, {} as Record<number, string>);
+        }, {} as Record<number, Listing>);
 
         const categoryService = new CategoryService();
         const categories = await categoryService.getAllCategories();
@@ -339,8 +432,10 @@ export class ExpenseService {
                     expenseId: expense.id,
                     status: expense.status,
                     amount: expense.amount,
-                    listing: listingNameMap[expense.listingMapId] || 'N/A',
+                    listing: listingMap[expense.listingMapId]?.internalListingName || 'N/A',
                     listingMapId: expense.listingMapId,
+                    propertyType: this.extractPropertyType(listingMap[expense.listingMapId]),
+                    serviceType: this.extractServiceType(listingMap[expense.listingMapId]),
                     dateAdded: expense.expenseDate,
                     dateOfWork: expense.dateOfWork,
                     datePaid: expense.datePaid,
@@ -352,8 +447,10 @@ export class ExpenseService {
                     paymentMethod: expense.paymentMethod,
                     paymentDetails: expense.paymentDetails,
                     slackThreadPermalink: this.buildSlackPermalink(slackMessageMap.get(expense.id)),
-                    createdAt: format(expense.createdAt, "yyyy-MM-dd"),
-                    updatedAt: format(expense.updatedAt, "yyyy-MM-dd"),
+                    createdAt: this.formatAccountingTimestamp(expense.createdAt),
+                    updatedAt: this.formatAccountingTimestamp(expense.updatedAt),
+                    createdAtTimestamp: expense.createdAt?.getTime() || 0,
+                    updatedAtTimestamp: expense.updatedAt?.getTime() || 0,
                     updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
                     attachments: fileLinks,
                     fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
@@ -373,7 +470,14 @@ export class ExpenseService {
             .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 });
 
         if (fromDate && toDate) {
-            qb.andWhere(`expense.${dateType} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+            if (accountingTimestampRange) {
+                qb.andWhere(`expense.${dateTypeString} BETWEEN :fromDate AND :toDate`, {
+                    fromDate: accountingTimestampRange.start,
+                    toDate: accountingTimestampRange.end
+                });
+            } else {
+                qb.andWhere(`expense.${dateTypeString} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+            }
         }
 
         if (expenseIds.length > 0) {
@@ -383,6 +487,10 @@ export class ExpenseService {
 
         if (effectiveListingIds.length > 0) {
             qb.andWhere('expense.listingMapId IN (:...listingIds)', { listingIds: effectiveListingIds });
+        }
+
+        if (listingIds.length > 0) {
+            qb.andWhere('expense.listingMapId IN (:...typeListingIds)', { typeListingIds: listingIds });
         }
 
         if (status !== "") {

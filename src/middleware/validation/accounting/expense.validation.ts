@@ -180,7 +180,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         categories: Joi.string().optional().allow(''),
         contractorName: Joi.array().items(Joi.string().required()).min(1).optional().allow("", null),
 
-        dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid'),
+        dateType: Joi.string().required().valid('expenseDate', 'dateOfWork', 'datePaid', 'createdAt', 'updatedAt'),
         expenseState: Joi.string().required().valid("active", "deleted").allow(null, ""),
 
         paymentMethod: Joi.array()
@@ -193,6 +193,7 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
 
         tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
+        serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional(),
         issueId: Joi.array().items(Joi.number()).optional(),

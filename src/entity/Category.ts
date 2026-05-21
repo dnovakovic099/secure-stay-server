@@ -10,4 +10,7 @@ export class CategoryEntity {
 
     @Column({nullable:true})
     hostawayId: number;
+
+    @Column({ type: 'int', nullable: true })
+    displayOrder: number;
 }
