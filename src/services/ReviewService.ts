@@ -207,6 +207,10 @@ export class ReviewService {
         'issues-grouped': 'ui-settings:issues-grouped',
         vendors: 'ui-settings:vendors',
         'vendor-contacts': 'ui-settings:vendor-contacts',
+        'accounting-income': 'ui-settings:accounting-income',
+        'accounting-expense': 'ui-settings:accounting-expense',
+        'accounting-extras': 'ui-settings:accounting-extras',
+        'accounting-resolution': 'ui-settings:accounting-resolution',
         mitigationStatuses: 'ui-settings:mitigation-statuses',
     } as const;
 
@@ -252,7 +256,7 @@ export class ReviewService {
         return this.settingsRepo.save(setting);
     }
 
-    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts') {
+    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution') {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
         const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
@@ -267,19 +271,19 @@ export class ReviewService {
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
         return this.saveReviewUiSettings(pageKey, payload);
     }
 
-    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         return this.saveReviewUiSettings(pageKey, {
             ...(Array.isArray(payload.sharedFilterViews) ? { sharedFilterViews: payload.sharedFilterViews } : {}),
             ...(Array.isArray(payload.sharedSavedViews) ? { sharedSavedViews: payload.sharedSavedViews } : {}),
         });
     }
 
-    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         const displayNames: Record<typeof pageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
@@ -287,6 +291,10 @@ export class ReviewService {
             'issues-grouped': 'Shared Grouped Issues UI Settings',
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
+            'accounting-income': 'Shared Accounting Income UI Settings',
+            'accounting-expense': 'Shared Accounting Expense UI Settings',
+            'accounting-extras': 'Shared Accounting Extras UI Settings',
+            'accounting-resolution': 'Shared Accounting Resolution UI Settings',
         };
         const currentPayload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys[pageKey] } }),

@@ -34,6 +34,42 @@ export class ExpenseSubscriber
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
 
+    private expenseChangeLabels: Record<string, string> = {
+        listingMapId: "Property",
+        expenseDate: "Expense Date",
+        concept: "Description",
+        amount: "Amount",
+        categories: "Categories",
+        dateOfWork: "Date of Work",
+        contractorName: "Contractor",
+        contractorNumber: "Contractor Number",
+        findings: "Findings",
+        status: "Status",
+        paymentMethod: "Payment Method",
+        paymentDetails: "Payment Details",
+        datePaid: "Date Paid",
+        issues: "Issues",
+        isRecurring: "Recurring",
+        llCover: "Covered by Luxury Lodging",
+        comesFrom: "Source",
+        reservationId: "Reservation",
+        guestName: "Guest Name",
+        fileNames: "Attachments"
+    };
+
+    private excludedChangeFields = new Set([
+        "id",
+        "expenseId",
+        "isDeleted",
+        "userId",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "updatedBy",
+        "upsellId",
+        "resolutionId"
+    ]);
+
     private async resolvePaymentDetailsMentions(expense: ExpenseEntity) {
         if (!expense.paymentDetails) return expense;
         const slackUsers = await getSlackUsers();
@@ -100,7 +136,57 @@ export class ExpenseSubscriber
         }
     }
 
-    private async updateSlackMessage(expense: any, userId: string, eventType: string) {
+    private escapeSlackText(value: string) {
+        return value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    private formatBooleanValue(value: any) {
+        return value ? "Yes" : "No";
+    }
+
+    private formatAttachmentNames(value: any) {
+        if (!value) return "-";
+        try {
+            const parsed = typeof value === "string" ? JSON.parse(value) : value;
+            if (Array.isArray(parsed)) return parsed.join(", ") || "-";
+        } catch {
+            return String(value);
+        }
+        return String(value);
+    }
+
+    private async formatChangeValue(field: string, value: any) {
+        if (value === null || value === undefined || value === "") return "-";
+        if (field === "amount") return `$${Math.abs(Number(value)).toFixed(2)}`;
+        if (field === "categories") return await this.getCategoryNames(String(value));
+        if (field === "listingMapId") {
+            const listingInfo = await this.listingRepo.findOne({ where: { id: Number(value) } });
+            return listingInfo?.internalListingName || String(value);
+        }
+        if (field === "isRecurring" || field === "llCover") return this.formatBooleanValue(value);
+        if (field === "fileNames") return this.formatAttachmentNames(value);
+        return String(value);
+    }
+
+    private async buildChangeRows(diff: Record<string, { old: any; new: any; }>) {
+        const rows = [];
+        for (const [field, change] of Object.entries(diff)) {
+            if (this.excludedChangeFields.has(field)) continue;
+
+            const label = this.expenseChangeLabels[field];
+            if (!label) continue;
+
+            const oldValue = await this.formatChangeValue(field, change.old);
+            const newValue = await this.formatChangeValue(field, change.new);
+            rows.push(`*${label}:* ~${this.escapeSlackText(oldValue)}~ → ${this.escapeSlackText(newValue)}`);
+        }
+        return rows;
+    }
+
+    private async updateSlackMessage(expense: any, userId: string, eventType: string, diff: Record<string, { old: any; new: any; }> = {}) {
         try {
             const users = await this.usersRepo.find();
             const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
@@ -109,22 +195,34 @@ export class ExpenseSubscriber
             const categoryNames = await this.getCategoryNames(expense.categories);
 
             const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
-            let slackMessage = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
+            const changeRows = await this.buildChangeRows(diff);
+            let slackMessage = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames, changeRows);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "expense",
                     entityId: expense.id
                 }
             });
+            if (!slackMessageInfo) return;
+
             if (eventType == "delete") {
                 slackMessage = buildExpenseSlackMessageDelete(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildExpenseStatusUpdateMessage(expenseForSlack as ExpenseEntity, userMap.get(userId) || userId);
+                slackMessage = buildExpenseStatusUpdateMessage(expenseForSlack as ExpenseEntity, userMap.get(userId) || userId, changeRows);
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            } else {
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
-            const mainMessage = buildExpenseSlackMessage(expenseForSlack as ExpenseEntity, userMap.get(expense.createdBy), listingInfo?.internalListingName, userMap.get(userId), categoryNames);
+            const mainMessage = buildExpenseSlackMessage(
+                expenseForSlack as ExpenseEntity,
+                userMap.get(expense.createdBy),
+                listingInfo?.internalListingName,
+                userMap.get(userId),
+                categoryNames,
+                { isDeleted: eventType == "delete" }
+            );
             const { channel, ...messageWithoutChannel } = mainMessage;
             await updateSlackMessage(messageWithoutChannel, slackMessageInfo.messageTs, slackMessageInfo.channel);
 
@@ -151,7 +249,7 @@ export class ExpenseSubscriber
             eventType = "delete";
         }
 
-        await this.updateSlackMessage(entity, entity.updatedBy, eventType);
+        await this.updateSlackMessage(entity, entity.updatedBy, eventType, diff);
 
         if (entity.resolutionId) {
             updateResolutionFromExpense.add('update-resolution-from-expense', { expense: entity });
@@ -166,5 +264,4 @@ export class ExpenseSubscriber
         const oldData = { ...databaseEntity };
     }
 }
-
 

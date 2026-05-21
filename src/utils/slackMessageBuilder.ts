@@ -1385,18 +1385,22 @@ export const buildExpenseSlackMessage = (
     createdBy: string,
     listingName?: string,
     updatedBy?: string,
-    categoryNames?: string
+    categoryNames?: string,
+    options?: { isDeleted?: boolean }
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
+    const title = options?.isDeleted
+        ? `❌ ${typeLabel} Deleted`
+        : `New ${typeLabel}: 🏠 ${listingName || 'Unknown Property'}`;
     return {
         channel: EXPENSE_CHANNEL,
-        text: `New ${typeLabel}: 🏠 ${listingName || 'Unknown Property'}`,
+        text: title,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*New ${typeLabel}: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${title}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
                 }
             },
             {
@@ -1486,7 +1490,8 @@ export const buildExpenseSlackMessageUpdate = (
     expense: ExpenseEntity,
     updatedBy: string,
     listingName?: string,
-    categoryNames?: string
+    categoryNames?: string,
+    changeRows?: string[]
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     return {
@@ -1530,6 +1535,13 @@ export const buildExpenseSlackMessageUpdate = (
                     type: "mrkdwn",
                     text: `*Payment Details:*\n${expense.paymentDetails}`
                 }
+            }] : []),
+            ...(changeRows && changeRows.length > 0 ? [{
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Changes:*\n${changeRows.join('\n')}`
+                }
             }] : [])
         ]
     };
@@ -1568,7 +1580,8 @@ export const buildExpenseSlackMessageDelete = (
 
 export const buildExpenseStatusUpdateMessage = (
     expense: ExpenseEntity,
-    updatedBy: string
+    updatedBy: string,
+    changeRows?: string[]
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     const slackMessage = {
@@ -1588,7 +1601,14 @@ export const buildExpenseStatusUpdateMessage = (
                     { type: "mrkdwn", text: `*New Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` },
                     { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
                 ]
-            }
+            },
+            ...(changeRows && changeRows.length > 0 ? [{
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Changes:*\n${changeRows.join('\n')}`
+                }
+            }] : [])
         ]
     };
 
