@@ -42,12 +42,12 @@ export class UnifiedWebhookController {
 
         if (prefix === "status") return { newStatus: actionValue };
         if (prefix === "assignee") return { assignee: actionValue };
-        if (prefix === "tag") return { tag: actionValue };
+        if (prefix === "tag") return { tag: actionValue.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') };
         return {};
     }
 
     private getReviewCheckoutIdFromAction(action: any, parsedValue?: any) {
-        const reviewCheckoutIdFromBlock = String(action.block_id || "").match(/review_checkout_actions:(\d+)/)?.[1];
+        const reviewCheckoutIdFromBlock = String(action.block_id || "").match(/review_checkout_[^:]+:(\d+)/)?.[1];
         return parsedValue?.reviewCheckoutId || reviewCheckoutIdFromBlock || null;
     }
 

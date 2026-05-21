@@ -27,8 +27,9 @@ const sendSlackMessage = async (message: any, threadTs?: string, attempt = 1): P
         });
 
         if (!response.data?.ok) {
+            const detail = response.data?.response_metadata?.messages?.join(' | ') || '';
             logger.error(
-                `[sendSlackMessage] Slack API error: ${response.data?.error} — channel=${payload.channel} blocks=${Array.isArray(payload.blocks) ? payload.blocks.length : 'none'}`
+                `[sendSlackMessage] Slack API error: ${response.data?.error}${detail ? ` — ${detail}` : ''} — channel=${payload.channel} blocks=${Array.isArray(payload.blocks) ? payload.blocks.length : 'none'}`
             );
         }
 
