@@ -2457,14 +2457,22 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         (left, right) => left.value === right.value
     );
     const normalizedSelectedTags = new Set(selectedTags.map((tag) => tag.toLowerCase()));
+    const encodeTagValue = (v: string) =>
+        v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const decodeTagValue = (v: string) =>
+        v.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
     const tagSelectOptions = tagOptions.slice(0, 100).map((tag) => ({
         text: { type: 'plain_text' as const, text: truncateSlackOptionText(tag.label) },
-        value: toSlackOptionValue('tag', tag.value),
+        value: toSlackOptionValue('tag', encodeTagValue(tag.value)),
     }));
     const currentTagOptions = tagSelectOptions.filter((option) => {
-        const tagValue = option.value.startsWith('tag:') ? option.value.slice(4) : option.value;
-        return normalizedSelectedTags.has(tagValue.toLowerCase());
+        const rawValue = option.value.startsWith('tag:') ? option.value.slice(4) : option.value;
+        return normalizedSelectedTags.has(decodeTagValue(rawValue).toLowerCase());
     });
+
+    const tagsText = selectedTags.length > 0
+        ? `🏷️ *Tags:* ${selectedTags.map((t) => escapeSlackLinkText(t)).join(' · ')}`
+        : '🏷️ *Tags*';
 
     return {
         channel: RESOLUTIONS_TEAM_CHANNEL,
@@ -2492,13 +2500,6 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                         ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
                         options: assigneeSelectOptions,
                     },
-                    ...(tagSelectOptions.length ? [{
-                        type: 'multi_static_select',
-                        action_id: 'update_review_checkout_tags',
-                        placeholder: { type: 'plain_text', text: 'Tags' },
-                        ...(currentTagOptions.length ? { initial_options: currentTagOptions } : {}),
-                        options: tagSelectOptions,
-                    }] : []),
                     {
                         type: 'button',
                         action_id: 'view_in_securestay',
@@ -2507,6 +2508,18 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                     },
                 ],
             },
+            ...(tagSelectOptions.length ? [{
+                type: 'section',
+                block_id: `review_checkout_tags:${reviewCheckoutId}`,
+                text: { type: 'mrkdwn', text: tagsText },
+                accessory: {
+                    type: 'multi_static_select',
+                    action_id: 'update_review_checkout_tags',
+                    placeholder: { type: 'plain_text', text: 'Edit tags' },
+                    ...(currentTagOptions.length ? { initial_options: currentTagOptions } : {}),
+                    options: tagSelectOptions,
+                },
+            }] : []),
         ],
         bot_name: 'Resolutions Team',
         bot_icon: RESOLUTIONS_TEAM_ICON_URL,
