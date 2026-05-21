@@ -8,7 +8,7 @@ import sendEmail from "../utils/sendEmai";
 import { formatCurrency } from "../helpers/helpers";
 import logger from "../utils/logger.utils";
 import { UsersEntity } from "../entity/Users";
-import { buildMitigationRefundRequestMessage, buildMitigationRefundRequestUpdateMessage, buildRefundRequestMessage, buildRefundRequestOriginalMessageForStatus, buildRefundRequestReminderMessage, buildUpdatedRefundRequestMessage, buildUpdatedStatusRefundRequestMessage } from "../utils/slackMessageBuilder";
+import { buildMitigationRefundRequestMessage, buildMitigationRefundRequestUpdateMessage, buildRefundRequestMessage, buildRefundRequestOriginalMessageForStatus, buildUpdatedRefundRequestMessage, buildUpdatedStatusRefundRequestMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -24,6 +24,7 @@ import { ReservationHistoryService, ReservationHistoryDiff } from "./Reservation
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { Employee } from "../entity/Employee";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -32,6 +33,7 @@ export class RefundRequestService {
   private listingRepo = appDatabase.getRepository(Listing);
   private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
+  private employeeRepo = appDatabase.getRepository(Employee);
   private reservationHistoryService = new ReservationHistoryService();
 
   private normalizeChargeToClient(value: unknown): number {
@@ -138,6 +140,35 @@ export class RefundRequestService {
     });
   }
 
+  private async attachReservationContext(refundRequest: RefundRequestEntity) {
+    if (!refundRequest.reservationId) return refundRequest;
+
+    const reservation = await this.reservationInfoRepo.findOne({
+      where: { id: Number(refundRequest.reservationId) },
+    });
+
+    if (reservation) {
+      (refundRequest as any).channelName = reservation.channelName || reservation.source || null;
+    }
+
+    return refundRequest;
+  }
+
+  private async getUserSlackMention(userId?: string | null) {
+    const rawUserId = String(userId || "").trim();
+    if (!rawUserId) return null;
+
+    const user = await this.usersRepo.findOne({ where: { uid: rawUserId } });
+    if (!user) return null;
+
+    const employee = await this.employeeRepo.findOne({
+      where: { userId: user.id, deletedAt: null as any },
+      select: ["userId", "slackUserId", "slackId"],
+    });
+    const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+    return slackMemberId ? `<@${slackMemberId}>` : null;
+  }
+
   private async getMitigationRefundSlackMessage(refundRequestId: number) {
     return await this.slackMessageRepo.findOne({
       where: {
@@ -158,10 +189,16 @@ export class RefundRequestService {
 
     const resolutionsService = new ResolutionsTeamSlackService();
     const anjSlackId = await resolutionsService.getAnjSlackUserId();
+    const [assigneeMention, submittedByMention] = await Promise.all([
+      this.getUserSlackMention(rc.assignee),
+      this.getUserSlackMention(refundRequest.createdBy),
+    ]);
     const channel = rc.slackChannelId || undefined;
     const msgPayload = buildMitigationRefundRequestMessage(refundRequest, {
       anjSlackId,
       submittedBy: actorName,
+      assigneeMention,
+      submittedByMention,
     });
 
     const existing = await this.getMitigationRefundSlackMessage(refundRequest.id);
@@ -197,14 +234,23 @@ export class RefundRequestService {
   private async postMitigationRefundUpdate(
     refundRequest: RefundRequestEntity,
     description: string,
-    updatedBy: string
+    updatedBy: string,
+    statusChange?: { oldStatus?: string | null; newStatus?: string | null }
   ) {
     const rc = await this.findMitigationThreadForRefundRequest(refundRequest);
     if (!rc?.slackThreadTs) return false;
 
+    const [assigneeMention, anjSlackId] = await Promise.all([
+      this.getUserSlackMention(rc.assignee),
+      new ResolutionsTeamSlackService().getAnjSlackUserId(),
+    ]);
     const msgPayload = buildMitigationRefundRequestUpdateMessage(refundRequest, {
       description,
       updatedBy,
+      assigneeMention,
+      anjSlackId,
+      oldStatus: statusChange?.oldStatus,
+      newStatus: statusChange?.newStatus,
     });
 
     await sendSlackMessage(
@@ -403,7 +449,12 @@ export class RefundRequestService {
         const description = isStatusChanged
           ? `Refund status changed from *${previousStatus || "—"}* to *${savedRefundRequest.status || "—"}*`
           : "Refund request updated";
-        await this.postMitigationRefundUpdate(savedRefundRequest, description, user);
+        await this.postMitigationRefundUpdate(
+          savedRefundRequest,
+          description,
+          user,
+          isStatusChanged ? { oldStatus: previousStatus, newStatus: savedRefundRequest.status } : undefined
+        );
       } else {
         const slackMessageInfo = await this.slackMessageRepo.findOne({
           where: {
@@ -465,6 +516,7 @@ export class RefundRequestService {
     slackMessageService: SlackMessageService
     ) {
         const newRefundRequest = await this.createRefundRequest(transactionManager, body, userId, attachments);
+        await this.attachReservationContext(newRefundRequest);
         await this.handleExpense(newRefundRequest.status, newRefundRequest, userId, transactionManager, newRefundRequest.id);
 
     const mitigationThreadHandled = await this.postOrUpdateMitigationRefundCard(
@@ -748,7 +800,12 @@ export class RefundRequestService {
           const description = isStatusChanged
             ? `Refund status changed from *${previousStatus || "—"}* to *${status || "—"}*`
             : "Refund request updated";
-          await this.postMitigationRefundUpdate(refundRequest, description, user);
+          await this.postMitigationRefundUpdate(
+            refundRequest,
+            description,
+            user,
+            isStatusChanged ? { oldStatus: previousStatus, newStatus: status } : undefined
+          );
         } else if (slackMessageInfo) {
           // 1. Update the original message to reflect the new status/buttons
           await updateSlackMessage(
@@ -900,7 +957,7 @@ export class RefundRequestService {
             }
         }
 
-      await sendSlackMessage(buildRefundRequestReminderMessage(refundRequests));
+        logger.info('Skipping Slack reminder for pending refund requests');
 
         // Send email to admin for all refund requests
         if (refundRequests.length == 1) {
