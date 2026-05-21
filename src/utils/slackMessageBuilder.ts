@@ -59,6 +59,88 @@ const normalizeSlackField = (value?: unknown, fallback = "—") => {
     return normalized || fallback;
 };
 
+const normalizeRefundChargeToClient = (value?: unknown) => {
+    return value === true || value === 1 || value === "1" || value === "true" ? "Yes" : "No";
+};
+
+const formatRefundDate = (value?: unknown) => {
+    if (!value) return "—";
+    const date = new Date(value as any);
+    if (Number.isNaN(date.getTime())) return normalizeSlackField(value);
+    return format(date, "MMM d, yyyy");
+};
+
+const formatRefundStayDates = (refundRequest: RefundRequestEntity) => {
+    const checkIn = formatRefundDate(refundRequest.checkIn);
+    const checkOut = formatRefundDate(refundRequest.checkOut);
+    if (checkIn === "—" && checkOut === "—") return "—";
+    return `${checkIn} - ${checkOut}`;
+};
+
+const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
+    const channelName = (refundRequest as any).channelName || (refundRequest as any).source;
+    return [
+        {
+            type: "section",
+            fields: [
+                {
+                    type: "mrkdwn",
+                    text: [
+                        `*Listing:*\n${normalizeSlackField(refundRequest.listingName)}`,
+                        `*Channel:*\n${normalizeSlackField(channelName)}`,
+                        `*Guest Name:*\n${normalizeSlackField(refundRequest.guestName)}`,
+                        `*Stay Dates:*\n${formatRefundStayDates(refundRequest)}`,
+                    ].join("\n")
+                },
+                {
+                    type: "mrkdwn",
+                    text: [
+                        `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}`,
+                        `*Charge to Client:*\n${normalizeRefundChargeToClient(refundRequest.chargeToClient)}`,
+                        `*Payment Method:*\n${normalizeSlackField(refundRequest.paymentMethod)}`,
+                        `*Payment Details:*\n${normalizeSlackField(refundRequest.paymentDetails)}`,
+                    ].join("\n")
+                }
+            ]
+        },
+        {
+            type: "section",
+            text: { type: "mrkdwn", text: `*Explanation:*\n${normalizeSlackField(refundRequest.explaination)}` }
+        },
+        {
+            type: "section",
+            text: { type: "mrkdwn", text: `*Notes:*\n${normalizeSlackField(refundRequest.notes)}` }
+        }
+    ];
+};
+
+const buildRefundRequestSubmissionHeader = (
+    refundRequest: RefundRequestEntity,
+    options: {
+        anjMention: string;
+        assigneeMention?: string | null;
+        submittedByMention?: string | null;
+    }
+) => {
+    const normalizedStatus = String(refundRequest.status || "Pending").trim().toLowerCase();
+    if (normalizedStatus === "paid") {
+        const mentions = [
+            options.anjMention,
+            options.assigneeMention,
+            options.submittedByMention && options.submittedByMention !== options.assigneeMention
+                ? options.submittedByMention
+                : null,
+        ].filter(Boolean);
+        return `${Array.from(new Set(mentions)).join(" ")} Payment has been processed`;
+    }
+
+    if (normalizedStatus === "for processing") {
+        return `${options.anjMention} please process`;
+    }
+
+    return `${options.anjMention} please review`;
+};
+
 const parseRefundIssueIds = (issueId?: string | null): string[] => {
     if (!issueId) return [];
     try {
@@ -80,12 +162,14 @@ const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", 
 
 const getRefundStatusLabelWithEmoji = (status?: string | null) => {
     const normalized = status || "Pending";
-    const emoji = normalized === "Approved" ? "✅"
-        : normalized === "For Processing" ? "🔄"
-        : normalized === "Denied" ? "❌"
-        : normalized === "Paid" ? "💰"
-        : normalized === "Cancelled" ? "🚫"
-        : "⏳";
+    const statusKey = normalized.trim().toLowerCase();
+    const emoji = statusKey === "pending" ? "🟡"
+        : statusKey === "approved" ? "🔵"
+        : statusKey === "for processing" ? "🟢"
+        : statusKey === "paid" ? "✅"
+        : statusKey === "denied" ? "🚫"
+        : statusKey === "cancelled" ? "🔴"
+        : "🟡";
     return `${emoji} ${normalized}`;
 };
 
@@ -234,15 +318,7 @@ export const buildRefundRequestMessage = (refundRequest: RefundRequestEntity, sl
                     text: `*You have a new refund request:* ${buildRefundIssueLink(refundRequest)}`
                 }
             },
-            {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Reservation:*\n${refundRequest.guestName}` },
-                    { type: "mrkdwn", text: `*Listing:*\n${refundRequest.listingName}` },
-                    { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}` },
-                    { type: "mrkdwn", text: `*Explaination:*\n${refundRequest.explaination}` }
-                ]
-            },
+            ...buildRefundRequestDetailBlocks(refundRequest),
             {
                 type: "actions",
                 elements: [
@@ -361,15 +437,7 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
                 text: `*Refund request:* ${buildRefundIssueLink(refundRequest)}`
             }
         },
-        {
-            type: "section",
-            fields: [
-                { type: "mrkdwn", text: `*Reservation:*\n${refundRequest.guestName}` },
-                { type: "mrkdwn", text: `*Listing:*\n${refundRequest.listingName}` },
-                { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}` },
-                { type: "mrkdwn", text: `*Explanation:*\n${refundRequest.explaination}` }
-            ]
-        },
+        ...buildRefundRequestDetailBlocks(refundRequest),
         {
             type: "section",
             text: { type: "mrkdwn", text: statusLabel }
@@ -386,7 +454,12 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
 
 export const buildMitigationRefundRequestMessage = (
     refundRequest: RefundRequestEntity,
-    options: { anjSlackId?: string | null; submittedBy?: string | null; }
+    options: {
+        anjSlackId?: string | null;
+        submittedBy?: string | null;
+        assigneeMention?: string | null;
+        submittedByMention?: string | null;
+    }
 ) => {
     const currentStatus = REFUND_REQUEST_STATUS_OPTIONS.includes(refundRequest.status)
         ? refundRequest.status
@@ -395,32 +468,23 @@ export const buildMitigationRefundRequestMessage = (
     const mitigationUrl = `https://securestay.ai/mitigation?reservationId=${refundRequest.reservationId}`;
     const anjMention = options.anjSlackId ? `<@${options.anjSlackId}>` : "Anj";
     const submittedBy = normalizeSlackField(options.submittedBy, "SecureStay User");
-    const paymentLines = [
-        `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}`,
-        refundRequest.paymentMethod ? `*Payment Method:*\n${refundRequest.paymentMethod}` : "",
-        refundRequest.paymentDetails ? `*Payment Details:*\n${refundRequest.paymentDetails}` : "",
-        refundRequest.chargeToClient ? `*Charge to Client:*\nYes` : "",
-    ].filter(Boolean).join("\n");
+    const headerMessage = buildRefundRequestSubmissionHeader(refundRequest, {
+        anjMention,
+        assigneeMention: options.assigneeMention,
+        submittedByMention: options.submittedByMention,
+    });
 
     return {
-        text: `💸 Refund Request — ${formatCurrency(refundRequest.refundAmount)} | ${anjMention} please review`,
+        text: `💸 Refund Request — ${formatCurrency(refundRequest.refundAmount)} | ${headerMessage}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `💸 *Refund Request* | ${anjMention} please review`
+                    text: `💸 *Refund Request* | ${headerMessage}`
                 }
             },
-            {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Reservation:*\n${normalizeSlackField(refundRequest.guestName)}` },
-                    { type: "mrkdwn", text: `*Listing:*\n${normalizeSlackField(refundRequest.listingName)}` },
-                    { type: "mrkdwn", text: paymentLines },
-                    { type: "mrkdwn", text: `*Explanation:*\n${normalizeSlackField(refundRequest.explaination)}` }
-                ]
-            },
+            ...buildRefundRequestDetailBlocks(refundRequest),
             {
                 type: "actions",
                 elements: [
@@ -461,11 +525,25 @@ export const buildMitigationRefundRequestMessage = (
 
 export const buildMitigationRefundRequestUpdateMessage = (
     refundRequest: RefundRequestEntity,
-    options: { description: string; updatedBy?: string | null; }
+    options: {
+        description: string;
+        updatedBy?: string | null;
+        assigneeMention?: string | null;
+        anjSlackId?: string | null;
+        oldStatus?: string | null;
+        newStatus?: string | null;
+    }
 ) => {
-    const description = options.description.trim().startsWith("💸")
-        ? options.description.trim()
-        : `💸 ${options.description.trim()}`;
+    const normalizedNewStatus = String(options.newStatus || refundRequest.status || "").trim();
+    const isStatusUpdate = Boolean(options.oldStatus || options.newStatus);
+    const processingMention = normalizedNewStatus.toLowerCase() === "for processing"
+        ? ` <@${options.anjSlackId || "U08END0JTBM"}> please process`
+        : "";
+    const rawDescription = isStatusUpdate
+        ? `Refund status changed from *${options.oldStatus || "—"}* to *${getRefundStatusLabelWithEmoji(normalizedNewStatus)}*${processingMention}`
+        : options.description.trim();
+    const description = rawDescription.startsWith("💸") ? rawDescription : `💸 ${rawDescription}`;
+    const assigneeLabel = normalizeSlackField(options.assigneeMention, "Unassigned");
 
     return {
         text: description,
@@ -478,8 +556,11 @@ export const buildMitigationRefundRequestUpdateMessage = (
                 }
             },
             {
-                type: "context",
-                elements: [{ type: "mrkdwn", text: `Updated By: ${normalizeSlackField(options.updatedBy, "SecureStay User")}` }]
+                type: "section",
+                fields: [
+                    { type: "mrkdwn", text: `*cc:*\n${assigneeLabel}` },
+                    { type: "mrkdwn", text: `*Updated By:*\n${normalizeSlackField(options.updatedBy, "SecureStay User")}` }
+                ]
             }
         ],
         unfurl_links: false,
