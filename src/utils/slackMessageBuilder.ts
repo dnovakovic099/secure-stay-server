@@ -71,10 +71,21 @@ const formatRefundDate = (value?: unknown) => {
 };
 
 const formatRefundStayDates = (refundRequest: RefundRequestEntity) => {
-    const checkIn = formatRefundDate(refundRequest.checkIn);
-    const checkOut = formatRefundDate(refundRequest.checkOut);
-    if (checkIn === "—" && checkOut === "—") return "—";
-    return `${checkIn} - ${checkOut}`;
+    const checkInDate = refundRequest.checkIn ? new Date(refundRequest.checkIn as any) : null;
+    const checkOutDate = refundRequest.checkOut ? new Date(refundRequest.checkOut as any) : null;
+    const hasValidCheckIn = checkInDate && !Number.isNaN(checkInDate.getTime());
+    const hasValidCheckOut = checkOutDate && !Number.isNaN(checkOutDate.getTime());
+
+    if (!hasValidCheckIn && !hasValidCheckOut) return "—";
+    if (!hasValidCheckIn) return formatRefundDate(refundRequest.checkOut);
+    if (!hasValidCheckOut) return formatRefundDate(refundRequest.checkIn);
+
+    const sameMonth = checkInDate.getFullYear() === checkOutDate.getFullYear()
+        && checkInDate.getMonth() === checkOutDate.getMonth();
+    const checkoutDay = format(checkOutDate, "dd");
+    return sameMonth
+        ? `${format(checkInDate, "MMM d")} → ${checkoutDay}`
+        : `${format(checkInDate, "MMM d")} → ${format(checkOutDate, "MMM dd")}`;
 };
 
 const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
@@ -83,24 +94,14 @@ const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
         {
             type: "section",
             fields: [
-                {
-                    type: "mrkdwn",
-                    text: [
-                        `*Listing:*\n${normalizeSlackField(refundRequest.listingName)}`,
-                        `*Channel:*\n${normalizeSlackField(channelName)}`,
-                        `*Guest Name:*\n${normalizeSlackField(refundRequest.guestName)}`,
-                        `*Stay Dates:*\n${formatRefundStayDates(refundRequest)}`,
-                    ].join("\n")
-                },
-                {
-                    type: "mrkdwn",
-                    text: [
-                        `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}`,
-                        `*Charge to Client:*\n${normalizeRefundChargeToClient(refundRequest.chargeToClient)}`,
-                        `*Payment Method:*\n${normalizeSlackField(refundRequest.paymentMethod)}`,
-                        `*Payment Details:*\n${normalizeSlackField(refundRequest.paymentDetails)}`,
-                    ].join("\n")
-                }
+                { type: "mrkdwn", text: `*Listing:* ${normalizeSlackField(refundRequest.listingName)}` },
+                { type: "mrkdwn", text: `*Amount:* ${formatCurrency(refundRequest.refundAmount)}` },
+                { type: "mrkdwn", text: `*Channel:* ${normalizeSlackField(channelName)}` },
+                { type: "mrkdwn", text: `*Charge to Client:* ${normalizeRefundChargeToClient(refundRequest.chargeToClient)}` },
+                { type: "mrkdwn", text: `*Guest Name:* ${normalizeSlackField(refundRequest.guestName)}` },
+                { type: "mrkdwn", text: `*Payment Method:* ${normalizeSlackField(refundRequest.paymentMethod)}` },
+                { type: "mrkdwn", text: `*Stay Dates:* ${formatRefundStayDates(refundRequest)}` },
+                { type: "mrkdwn", text: `*Payment Details:* ${normalizeSlackField(refundRequest.paymentDetails)}` },
             ]
         },
         {
@@ -544,6 +545,7 @@ export const buildMitigationRefundRequestUpdateMessage = (
         : options.description.trim();
     const description = rawDescription.startsWith("💸") ? rawDescription : `💸 ${rawDescription}`;
     const assigneeLabel = normalizeSlackField(options.assigneeMention, "Unassigned");
+    const updatedBy = normalizeSlackField(options.updatedBy, "SecureStay User");
 
     return {
         text: description,
@@ -555,11 +557,12 @@ export const buildMitigationRefundRequestUpdateMessage = (
                     text: `${description}\n*Refund Request:* <https://securestay.ai/luxury-lodging/refund-requests?id=${refundRequest.id}|${normalizeSlackField(refundRequest.guestName)} — ${formatCurrency(refundRequest.refundAmount)}>`
                 }
             },
+            ...buildRefundRequestDetailBlocks(refundRequest),
             {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*cc:*\n${assigneeLabel}` },
-                    { type: "mrkdwn", text: `*Updated By:*\n${normalizeSlackField(options.updatedBy, "SecureStay User")}` }
+                type: "context",
+                elements: [
+                    { type: "mrkdwn", text: `cc: ${assigneeLabel}` },
+                    { type: "mrkdwn", text: `Updated By: ${updatedBy}` }
                 ]
             }
         ],
@@ -1571,10 +1574,13 @@ export const buildExpenseSlackMessageUpdate = (
     expense: ExpenseEntity,
     updatedBy: string,
     listingName?: string,
-    categoryNames?: string,
+    _categoryNames?: string,
     changeRows?: string[]
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
+    const changesText = changeRows && changeRows.length > 0
+        ? changeRows.join('\n')
+        : "No displayable field changes were detected.";
     return {
         channel: EXPENSE_CHANNEL,
         text: `${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}`,
@@ -1588,42 +1594,11 @@ export const buildExpenseSlackMessageUpdate = (
             },
             {
                 type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
-                    { type: "mrkdwn", text: `*Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` }
-                ]
-            },
-            {
-                type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Description:*\n${expense.concept || 'No description provided'}`
+                    text: `*Updated By:* ${updatedBy || 'SecureStay User'}\n*Changes:*\n${changesText}`
                 }
-            },
-            {
-                type: "section",
-                fields: [
-                    { type: "mrkdwn", text: `*Contractor:* ${expense.contractorName || '-'}` },
-                    { type: "mrkdwn", text: `*Payment Method:* ${expense.paymentMethod || '-'}` },
-                    { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
-                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` },
-                    ...(expense.llCover ? [{ type: "mrkdwn", text: `*Covered by Luxury Lodging*` }] : [])
-                ]
-            },
-            ...(expense.paymentDetails ? [{
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Payment Details:*\n${expense.paymentDetails}`
-                }
-            }] : []),
-            ...(changeRows && changeRows.length > 0 ? [{
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Changes:*\n${changeRows.join('\n')}`
-                }
-            }] : [])
+            }
         ]
     };
 };
@@ -1665,6 +1640,11 @@ export const buildExpenseStatusUpdateMessage = (
     changeRows?: string[]
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
+    const statusChangeRow = changeRows?.find(row => row.startsWith("*Status:*"));
+    const statusMatch = statusChangeRow?.match(/\*Status:\*\s+~(.+?)~\s+→\s+(.+)$/);
+    const statusText = statusMatch
+        ? `~${statusMatch[1]}~ → ${expenseStatusEmoji(expense.status)}${statusMatch[2]}`
+        : `${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}`;
     const slackMessage = {
         channel: EXPENSE_CHANNEL,
         text: `${typeLabel} Status Updated`,
@@ -1679,17 +1659,10 @@ export const buildExpenseStatusUpdateMessage = (
             {
                 type: "section",
                 fields: [
-                    { type: "mrkdwn", text: `*New Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` },
+                    { type: "mrkdwn", text: `*Status:* ${statusText}` },
                     { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
                 ]
-            },
-            ...(changeRows && changeRows.length > 0 ? [{
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*Changes:*\n${changeRows.join('\n')}`
-                }
-            }] : [])
+            }
         ]
     };
 
@@ -2528,7 +2501,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled' | 'reservation_altered';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2576,6 +2549,9 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
         }
         case 'reservation_cancelled':
             text = `❌ ${details || 'Reservation was cancelled after check-in time.'}`;
+            break;
+        case 'reservation_altered':
+            text = `⏩️ ${details || 'Reservation was altered.'}`;
             break;
         case 'visibility':
             text = `🌟 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;

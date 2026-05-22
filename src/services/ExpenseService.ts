@@ -242,6 +242,8 @@ export class ExpenseService {
             expenseState,
             dateType,
             paymentMethod,
+            paymentDetails,
+            llCover,
             tags,
             propertyType,
             serviceType,
@@ -295,6 +297,8 @@ export class ExpenseService {
         const normalizedContractorName = Array.isArray(contractorName) ? contractorName : (contractorName ? [String(contractorName)] : []);
         const normalizedStatus = Array.isArray(status) ? status : (status ? [String(status)] : []);
         const normalizedPaymentMethod = Array.isArray(paymentMethod) ? paymentMethod : (paymentMethod ? [String(paymentMethod)] : []);
+        const normalizedPaymentDetails = Array.isArray(paymentDetails) ? paymentDetails.map(String) : (paymentDetails ? [String(paymentDetails)] : []);
+        const normalizedLlCover = Array.isArray(llCover) ? llCover.map(Number) : (llCover !== undefined && llCover !== '' ? [Number(llCover)] : []);
         const dateTypeString = String(dateType || "expenseDate");
         const isTimestampDateType = ACCOUNTING_TIMESTAMP_DATE_TYPES.has(dateTypeString);
         const accountingTimestampRange = fromDate && toDate && isTimestampDateType
@@ -332,6 +336,15 @@ export class ExpenseService {
                     }),
                     ...(normalizedPaymentMethod.length > 0 && {
                         paymentMethod: In(normalizedPaymentMethod),
+                    }),
+                    ...(normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'with' && {
+                        paymentDetails: Raw(alias => `${alias} IS NOT NULL AND ${alias} != ''`),
+                    }),
+                    ...(normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'without' && {
+                        paymentDetails: Raw(alias => `(${alias} IS NULL OR ${alias} = '')`),
+                    }),
+                    ...(normalizedLlCover.length === 1 && Number.isFinite(normalizedLlCover[0]) && {
+                        llCover: normalizedLlCover[0],
                     }),
                     ...(expenseIds.length > 0 && { id: In(expenseIds) }),
                     ...(issueIds.length > 0 && {
@@ -698,11 +711,14 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+        const paidDate = status === ExpenseStatus.PAID && !datePaid
+            ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
+            : datePaid;
 
         expense.forEach((element) => {
             element.status = status;
-            if (datePaid !== "") {
-                element.datePaid = datePaid;
+            if (paidDate !== "") {
+                element.datePaid = paidDate;
             }
             element.updatedBy = userId;
             element.updatedAt = new Date();

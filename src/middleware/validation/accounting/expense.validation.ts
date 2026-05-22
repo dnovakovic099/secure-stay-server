@@ -191,6 +191,18 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .optional()
             .allow('', null),
 
+        paymentDetails: Joi.array()
+            .items(Joi.string().valid("with", "without"))
+            .min(1)
+            .optional()
+            .allow('', null),
+
+        llCover: Joi.array()
+            .items(Joi.string().valid("0", "1"))
+            .min(1)
+            .optional()
+            .allow('', null),
+
         tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
