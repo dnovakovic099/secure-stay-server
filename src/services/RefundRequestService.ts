@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { Between, EntityManager, ILike, In } from "typeorm";
+import { Between, Brackets, EntityManager, ILike, In } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -13,7 +13,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import updateSlackMessage from "../utils/updateSlackMsg";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { SlackMessageService } from "./SlackMessageService";
-import { ExpenseStatus } from "../entity/Expense";
+import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { ListingService } from "./ListingService";
 import { FileInfo } from "../entity/FileInfo";
 import { categoryIds } from "../constant";
@@ -732,7 +732,66 @@ export class RefundRequestService {
             whereConditions.paymentMethod = In(paymentMethodFilters);
         }
 
-        const selectedDateField = dateType === "checkIn" ? "checkIn" : dateType === "checkOut" ? "checkOut" : dateType === "updatedAt" ? "updatedAt" : "createdAt";
+        const selectedDateField = dateType === "checkIn" ? "checkIn" : dateType === "checkOut" ? "checkOut" : dateType === "updatedAt" ? "updatedAt" : dateType === "datePaid" ? "datePaid" : "createdAt";
+        if (selectedDateField === "datePaid") {
+            const qb = this.refundRequestRepo
+                .createQueryBuilder("refundRequest")
+                .leftJoin(ExpenseEntity, "expense", "expense.id = refundRequest.expenseId");
+
+            if (statusFilters.length) {
+                qb.andWhere("refundRequest.status IN (:...statusFilters)", { statusFilters });
+            }
+            if (reservationIdFilters.length) {
+                qb.andWhere("refundRequest.reservationId IN (:...reservationIdFilters)", { reservationIdFilters });
+            }
+            if (listingIdFilters.length || propertyTypes.length || serviceTypes.length) {
+                const explicitListingIds = listingIdFilters.map(Number).filter(Boolean);
+                let effectiveListingIds = explicitListingIds;
+
+                if (propertyTypes.length || serviceTypes.length) {
+                    effectiveListingIds = explicitListingIds.length
+                        ? explicitListingIds.filter((id) => listingIds.includes(id))
+                        : listingIds;
+                }
+
+                qb.andWhere("refundRequest.listingId IN (:...effectiveListingIds)", { effectiveListingIds: effectiveListingIds.length ? effectiveListingIds : [-1] });
+            }
+            if (chargeToClient === "true" || chargeToClient === "1") {
+                qb.andWhere("refundRequest.chargeToClient = :chargeToClient", { chargeToClient: 1 });
+            } else if (chargeToClient === "false" || chargeToClient === "0") {
+                qb.andWhere("refundRequest.chargeToClient = :chargeToClient", { chargeToClient: 0 });
+            }
+            if (createdByFilters.length) {
+                qb.andWhere("refundRequest.createdBy IN (:...createdByFilters)", { createdByFilters });
+            }
+            if (paymentMethodFilters.length) {
+                qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
+            }
+            if (fromDate || toDate) {
+                qb.andWhere("expense.datePaid BETWEEN :fromDate AND :toDate", {
+                    fromDate: fromDate || "1970-01-01",
+                    toDate: toDate || "2999-12-31",
+                });
+            }
+            if (keyword) {
+                const keywordLike = `%${String(keyword).toLowerCase()}%`;
+                qb.andWhere(new Brackets((subQuery) => {
+                    subQuery
+                        .where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike })
+                        .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike });
+                }));
+            }
+
+            const [data, total] = await qb
+                .orderBy("refundRequest.createdAt", "DESC")
+                .take(limit)
+                .skip(offset)
+                .getManyAndCount();
+
+            await this.decorateRefundRequests(data);
+            return { data, total };
+        }
+
         if (fromDate || toDate) {
             if (selectedDateField === "checkIn" || selectedDateField === "checkOut") {
                 whereConditions[selectedDateField] = Between(fromDate || "1970-01-01", toDate || "2999-12-31");
