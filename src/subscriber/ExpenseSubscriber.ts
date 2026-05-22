@@ -196,7 +196,7 @@ export class ExpenseSubscriber
 
             const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
             const changeRows = await this.buildChangeRows(diff);
-            let slackMessage = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames, changeRows);
+            let slackMessage: any = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames, changeRows);
             const slackMessageInfo = await this.slackMessageInfo.findOne({
                 where: {
                     entityType: "expense",
@@ -264,4 +264,3 @@ export class ExpenseSubscriber
         const oldData = { ...databaseEntity };
     }
 }
-
