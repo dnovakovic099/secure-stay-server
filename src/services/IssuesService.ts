@@ -2751,6 +2751,37 @@ export class IssuesService {
     return user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || uid : uid;
   }
 
+  private async saveResolutionAnalysisRefresh(issue: Issue, values: {
+    issueResolution: string;
+    guestSentiment: string;
+    resolution: string;
+  }) {
+    const systemActor = "system";
+    issue.ai_resolution_status = values.issueResolution;
+    issue.ai_guest_sentiment = values.guestSentiment;
+    issue.resolution = values.resolution;
+    issue.resolution_refreshed_at = new Date();
+    issue.resolution_refreshed_by = systemActor;
+    const saved = await this.issueRepo.save(issue);
+
+    const update = this.issueUpdatesRepo.create({
+      issue: saved,
+      updates: "Resolution AI analysis refreshed.",
+      createdBy: systemActor,
+      source: "system",
+    });
+    await this.issueUpdatesRepo.save(update);
+
+    return {
+      issueResolution: saved.ai_resolution_status,
+      guestSentiment: saved.ai_guest_sentiment,
+      resolution: saved.resolution,
+      resolutionRefreshedAt: saved.resolution_refreshed_at,
+      resolutionRefreshedBy: saved.resolution_refreshed_by,
+      resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
+    };
+  }
+
   async refreshResolutionAnalysisIfStale(issueId: number, userId?: string) {
     const issue = await this.issueRepo.findOne({ where: { id: issueId } });
     if (!issue) {
@@ -2810,7 +2841,7 @@ export class IssuesService {
     return { checked: rows?.length || 0, refreshed };
   }
 
-  async generateResolutionAnalysis(issueId: number, refreshedBy = "system") {
+  async generateResolutionAnalysis(issueId: number, _refreshedBy = "system") {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
       relations: ["issueUpdates"],
@@ -2842,20 +2873,7 @@ export class IssuesService {
     };
 
     if (!this.openai || updates.length === 0) {
-      issue.ai_resolution_status = fallback.issueResolution;
-      issue.ai_guest_sentiment = fallback.guestSentiment;
-      issue.resolution = fallback.resolution;
-      issue.resolution_refreshed_at = new Date();
-      issue.resolution_refreshed_by = refreshedBy;
-      const saved = await this.issueRepo.save(issue);
-      return {
-        issueResolution: saved.ai_resolution_status,
-        guestSentiment: saved.ai_guest_sentiment,
-        resolution: saved.resolution,
-        resolutionRefreshedAt: saved.resolution_refreshed_at,
-        resolutionRefreshedBy: saved.resolution_refreshed_by,
-        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
-      };
+      return this.saveResolutionAnalysisRefresh(issue, fallback);
     }
 
     try {
@@ -2897,37 +2915,14 @@ export class IssuesService {
         guestRelationSummary,
       ].join("\n");
 
-      issue.ai_resolution_status = issueResolution;
-      issue.ai_guest_sentiment = guestSentiment;
-      issue.resolution = resolution;
-      issue.resolution_refreshed_at = new Date();
-      issue.resolution_refreshed_by = refreshedBy;
-      const saved = await this.issueRepo.save(issue);
-
-      return {
-        issueResolution: saved.ai_resolution_status,
-        guestSentiment: saved.ai_guest_sentiment,
-        resolution: saved.resolution,
-        resolutionRefreshedAt: saved.resolution_refreshed_at,
-        resolutionRefreshedBy: saved.resolution_refreshed_by,
-        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
-      };
+      return this.saveResolutionAnalysisRefresh(issue, {
+        issueResolution,
+        guestSentiment,
+        resolution,
+      });
     } catch (error) {
       logger.warn(`[IssuesService] Failed to generate resolution analysis: ${error}`);
-      issue.ai_resolution_status = fallback.issueResolution;
-      issue.ai_guest_sentiment = fallback.guestSentiment;
-      issue.resolution = fallback.resolution;
-      issue.resolution_refreshed_at = new Date();
-      issue.resolution_refreshed_by = refreshedBy;
-      const saved = await this.issueRepo.save(issue);
-      return {
-        issueResolution: saved.ai_resolution_status,
-        guestSentiment: saved.ai_guest_sentiment,
-        resolution: saved.resolution,
-        resolutionRefreshedAt: saved.resolution_refreshed_at,
-        resolutionRefreshedBy: saved.resolution_refreshed_by,
-        resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
-      };
+      return this.saveResolutionAnalysisRefresh(issue, fallback);
     }
   }
 
