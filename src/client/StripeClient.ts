@@ -48,4 +48,8 @@ export class StripeClient {
         }
         return event;
     }
+
+    async getChargeById(chargeId: string): Promise<Stripe.Charge> {
+        return this.stripe.charges.retrieve(chargeId);
+    }
 }
