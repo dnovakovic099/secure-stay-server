@@ -1,0 +1,8 @@
+ALTER TABLE rental_agreement_reservation_documents
+  ADD COLUMN skipIdUpload TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN skipIdUploadAt TIMESTAMP NULL DEFAULT NULL,
+  ADD COLUMN skipIdUploadBy VARCHAR(255) NULL DEFAULT NULL;
+
+ALTER TABLE rental_agreement_signings
+  ADD COLUMN idFrontFileInfoId INT NULL DEFAULT NULL,
+  ADD COLUMN idBackFileInfoId INT NULL DEFAULT NULL;

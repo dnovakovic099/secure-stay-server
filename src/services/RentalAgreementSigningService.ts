@@ -645,12 +645,15 @@ export class RentalAgreementSigningService {
             isEdited: boolean;
             isOverridden: boolean;
         };
+        idUploadRequired: boolean;
         alreadySigned: boolean;
         signing?: Pick<RentalAgreementSigning, "pdfStatus" | "fileInfoId">;
     }> {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
-        const { template, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
+        const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
         await this.markAgreementViewed(hostifyReservationId, reservationInfo, template.id);
+
+        const idUploadRequired = !(reservationDocument?.skipIdUpload ?? false);
 
         const existingSigning = await signingRepo().findOne({
             where: { hostifyReservationId },
@@ -673,6 +676,7 @@ export class RentalAgreementSigningService {
                 isEdited: snapshot.isEdited,
                 isOverridden: snapshot.isOverridden,
             },
+            idUploadRequired,
             alreadySigned: !!existingSigning,
             ...(existingSigning && {
                 signing: { pdfStatus: existingSigning.pdfStatus, fileInfoId: existingSigning.fileInfoId },
@@ -680,11 +684,50 @@ export class RentalAgreementSigningService {
         };
     }
 
+    async saveIdPhotos(
+        hostifyReservationId: string,
+        idFrontFile: Express.Multer.File,
+        idBackFile: Express.Multer.File,
+    ): Promise<{ idFrontFileInfoId: number; idBackFileInfoId: number }> {
+        const reservationInfo = await reservationInfoRepo().findOne({
+            where: { id: Number(hostifyReservationId) },
+        });
+        if (!reservationInfo) throw new Error("Reservation not found");
+
+        const entityId = Number(hostifyReservationId);
+
+        const frontInfo = fileInfoRepo().create({
+            entityType: "rental-agreement-id",
+            entityId,
+            localPath: idFrontFile.path,
+            fileName: idFrontFile.filename,
+            originalName: idFrontFile.originalname,
+            mimetype: idFrontFile.mimetype,
+            status: "pending",
+        });
+        const savedFront = await fileInfoRepo().save(frontInfo);
+
+        const backInfo = fileInfoRepo().create({
+            entityType: "rental-agreement-id",
+            entityId,
+            localPath: idBackFile.path,
+            fileName: idBackFile.filename,
+            originalName: idBackFile.originalname,
+            mimetype: idBackFile.mimetype,
+            status: "pending",
+        });
+        const savedBack = await fileInfoRepo().save(backInfo);
+
+        return { idFrontFileInfoId: savedFront.id, idBackFileInfoId: savedBack.id };
+    }
+
     async submitSigning(data: {
         hostifyReservationId: string;
         signatureDataUrl: string;
         signedByName: string;
         signedByEmail?: string;
+        idFrontFileInfoId?: number;
+        idBackFileInfoId?: number;
     }, ip: string, userAgent: string): Promise<{ signingId: number }> {
         const existing = await signingRepo().findOne({
             where: { hostifyReservationId: data.hostifyReservationId },
@@ -692,8 +735,35 @@ export class RentalAgreementSigningService {
         if (existing) throw new Error("Agreement already signed for this reservation");
 
         const { reservationInfo, listing } = await this.getReservationAndListing(data.hostifyReservationId);
-        const { template, snapshot } = await this.buildAgreementSnapshot(data.hostifyReservationId, reservationInfo, listing);
+        const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(data.hostifyReservationId, reservationInfo, listing);
         const { renderedHtml } = this.renderAgreementSnapshot(snapshot, reservationInfo, listing);
+
+        const idUploadRequired = !(reservationDocument?.skipIdUpload ?? false);
+        if (idUploadRequired && (!data.idFrontFileInfoId || !data.idBackFileInfoId)) {
+            throw new Error("ID photo upload is required before signing");
+        }
+
+        if (data.idFrontFileInfoId) {
+            const frontFile = await fileInfoRepo().findOne({
+                where: {
+                    id: data.idFrontFileInfoId,
+                    entityType: "rental-agreement-id",
+                    entityId: Number(data.hostifyReservationId),
+                },
+            });
+            if (!frontFile) throw new Error("Front ID photo not found for this reservation");
+        }
+
+        if (data.idBackFileInfoId) {
+            const backFile = await fileInfoRepo().findOne({
+                where: {
+                    id: data.idBackFileInfoId,
+                    entityType: "rental-agreement-id",
+                    entityId: Number(data.hostifyReservationId),
+                },
+            });
+            if (!backFile) throw new Error("Back ID photo not found for this reservation");
+        }
 
         const signing = signingRepo().create({
             hostifyReservationId: data.hostifyReservationId,
@@ -707,6 +777,8 @@ export class RentalAgreementSigningService {
             userAgent,
             signedAt: new Date(),
             pdfStatus: "pending_pdf",
+            ...(data.idFrontFileInfoId && { idFrontFileInfoId: data.idFrontFileInfoId }),
+            ...(data.idBackFileInfoId && { idBackFileInfoId: data.idBackFileInfoId }),
         });
 
         const saved = await signingRepo().save(signing);
@@ -737,20 +809,37 @@ export class RentalAgreementSigningService {
     async getSigningsByReservation(hostifyReservationId: string): Promise<{
         signing: RentalAgreementSigning | null;
         downloadUrl: string | null;
+        idFrontPhoto: { status: string; webViewLink: string | null; webContentLink: string | null } | null;
+        idBackPhoto: { status: string; webViewLink: string | null; webContentLink: string | null } | null;
     }> {
         const signing = await signingRepo().findOne({
             where: { hostifyReservationId },
             relations: ["template"],
         });
 
-        if (!signing) return { signing: null, downloadUrl: null };
+        if (!signing) return { signing: null, downloadUrl: null, idFrontPhoto: null, idBackPhoto: null };
 
         const fileInfo = await this.getFileInfoForSigning(signing);
         const downloadUrl = this.isDownloadArtifactAvailable(fileInfo)
             ? this.buildDirectDownloadPath(signing.id)
             : null;
 
-        return { signing, downloadUrl };
+        const idFrontFileInfo = signing.idFrontFileInfoId
+            ? await fileInfoRepo().findOne({ where: { id: signing.idFrontFileInfoId } })
+            : null;
+        const idBackFileInfo = signing.idBackFileInfoId
+            ? await fileInfoRepo().findOne({ where: { id: signing.idBackFileInfoId } })
+            : null;
+
+        const toIdPhotoResult = (fi: FileInfo | null) =>
+            fi ? { status: fi.status, webViewLink: fi.webViewLink || null, webContentLink: fi.webContentLink || null } : null;
+
+        return {
+            signing,
+            downloadUrl,
+            idFrontPhoto: toIdPhotoResult(idFrontFileInfo),
+            idBackPhoto: toIdPhotoResult(idBackFileInfo),
+        };
     }
 
     async getDownloadUrl(signingId: number): Promise<string | null> {
@@ -1111,6 +1200,9 @@ export class RentalAgreementSigningService {
                 lastViewedAt: reservationDocument?.lastViewedAt ? reservationDocument.lastViewedAt.toISOString() : null,
                 overriddenBy: reservationDocument?.overriddenBy || null,
                 lastEditedBy: reservationDocument?.lastEditedBy || null,
+                skipIdUpload: reservationDocument?.skipIdUpload ?? false,
+                skipIdUploadAt: reservationDocument?.skipIdUploadAt ? reservationDocument.skipIdUploadAt.toISOString() : null,
+                skipIdUploadBy: reservationDocument?.skipIdUploadBy || null,
             },
             preview: {
                 headerHtml: rendered.resolvedHeaderHtml,
@@ -1128,6 +1220,14 @@ export class RentalAgreementSigningService {
                 pdfDownloadAvailable: this.isDownloadArtifactAvailable(fileInfo),
                 pdfViewUrl: fileInfo?.webViewLink || null,
             } : null,
+        idFrontPhoto: signing?.idFrontFileInfoId
+            ? await fileInfoRepo().findOne({ where: { id: signing.idFrontFileInfoId } }).then((fi) =>
+                fi ? { status: fi.status, webViewLink: fi.webViewLink || null } : null)
+            : null,
+        idBackPhoto: signing?.idBackFileInfoId
+            ? await fileInfoRepo().findOne({ where: { id: signing.idBackFileInfoId } }).then((fi) =>
+                fi ? { status: fi.status, webViewLink: fi.webViewLink || null } : null)
+            : null,
         };
     }
 
@@ -1201,6 +1301,7 @@ export class RentalAgreementSigningService {
         payload: Partial<Pick<RentalAgreementReservationDocument, "headerHtml" | "bodyHtml" | "footerHtml" | "emailSubject" | "emailBodyHtml">> & {
             markAsOverridden?: boolean;
             overrideReason?: string | null;
+            skipIdUpload?: boolean;
         },
         userId?: string,
     ) {
@@ -1229,6 +1330,12 @@ export class RentalAgreementSigningService {
             nextDocument.overriddenAt = new Date();
             nextDocument.overriddenBy = userId || null;
             nextDocument.overrideReason = payload.overrideReason || nextDocument.overrideReason || "Edited from internal agreement detail";
+        }
+
+        if (typeof payload.skipIdUpload === "boolean") {
+            nextDocument.skipIdUpload = payload.skipIdUpload;
+            nextDocument.skipIdUploadAt = new Date();
+            nextDocument.skipIdUploadBy = userId || null;
         }
 
         await reservationDocumentRepo().save(nextDocument);

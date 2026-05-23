@@ -99,6 +99,26 @@ export class RentalAgreementController {
         }
     }
 
+    // PUBLIC — no auth — guest uploads front and back ID photos
+    async uploadGuestId(req: Request, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+            const idFrontFile = files?.idFront?.[0];
+            const idBackFile = files?.idBack?.[0];
+
+            if (!idFrontFile || !idBackFile) {
+                return res.status(400).json({ success: false, message: "Both idFront and idBack photo files are required" });
+            }
+
+            const result = await rentalAgreementSigningService.saveIdPhotos(hostifyReservationId, idFrontFile, idBackFile);
+            res.json({ success: true, data: result });
+        } catch (err: any) {
+            const status = err.message === "Reservation not found" ? 404 : 500;
+            res.status(status).json({ success: false, message: err.message });
+        }
+    }
+
     // PUBLIC — no auth — guest fetches the agreement for their reservation
     async getAgreementForGuest(req: Request, res: Response, next: NextFunction) {
         try {
@@ -115,7 +135,7 @@ export class RentalAgreementController {
     async submitSigning(req: Request, res: Response, next: NextFunction) {
         try {
             const { hostifyReservationId } = req.params;
-            const { signatureDataUrl, signedByName, signedByEmail } = req.body;
+            const { signatureDataUrl, signedByName, signedByEmail, idFrontFileInfoId, idBackFileInfoId } = req.body;
 
             if (!signatureDataUrl || !signedByName) {
                 return res.status(400).json({ success: false, message: "signatureDataUrl and signedByName are required" });
@@ -128,7 +148,14 @@ export class RentalAgreementController {
             const userAgent = (req.headers["user-agent"] as string) || "";
 
             const result = await rentalAgreementSigningService.submitSigning(
-                { hostifyReservationId, signatureDataUrl, signedByName, signedByEmail },
+                {
+                    hostifyReservationId,
+                    signatureDataUrl,
+                    signedByName,
+                    signedByEmail,
+                    idFrontFileInfoId: idFrontFileInfoId ? Number(idFrontFileInfoId) : undefined,
+                    idBackFileInfoId: idBackFileInfoId ? Number(idBackFileInfoId) : undefined,
+                },
                 ip,
                 userAgent
             );

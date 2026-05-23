@@ -52,6 +52,14 @@ export class RentalAgreementSigning {
     @Column({ type: "timestamp" })
     signedAt: Date;
 
+    // FK to FileInfo.id for guest front ID photo
+    @Column({ nullable: true })
+    idFrontFileInfoId: number;
+
+    // FK to FileInfo.id for guest back ID photo
+    @Column({ nullable: true })
+    idBackFileInfoId: number;
+
     // FK to FileInfo.id once the PDF is uploaded to Google Drive
     @Column({ nullable: true })
     fileInfoId: number;
