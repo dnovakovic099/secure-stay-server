@@ -21,6 +21,10 @@ import { appDatabase } from "../utils/database.util";
 import sendEmail from "../utils/sendEmai";
 import { ReviewService } from "../services/ReviewService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ResolutionService } from "../services/ResolutionService";
+import { StripeClient } from "../client/StripeClient";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { format } from "date-fns";
 
 export class UnifiedWebhookController {
 
@@ -687,9 +691,16 @@ export class UnifiedWebhookController {
         try {
             const event = request.body;
 
-            logger.info(`Received Stripe webhook for event: ${event.type}`);
+            logger.info(`[STRIPE_DISPUTE] Received event: ${event.type}`);
 
-                logger.info(`Stripe ${event.type} event body: ${JSON.stringify(event)}`);
+            if (event.type === 'charge.dispute.closed') {
+                const dispute = event.data.object;
+                if (dispute.status === 'lost') {
+                    await this.handleLostDispute(dispute);
+                }
+            }
+
+                logger.info(`[STRIPE_DISPUTE] ${event.type} event body: ${JSON.stringify(event)}`);
                 await sendEmail(
                     `Stripe ${event.type} Notification`,
                     `<p>A Stripe <b>${event.type}</b> event has occurred.</p>
@@ -701,8 +712,65 @@ export class UnifiedWebhookController {
 
             return response.status(200).send("Ok");
         } catch (error: any) {
-            logger.error(`Error handling Stripe webhook: ${error.message}`);
+            logger.error(`[STRIPE_DISPUTE] Error handling webhook: ${error.message}`);
             return next(error);
+        }
+    }
+
+    private async handleLostDispute(dispute: any) {
+        try {
+            const chargeId: string | null = dispute.charge;
+            if (!chargeId) {
+                logger.warn(`[STRIPE_DISPUTE] Dispute ${dispute.id} has no charge; skipping resolution creation`);
+                return;
+            }
+
+            const stripeClient = new StripeClient();
+            const charge = await stripeClient.getChargeById(chargeId);
+            const email = charge.billing_details?.email || charge.receipt_email;
+            if (!email) {
+                logger.warn(`[STRIPE_DISPUTE] No email on charge ${chargeId} for dispute ${dispute.id}; skipping resolution creation`);
+                return;
+            }
+
+            const validStatuses = ["new", "accepted", "modified", "ownerStay", "moved"];
+            const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+            const reservation = await reservationRepo
+                .createQueryBuilder("reservation")
+                .where("reservation.guestEmail = :email", { email })
+                .andWhere("reservation.status IN (:...validStatuses)", { validStatuses })
+                .orderBy("reservation.arrivalDate", "DESC")
+                .getOne();
+
+            if (!reservation) {
+                logger.warn(`[STRIPE_DISPUTE] No valid reservation for email ${email} (dispute ${dispute.id}); skipping resolution creation`);
+                return;
+            }
+
+            const amount = -(dispute.amount / 100);
+            const claimDate = format(new Date(), 'yyyy-MM-dd');
+            const arrivalDate = reservation.arrivalDate ? format(new Date(reservation.arrivalDate), 'yyyy-MM-dd') : claimDate;
+            const departureDate = reservation.departureDate ? format(new Date(reservation.departureDate), 'yyyy-MM-dd') : claimDate;
+
+            const resolutionService = new ResolutionService();
+            await resolutionService.createResolution({
+                category: 'dispute',
+                description: `Lost Stripe dispute (Reason: ${dispute.reason})`,
+                listingMapId: reservation.listingMapId,
+                reservationId: reservation.id,
+                guestName: reservation.guestName,
+                claimDate,
+                amount,
+                arrivalDate,
+                departureDate,
+                creationSource: 'stripe_webhook',
+                type: 'dispute',
+            }, 'system');
+
+            logger.info(`[STRIPE_DISPUTE] Resolution created for dispute ${dispute.id}: reservationId=${reservation.id}, email=${email}, amount=${amount}`);
+        } catch (error: any) {
+            logger.error(`[STRIPE_DISPUTE] Error handling lost dispute ${dispute.id}: ${error.message}`);
+            throw error;
         }
     }
 }
