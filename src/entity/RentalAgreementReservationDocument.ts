@@ -62,6 +62,15 @@ export class RentalAgreementReservationDocument {
     @Column({ type: "timestamp", nullable: true })
     lastViewedAt: Date | null;
 
+    @Column({ default: false })
+    skipIdUpload: boolean;
+
+    @Column({ type: "timestamp", nullable: true })
+    skipIdUploadAt: Date | null;
+
+    @Column({ type: "varchar", length: 255, nullable: true })
+    skipIdUploadBy: string | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

@@ -1,12 +1,21 @@
 import { Router } from "express";
 import { RentalAgreementController } from "../controllers/RentalAgreementController";
 import verifySession from "../middleware/verifySession";
+import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const controller = new RentalAgreementController();
 
 // Public routes — no auth required (guest-facing)
 router.get("/guest/:hostifyReservationId", controller.getAgreementForGuest.bind(controller));
+router.post(
+    "/guest/:hostifyReservationId/upload-id",
+    fileUpload("rental-agreement-id").fields([
+        { name: "idFront", maxCount: 1 },
+        { name: "idBack", maxCount: 1 },
+    ]),
+    controller.uploadGuestId.bind(controller),
+);
 router.post("/guest/:hostifyReservationId/sign", controller.submitSigning.bind(controller));
 router.get("/guest/:hostifyReservationId/status", controller.getSigningStatus.bind(controller));
 router.get("/guest/:hostifyReservationId/download", controller.downloadGuestSigningFile.bind(controller));
