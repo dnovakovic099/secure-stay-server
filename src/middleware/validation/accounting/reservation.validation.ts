@@ -37,6 +37,7 @@ export const validateGetReservationList = (request: Request, response: Response,
                 .valid("Unknown","Paid","Partially paid")
         ).optional(),
         keyword: Joi.string().optional(),
+        includeCancelled: Joi.boolean().optional(),
     });
 
     const { error } = schema.validate(request.query);

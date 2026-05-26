@@ -20,9 +20,37 @@ import { IssuesService } from "./IssuesService";
 import { ResolutionService } from "./ResolutionService";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { generateSlackMessageLink } from "../helpers/helpers";
+import { ExpenseHistoryEntity } from "../entity/ExpenseHistory";
 
 const ACCOUNTING_TIME_ZONE = "America/New_York";
 const ACCOUNTING_TIMESTAMP_DATE_TYPES = new Set(["createdAt", "updatedAt"]);
+const EXPENSE_SORT_FIELD_MAP: Record<string, keyof ExpenseEntity> = {
+    status: "status",
+    listing: "listingMapId",
+    listingMapId: "listingMapId",
+    propertyType: "listingMapId",
+    serviceType: "listingMapId",
+    amount: "amount",
+    dateAdded: "expenseDate",
+    expenseDate: "expenseDate",
+    dateOfWork: "dateOfWork",
+    datePaid: "datePaid",
+    description: "concept",
+    concept: "concept",
+    categories: "categories",
+    contractorName: "contractorName",
+    contractorNumber: "contractorNumber",
+    findings: "findings",
+    paymentMethod: "paymentMethod",
+    paymentDetails: "paymentDetails",
+    createdAt: "createdAt",
+    createdAtTimestamp: "createdAt",
+    createdBy: "createdBy",
+    updatedAt: "updatedAt",
+    updatedAtTimestamp: "updatedAt",
+    updatedBy: "updatedBy",
+    attachments: "fileNames",
+};
 
 interface ExpenseBulkUpdateObject {
     expenseDate: string;
@@ -53,6 +81,7 @@ export class ExpenseService {
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+    private expenseHistoryRepo = appDatabase.getRepository(ExpenseHistoryEntity);
 
     private buildSlackPermalink(slackMessage?: SlackMessageEntity | null) {
         const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
@@ -124,6 +153,57 @@ export class ExpenseService {
 
     private extractServiceType(listing?: Listing | null) {
         return this.extractTypeFromTags(listing?.tags, ["Full", "Pro", "Launch"]) || null;
+    }
+
+    private normalizeHistoryValue(value: any) {
+        if (value === undefined || value === null || value === "") return "";
+        if (typeof value === "boolean") return value ? "Yes" : "No";
+        if (Array.isArray(value)) return JSON.stringify(value);
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
+    }
+
+    private historyValueChanged(previous: any, next: any) {
+        return this.normalizeHistoryValue(previous) !== this.normalizeHistoryValue(next);
+    }
+
+    private normalizeSortRules(sort: any) {
+        const sortItems = Array.isArray(sort) ? sort : sort ? Object.values(sort) : [];
+        return sortItems
+            .map((item: any) => ({
+                field: String(item?.field || ""),
+                direction: String(item?.direction || "asc").toLowerCase() === "desc" ? "desc" : "asc",
+            }))
+            .filter((item) => item.field)
+            .slice(0, 3);
+    }
+
+    private async logExpenseChanges(
+        expenseId: number,
+        previous: Partial<ExpenseEntity>,
+        next: Partial<ExpenseEntity>,
+        userId: string,
+        fields: Array<keyof ExpenseEntity>,
+        action: "UPDATE" | "DELETE" = "UPDATE"
+    ) {
+        const rows = fields
+            .filter((fieldName) => this.historyValueChanged(previous[fieldName], next[fieldName]))
+            .map((fieldName) => this.expenseHistoryRepo.create({
+                expenseId,
+                fieldName: String(fieldName),
+                oldValue: this.normalizeHistoryValue(previous[fieldName]) || null,
+                newValue: this.normalizeHistoryValue(next[fieldName]) || null,
+                changedBy: userId,
+                action,
+            }));
+
+        if (rows.length) await this.expenseHistoryRepo.save(rows);
+    }
+
+    private getUserDisplayName(user?: UsersEntity | null) {
+        if (!user) return "";
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+        return fullName || user.email || user.uid || "";
     }
 
     async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
@@ -253,7 +333,8 @@ export class ExpenseService {
             isRecurring,
             type,
             excludeCategories,
-            excludeContractorName
+            excludeContractorName,
+            sort
         } = request.query;
         const page = Number(request.query.page) || 1;
         const limit = Number(request.query.limit) || 10;
@@ -310,6 +391,13 @@ export class ExpenseService {
             Array.isArray(listingId) && listingId.length > 0
                 ? listingId.map(Number)
                 : listingIdsFromTags;
+
+        const sortRules = this.normalizeSortRules(sort);
+        const order = sortRules.reduce((acc, rule) => {
+            const field = EXPENSE_SORT_FIELD_MAP[rule.field];
+            if (field) acc[field] = rule.direction.toUpperCase() as "ASC" | "DESC";
+            return acc;
+        }, {} as Record<string, "ASC" | "DESC">);
 
         const [expenses, total] = await this.expenseRepo.findAndCount({
             where: keyword
@@ -372,7 +460,7 @@ export class ExpenseService {
                     // Filter out llCover expenses for non-securestay.ai domains
                     ...(request.hostname !== "securestay.ai" && { llCover: 0 }),
                 },
-            order: { expenseDate: "DESC" },
+            order: Object.keys(order).length ? order : { expenseDate: "DESC" },
             skip,
             take: limit,
         });
@@ -607,6 +695,33 @@ export class ExpenseService {
         };
     }
 
+    async getExpenseHistory(expenseId: number) {
+        const history = await this.expenseHistoryRepo.find({
+            where: { expenseId },
+            order: { changedAt: "DESC", id: "DESC" },
+        });
+
+        if (!history.length) return [];
+
+        const users = await this.usersRepository.find({
+            where: { uid: In(Array.from(new Set(history.map((row) => row.changedBy).filter(Boolean)))) },
+        });
+        const userMap = new Map(users.map((user) => [user.uid, this.getUserDisplayName(user)]));
+
+        return history.map((row) => ({
+            id: row.id,
+            expenseId: row.expenseId,
+            fieldName: row.fieldName,
+            oldValue: row.oldValue,
+            newValue: row.newValue,
+            changedBy: row.changedBy,
+            changedByName: userMap.get(row.changedBy) || row.changedBy || "System",
+            action: row.action,
+            changedAt: this.formatAccountingTimestamp(row.changedAt),
+            changedAtTimestamp: row.changedAt?.getTime() || 0,
+        }));
+    }
+
     async getExpenses(fromDate: string, toDate: string, listingId: number) {
         const expense = await this.expenseRepo.find({
             where: {
@@ -647,6 +762,8 @@ export class ExpenseService {
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
+
+        const previousExpense = { ...expense };
 
         const negatedAmount = amount * (-1);
 
@@ -689,6 +806,34 @@ export class ExpenseService {
         // }
 
         await this.expenseRepo.save(expense);
+        await this.logExpenseChanges(
+            expense.id,
+            previousExpense,
+            expense,
+            userId,
+            [
+                "listingMapId",
+                "expenseDate",
+                "concept",
+                "amount",
+                "categories",
+                "dateOfWork",
+                "contractorName",
+                "contractorNumber",
+                "findings",
+                "status",
+                "paymentMethod",
+                "paymentDetails",
+                "datePaid",
+                "issues",
+                "isRecurring",
+                "llCover",
+                "comesFrom",
+                "reservationId",
+                "guestName",
+                "fileNames",
+            ]
+        );
         if (fileInfo) {
             for (const file of fileInfo) {
                 const fileRecord = new FileInfo();
@@ -715,6 +860,8 @@ export class ExpenseService {
             ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
             : datePaid;
 
+        const previousById = new Map(expense.map((element) => [element.id, { ...element }]));
+
         expense.forEach((element) => {
             element.status = status;
             if (paidDate !== "") {
@@ -724,6 +871,15 @@ export class ExpenseService {
             element.updatedAt = new Date();
         });
         await this.expenseRepo.save(expense);
+        for (const element of expense) {
+            await this.logExpenseChanges(
+                element.id,
+                previousById.get(element.id) || {},
+                element,
+                userId,
+                ["status", "datePaid"]
+            );
+        }
 
         return expense;
     }
@@ -734,10 +890,12 @@ export class ExpenseService {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
 
+        const previousExpense = { ...expense };
         expense.isDeleted = 1;
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         await this.expenseRepo.save(expense);
+        await this.logExpenseChanges(expense.id, previousExpense, expense, userId, ["isDeleted"], "DELETE");
 
         //delete hostaway expense
         // expense.expenseId && this.deleteHostawayExpense(expense.expenseId, userId);
@@ -1100,6 +1258,8 @@ export class ExpenseService {
                 continue;
             }
 
+            const previousExpense = { ...expense };
+
             // Update fields if provided
             if (expenseDate) expense.expenseDate = expenseDate;
             if (dateOfWork) expense.dateOfWork = dateOfWork;
@@ -1120,6 +1280,28 @@ export class ExpenseService {
             expense.updatedAt = new Date();
 
             await this.expenseRepo.save(expense);
+            await this.logExpenseChanges(
+                expense.id,
+                previousExpense,
+                expense,
+                userId,
+                [
+                    "expenseDate",
+                    "dateOfWork",
+                    "status",
+                    "paymentMethod",
+                    "paymentDetails",
+                    "categories",
+                    "concept",
+                    "listingMapId",
+                    "amount",
+                    "contractorName",
+                    "contractorNumber",
+                    "findings",
+                    "datePaid",
+                    "isRecurring",
+                ]
+            );
             // Sync with Hostaway
             // try {
             //     const payload = {
