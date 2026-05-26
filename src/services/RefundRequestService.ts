@@ -45,20 +45,7 @@ export class RefundRequestService {
   }
 
   private getExpenseStatusForRefund(status?: string | null, chargeToClient?: number | boolean | string | null) {
-    if (this.isRefundTerminalStatus(status)) return null;
-    if (!this.normalizeChargeToClient(chargeToClient)) return ExpenseStatus.NA;
-
-    switch (status) {
-      case "Pending":
-        return ExpenseStatus.PENDING;
-      case "Approved":
-      case "For Processing":
-        return ExpenseStatus.APPROVED;
-      case "Paid":
-        return ExpenseStatus.PAID;
-      default:
-        return ExpenseStatus.NA;
-    }
+    return status === "Paid" ? ExpenseStatus.PAID : null;
   }
 
   private getUserDisplayName(user?: UsersEntity | null) {
@@ -612,24 +599,26 @@ export class RefundRequestService {
 
 
   private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus) {
-        const category = status === ExpenseStatus.PAID ? categoryIds.ReviewMitigation : categoryIds.Resolutions;
+        const today = format(new Date(), 'yyyy-MM-dd');
         return {
             listingMapId: body.listingId,
-            expenseDate: format(new Date(), 'yyyy-MM-dd'),
+            expenseDate: today,
             concept: body.explaination,
             amount: body.refundAmount ? -Math.abs(Number(body.refundAmount)) : body.refundAmount,
-            categories: JSON.stringify([category]),
+            categories: JSON.stringify([categoryIds.ReviewMitigation]),
             dateOfWork: null,
             contractorName: " ",
             contractorNumber: null,
             findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>`,
             status,
+            datePaid: status === ExpenseStatus.PAID ? today : null,
             paymentMethod: body.paymentMethod || null,
             paymentDetails: body.paymentDetails || null,
             reservationId: body.reservationId ? String(body.reservationId) : null,
             guestName: body.guestName || null,
             comesFrom: "refund_request",
-            createdBy: userId
+            createdBy: userId,
+            llCover: this.normalizeChargeToClient(body.chargeToClient) ? 0 : 1
         };
     }
 
