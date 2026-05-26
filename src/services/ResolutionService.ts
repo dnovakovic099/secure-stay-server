@@ -48,6 +48,23 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.REVIEW_REMOVAL]: "Review Removal"
 };
 
+const RESOLUTION_SORT_FIELD_MAP: Record<string, keyof Resolution> = {
+    guestName: "guestName",
+    listingName: "listingMapId",
+    listingMapId: "listingMapId",
+    category: "category",
+    amount: "amount",
+    amountToPayout: "amountToPayout",
+    claimDate: "claimDate",
+    arrivalDate: "arrivalDate",
+    departureDate: "departureDate",
+    description: "description",
+    createdBy: "createdBy",
+    updatedBy: "updatedBy",
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
+};
+
 interface CsvRow {
     "Date": string;
     "Type": string;
@@ -66,6 +83,17 @@ export class ResolutionService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingInfoRepository = appDatabase.getRepository(Listing);
+
+    private normalizeSortRules(sort: any) {
+        const sortItems = Array.isArray(sort) ? sort : sort ? Object.values(sort) : [];
+        return sortItems
+            .map((item: any) => ({
+                field: String(item?.field || ""),
+                direction: String(item?.direction || "asc").toLowerCase() === "desc" ? "desc" : "asc",
+            }))
+            .filter((item) => item.field)
+            .slice(0, 3);
+    }
 
     async createResolution(data: ResolutionData, userId: string | null) {
         const resolution = new Resolution();
@@ -127,7 +155,7 @@ export class ResolutionService {
     }
 
     async getResolutions(filters: any) {
-        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit, keyword, propertyType } = filters;
+        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit, keyword, propertyType, sort } = filters;
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -152,13 +180,18 @@ export class ResolutionService {
         ]
         : baseWhere;
 
+        const sortRules = this.normalizeSortRules(sort);
+        const order = sortRules.reduce((acc, rule) => {
+            const field = RESOLUTION_SORT_FIELD_MAP[rule.field];
+            if (field) acc[field] = rule.direction.toUpperCase() as "ASC" | "DESC";
+            return acc;
+        }, {} as Record<string, "ASC" | "DESC">);
+
         const [resolutions, total] = await this.resolutionRepo.findAndCount({
             where,
             skip: (page - 1) * limit,
             take: limit,
-            order: {
-                id: "DESC"
-            }
+            order: Object.keys(order).length ? order : { id: "DESC" }
         })
 
 
@@ -622,4 +655,4 @@ export class ResolutionService {
         });
 
     }
-} 
+}

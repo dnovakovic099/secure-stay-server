@@ -65,6 +65,11 @@ export class ReservationInfoService {
 
   private validStatus = ["new", "accepted", "modified", "ownerStay", "moved"]
 
+  private getExcludedStatuses(includeCancelled?: boolean) {
+    if (!includeCancelled) return this.excludedStatus;
+    return this.excludedStatus.filter((status) => status !== "cancelled");
+  }
+
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
     const listings = await this.listingInfoRepository.find();
     const listingIds = listings.map(l => Number(l.id));
@@ -226,24 +231,27 @@ export class ReservationInfoService {
         channel,
         payment,
         keyword,
+        includeCancelled,
       } = request.query as {
         checkInStartDate?: string;
         checkInEndDate?: string;
         checkOutStartDate?: string;
         checkOutEndDate?: string;
         todayDate?: string;
-          listingMapId?: string[];
+        listingMapId?: string[];
         guestName?: string;
         page?: string;
         limit?: string;
-          currentHour: string;
-          propertyType?: string[];
-          actionItems?: string[];
-          issues?: string[],
-          channel?: string[],
-          payment?: string[],
-          keyword?: string,
+        currentHour: string;
+        propertyType?: string[];
+        actionItems?: string[];
+        issues?: string[],
+        channel?: string[],
+        payment?: string[],
+        keyword?: string,
+        includeCancelled?: boolean | string,
       };
+      const shouldIncludeCancelled = includeCancelled === true || includeCancelled === "true";
 
       // Convert page/limit to numbers with defaults
       const pageNumber = page ? parseInt(page, 10) : 1;
@@ -261,14 +269,14 @@ export class ReservationInfoService {
 
       // 2. Determine which case to handle
       if ((checkInStartDateStr && checkInEndDateStr) || (checkOutStartDateStr && checkOutEndDateStr)) {
-        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
+        return await this.getReservationByDateRange(checkInStartDateStr, checkInEndDateStr, checkOutStartDateStr, checkOutEndDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword, shouldIncludeCancelled);
       }
 
       if (currentHour) {
-        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment, keyword);
+        return await this.getCurrentlyStayingReservations(todayDateStr, listingIds, guestName, pageNumber, pageSize, currentHour, userId, actionItems, issues, channel, payment, keyword, shouldIncludeCancelled);
       }
 
-      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword);
+      return await this.getCase1Default(todayDateStr, listingIds, guestName, pageNumber, pageSize, userId, actionItems, issues, channel, payment, keyword, shouldIncludeCancelled);
 
     } catch (error) {
       console.error("getReservationInfo Error", error);
@@ -293,8 +301,10 @@ export class ReservationInfoService {
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
     payment: string[] | null | undefined,
-    keyword: string | undefined
+    keyword: string | undefined,
+    includeCancelled = false
   ) {
+    const excludedStatuses = this.getExcludedStatuses(includeCancelled);
 
 
     // 1) Query for today's records
@@ -304,7 +314,7 @@ export class ReservationInfoService {
     }
     qbToday.andWhere("DATE(reservation.arrivalDate) = :today", { today: todayDateStr });
     qbToday.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: this.excludedStatus
+      excludedStatuses
     });
     const todaysReservations = await qbToday.getMany();
     // 2) Future records (arrivalDate > today), ascending
@@ -314,7 +324,7 @@ export class ReservationInfoService {
     }
     qbFuture.andWhere("DATE(reservation.arrivalDate) > :today", { today: todayDateStr });
     qbFuture.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: this.excludedStatus
+      excludedStatuses
     });
     qbFuture.orderBy("reservation.arrivalDate", "ASC");
     const futureReservations = await qbFuture.getMany();
@@ -326,7 +336,7 @@ export class ReservationInfoService {
     }
     qbPast.andWhere("DATE(reservation.arrivalDate) < :today", { today: todayDateStr });
     qbPast.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: this.excludedStatus
+      excludedStatuses
     });
     qbPast.orderBy("reservation.arrivalDate", "DESC");
     const pastReservations = await qbPast.getMany();
@@ -370,7 +380,8 @@ export class ReservationInfoService {
   /**
    * CASE 2: startDate & endDate provided
    */
-  public async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined) {
+  public async getReservationByDateRange(checkInStartDate: string, checkInEndDate: string, checkOutStartDate: string, checkOutEndDate: string, listingMapId: string[] | undefined, guestName: string | undefined, page: number, limit: number, userId: string, actionItemsStatus: string[] | null | undefined, issuesStatus: string[] | null | undefined, channel: string[] | null | undefined, payment: string[] | null | undefined, keyword: string | undefined, includeCancelled = false) {
+    const excludedStatuses = this.getExcludedStatuses(includeCancelled);
     const qb = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qb.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
@@ -382,7 +393,7 @@ export class ReservationInfoService {
       });
 
       qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-        excludedStatuses: this.excludedStatus
+        excludedStatuses
       });
 
       qb.orderBy("reservation.arrivalDate", "ASC");
@@ -394,7 +405,7 @@ export class ReservationInfoService {
       });
 
       qb.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-        excludedStatuses: this.excludedStatus
+        excludedStatuses
       });
 
       qb.orderBy("reservation.departureDate", "ASC");
@@ -441,15 +452,17 @@ export class ReservationInfoService {
     issuesStatus: string[] | null | undefined,
     channel: string[] | null | undefined,
     payment: string[] | null | undefined,
-    keyword: string | undefined
+    keyword: string | undefined,
+    includeCancelled = false
   ) {
+    const excludedStatuses = this.getExcludedStatuses(includeCancelled);
     // 1) Query for currently staying reservation's records
     const qbCurrentlyStaying = this.buildBaseQuery(listingMapId, guestName, channel, payment, keyword);
     if (listingMapId && listingMapId.length > 0) {
       qbCurrentlyStaying.andWhere("reservation.listingMapId IN (:...listingMapIds)", { listingMapIds: listingMapId });
     }
     qbCurrentlyStaying.andWhere("reservation.status NOT IN (:...excludedStatuses)", {
-      excludedStatuses: this.excludedStatus
+      excludedStatuses
     });
 
     // Main condition
