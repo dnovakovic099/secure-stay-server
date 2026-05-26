@@ -50,6 +50,8 @@ router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getT
 
 router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseById);
 
+router.route('/getexpense/:id/history').get(verifySession, expenseController.getExpenseHistory);
+
 router.route('/deleteexpense/:id').delete(verifySession, expenseController.deleteExpense);
 
 router.route('/bulkdeleteexpenses').post(verifySession, verifyAdmin, expenseController.bulkDeleteExpenses);
@@ -217,4 +219,3 @@ router.route('/deleteduplicateexpenses')
     );
 
 export default router;
-

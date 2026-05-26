@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS expense_history (
+  id INT NOT NULL AUTO_INCREMENT,
+  expenseId INT NOT NULL,
+  fieldName VARCHAR(100) NOT NULL,
+  oldValue TEXT NULL,
+  newValue TEXT NULL,
+  changedBy VARCHAR(255) NOT NULL,
+  action VARCHAR(50) NOT NULL DEFAULT 'UPDATE',
+  changedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_expense_history_expense_id (expenseId),
+  INDEX idx_expense_history_changed_at (changedAt)
+);

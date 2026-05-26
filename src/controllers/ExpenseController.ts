@@ -138,6 +138,16 @@ export class ExpenseController {
         }
     }
 
+    async getExpenseHistory(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            const id = parseInt(request.params.id);
+            return response.send(await expenseService.getExpenseHistory(id));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async getTotalExpenseByUserId(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();
