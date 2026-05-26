@@ -5,6 +5,8 @@ export enum ExpenseStatus {
     APPROVED = 'Approved',
     PAID = 'Paid',
     OVERDUE = 'Overdue',
+    CANCELLED = 'Cancelled',
+    REFUNDED = 'Refunded',
     NA = "N/A"
 }
 

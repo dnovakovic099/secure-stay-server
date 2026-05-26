@@ -21,6 +21,7 @@ import { ResolutionService } from "./ResolutionService";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { generateSlackMessageLink } from "../helpers/helpers";
 import { ExpenseHistoryEntity } from "../entity/ExpenseHistory";
+import { RefundRequestEntity } from "../entity/RefundRequest";
 
 const ACCOUNTING_TIME_ZONE = "America/New_York";
 const ACCOUNTING_TIMESTAMP_DATE_TYPES = new Set(["createdAt", "updatedAt"]);
@@ -82,6 +83,7 @@ export class ExpenseService {
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private expenseHistoryRepo = appDatabase.getRepository(ExpenseHistoryEntity);
+    private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
 
     private buildSlackPermalink(slackMessage?: SlackMessageEntity | null) {
         const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
@@ -206,6 +208,31 @@ export class ExpenseService {
         return fullName || user.email || user.uid || "";
     }
 
+    private getRefundStatusFromExpenseStatus(status?: ExpenseStatus | string | null) {
+        if (status === ExpenseStatus.PAID) return "Paid";
+        if (status === ExpenseStatus.CANCELLED) return "Cancelled";
+        return null;
+    }
+
+    private async syncLinkedRefundRequestFromExpense(expense: ExpenseEntity, userId: string) {
+        if (expense.comesFrom !== "refund_request") return;
+
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { expenseId: expense.id } });
+        if (!refundRequest) return;
+
+        const mappedStatus = this.getRefundStatusFromExpenseStatus(expense.status);
+        if (mappedStatus) refundRequest.status = mappedStatus;
+        refundRequest.explaination = expense.concept;
+        refundRequest.refundAmount = Math.abs(Number(expense.amount || 0));
+        refundRequest.paymentMethod = expense.paymentMethod;
+        refundRequest.paymentDetails = expense.paymentDetails;
+        refundRequest.chargeToClient = expense.llCover ? 0 : 1;
+        refundRequest.updatedBy = userId;
+        refundRequest.updatedAt = new Date();
+
+        await this.refundRequestRepo.save(refundRequest);
+    }
+
     async createExpense(request: any, userId: string, fileInfo?: { fileName: string, filePath: string, mimeType: string; originalName: string; }[]) {
         const {
             listingMapId,
@@ -226,7 +253,8 @@ export class ExpenseService {
             llCover,
             comesFrom,
             reservationId,
-            guestName
+            guestName,
+            skipRefundRequestSync
         } = request.body;
 
         const negatedAmount = amount * (-1);
@@ -270,6 +298,9 @@ export class ExpenseService {
 
         // newExpense.expenseId = hostawayExpense?.id;
         const expense = await this.expenseRepo.save(newExpense);
+        if (!skipRefundRequestSync) {
+            await this.syncLinkedRefundRequestFromExpense(expense, userId);
+        }
         if (fileInfo) {
             for (const file of fileInfo) {
                 const fileRecord = new FileInfo();
@@ -560,6 +591,7 @@ export class ExpenseService {
                     createdBy: createdBy,
                     guestName: expense.guestName,
                     llCover: expense.llCover,
+                    comesFrom: expense.comesFrom,
                 };
             })
         );
@@ -755,7 +787,8 @@ export class ExpenseService {
             llCover,
             comesFrom,
             reservationId,
-            guestName
+            guestName,
+            skipRefundRequestSync
         } = request.body;
 
         const expense = await this.expenseRepo.findOne({ where: { id: expenseId } });
@@ -806,6 +839,9 @@ export class ExpenseService {
         // }
 
         await this.expenseRepo.save(expense);
+        if (!skipRefundRequestSync) {
+            await this.syncLinkedRefundRequestFromExpense(expense, userId);
+        }
         await this.logExpenseChanges(
             expense.id,
             previousExpense,
@@ -851,7 +887,7 @@ export class ExpenseService {
     }
 
     async updateExpenseStatus(request: Request, userId: string,) {
-        const { expenseId, status, datePaid } = request.body;
+        const { expenseId, status, datePaid, skipRefundRequestSync } = request.body as any;
         const expense = await this.expenseRepo.find({ where: { id: In(expenseId) } });
         if (!expense) {
             throw CustomErrorHandler.notFound('Expense not found.');
@@ -872,6 +908,9 @@ export class ExpenseService {
         });
         await this.expenseRepo.save(expense);
         for (const element of expense) {
+            if (!skipRefundRequestSync) {
+                await this.syncLinkedRefundRequestFromExpense(element, userId);
+            }
             await this.logExpenseChanges(
                 element.id,
                 previousById.get(element.id) || {},
@@ -1280,6 +1319,7 @@ export class ExpenseService {
             expense.updatedAt = new Date();
 
             await this.expenseRepo.save(expense);
+            await this.syncLinkedRefundRequestFromExpense(expense, userId);
             await this.logExpenseChanges(
                 expense.id,
                 previousExpense,

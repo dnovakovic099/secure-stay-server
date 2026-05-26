@@ -581,8 +581,14 @@ export class RefundRequestService {
 
         if (!expenseStatus) {
           if (request.expenseId) {
-            await expenseService.deleteExpense(request.expenseId, userId);
-            request.expenseId = null;
+            await expenseService.updateExpenseStatus({
+              body: {
+                expenseId: [request.expenseId],
+                status: ExpenseStatus.CANCELLED,
+                datePaid: "",
+                skipRefundRequestSync: true,
+              }
+            } as any, userId);
           }
           await transactionalEntityManager.save(request);
           return;
@@ -618,7 +624,8 @@ export class RefundRequestService {
             guestName: body.guestName || null,
             comesFrom: "refund_request",
             createdBy: userId,
-            llCover: this.normalizeChargeToClient(body.chargeToClient) ? 0 : 1
+            llCover: this.normalizeChargeToClient(body.chargeToClient) ? 0 : 1,
+            skipRefundRequestSync: true
         };
     }
 
