@@ -367,7 +367,7 @@ export class ResolutionService {
                 }))
                 .on("headers", (headers: string[]) => {
                     // ✅ validate headers once, not per row
-                    const requiredHeaders = ["Guest", "Start date", "Amount", "Nights", "Type", "Date"];
+                    const requiredHeaders = ["Guest", "Start date", "Amount", "Nights", "Type", "Date", "Confirmation code"];
                     const missing = requiredHeaders.filter(h => !headers.includes(h));
                     if (missing.length > 0) {
                         fs.unlinkSync(filePath);
@@ -424,34 +424,21 @@ export class ResolutionService {
         }
 
         for (const row of filteredRows) {
-            const guestName = row.Guest;
+            const confirmationCode = row["Confirmation code"]?.trim();
 
             // ✅ Defensive checks for missing/empty values
-            const startDateRaw = row["Start date"]?.trim();
-            // const endDateRaw = row["End date"]?.trim();
             const claimDateRaw = row.Date;
             const amountRaw = row.Amount;
-            const nights = row.Nights;
 
-            if (!guestName || !startDateRaw || !amountRaw || !claimDateRaw || !nights) {
+            if (!confirmationCode || !amountRaw || !claimDateRaw) {
                 failedToProcessData.push({ ...row, reason: "Missing required data" });
                 logger.warn(`Skipping row due to missing data: ${JSON.stringify(row)}`);
                 continue;
             }
 
-            let arrivalDate: string;
-            // let departureDate: string;
             let claimDate: string | null = null;
 
             try {
-                arrivalDate = format(
-                    parse(startDateRaw, "MM/dd/yyyy", new Date()),
-                    "yyyy-MM-dd"
-                );
-                // departureDate = format(
-                //     parse(endDateRaw, "MM/dd/yyyy", new Date()),
-                //     "yyyy-MM-dd"
-                // );
                 if (claimDateRaw) {
                     claimDate = format(
                         claimDateRaw,
@@ -464,16 +451,12 @@ export class ResolutionService {
                 continue;
             }
 
-            const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
-            qb.where("reservation.guestName Like :guestName", { guestName: `${guestName}%` })
-                .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
-                // .andWhere("reservation.departureDate = :departureDate", { departureDate })
-                .andWhere("reservation.nights = :nights", { nights: nights });
-
-            const reservation = await qb.getOne();
+            const reservation = await this.reservationInfoRepository.findOne({
+                where: { channelReservationId: confirmationCode }
+            });
             if (!reservation) {
                 failedToProcessData.push({ ...row, reason: "No matching reservation found" });
-                logger.warn(`No reservation found for guest: ${guestName}, arrival: ${arrivalDate}, nights: ${nights}`);
+                logger.warn(`No reservation found for confirmation code: ${confirmationCode}`);
                 continue;
             }
 
@@ -485,7 +468,7 @@ export class ResolutionService {
                 guestName: reservation.guestName,
                 claimDate: claimDate ? claimDate : format(new Date(), "yyyy-MM-dd"),
                 amount: Number(row.Amount), 
-                arrivalDate: arrivalDate,
+                arrivalDate: String(reservation.arrivalDate),
                 departureDate: String(reservation.departureDate),
                 creationSource: "csv_upload"
             };
@@ -528,34 +511,18 @@ export class ResolutionService {
         }
 
         for (const row of filteredRows) {
-            const guestName = row.Guest;
-            const startDateRaw = row["Start date"]?.trim();
+            const confirmationCode = row["Confirmation code"]?.trim();
             const claimDateRaw = row.Date;
             const amountRaw = row.Amount;
-            const nights = row.Nights;
 
-            if (!guestName || !startDateRaw || !amountRaw || !claimDateRaw || !nights) {
+            if (!confirmationCode || !amountRaw || !claimDateRaw) {
                 missingRows.push({ ...row, reason: "Missing required data" });
                 continue;
             }
 
-            let arrivalDate: string;
-            try {
-                arrivalDate = format(
-                    parse(startDateRaw, "MM/dd/yyyy", new Date()),
-                    "yyyy-MM-dd"
-                );
-            } catch (err) {
-                missingRows.push({ ...row, reason: "Invalid date format" });
-                continue;
-            }
-
-            const qb = this.reservationInfoRepository.createQueryBuilder("reservation");
-            qb.where("reservation.guestName Like :guestName", { guestName: `${guestName}%` })
-                .andWhere("reservation.arrivalDate = :arrivalDate", { arrivalDate })
-                .andWhere("reservation.nights = :nights", { nights: nights });
-
-            const reservation = await qb.getOne();
+            const reservation = await this.reservationInfoRepository.findOne({
+                where: { channelReservationId: confirmationCode }
+            });
             if (!reservation) {
                 missingRows.push({ ...row, reason: "No matching reservation found" });
                 continue;
