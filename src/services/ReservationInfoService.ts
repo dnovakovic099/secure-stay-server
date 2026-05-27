@@ -71,10 +71,10 @@ export class ReservationInfoService {
   }
 
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
-    const listings = await this.listingInfoRepository.find();
-    const listingIds = listings.map(l => Number(l.id));
-    const incomingListingId = Number(reservation.listingMapId);
-    if (reservation.listingMapId && !listingIds.includes(incomingListingId)) {
+    const listing = reservation.listingMapId
+      ? await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
+      : null;
+    if (reservation.listingMapId && !listing) {
       logger.info(`[saveReservationInfo] Listing ID ${reservation.listingMapId} not found. Skipping reservation save.`);
       return null;
     }
@@ -108,7 +108,6 @@ export class ReservationInfoService {
     // }
 
     const lastName = (reservation.guestLastName && reservation.guestLastName.length > 50) ? reservation.guestLastName.slice(0, 50) : reservation.guestLastName;
-    const listing = reservation.listingMapId && await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } });
     const listingName = listing ? listing.internalListingName : "";
     const newReservation = this.reservationInfoRepository.create({ ...reservation, guestLastName: lastName, listingName: listingName });
     logger.info(`[saveReservationInfo] Reservation saved successfully.`);
@@ -475,7 +474,10 @@ export class ReservationInfoService {
       .addOrderBy("arrivalDate", "DESC")
       .getManyAndCount();
 
-    const listings = await appDatabase.getRepository(Listing).find();
+    const listingIdSet = [...new Set(results.map(r => r.listingMapId).filter(Boolean))];
+    const listings = listingIdSet.length > 0
+      ? await appDatabase.getRepository(Listing).findBy({ id: In(listingIdSet) })
+      : [];
     const listingTimeZoneMap = new Map(
       listings.map(listing => [listing.id, listing.timeZoneName])
     );

@@ -11,6 +11,7 @@ import { ensureIssueMetadataColumns, initDatabase } from "./utils/database.util"
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
+import compression from "compression";
 import logger from "./utils/logger.utils";
 
 // 🔹 Global error handlers
@@ -34,6 +35,7 @@ const main = async () => {
   // Increase qs arrayLimit so repeated query params (e.g. 47 listingMapId values)
   // are parsed as arrays instead of plain objects (default limit is 20)
   app.set('query parser', (str: string) => qs.parse(str, { arrayLimit: 1000 }));
+  app.use(compression());
   app.use(cors());
 
   // JSON parser with special webhook exception
