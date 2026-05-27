@@ -12,6 +12,7 @@ import sendSlackMessage from '../utils/sendSlackMsg';
 import { SlackMessageService } from '../services/SlackMessageService';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
+import { getCachedUserMap } from '../utils/usersCache.util';
 import { Listing } from '../entity/Listing';
 import { ActionItems } from '../entity/ActionItems';
 import { ReservationInfoEntity } from '../entity/ReservationInfo';
@@ -62,8 +63,7 @@ export class ActionItemsSubscriber
 
     private async updateSlackMessage(actionItem: any, userId: string, eventType: string) {
         try {
-            const users = await this.usersRepo.find();
-            const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+            const userMap = await getCachedUserMap();
 
             const reservationInfo = await this.reservationInfoRepo.findOne({ where: { id: actionItem.reservationId } });
 

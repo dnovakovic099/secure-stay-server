@@ -20,6 +20,7 @@ import { CategoryEntity } from '../entity/Category';
 import updateSlackMessage from '../utils/updateSlackMsg';
 import { updateResolutionFromExpense } from '../queue/expenseQueue';
 import { getSlackUsers } from '../utils/getSlackUsers';
+import { getCachedUserMap } from '../utils/usersCache.util';
 
 @EventSubscriber()
 export class ExpenseSubscriber
@@ -188,8 +189,7 @@ export class ExpenseSubscriber
 
     private async updateSlackMessage(expense: any, userId: string, eventType: string, diff: Record<string, { old: any; new: any; }> = {}) {
         try {
-            const users = await this.usersRepo.find();
-            const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+            const userMap = await getCachedUserMap();
 
             const listingInfo = await this.listingRepo.findOne({ where: { id: expense.listingMapId } });
             const categoryNames = await this.getCategoryNames(expense.categories);
