@@ -6,9 +6,9 @@ interface CustomRequest extends Request {
 }
 export class UsersController{
 
-    async createUser(request:Request,response:Response) {
-            const usersService = new UsersService();
-        return response.send(await usersService.createUser(request,response));
+    async createUser(request: Request, response: Response) {
+        const usersService = new UsersService();
+        await usersService.createUser(request, response);
     }
 
     async checkUserForGoogleLogin(request: Request, response: Response, next: NextFunction) {
