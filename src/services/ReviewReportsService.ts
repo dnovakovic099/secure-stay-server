@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
 import { differenceInCalendarDays, format, parseISO, subDays } from "date-fns";
@@ -411,7 +412,8 @@ export class ReviewReportsService {
             ? await this.guestAnalysisService.getAnalysesByReservations(reservationIds)
             : [];
         const analysisMap = new Map(latestAnalyses.map((analysis) => [Number(analysis.reservationId), analysis]));
-        const contexts = await Promise.all(rows.map(async (row: any) => {
+        const communicationLimit = pLimit(10);
+        const contexts = await Promise.all(rows.map((row: any) => communicationLimit(async () => {
             const reservationId = Number(row.reservationInfo?.id);
             const communications = await this.guestCommunicationService.getAllCommunicationsForReservation(reservationId);
             const review = this.resolveReviewOutcome(row);
@@ -455,7 +457,7 @@ export class ReviewReportsService {
                 review,
                 negotiation,
             } satisfies ReservationReportContext;
-        }));
+        })));
 
         const comparison = await this.buildComparisonMetrics(filters, userId);
         const metrics = this.buildCohortMetrics(contexts, aiRefresh, comparison);
@@ -465,7 +467,7 @@ export class ReviewReportsService {
     private async fetchReportRows(filters: ReviewReportFilters, userId: string | null) {
         const reviewData = await this.reviewService.getReviewsForCheckout({
             page: 1,
-            limit: 5000,
+            limit: 500,
             listingMapId: filters.listingId || [],
             channel: (filters.channel || []) as any,
             propertyType: filters.propertyType || [],
