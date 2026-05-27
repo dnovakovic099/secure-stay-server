@@ -16,6 +16,7 @@ import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { getSlackUsers } from '../utils/getSlackUsers';
+import { getCachedUserMap } from '../utils/usersCache.util';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -73,9 +74,8 @@ export class ClientTicketSubscriber
 
     private async updateSlackMessage(ticket: any, userId: string, diff: any) {
         try {
-            const userList = await this.usersRepo.find();
-            const userInfo = userList.find(user => user.uid == userId);
-            const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+            const userMap = await getCachedUserMap();
+            const user = userMap.get(userId) ?? "Unknown User";
 
             const listingInfo = await this.listingRepo.findOne({
                 where: {
@@ -99,11 +99,9 @@ export class ClientTicketSubscriber
 
                 // If assignee, map UIDs to full names
                 if (key === "assignee") {
-                    const oldUser = userList.find(u => u.uid === value.old);
-                    const newUser = userList.find(u => u.uid === value.new);
                     processedDiff[key] = {
-                        old: oldUser ? `${oldUser.firstName} ${oldUser.lastName}` : value.old,
-                        new: newUser ? `${newUser.firstName} ${newUser.lastName}` : value.new
+                        old: userMap.get(value.old) ?? value.old,
+                        new: userMap.get(value.new) ?? value.new
                     };
                 } else if (key === "description" || key === "resolution") {
                     // Process text fields for mentions

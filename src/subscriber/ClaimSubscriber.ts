@@ -18,6 +18,7 @@ import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { Claim } from '../entity/Claim';
 import updateSlackMessage from '../utils/updateSlackMsg';
 import { uploadFileToSlack } from '../utils/uploadFileToSlack';
+import { getCachedUserMap } from '../utils/usersCache.util';
 
 @EventSubscriber()
 export class ClientTicketSubscriber
@@ -85,8 +86,7 @@ export class ClientTicketSubscriber
 
     private async updateSlackMessage(claim: any, userId: string, eventType: string) {
         try {
-            const users = await this.usersRepo.find();
-            const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
+            const userMap = await getCachedUserMap();
 
             let slackMessage = buildClaimSlackMessage(claim, userMap.get(userId));
             const slackMessageInfo = await this.slackMessageInfo.findOne({
