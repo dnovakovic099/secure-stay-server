@@ -12,9 +12,10 @@ import { In, Not, LessThan, MoreThan } from "typeorm";
  */
 const DEFAULT_TAX_RATE = 0.12;
 
-// Cache for listing fees to avoid repeated API calls
+// Cache for listing fees to avoid repeated API calls (capped at 500 entries)
 const listingFeesCache = new Map<number, { fees: HostifyListingFees; timestamp: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const LISTING_FEES_CACHE_MAX = 500;
 
 // Valid reservation statuses (exclude cancelled/declined)
 const INVALID_BOOKING_STATUSES = ["cancelled", "declined", "expired", "inquiry"];
@@ -157,6 +158,9 @@ export class QuoteService {
     try {
       const fees = await this.hostify.getListingFees(this.apiKey, listingId);
       if (fees) {
+        if (listingFeesCache.size >= LISTING_FEES_CACHE_MAX) {
+          listingFeesCache.delete(listingFeesCache.keys().next().value!);
+        }
         listingFeesCache.set(listingId, { fees, timestamp: Date.now() });
       }
       return fees;

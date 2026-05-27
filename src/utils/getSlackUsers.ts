@@ -4,7 +4,7 @@ import logger from "./logger.utils";
 
 let usersCache: any[] | null = null;
 let lastFetchTime = 0;
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+const CACHE_DURATION = 1000 * 60 * 15; // 15 minutes
 
 export const getSlackUsers = async () => {
     try {
@@ -28,7 +28,7 @@ export const getSlackUsers = async () => {
                     name: member.name,
                     real_name: member.real_name,
                     display_name: member.profile.display_name || member.real_name,
-                    image: member.profile.image_512 || member.profile.image_192 || member.profile.image_72 || member.profile.image_48 || member.profile.image_24
+                    image: member.profile.image_192 || member.profile.image_72 || member.profile.image_48 || member.profile.image_24
                 }));
 
             usersCache = members;
