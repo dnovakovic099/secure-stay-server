@@ -56,6 +56,14 @@ const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
 const slackThreadSyncTimestamps = new Map<number, number>();
 const SLACK_SYNC_INTERVAL_MS = 60_000;
 
+// Evict stale entries every 5 minutes so the map doesn't grow indefinitely
+setInterval(() => {
+    const cutoff = Date.now() - 2 * SLACK_SYNC_INTERVAL_MS;
+    for (const [id, ts] of slackThreadSyncTimestamps) {
+        if (ts < cutoff) slackThreadSyncTimestamps.delete(id);
+    }
+}, 5 * 60_000);
+
 export class ResolutionsTeamSlackService {
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
     private reviewCheckoutUpdatesRepo = appDatabase.getRepository(ReviewCheckoutUpdates);

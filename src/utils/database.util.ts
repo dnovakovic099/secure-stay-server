@@ -15,9 +15,9 @@ export const appDatabase = new DataSource({
   extra: {
     connectionLimit: 20,           // Reduced to prevent exhausting MySQL max_connections
     connectTimeout: 10000,         // 10 second connection timeout
-    // acquireTimeout: 10000,         // 10 seconds to acquire connection from pool
+    // acquireTimeout: 10000,         // Not supported by MySQL2 — use queueLimit instead
     waitForConnections: true,      // Wait for available connection instead of throwing error
-    queueLimit: 0                  // Unlimited queue (0 = no limit)
+    queueLimit: 50                 // Cap pending requests to prevent unbounded memory growth under burst load
   },
   charset: "utf8mb4",
 });
