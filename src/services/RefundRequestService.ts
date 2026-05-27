@@ -660,8 +660,8 @@ export class RefundRequestService {
         return await this.decorateRefundRequests(refundRequest);
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; sortRules?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, sortRules } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -679,6 +679,76 @@ export class RefundRequestService {
         const statusFilters = normalizeArray(status);
         const createdByFilters = normalizeArray(createdBy);
         const paymentMethodFilters = normalizeArray(paymentMethod);
+        const selectedKeywordField = keywordField === "guestName" || keywordField === "explaination" ? keywordField : "all";
+        const directSortColumns: Record<string, keyof RefundRequestEntity> = {
+            status: "status",
+            guestName: "guestName",
+            createdAt: "createdAt",
+            createdByName: "createdBy",
+            listingName: "listingName",
+            checkIn: "checkIn",
+            checkOut: "checkOut",
+            refundAmount: "refundAmount",
+            paymentMethod: "paymentMethod",
+            paymentDetails: "paymentDetails",
+            chargeToClient: "chargeToClient",
+            explaination: "explaination",
+            expenseEntry: "expenseId",
+            reviewMitigation: "reservationId",
+        };
+        const parseSortRules = () => {
+            try {
+                const parsed = sortRules ? JSON.parse(String(sortRules)) : [];
+                if (!Array.isArray(parsed)) return [];
+                return parsed
+                    .map((rule) => ({
+                        field: String(rule?.field || ""),
+                        direction: String(rule?.direction || "asc").toLowerCase() === "desc" ? "DESC" as const : "ASC" as const,
+                    }))
+                    .filter((rule) => Boolean(directSortColumns[rule.field]))
+                    .slice(0, 3);
+            } catch {
+                return [];
+            }
+        };
+        const activeSortRules = parseSortRules();
+        const sortOrder = activeSortRules.length
+            ? activeSortRules.reduce<Record<string, "ASC" | "DESC">>((order, rule) => {
+                order[directSortColumns[rule.field] as string] = rule.direction;
+                return order;
+            }, {})
+            : { createdAt: "DESC" as const };
+        const applySortRulesToQuery = (qb: any) => {
+            if (!activeSortRules.length) {
+                qb.orderBy("refundRequest.createdAt", "DESC");
+                return;
+            }
+            activeSortRules.forEach((rule, index) => {
+                const column = directSortColumns[rule.field];
+                if (!column) return;
+                const expression = `refundRequest.${String(column)}`;
+                if (index === 0) qb.orderBy(expression, rule.direction);
+                else qb.addOrderBy(expression, rule.direction);
+            });
+            qb.addOrderBy("refundRequest.createdAt", "DESC");
+        };
+
+        const applyKeywordToQuery = (qb: any, keywordValue: string) => {
+            const keywordLike = `%${String(keywordValue).toLowerCase()}%`;
+            qb.andWhere(new Brackets((subQuery) => {
+                if (selectedKeywordField === "guestName") {
+                    subQuery.where("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
+                if (selectedKeywordField === "explaination") {
+                    subQuery.where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
+                subQuery
+                    .where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike })
+                    .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike });
+            }));
+        };
 
         if (propertyTypes.length > 0 || serviceTypes.length > 0) {
           const [propertyListings, serviceListings] = await Promise.all([
@@ -770,16 +840,12 @@ export class RefundRequestService {
                 });
             }
             if (keyword) {
-                const keywordLike = `%${String(keyword).toLowerCase()}%`;
-                qb.andWhere(new Brackets((subQuery) => {
-                    subQuery
-                        .where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike })
-                        .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike });
-                }));
+                applyKeywordToQuery(qb, keyword);
             }
 
+            applySortRulesToQuery(qb);
+
             const [data, total] = await qb
-                .orderBy("refundRequest.createdAt", "DESC")
                 .take(limit)
                 .skip(offset)
                 .getManyAndCount();
@@ -799,15 +865,19 @@ export class RefundRequestService {
         }
         
         const where = keyword
-        ? [
-            { ...whereConditions, explaination: ILike(`%${keyword}%`) },
-            { ...whereConditions, guestName: ILike(`%${keyword}%`) },
-        ]
+        ? selectedKeywordField === "guestName"
+            ? { ...whereConditions, guestName: ILike(`%${keyword}%`) }
+            : selectedKeywordField === "explaination"
+                ? { ...whereConditions, explaination: ILike(`%${keyword}%`) }
+                : [
+                    { ...whereConditions, explaination: ILike(`%${keyword}%`) },
+                    { ...whereConditions, guestName: ILike(`%${keyword}%`) },
+                ]
         : whereConditions;
 
         const [data, total] = await this.refundRequestRepo.findAndCount({
             where,
-            order: { createdAt: "DESC" },
+            order: sortOrder as any,
             take: limit,
             skip: offset,
         });
