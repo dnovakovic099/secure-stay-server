@@ -26,6 +26,7 @@
     "axios": "^1.6.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.56.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "date-fns": "^4.1.0",
@@ -57,6 +58,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.17",
     "@types/ejs": "^3.1.5",
     "@types/express": "^4.17.21",
