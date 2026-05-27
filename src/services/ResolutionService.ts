@@ -52,6 +52,8 @@ const RESOLUTION_SORT_FIELD_MAP: Record<string, keyof Resolution> = {
     guestName: "guestName",
     listingName: "listingMapId",
     listingMapId: "listingMapId",
+    propertyType: "listingMapId",
+    serviceType: "listingMapId",
     category: "category",
     amount: "amount",
     amountToPayout: "amountToPayout",
@@ -93,6 +95,21 @@ export class ResolutionService {
             }))
             .filter((item) => item.field)
             .slice(0, 3);
+    }
+
+    private extractTypeFromTags(tags: string | null | undefined, options: string[]) {
+        if (!tags) return null;
+        const tagList = tags.split(",").map(tag => tag.trim().toLowerCase());
+        const match = options.find(option => tagList.includes(option.toLowerCase()));
+        return match || null;
+    }
+
+    private extractPropertyType(listing?: any) {
+        return this.extractTypeFromTags(listing?.tags, ["Own", "Arb", "PM"]) || listing?.propertyType || null;
+    }
+
+    private extractServiceType(listing?: any) {
+        return this.extractTypeFromTags(listing?.tags, ["Full", "Pro", "Launch"]) || listing?.serviceType || null;
     }
 
     async createResolution(data: ResolutionData, userId: string | null) {
@@ -198,15 +215,18 @@ export class ResolutionService {
         const users = await this.usersRepo.find();
         const userMap = new Map(users.map(user => [user.uid, `${user?.firstName} ${user?.lastName}`]));
         const listings = await appDatabase.query(`
-              SELECT id, MIN(name) AS name, MIN(internalListingName) AS internalListingName
+              SELECT id, MIN(name) AS name, MIN(internalListingName) AS internalListingName, MIN(propertyType) AS propertyType, MIN(tags) AS tags
               FROM listing_info
               GROUP BY id
               `);
 
         const transformedResolutions = resolutions.map(resolution => {
+            const listing = listings.find((listing) => listing.id == Number(resolution.listingMapId));
             return {
                 ...resolution,
-                listingName: listings.find((listing) => listing.id == Number(resolution.listingMapId))?.internalListingName,
+                listingName: listing?.internalListingName,
+                propertyType: this.extractPropertyType(listing),
+                serviceType: this.extractServiceType(listing),
                 createdBy: userMap.get(resolution.createdBy) || resolution.createdBy,
                 updatedBy: userMap.get(resolution.updatedBy) || resolution.updatedBy,
             };
