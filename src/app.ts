@@ -69,6 +69,18 @@ const main = async () => {
 
   // STEP 6: Start cron jobs AFTER server starts
   scheduleGetReservation();
+
+  // Memory monitoring: log RSS + heap every 2 minutes so we can see growth pattern
+  const instanceId = process.env.NODE_APP_INSTANCE ?? 'standalone';
+  const logMemory = () => {
+    const m = process.memoryUsage();
+    const mb = (bytes: number) => Math.round(bytes / 1024 / 1024);
+    logger.info(
+      `[MEM:${instanceId}] rss=${mb(m.rss)}MB heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB external=${mb(m.external)}MB`
+    );
+  };
+  logMemory(); // log once at startup
+  setInterval(logMemory, 2 * 60 * 1000); // then every 2 minutes
 };
 
 main().catch((err) => {
