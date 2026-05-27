@@ -339,7 +339,7 @@ export class HostAwayClient {
         const fetchedExpenses = response.data.result;
 
         // Add fetched expenses to the array
-        expenses = expenses.concat(fetchedExpenses);
+        expenses.push(...fetchedExpenses);
 
         // Check if there is more data
         if (fetchedExpenses.length < limit) {
@@ -476,7 +476,7 @@ export class HostAwayClient {
 
         let fetchedReviews = response.data.result;
 
-        reviews = reviews.concat(fetchedReviews); // Add fetched reviews to the array
+        reviews.push(...fetchedReviews);
 
         if (fetchedReviews.length < limit) {
           hasMoreData = false;
@@ -512,7 +512,7 @@ export class HostAwayClient {
 
         let fetchedReservations = response.data.result;
 
-        reservations = reservations.concat(fetchedReservations); // Add fetched reviews to the array
+        reservations.push(...fetchedReservations);
 
         if (fetchedReservations.length < limit) {
           hasMoreData = false;

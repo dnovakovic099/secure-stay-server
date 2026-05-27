@@ -3,13 +3,13 @@ module.exports = {
         {
             name: "secure_stay_api",
             script: "dist/out-tsc/app.js",
-            instances: "max",
+            instances: 4,
             exec_mode: "cluster",
-            node_args: "--max-old-space-size=1024",
+            node_args: "--max-old-space-size=768",
             env: {
                 NODE_ENV: "production"
             },
-            max_memory_restart: "900M",
+            max_memory_restart: "1200M",
             autorestart: true
         },
         {
