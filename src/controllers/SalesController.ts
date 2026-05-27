@@ -57,6 +57,10 @@ import { promisify } from 'util';
 import { calculateRevenue } from "../helpers/calculateRevenue";
 import { randomUUID } from 'crypto';
 
+// Limit concurrent Chromium instances to prevent memory spikes (~150-300 MB each)
+let activePuppeteerInstances = 0;
+const MAX_PUPPETEER_INSTANCES = 2;
+
 interface CustomRequest extends Request {
   user?: any;
 }
@@ -118,12 +122,17 @@ export class SalesController {
       guests: string;
     };
 
+    if (activePuppeteerInstances >= MAX_PUPPETEER_INSTANCES) {
+      return response.status(429).json({ error: "Service busy, please try again shortly" });
+    }
+    activePuppeteerInstances++;
+
     const credentials: LoginCredentials = {
       email: process.env.AIRDNA_EMAIL,
       password: process.env.AIRDNA_PASSWORD,
     };
 
-    let browser: Browser;
+    let browser: Browser | undefined;
 
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
@@ -153,8 +162,7 @@ export class SalesController {
 
       const isLoggedIn = await login(page, credentials);
       if (!isLoggedIn) {
-        await browser.close();
-        response.status(400).json({ error: "Unable to Log into AirDna" });
+        return response.status(400).json({ error: "Unable to Log into AirDna" });
       }
       await page.waitForSelector(".css-1a9leff");
       const searchInputSelector =
@@ -168,11 +176,8 @@ export class SalesController {
       // await page.waitForNetworkIdle();
       await new Promise(resolve => setTimeout(resolve, 20000));
 
-
-
       if (!listings.length) {
-        await browser.close();
-        response
+        return response
           .status(404)
           .json({ error: "No Listings available for this address" });
       }
@@ -184,7 +189,6 @@ export class SalesController {
       const screenShots = await takeScreenShots(page, rest.beds);
 
       if (screenShots.error) {
-        await browser.close();
         return response.status(400).json({
           error: screenShots.error,
         });
@@ -194,7 +198,6 @@ export class SalesController {
 
       // const processedData = transformData(allElements); // Leaving this here incase we need to use it later for the pdf
 
-      await browser.close();
       if (!apiResponse.success) {
         return response.status(400).json({
           error: "The Listing doesn't have the required details.",
@@ -209,13 +212,13 @@ export class SalesController {
       return response.json(responseData);
     } catch (error) {
       console.log("error", error);
-      if (browser) {
-        await browser.close();
-      }
       return response.status(500).json({
         error,
         message: "Failed to fetch details for the selected address.",
       });
+    } finally {
+      if (browser) try { await browser.close(); } catch (_) {}
+      activePuppeteerInstances--;
     }
   }
   async generatePdf(request: Request, response: Response) {
@@ -223,7 +226,12 @@ export class SalesController {
     // const attachments = request.files["attachments"] as Express.Multer.File[];
     const clientService = new ClientService();
 
-    let browser: Browser;
+    if (activePuppeteerInstances >= MAX_PUPPETEER_INSTANCES) {
+      return response.status(429).json({ error: "Service busy, please try again shortly" });
+    }
+    activePuppeteerInstances++;
+
+    let browser: Browser | undefined;
     const date = Date.now();
     try {
       const fetchedClient = await clientService.getClientListing(clientId);
@@ -543,7 +551,6 @@ export class SalesController {
         //   }
         // }
 
-        await browser.close();
         return response.status(200).send({
           status: true,
           message: "PDF generated successfully",
@@ -555,11 +562,10 @@ export class SalesController {
         .json({ error: "Listing for client not found" });
     } catch (error) {
       console.log("error", error);
-
-      if (browser) {
-        await browser.close();
-      }
       return response.status(500).json({ error: "Unable to generate pdf" });
+    } finally {
+      if (browser) try { await browser.close(); } catch (_) {}
+      activePuppeteerInstances--;
     }
   }
 
@@ -567,7 +573,11 @@ export class SalesController {
     const { listingLink } = request.query as {
       listingLink: string;
     };
-    let browser: Browser;
+    if (activePuppeteerInstances >= MAX_PUPPETEER_INSTANCES) {
+      return response.status(429).json({ error: "Service busy, please try again shortly" });
+    }
+    activePuppeteerInstances++;
+    let browser: Browser | undefined;
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
@@ -581,7 +591,6 @@ export class SalesController {
       };
       const isLoggedIn = await login(page, credentials);
       if (!isLoggedIn) {
-        await browser.close();
         return response
           .status(400)
           .json({ error: "Unable to Log into AirDna" });
@@ -595,13 +604,11 @@ export class SalesController {
       console.log("ssid===>>", apiResponse, screenshotSessionId, error)
 
       if (error) {
-        await browser.close();
         return response.status(400).json({
           error: error,
         });
       }
 
-      await browser.close();
       if (apiResponse.success && screenshotSessionId) {
         return response.json({
           success: true,
@@ -609,20 +616,15 @@ export class SalesController {
           ssid: screenshotSessionId,
         });
       }
-      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });
     } catch (error) {
       logger.error(error);
-      if (browser) {
-        try {
-          await browser.close();
-        } catch (closeError) {
-          console.error("Error closing browser:", closeError);
-        }
-      }
       return next(error);
+    } finally {
+      if (browser) try { await browser.close(); } catch (_) {}
+      activePuppeteerInstances--;
     }
   }
 
@@ -631,7 +633,11 @@ export class SalesController {
     const { competitorListingLink } = request.query as {
       competitorListingLink: string;
     };
-    let browser: Browser;
+    if (activePuppeteerInstances >= MAX_PUPPETEER_INSTANCES) {
+      return response.status(429).json({ error: "Service busy, please try again shortly" });
+    }
+    activePuppeteerInstances++;
+    let browser: Browser | undefined;
     try {
       browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
       const page = await browser.newPage();
@@ -645,7 +651,6 @@ export class SalesController {
       };
       const isLoggedIn = await login(page, credentials);
       if (!isLoggedIn) {
-        await browser.close();
         return response
           .status(400)
           .json({ error: "Unable to Log into AirDna" });
@@ -659,13 +664,11 @@ export class SalesController {
       console.log("ssid===>>", apiResponse, screenshotSessionId, error);
 
       if (error) {
-        await browser.close();
         return response.status(400).json({
           error: error,
         });
       }
 
-      await browser.close();
       if (apiResponse.success && screenshotSessionId) {
         return response.json({
           success: true,
@@ -673,20 +676,15 @@ export class SalesController {
           ssid: screenshotSessionId,
         });
       }
-      await browser.close();
       return response.status(404).json({
         error: "There was an error fetching from the requested link",
       });
     } catch (error) {
       logger.error(error);
-      if (browser) {
-        try {
-          await browser.close();
-        } catch (closeError) {
-          console.error("Error closing browser:", closeError);
-        }
-      }
       return next(error);
+    } finally {
+      if (browser) try { await browser.close(); } catch (_) {}
+      activePuppeteerInstances--;
     }
   }
 
@@ -789,7 +787,11 @@ export class SalesController {
         password: process.env.AIRDNA_PASSWORD,
       };
 
-      let browser: Browser;
+      if (activePuppeteerInstances >= MAX_PUPPETEER_INSTANCES) {
+        return response.status(429).json({ error: "Service busy, please try again shortly" });
+      }
+      activePuppeteerInstances++;
+      let browser: Browser | undefined;
       try {
         browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
         const page = await browser.newPage();
@@ -801,7 +803,6 @@ export class SalesController {
 
         const isLoggedIn = await login(page, credentials);
         if (!isLoggedIn) {
-          await browser.close();
           return response.status(400).json({
             error: "Unable to Log into AirDna"
           });
@@ -822,11 +823,8 @@ export class SalesController {
           // await page.waitForNetworkIdle();
           await new Promise(resolve => setTimeout(resolve, 20000));
 
-
-
           if (!listings.length) {
-            await browser.close();
-            response
+            return response
               .status(404)
               .json({ error: "No Listings available for this address" });
           }
@@ -835,13 +833,13 @@ export class SalesController {
           await new Promise(resolve => setTimeout(resolve, 20000));
 
           const revenue = await calculateRevenue(page, address, bedCount, bathCount);
-          
+
           // Format revenue: Remove '$' and 'K', convert to number with comma formatting
           let formattedRevenue = 0;
           if (typeof revenue === 'string') {
             // Remove dollar sign first
             const revenueWithoutDollar = revenue.replace('$', '');
-            
+
             // Check if it has 'K' suffix and process accordingly
             if (revenueWithoutDollar.endsWith('K')) {
               const numValue = parseFloat(revenueWithoutDollar.replace('K', ''));
@@ -853,7 +851,7 @@ export class SalesController {
 
           // Format with commas and add dollar sign back
           const revenueWithCommas = '$' + formattedRevenue.toLocaleString();
-          
+
           report.push({
             address,
             bedCount,
@@ -863,11 +861,9 @@ export class SalesController {
           await new Promise(resolve => setTimeout(resolve, 10000));
         }
 
-        await browser.close();
-
         // Generate CSV content
         const csvHeader = 'Address,Bed Count,Bath Count,Revenue\n';
-        const csvRows = report.map(row => 
+        const csvRows = report.map(row =>
           `"${row.address}",${row.bedCount},${row.bathCount},"${row.revenue}"`
         ).join('\n');
         const csvContent = csvHeader + csvRows;
@@ -893,11 +889,13 @@ export class SalesController {
 
       } catch (error) {
         console.error("Error processing file:", error);
-        await browser.close();
         return response.status(500).json({
           error: "Error processing file",
           details: error instanceof Error ? error.message : "Unknown error"
         });
+      } finally {
+        if (browser) try { await browser.close(); } catch (_) {}
+        activePuppeteerInstances--;
       }
 
 
