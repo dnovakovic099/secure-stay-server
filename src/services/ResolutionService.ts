@@ -22,6 +22,7 @@ interface ResolutionData {
     guestName: string;
     claimDate: string;
     amount: number;
+    amountToPayout?: number | null;
     arrivalDate: string;
     departureDate: string;
     creationSource?: string;
@@ -121,6 +122,7 @@ export class ResolutionService {
         resolution.guestName = data.guestName;
         resolution.claimDate = data.claimDate;
         resolution.amount = data.amount;
+        resolution.amountToPayout = data.amountToPayout !== undefined ? data.amountToPayout : null;
         resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
