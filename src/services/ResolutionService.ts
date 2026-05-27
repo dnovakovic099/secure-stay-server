@@ -13,6 +13,7 @@ import { format, parse } from "date-fns";
 import sendEmail from "../utils/sendEmai";
 import { Listing } from "../entity/Listing";
 import { formatCurrency } from "../helpers/helpers";
+import { ResolutionCategory } from "../entity/ResolutionCategory";
 
 interface ResolutionData {
     category: string;
@@ -36,7 +37,8 @@ enum CategoryKey {
     EXTRA_CLEANING = 'extra_cleaning',
     OTHERS = 'others',
     RESOLUTION = 'resolution',
-    REVIEW_REMOVAL = 'review_removal'
+    REVIEW_REMOVAL = 'review_removal',
+    DISPUTE = 'dispute'
 }
 
 const categoriesList: Record<CategoryKey, string> = {
@@ -46,8 +48,15 @@ const categoriesList: Record<CategoryKey, string> = {
     [CategoryKey.EXTRA_CLEANING]: "Extra Cleaning",
     [CategoryKey.OTHERS]: "Others",
     [CategoryKey.RESOLUTION]: "Resolution",
-    [CategoryKey.REVIEW_REMOVAL]: "Review Removal"
+    [CategoryKey.REVIEW_REMOVAL]: "Review Removal",
+    [CategoryKey.DISPUTE]: "Dispute"
 };
+
+const defaultResolutionCategories = Object.entries(categoriesList).map(([categoryKey, name], index) => ({
+    categoryKey,
+    name,
+    displayOrder: index + 1,
+}));
 
 const RESOLUTION_SORT_FIELD_MAP: Record<string, keyof Resolution> = {
     guestName: "guestName",
@@ -86,6 +95,7 @@ export class ResolutionService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingInfoRepository = appDatabase.getRepository(Listing);
+    private resolutionCategoryRepo = appDatabase.getRepository(ResolutionCategory);
 
     private normalizeSortRules(sort: any) {
         const sortItems = Array.isArray(sort) ? sort : sort ? Object.values(sort) : [];
@@ -111,6 +121,122 @@ export class ResolutionService {
 
     private extractServiceType(listing?: any) {
         return this.extractTypeFromTags(listing?.tags, ["Full", "Pro", "Launch"]) || listing?.serviceType || null;
+    }
+
+    private normalizeCategoryKey(value: string) {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "");
+    }
+
+    private async ensureResolutionCategories() {
+        const count = await this.resolutionCategoryRepo.count();
+        if (count > 0) return;
+
+        await this.resolutionCategoryRepo.save(defaultResolutionCategories.map((category) => {
+            const entity = new ResolutionCategory();
+            entity.categoryKey = category.categoryKey;
+            entity.name = category.name;
+            entity.displayOrder = category.displayOrder;
+            return entity;
+        }));
+    }
+
+    async getResolutionCategories() {
+        await this.ensureResolutionCategories();
+        const categories = await this.resolutionCategoryRepo.find({
+            order: {
+                displayOrder: "ASC",
+                name: "ASC",
+            },
+        });
+
+        return categories.map((category) => ({
+            id: category.categoryKey,
+            categoryId: category.id,
+            categoryKey: category.categoryKey,
+            name: category.name,
+            displayOrder: category.displayOrder,
+        }));
+    }
+
+    async createResolutionCategory(body: { name?: string }) {
+        const name = String(body.name || "").trim();
+        if (!name) throw CustomErrorHandler.validationError("Category name is required.");
+
+        let categoryKey = this.normalizeCategoryKey(name);
+        if (!categoryKey) throw CustomErrorHandler.validationError("Category name is invalid.");
+
+        const existing = await this.resolutionCategoryRepo.findOne({ where: { categoryKey } });
+        if (existing) throw CustomErrorHandler.validationError("A category with this name already exists.");
+
+        const maxOrder = await this.resolutionCategoryRepo
+            .createQueryBuilder("category")
+            .select("MAX(category.displayOrder)", "maxOrder")
+            .getRawOne();
+
+        const category = new ResolutionCategory();
+        category.categoryKey = categoryKey;
+        category.name = name;
+        category.displayOrder = Number(maxOrder?.maxOrder || 0) + 1;
+        await this.resolutionCategoryRepo.save(category);
+
+        return this.getResolutionCategories();
+    }
+
+    async updateResolutionCategory(categoryKey: string, body: { name?: string }) {
+        const category = await this.resolutionCategoryRepo.findOne({ where: { categoryKey } });
+        if (!category) throw CustomErrorHandler.notFound("Resolution category not found.");
+
+        const name = String(body.name || "").trim();
+        if (!name) throw CustomErrorHandler.validationError("Category name is required.");
+
+        category.name = name;
+        await this.resolutionCategoryRepo.save(category);
+        return this.getResolutionCategories();
+    }
+
+    async reorderResolutionCategories(body: { categoryIds?: string[] }) {
+        const categoryIds = Array.isArray(body.categoryIds) ? body.categoryIds.map((id) => String(id).trim()).filter(Boolean) : [];
+        if (categoryIds.length === 0) throw CustomErrorHandler.validationError("categoryIds is required.");
+
+        const categories = await this.resolutionCategoryRepo.find();
+        const categoryByKey = new Map(categories.map((category) => [category.categoryKey, category]));
+
+        for (let index = 0; index < categoryIds.length; index += 1) {
+            const category = categoryByKey.get(categoryIds[index]);
+            if (category) {
+                category.displayOrder = index + 1;
+                await this.resolutionCategoryRepo.save(category);
+            }
+        }
+
+        return this.getResolutionCategories();
+    }
+
+    async getResolutionCategoryUsage(categoryKey: string) {
+        const usageCount = await this.resolutionRepo.count({ where: { category: categoryKey } });
+        return { categoryId: categoryKey, usageCount };
+    }
+
+    async deleteResolutionCategory(categoryKey: string, body: { replacementCategoryId?: string }) {
+        const category = await this.resolutionCategoryRepo.findOne({ where: { categoryKey } });
+        if (!category) throw CustomErrorHandler.notFound("Resolution category not found.");
+
+        const replacementCategoryId = String(body.replacementCategoryId || "").trim();
+        if (!replacementCategoryId || replacementCategoryId === categoryKey) {
+            throw CustomErrorHandler.validationError("A replacement category is required.");
+        }
+
+        const replacement = await this.resolutionCategoryRepo.findOne({ where: { categoryKey: replacementCategoryId } });
+        if (!replacement) throw CustomErrorHandler.validationError("Replacement category was not found.");
+
+        await this.resolutionRepo.update({ category: categoryKey }, { category: replacementCategoryId });
+        await this.resolutionCategoryRepo.delete({ categoryKey });
+
+        return this.getResolutionCategories();
     }
 
     async createResolution(data: ResolutionData, userId: string | null) {

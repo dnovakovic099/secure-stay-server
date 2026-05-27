@@ -88,6 +88,54 @@ export class ResolutionController {
         }
     }
 
+    getResolutionCategories = async (_request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.getResolutionCategories());
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    createResolutionCategory = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.createResolutionCategory(request.body));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    updateResolutionCategory = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.updateResolutionCategory(request.params.categoryId, request.body));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    reorderResolutionCategories = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.reorderResolutionCategories(request.body));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    getResolutionCategoryUsage = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.getResolutionCategoryUsage(request.params.categoryId));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    deleteResolutionCategory = async (request: CustomRequest, response: Response, next: NextFunction) => {
+        try {
+            return response.send(await this.resolutionService.deleteResolutionCategory(request.params.categoryId, request.body));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async processCSVForResolution(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const userId = request.user.id;
@@ -248,4 +296,4 @@ export class ResolutionController {
             next(error);
         }
     }
-} 
+}
