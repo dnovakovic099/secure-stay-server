@@ -149,6 +149,43 @@ router.route('/bulkupdateresolutions')
         resolutionController.bulkUpdateResolutions
     );
 
+router.route('/resolutioncategories')
+    .get(
+        verifySession,
+        resolutionController.getResolutionCategories
+    )
+    .post(
+        verifySession,
+        verifyAdmin,
+        resolutionController.createResolutionCategory
+    );
+
+router.route('/resolutioncategories/reorder')
+    .put(
+        verifySession,
+        verifyAdmin,
+        resolutionController.reorderResolutionCategories
+    );
+
+router.route('/resolutioncategories/:categoryId/usage')
+    .get(
+        verifySession,
+        verifyAdmin,
+        resolutionController.getResolutionCategoryUsage
+    );
+
+router.route('/resolutioncategories/:categoryId')
+    .put(
+        verifySession,
+        verifyAdmin,
+        resolutionController.updateResolutionCategory
+    )
+    .delete(
+        verifySession,
+        verifyAdmin,
+        resolutionController.deleteResolutionCategory
+    );
+
 router.route('/migrateexpensecategories')
 .post(
     verifySession,
