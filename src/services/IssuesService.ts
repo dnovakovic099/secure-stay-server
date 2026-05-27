@@ -1250,6 +1250,47 @@ export class IssuesService {
     });
   }
 
+  // Batch version of getIssuesByReservationId — one DB query for all reservation IDs.
+  // Returns a map of reservationId → issues[].
+  public async getIssuesByReservationIds(reservationIds: string[]): Promise<Record<string, any[]>> {
+    if (reservationIds.length === 0) return {};
+
+    const issues = await this.issueRepo.find({
+      where: { reservation_id: In(reservationIds) },
+    });
+
+    const listingIds = Array.from(new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean)));
+    const listings = listingIds.length
+      ? await appDatabase.getRepository(Listing).find({ where: { id: In(listingIds as number[]) } })
+      : [];
+    const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userMap = new Map(userDirectory.map((user) => [user.uid, user]));
+    const userEmailMap = new Map(
+      userDirectory.filter((user) => user.email).map((user) => [user.email as string, user])
+    );
+
+    const grouped: Record<string, any[]> = Object.fromEntries(reservationIds.map((id) => [id, []]));
+    for (const issue of issues) {
+      const key = issue.reservation_id;
+      if (!key || !grouped[key]) continue;
+      const listing = listingMap.get(Number(issue.listing_id));
+      const creatorEmail = String(issue.creator || "").trim().toLowerCase();
+      const createdByUser = userMap.get(issue.created_by) || (creatorEmail ? userEmailMap.get(creatorEmail) : undefined);
+      const creatorName = createdByUser?.name || issue.creator || issue.created_by || null;
+      grouped[key].push({
+        ...issue,
+        creator: creatorName,
+        created_by: createdByUser?.name || issue.created_by,
+        createdByName: createdByUser?.name || null,
+        creatorName,
+        propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
+        serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
+      });
+    }
+    return grouped;
+  }
+
   async getIssueById(id: number) {
     const issue = await this.issueRepo.findOne({ where: { id } });
     if (!issue) {

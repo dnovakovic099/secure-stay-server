@@ -69,6 +69,7 @@ router.route('/export')
     );
 
 router.route('/reservation/:reservationId').get(verifySession, issuesController.getIssuesByReservationId);
+router.route('/by-reservations').get(verifySession, issuesController.getIssuesByReservationIds);
 
 router.route('/attachment/:fileName').get(issuesController.getAttachment);
 
