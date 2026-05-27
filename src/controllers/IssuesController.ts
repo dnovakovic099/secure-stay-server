@@ -300,6 +300,27 @@ export class IssuesController {
     }
   }
 
+  // Batch endpoint: fetches issues for multiple reservation IDs in one DB query.
+  // GET /issues/by-reservations?ids=123,456,789
+  async getIssuesByReservationIds(
+    request: Request,
+    response: Response,
+    next: NextFunction
+  ) {
+    try {
+      const idsParam = String(request.query.ids || "");
+      const reservationIds = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+      if (reservationIds.length === 0) {
+        return response.json({ status: true, data: {} });
+      }
+      const issuesService = new IssuesService();
+      const grouped = await issuesService.getIssuesByReservationIds(reservationIds);
+      return response.json({ status: true, data: grouped });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getAttachment(request: any, response: Response) {
     try {
       const fileName = request.params.fileName;
