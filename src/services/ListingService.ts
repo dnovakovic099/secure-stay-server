@@ -18,6 +18,7 @@ import { ListingBedTypes } from "../entity/ListingBedTypes";
 import { ListingAmenities } from "../entity/ListingAmenities";
 import { Hostify } from "../client/Hostify";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import pLimit from "p-limit";
 
 
 interface ListingUpdate {
@@ -1375,16 +1376,16 @@ export class ListingService {
     // Extract incoming IDs
     const incomingListingIds = listings.map((l) => String(l.id));
 
-    // 2. Fetch listing details IN PARALLEL for max performance
-    const listingDetails = await Promise.all(
-      listings.map((l) => this.hostifyClient.getListingDetails(hostifyApiKey, l.id))
-    );
-
-    // Build a map for convenience
+    // 2. Fetch listing details with bounded concurrency (15 at a time) and build the
+    //    map on-the-fly so no large intermediate array sits in memory.
+    const limit = pLimit(15);
     const detailsMap = new Map<string, any>();
-    listings.forEach((l, idx) => {
-      detailsMap.set(String(l.id), listingDetails[idx]);
-    });
+    await Promise.all(
+      listings.map((l) => limit(async () => {
+        const detail = await this.hostifyClient.getListingDetails(hostifyApiKey, l.id);
+        detailsMap.set(String(l.id), detail);
+      }))
+    );
 
     // Run everything inside transaction
     try {
