@@ -364,7 +364,7 @@ export class ClaimWorkspaceService {
             },
             claimCategories: ["Damage", "Missing Items", "House Rule Violation", "Extra Cleaning", "Others"],
             reportedByOptions: ["Cleaner", "Owner", "Add Custom"],
-            payoutToOptions: ["Cleaner", "Owner", "Add Custom"],
+            payoutToOptions: ["Cleaner", "Owner", "LL", "Add Custom"],
             securityDepositStatuses: ["Captured", "Not Authorized", "Authorized", "N/A"],
         };
     }
@@ -851,7 +851,7 @@ export class ClaimWorkspaceService {
         const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
         const content: any[] = [
             {
-                type: "text",
+                type: "input_text",
                 text: [
                     "You are helping draft a vacation rental damage claim intake.",
                     "Look only at the uploaded images and any provided notes.",
@@ -868,12 +868,19 @@ export class ClaimWorkspaceService {
         for (const file of files) {
             const base64 = file.buffer?.toString("base64");
             if (!base64) continue;
-            content.push({
-                type: "image_url",
-                image_url: {
-                    url: `data:${file.mimetype};base64,${base64}`,
-                },
-            });
+            const fileData = `data:${file.mimetype};base64,${base64}`;
+            if (file.mimetype?.startsWith("image/")) {
+                content.push({
+                    type: "input_image",
+                    image_url: fileData,
+                });
+            } else {
+                content.push({
+                    type: "input_file",
+                    filename: file.originalname || "claim-attachment",
+                    file_data: fileData,
+                });
+            }
         }
 
         const response = await openai.responses.create({

@@ -1,8 +1,27 @@
 import { Request, NextFunction, Response } from "express";
 import Joi from "joi";
 
+const parseJsonBodyField = (request: Request, fieldName: string) => {
+    const value = request.body?.[fieldName];
+    if (typeof value !== "string") return;
+
+    try {
+        request.body[fieldName] = JSON.parse(value);
+    } catch {
+        // Leave invalid JSON as-is so Joi returns the field-specific validation error.
+    }
+};
+
+const parseWorkspaceClaimFields = (request: Request) => {
+    ["reservation", "claimRequest", "securityDeposit", "payout", "resolutions"].forEach(fieldName => {
+        parseJsonBodyField(request, fieldName);
+    });
+};
+
 export const validateCreateClaim = (request: Request, response: Response, next: NextFunction) => {
     if (request.body?.workspaceMode === "report-claim") {
+        parseWorkspaceClaimFields(request);
+
         const schema = Joi.object({
             workspaceMode: Joi.string().valid("report-claim").required(),
             reservation: Joi.object().required(),
@@ -72,6 +91,8 @@ export const validateCreateClaim = (request: Request, response: Response, next: 
 
 export const validateUpdateClaim = (request: Request, response: Response, next: NextFunction) => {
     if (request.body?.workspaceMode === "claim-detail") {
+        parseWorkspaceClaimFields(request);
+
         const schema = Joi.object({
             workspaceMode: Joi.string().valid("claim-detail").required(),
             reservation: Joi.object().required(),
