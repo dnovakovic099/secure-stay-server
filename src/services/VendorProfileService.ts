@@ -208,6 +208,12 @@ export class VendorProfileService {
         );
     }
 
+    private getLegacyProfileLookupKeys(record: Pick<Contact | VendorProfile, "contact" | "email" | "name">) {
+        return [record.contact, record.email, record.name]
+            .map(value => this.normalizeIdentity(value))
+            .filter(Boolean);
+    }
+
     private normalizeAuditValue(value: any): string | null {
         if (value === undefined || value === null || value === "") return null;
         if (value instanceof Date) return value.toISOString();
@@ -375,8 +381,6 @@ export class VendorProfileService {
 
     private async ensureLegacyBackfill(userId: string) {
         await this.ensureVendorSchema();
-        const existingProfiles = await this.vendorProfileRepo.count();
-        if (existingProfiles > 0) return;
 
         let contacts: Contact[] = [];
         try {
@@ -386,32 +390,67 @@ export class VendorProfileService {
             contacts = await this.contactRepo.find();
         }
 
+        const activeContacts = contacts.filter(contact => !contact.deletedAt);
+        if (!activeContacts.length) return;
+
+        const existingLegacyAssignments = await this.vendorAssignmentRepo.find({
+            where: { legacyContactId: In(activeContacts.map(contact => contact.id)) },
+            select: ["legacyContactId"],
+        });
+        const backfilledContactIds = new Set(existingLegacyAssignments.map(assignment => assignment.legacyContactId).filter(Boolean));
+        const contactsToBackfill = activeContacts.filter(contact => !backfilledContactIds.has(contact.id));
+        if (!contactsToBackfill.length) return;
+
+        const existingProfileByKey = new Map<string, number>();
+        const existingProfiles = await this.vendorProfileRepo.find();
+        existingProfiles
+            .filter(profile => !profile.deletedAt)
+            .forEach(profile => {
+                this.getLegacyProfileLookupKeys(profile).forEach(key => {
+                    if (!existingProfileByKey.has(key)) existingProfileByKey.set(key, profile.id);
+                });
+            });
+
         const groups = new Map<string, Contact[]>();
-        contacts.filter(contact => !contact.deletedAt).forEach(contact => {
+        contactsToBackfill.forEach(contact => {
             const key = this.getLegacyVendorKey(contact);
             groups.set(key, [...(groups.get(key) || []), contact]);
         });
 
         for (const group of groups.values()) {
             try {
-                await appDatabase.transaction(async manager => {
+                const result = await appDatabase.transaction(async manager => {
                     const profileRepo = manager.getRepository(VendorProfile);
                     const assignmentRepo = manager.getRepository(VendorAssignment);
                     const profileUpdateRepo = manager.getRepository(VendorProfileUpdate);
                     const assignmentUpdateRepo = manager.getRepository(VendorAssignmentUpdate);
 
                     const [first] = group;
-                    const profile = await profileRepo.save(profileRepo.create({
-                        name: first.name || first.contact || first.email || `Vendor #${first.id}`,
-                        contact: first.contact || null,
-                        email: first.email || null,
-                        source: first.source || null,
-                        notes: null,
-                        createdBy: first.createdBy || userId,
-                        updatedBy: first.updatedBy || userId,
-                        createdAt: first.createdAt,
-                        updatedAt: first.updatedAt,
-                    }));
+                    const lookupKeys = Array.from(new Set(group.flatMap(contact => this.getLegacyProfileLookupKeys(contact))));
+                    const existingProfileId = lookupKeys.map(key => existingProfileByKey.get(key)).find(Boolean);
+                    let profile = existingProfileId ? await profileRepo.findOneBy({ id: existingProfileId }) : null;
+
+                    if (!profile) {
+                        profile = await profileRepo.save(profileRepo.create({
+                            name: first.name || first.contact || first.email || `Vendor #${first.id}`,
+                            contact: first.contact || null,
+                            email: first.email || null,
+                            source: first.source || null,
+                            notes: null,
+                            createdBy: first.createdBy || userId,
+                            updatedBy: first.updatedBy || userId,
+                            createdAt: first.createdAt,
+                            updatedAt: first.updatedAt,
+                        }));
+
+                        await profileUpdateRepo.save(profileUpdateRepo.create({
+                            vendorProfileId: profile.id,
+                            vendorProfile: profile,
+                            updates: `Vendor profile created from ${group.length} legacy contact assignment${group.length === 1 ? "" : "s"}.`,
+                            createdBy: userId,
+                            updatedBy: userId,
+                        }));
+                    }
 
                     for (const contact of group) {
                         const assignment = await assignmentRepo.save(assignmentRepo.create({
@@ -461,13 +500,11 @@ export class VendorProfileService {
                         }
                     }
 
-                    await profileUpdateRepo.save(profileUpdateRepo.create({
-                        vendorProfileId: profile.id,
-                        vendorProfile: profile,
-                        updates: `Vendor profile created from ${group.length} legacy contact assignment${group.length === 1 ? "" : "s"}.`,
-                        createdBy: userId,
-                        updatedBy: userId,
-                    }));
+                    return { profileId: profile.id, lookupKeys };
+                });
+
+                result.lookupKeys.forEach(key => {
+                    if (!existingProfileByKey.has(key)) existingProfileByKey.set(key, result.profileId);
                 });
             } catch (error) {
                 const first = group[0];
