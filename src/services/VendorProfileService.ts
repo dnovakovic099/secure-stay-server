@@ -10,6 +10,7 @@ import { VendorAssignmentUpdate } from "../entity/VendorAssignmentUpdate";
 import { VendorProfile } from "../entity/VendorProfile";
 import { VendorProfileUpdate } from "../entity/VendorProfileUpdate";
 import { appDatabase } from "../utils/database.util";
+import logger from "../utils/logger.utils";
 import { ListingService } from "./ListingService";
 
 type VendorProfilePayload = Partial<VendorProfile> & {
@@ -141,7 +142,57 @@ export class VendorProfileService {
             )
         `);
 
+        await this.addColumnIfMissing("vendor_profiles", "notes", "TEXT NULL");
+        await this.addColumnIfMissing("vendor_profiles", "avatarUrl", "VARCHAR(2048) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "icon", "VARCHAR(100) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "deletedAt", "TIMESTAMP NULL");
+        await this.addColumnIfMissing("vendor_profiles", "createdBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "updatedBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "deletedBy", "VARCHAR(255) NULL");
+
+        await this.addColumnIfMissing("vendor_assignments", "rateType", "VARCHAR(100) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "customRateDescription", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleDays", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleIntervalWeeks", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleDayOfMonth", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleQuarter", "VARCHAR(50) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleMonth", "VARCHAR(50) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "workScheduleCheckoutTiming", "VARCHAR(100) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "trustLevel", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "speed", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "costRating", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "website_name", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "website_link", "VARCHAR(2048) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "notes", "TEXT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "payoutDetails", "TEXT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "paymentIntervalMonth", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "paymentDayOfWeek", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "paymentWeekOfMonth", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "paymentDayOfMonth", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "nextServiceDate", "TIMESTAMP NULL");
+        await this.addColumnIfMissing("vendor_assignments", "legacyContactId", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "deletedAt", "TIMESTAMP NULL");
+        await this.addColumnIfMissing("vendor_assignments", "createdBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "updatedBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignments", "deletedBy", "VARCHAR(255) NULL");
+
+        await this.addColumnIfMissing("vendor_profile_updates", "deletedAt", "TIMESTAMP NULL");
+        await this.addColumnIfMissing("vendor_profile_updates", "createdBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profile_updates", "updatedBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profile_updates", "deletedBy", "VARCHAR(255) NULL");
+
+        await this.addColumnIfMissing("vendor_assignment_updates", "deletedAt", "TIMESTAMP NULL");
+        await this.addColumnIfMissing("vendor_assignment_updates", "createdBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignment_updates", "updatedBy", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_assignment_updates", "deletedBy", "VARCHAR(255) NULL");
+
         VendorProfileService.schemaReady = true;
+    }
+
+    private async addColumnIfMissing(table: string, column: string, definition: string) {
+        const existing = await appDatabase.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
+        if (Array.isArray(existing) && existing.length > 0) return;
+        await appDatabase.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
 
     private normalizeIdentity(value: any) {
@@ -327,90 +378,102 @@ export class VendorProfileService {
         const existingProfiles = await this.vendorProfileRepo.count();
         if (existingProfiles > 0) return;
 
-        const contacts = await this.contactRepo.find({ relations: ["contactUpdates"] });
+        let contacts: Contact[] = [];
+        try {
+            contacts = await this.contactRepo.find({ relations: ["contactUpdates"] });
+        } catch (error) {
+            logger.error(`Vendor legacy backfill could not load contact updates. Continuing without history. ${error}`);
+            contacts = await this.contactRepo.find();
+        }
+
         const groups = new Map<string, Contact[]>();
         contacts.filter(contact => !contact.deletedAt).forEach(contact => {
             const key = this.getLegacyVendorKey(contact);
             groups.set(key, [...(groups.get(key) || []), contact]);
         });
 
-        await appDatabase.transaction(async manager => {
-            const profileRepo = manager.getRepository(VendorProfile);
-            const assignmentRepo = manager.getRepository(VendorAssignment);
-            const profileUpdateRepo = manager.getRepository(VendorProfileUpdate);
-            const assignmentUpdateRepo = manager.getRepository(VendorAssignmentUpdate);
+        for (const group of groups.values()) {
+            try {
+                await appDatabase.transaction(async manager => {
+                    const profileRepo = manager.getRepository(VendorProfile);
+                    const assignmentRepo = manager.getRepository(VendorAssignment);
+                    const profileUpdateRepo = manager.getRepository(VendorProfileUpdate);
+                    const assignmentUpdateRepo = manager.getRepository(VendorAssignmentUpdate);
 
-            for (const group of groups.values()) {
-                const [first] = group;
-                const profile = await profileRepo.save(profileRepo.create({
-                    name: first.name,
-                    contact: first.contact || null,
-                    email: first.email || null,
-                    source: first.source || null,
-                    notes: null,
-                    createdBy: first.createdBy || userId,
-                    updatedBy: first.updatedBy || userId,
-                    createdAt: first.createdAt,
-                    updatedAt: first.updatedAt,
-                }));
-
-                for (const contact of group) {
-                    const assignment = await assignmentRepo.save(assignmentRepo.create({
-                        vendorProfileId: profile.id,
-                        vendorProfile: profile,
-                        listingId: String(contact.listingId),
-                        role: contact.role || null,
-                        status: contact.status || null,
-                        managedBy: contact.managedBy || null,
-                        workSchedule: contact.workSchedule || null,
-                        paymentScheduleType: contact.paymentScheduleType || null,
-                        paymentMethod: contact.paymentMethod || null,
-                        isAutoPay: Boolean(contact.isAutoPay),
-                        paidBy: contact.paidBy || null,
-                        rate: contact.rate || null,
-                        rateType: null,
-                        customRateDescription: null,
-                        trustLevel: contact.trustLevel || null,
-                        speed: contact.speed || null,
-                        costRating: contact.costRating || null,
-                        website_name: contact.website_name || null,
-                        website_link: contact.website_link || null,
-                        notes: contact.notes || null,
-                        payoutDetails: contact.payoutDetails || null,
-                        paymentIntervalMonth: contact.paymentIntervalMonth || null,
-                        paymentDayOfWeek: contact.paymentDayOfWeek || null,
-                        paymentWeekOfMonth: contact.paymentWeekOfMonth || null,
-                        paymentDayOfMonth: contact.paymentDayOfMonth || null,
-                        legacyContactId: contact.id,
-                        createdBy: contact.createdBy || userId,
-                        updatedBy: contact.updatedBy || userId,
-                        createdAt: contact.createdAt,
-                        updatedAt: contact.updatedAt,
+                    const [first] = group;
+                    const profile = await profileRepo.save(profileRepo.create({
+                        name: first.name || first.contact || first.email || `Vendor #${first.id}`,
+                        contact: first.contact || null,
+                        email: first.email || null,
+                        source: first.source || null,
+                        notes: null,
+                        createdBy: first.createdBy || userId,
+                        updatedBy: first.updatedBy || userId,
+                        createdAt: first.createdAt,
+                        updatedAt: first.updatedAt,
                     }));
 
-                    for (const update of contact.contactUpdates || []) {
-                        if (update.deletedAt) continue;
-                        await assignmentUpdateRepo.save(assignmentUpdateRepo.create({
-                            vendorAssignmentId: assignment.id,
-                            assignment,
-                            updates: update.updates,
-                            createdBy: update.createdBy || userId,
-                            updatedBy: update.updatedBy || update.createdBy || userId,
-                            createdAt: update.createdAt,
-                            updatedAt: update.updatedAt,
+                    for (const contact of group) {
+                        const assignment = await assignmentRepo.save(assignmentRepo.create({
+                            vendorProfileId: profile.id,
+                            vendorProfile: profile,
+                            listingId: String(contact.listingId || ""),
+                            role: contact.role || null,
+                            status: contact.status || null,
+                            managedBy: contact.managedBy || null,
+                            workSchedule: contact.workSchedule || null,
+                            paymentScheduleType: contact.paymentScheduleType || null,
+                            paymentMethod: contact.paymentMethod || null,
+                            isAutoPay: Boolean(contact.isAutoPay),
+                            paidBy: contact.paidBy || null,
+                            rate: contact.rate || null,
+                            rateType: null,
+                            customRateDescription: null,
+                            trustLevel: contact.trustLevel || null,
+                            speed: contact.speed || null,
+                            costRating: contact.costRating || null,
+                            website_name: contact.website_name || null,
+                            website_link: contact.website_link || null,
+                            notes: contact.notes || null,
+                            payoutDetails: contact.payoutDetails || null,
+                            paymentIntervalMonth: contact.paymentIntervalMonth || null,
+                            paymentDayOfWeek: contact.paymentDayOfWeek || null,
+                            paymentWeekOfMonth: contact.paymentWeekOfMonth || null,
+                            paymentDayOfMonth: contact.paymentDayOfMonth || null,
+                            legacyContactId: contact.id,
+                            createdBy: contact.createdBy || userId,
+                            updatedBy: contact.updatedBy || userId,
+                            createdAt: contact.createdAt,
+                            updatedAt: contact.updatedAt,
                         }));
-                    }
-                }
 
-                await profileUpdateRepo.save(profileUpdateRepo.create({
-                    vendorProfileId: profile.id,
-                    vendorProfile: profile,
-                    updates: `Vendor profile created from ${group.length} legacy contact assignment${group.length === 1 ? "" : "s"}.`,
-                    createdBy: userId,
-                    updatedBy: userId,
-                }));
+                        for (const update of contact.contactUpdates || []) {
+                            if (update.deletedAt) continue;
+                            await assignmentUpdateRepo.save(assignmentUpdateRepo.create({
+                                vendorAssignmentId: assignment.id,
+                                assignment,
+                                updates: update.updates,
+                                createdBy: update.createdBy || userId,
+                                updatedBy: update.updatedBy || update.createdBy || userId,
+                                createdAt: update.createdAt,
+                                updatedAt: update.updatedAt,
+                            }));
+                        }
+                    }
+
+                    await profileUpdateRepo.save(profileUpdateRepo.create({
+                        vendorProfileId: profile.id,
+                        vendorProfile: profile,
+                        updates: `Vendor profile created from ${group.length} legacy contact assignment${group.length === 1 ? "" : "s"}.`,
+                        createdBy: userId,
+                        updatedBy: userId,
+                    }));
+                });
+            } catch (error) {
+                const first = group[0];
+                logger.error(`Vendor legacy backfill skipped contact group ${this.getLegacyVendorKey(first)}. ${error}`);
             }
-        });
+        }
     }
 
     async getVendorProfiles(query: any, userId: string) {
