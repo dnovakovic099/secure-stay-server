@@ -385,6 +385,8 @@ export class EscalationService {
                 .where('event.status = :status', { status: 'New' })
                 .andWhere('event.is_overdue = :isOverdue', { isOverdue: false })
                 .andWhere('event.created_at < :threshold', { threshold: queryThreshold })
+                .orderBy('event.created_at', 'ASC')
+                .limit(50)
                 .getMany();
 
             if (newlyOverdueCandidates.length > 0) {
@@ -481,6 +483,8 @@ export class EscalationService {
                     now: new Date(),
                     threshold: reminderThreshold
                 })
+                .orderBy('event.next_follow_up_at', 'ASC')
+                .limit(30)
                 .getMany();
 
             if (needsReminder.length > 0) {

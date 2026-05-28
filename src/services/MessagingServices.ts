@@ -730,6 +730,8 @@ export class MessagingService {
                 answered: false,
                 source: 'hostify'
             },
+            order: { createdAt: 'ASC' },
+            take: 300,
         });
 
         if (unansweredMessages.length === 0) {
