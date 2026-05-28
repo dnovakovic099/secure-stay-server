@@ -5,7 +5,6 @@ dotenv.config();
 import "reflect-metadata";
 import express from "express";
 import qs from "qs";
-import { scheduleGetReservation } from "./utils/scheduler.util";
 import { createRouting } from "./utils/router.util";
 import { ensureIssueMetadataColumns, initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
@@ -66,9 +65,6 @@ const main = async () => {
   app.listen(process.env.PORT, () => {
     logger.info("🚀 Server running on port " + process.env.PORT);
   });
-
-  // STEP 6: Start cron jobs AFTER server starts
-  scheduleGetReservation();
 
   // Memory monitoring: log RSS + heap every 2 minutes so we can see growth pattern
   const instanceId = process.env.NODE_APP_INSTANCE ?? 'standalone';

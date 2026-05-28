@@ -13,11 +13,23 @@ module.exports = {
             autorestart: true
         },
         {
-            name: "hostaway-worker",
+            name: "BULLMQ-WORKER",
             script: "dist/out-tsc/worker/haWorker.js",
             exec_mode: "fork",
             node_args: "--max-old-space-size=512",
             max_memory_restart: "500M",
+            autorestart: true,
+            env: {
+                NODE_ENV: "production"
+            }
+        },
+        {
+            name: "CRON-JOB-WORKER",
+            script: "dist/out-tsc/worker/schedulerWorker.js",
+            exec_mode: "fork",
+            instances: 1,
+            node_args: "--max-old-space-size=512",
+            max_memory_restart: "800M",
             autorestart: true,
             env: {
                 NODE_ENV: "production"
