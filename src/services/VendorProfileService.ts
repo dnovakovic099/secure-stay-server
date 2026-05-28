@@ -383,8 +383,7 @@ export class VendorProfileService {
         };
     }
 
-    private async hydrateProfile(profile: VendorProfile, userId: string) {
-        const [userMap, listingMeta] = await Promise.all([this.getUserMap(), this.getListingMeta(userId)]);
+    private buildHydratedProfile(profile: VendorProfile, listingMeta: Awaited<ReturnType<VendorProfileService["getListingMeta"]>>, userMap: Map<string, string>) {
         const assignments = (profile.assignments || [])
             .filter(assignment => !assignment.deletedAt)
             .map(assignment => this.hydrateAssignment(assignment, listingMeta, userMap));
@@ -408,6 +407,11 @@ export class VendorProfileService {
             })),
             assignments,
         };
+    }
+
+    private async hydrateProfile(profile: VendorProfile, userId: string) {
+        const [userMap, listingMeta] = await Promise.all([this.getUserMap(), this.getListingMeta(userId)]);
+        return this.buildHydratedProfile(profile, listingMeta, userMap);
     }
 
     private async ensureLegacyBackfill(userId: string) {
@@ -568,15 +572,19 @@ export class VendorProfileService {
             ]
             : {};
 
-        const [profiles, total] = await this.vendorProfileRepo.findAndCount({
-            where,
-            relations: ["assignments", "assignments.updates", "updates"],
-            order: { name: "ASC" },
-            skip: (page - 1) * limit,
-            take: limit,
-        });
+        const [[profiles, total], userMap, listingMeta] = await Promise.all([
+            this.vendorProfileRepo.findAndCount({
+                where,
+                relations: ["assignments", "assignments.updates", "updates"],
+                order: { name: "ASC" },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            this.getUserMap(),
+            this.getListingMeta(userId),
+        ]);
 
-        const hydrated = await Promise.all(profiles.map(profile => this.hydrateProfile(profile, userId)));
+        const hydrated = profiles.map(profile => this.buildHydratedProfile(profile, listingMeta, userMap));
         return { vendors: hydrated, total };
     }
 
