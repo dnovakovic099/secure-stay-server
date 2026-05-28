@@ -1,4 +1,4 @@
-import { ILike, In } from "typeorm";
+import { In, Like } from "typeorm";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { Contact } from "../entity/Contact";
 import { Listing } from "../entity/Listing";
@@ -32,9 +32,30 @@ export class VendorProfileService {
     private listingDetailRepo = appDatabase.getRepository(ListingDetail);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
     private static schemaReady = false;
+    private static schemaPromise: Promise<void> | null = null;
 
     private async ensureVendorSchema() {
-        if (VendorProfileService.schemaReady) return;
+        if (VendorProfileService.schemaReady) {
+            const hasProfilesTable = await this.tableExists("vendor_profiles");
+            const hasAssignmentsTable = await this.tableExists("vendor_assignments");
+            if (hasProfilesTable && hasAssignmentsTable) return;
+            VendorProfileService.schemaReady = false;
+        }
+
+        if (VendorProfileService.schemaPromise) {
+            await VendorProfileService.schemaPromise;
+            return;
+        }
+
+        VendorProfileService.schemaPromise = this.ensureVendorSchemaInternal()
+            .finally(() => {
+                VendorProfileService.schemaPromise = null;
+            });
+
+        await VendorProfileService.schemaPromise;
+    }
+
+    private async ensureVendorSchemaInternal() {
 
         await appDatabase.query(`
             CREATE TABLE IF NOT EXISTS vendor_profiles (
@@ -189,6 +210,11 @@ export class VendorProfileService {
         VendorProfileService.schemaReady = true;
     }
 
+    private async tableExists(table: string) {
+        const existing = await appDatabase.query("SHOW TABLES LIKE ?", [table]);
+        return Array.isArray(existing) && existing.length > 0;
+    }
+
     private async addColumnIfMissing(table: string, column: string, definition: string) {
         const existing = await appDatabase.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
         if (Array.isArray(existing) && existing.length > 0) return;
@@ -212,6 +238,11 @@ export class VendorProfileService {
         return [record.contact, record.email, record.name]
             .map(value => this.normalizeIdentity(value))
             .filter(Boolean);
+    }
+
+    private isMissingVendorSchemaError(error: any) {
+        const message = String(error?.message || error?.sqlMessage || "");
+        return message.includes("vendor_profiles") && message.includes("doesn't exist");
     }
 
     private normalizeAuditValue(value: any): string | null {
@@ -514,15 +545,26 @@ export class VendorProfileService {
     }
 
     async getVendorProfiles(query: any, userId: string) {
+        try {
+            return await this.getVendorProfilesInternal(query, userId);
+        } catch (error) {
+            if (!this.isMissingVendorSchemaError(error) || query?._vendorSchemaRetry) throw error;
+            VendorProfileService.schemaReady = false;
+            await this.ensureVendorSchema();
+            return this.getVendorProfilesInternal({ ...query, _vendorSchemaRetry: true }, userId);
+        }
+    }
+
+    private async getVendorProfilesInternal(query: any, userId: string) {
         await this.ensureLegacyBackfill(userId);
         const page = Number(query.page || 1);
-        const limit = Number(query.limit || 500);
+        const limit = Math.min(Number(query.limit || 5000), 10000);
         const keyword = String(query.keyword || query.name || "").trim();
         const where = keyword
             ? [
-                { name: ILike(`%${keyword}%`) },
-                { contact: ILike(`%${keyword}%`) },
-                { email: ILike(`%${keyword}%`) },
+                { name: Like(`%${keyword}%`) },
+                { contact: Like(`%${keyword}%`) },
+                { email: Like(`%${keyword}%`) },
             ]
             : {};
 
@@ -539,6 +581,17 @@ export class VendorProfileService {
     }
 
     async getVendorProfile(id: number, userId: string) {
+        try {
+            return await this.getVendorProfileInternal(id, userId);
+        } catch (error) {
+            if (!this.isMissingVendorSchemaError(error)) throw error;
+            VendorProfileService.schemaReady = false;
+            await this.ensureVendorSchema();
+            return this.getVendorProfileInternal(id, userId);
+        }
+    }
+
+    private async getVendorProfileInternal(id: number, userId: string) {
         await this.ensureLegacyBackfill(userId);
         const profile = await this.vendorProfileRepo.findOne({
             where: { id },
