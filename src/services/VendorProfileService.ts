@@ -30,6 +30,119 @@ export class VendorProfileService {
     private listingRepo = appDatabase.getRepository(Listing);
     private listingDetailRepo = appDatabase.getRepository(ListingDetail);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
+    private static schemaReady = false;
+
+    private async ensureVendorSchema() {
+        if (VendorProfileService.schemaReady) return;
+
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS vendor_profiles (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                contact VARCHAR(100) NULL,
+                email VARCHAR(255) NULL,
+                source VARCHAR(100) NULL,
+                notes TEXT NULL,
+                avatarUrl VARCHAR(2048) NULL,
+                icon VARCHAR(100) NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deletedAt TIMESTAMP NULL,
+                createdBy VARCHAR(255) NULL,
+                updatedBy VARCHAR(255) NULL,
+                deletedBy VARCHAR(255) NULL,
+                INDEX idx_vendor_profiles_contact (contact),
+                INDEX idx_vendor_profiles_email (email),
+                INDEX idx_vendor_profiles_deletedAt (deletedAt)
+            )
+        `);
+
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS vendor_assignments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                vendorProfileId INT NOT NULL,
+                listingId VARCHAR(100) NOT NULL,
+                role VARCHAR(255) NULL,
+                status VARCHAR(50) NULL,
+                managedBy VARCHAR(100) NULL,
+                workSchedule VARCHAR(100) NULL,
+                paymentScheduleType VARCHAR(100) NULL,
+                paymentMethod VARCHAR(100) NULL,
+                isAutoPay BOOLEAN DEFAULT FALSE,
+                paidBy VARCHAR(100) NULL,
+                rate VARCHAR(100) NULL,
+                rateType VARCHAR(100) NULL,
+                customRateDescription VARCHAR(255) NULL,
+                workScheduleDays VARCHAR(255) NULL,
+                workScheduleIntervalWeeks INT NULL,
+                workScheduleDayOfMonth INT NULL,
+                workScheduleQuarter VARCHAR(50) NULL,
+                workScheduleMonth VARCHAR(50) NULL,
+                workScheduleCheckoutTiming VARCHAR(100) NULL,
+                trustLevel INT NULL,
+                speed INT NULL,
+                costRating INT NULL,
+                website_name VARCHAR(255) NULL,
+                website_link VARCHAR(2048) NULL,
+                notes TEXT NULL,
+                payoutDetails TEXT NULL,
+                paymentIntervalMonth INT NULL,
+                paymentDayOfWeek VARCHAR(255) NULL,
+                paymentWeekOfMonth INT NULL,
+                paymentDayOfMonth INT NULL,
+                nextServiceDate TIMESTAMP NULL,
+                legacyContactId INT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deletedAt TIMESTAMP NULL,
+                createdBy VARCHAR(255) NULL,
+                updatedBy VARCHAR(255) NULL,
+                deletedBy VARCHAR(255) NULL,
+                CONSTRAINT fk_vendor_assignments_profile FOREIGN KEY (vendorProfileId) REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+                UNIQUE KEY uniq_vendor_assignment_legacy_contact (legacyContactId),
+                INDEX idx_vendor_assignments_profile (vendorProfileId),
+                INDEX idx_vendor_assignments_listing (listingId),
+                INDEX idx_vendor_assignments_status (status),
+                INDEX idx_vendor_assignments_deletedAt (deletedAt)
+            )
+        `);
+
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS vendor_profile_updates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                vendorProfileId INT NOT NULL,
+                updates TEXT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deletedAt TIMESTAMP NULL,
+                createdBy VARCHAR(255) NULL,
+                updatedBy VARCHAR(255) NULL,
+                deletedBy VARCHAR(255) NULL,
+                CONSTRAINT fk_vendor_profile_updates_profile FOREIGN KEY (vendorProfileId) REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+                INDEX idx_vendor_profile_updates_profile (vendorProfileId),
+                INDEX idx_vendor_profile_updates_deletedAt (deletedAt)
+            )
+        `);
+
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS vendor_assignment_updates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                vendorAssignmentId INT NOT NULL,
+                updates TEXT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deletedAt TIMESTAMP NULL,
+                createdBy VARCHAR(255) NULL,
+                updatedBy VARCHAR(255) NULL,
+                deletedBy VARCHAR(255) NULL,
+                CONSTRAINT fk_vendor_assignment_updates_assignment FOREIGN KEY (vendorAssignmentId) REFERENCES vendor_assignments(id) ON DELETE CASCADE,
+                INDEX idx_vendor_assignment_updates_assignment (vendorAssignmentId),
+                INDEX idx_vendor_assignment_updates_deletedAt (deletedAt)
+            )
+        `);
+
+        VendorProfileService.schemaReady = true;
+    }
 
     private normalizeIdentity(value: any) {
         return String(value || "").trim().toLowerCase();
@@ -210,6 +323,7 @@ export class VendorProfileService {
     }
 
     private async ensureLegacyBackfill(userId: string) {
+        await this.ensureVendorSchema();
         const existingProfiles = await this.vendorProfileRepo.count();
         if (existingProfiles > 0) return;
 
@@ -335,6 +449,7 @@ export class VendorProfileService {
     }
 
     async createVendorProfile(body: VendorProfilePayload, userId: string) {
+        await this.ensureVendorSchema();
         const profileId = await appDatabase.transaction(async manager => {
             const profileRepo = manager.getRepository(VendorProfile);
             const assignmentRepo = manager.getRepository(VendorAssignment);
@@ -368,6 +483,7 @@ export class VendorProfileService {
     }
 
     async updateVendorProfile(id: number, body: Partial<VendorProfile>, userId: string) {
+        await this.ensureVendorSchema();
         const existing = await this.vendorProfileRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
         const nextValues = {
@@ -387,6 +503,7 @@ export class VendorProfileService {
     }
 
     async deleteVendorProfile(id: number, userId: string) {
+        await this.ensureVendorSchema();
         const profile = await this.vendorProfileRepo.findOne({
             where: { id },
             relations: ["assignments"],
@@ -404,6 +521,7 @@ export class VendorProfileService {
     }
 
     async createAssignment(vendorProfileId: number, body: VendorAssignmentPayload, userId: string) {
+        await this.ensureVendorSchema();
         const profile = await this.vendorProfileRepo.findOneBy({ id: vendorProfileId });
         if (!profile) throw CustomErrorHandler.notFound(`Vendor profile with ID ${vendorProfileId} not found.`);
         let sourceAssignment: VendorAssignment | null = null;
@@ -427,6 +545,7 @@ export class VendorProfileService {
     }
 
     async updateAssignment(id: number, body: Partial<VendorAssignment>, userId: string) {
+        await this.ensureVendorSchema();
         const existing = await this.vendorAssignmentRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor assignment with ID ${id} not found.`);
         const nextValues = {
@@ -441,6 +560,7 @@ export class VendorProfileService {
     }
 
     async bulkUpdateAssignments(ids: number[], updateData: Partial<VendorAssignment>, userId: string) {
+        await this.ensureVendorSchema();
         const assignments = await this.vendorAssignmentRepo.find({ where: { id: In(ids) } });
         if (assignments.length !== ids.length) throw CustomErrorHandler.notFound("One or more vendor assignments could not be found.");
         const vendorProfileId = assignments[0]?.vendorProfileId;
@@ -454,6 +574,7 @@ export class VendorProfileService {
     }
 
     async deleteAssignment(id: number, userId: string) {
+        await this.ensureVendorSchema();
         const assignment = await this.vendorAssignmentRepo.findOneBy({ id });
         if (!assignment) throw CustomErrorHandler.notFound(`Vendor assignment with ID ${id} not found.`);
         assignment.deletedBy = userId;
