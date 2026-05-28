@@ -70,6 +70,7 @@ interface ExpenseBulkUpdateObject {
     datePaid?: string;
     isRecurring?: number;
     llCover?: number;
+    type?: "expense" | "extras";
 }
 
 export class ExpenseService {
@@ -1282,7 +1283,8 @@ export class ExpenseService {
             contractorNumber,
             findings,
             datePaid,
-            isRecurring
+            isRecurring,
+            type
         } = body;
 
         const failedExpenseUpdate: number[] = [];
@@ -1308,7 +1310,9 @@ export class ExpenseService {
             if (categories) expense.categories = categories;
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
-            if (amount !== undefined && amount !== null) expense.amount = amount * -1;
+            if (amount !== undefined && amount !== null) {
+                expense.amount = type === "extras" ? Math.abs(Number(amount)) : Math.abs(Number(amount)) * -1;
+            }
             if (contractorName !== undefined && contractorName !== null) expense.contractorName = contractorName;
             if (contractorNumber !== undefined && contractorNumber !== null) expense.contractorNumber = contractorNumber;
             if (findings !== undefined && findings !== null) expense.findings = findings;

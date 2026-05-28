@@ -262,7 +262,8 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         findings: Joi.string().required().allow(null),
         datePaid: Joi.string().required().allow(null),
         isRecurring: Joi.number().valid(0, 1).optional(),
-        llCover: Joi.number().valid(0, 1).optional()
+        llCover: Joi.number().valid(0, 1).optional(),
+        type: Joi.string().optional().valid("expense", "extras")
     });
 
     const { error } = schema.validate(request.body);
