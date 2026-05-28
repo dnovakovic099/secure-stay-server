@@ -58,6 +58,7 @@ import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
 import utilityProviderRoutes from "./utilityProviderRoutes";
 import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
+import vendorProfileRoutes from "./vendorProfileRoutes";
 
 import { roomifyListingsRouter, roomifyReviewsRouter, roomifyCleanerReportRouter } from "./roomifyRoutes";
 const router = Router();
@@ -96,6 +97,7 @@ router.use('/client-ticket', clientTicketRoutes);
 router.use('/action-items', actionItemsRoutes);
 router.use('/action-items-beta', actionItemsBetaRoutes);
 router.use('/contact', contactRoutes);
+router.use('/vendors', vendorProfileRoutes);
 router.use('/schedule', listingScheduleRoutes);
 router.use('/maintenance', maintenaceRoutes);
 router.use('/listing-intake', listingIntakeRoutes)
