@@ -498,9 +498,9 @@ export function scheduleGetReservation() {
     }
   );
 
-  // GR Tasks Overdue Escalation - Every 5 minutes
+  // GR Tasks Overdue Escalation - Every 5 minutes (offset by 2 min to avoid colliding with checkUnasweredMessagesHostify)
   schedule.scheduleJob(
-    "*/5 * * * *",
+    "2-59/5 * * * *",
     async () => {
       try {
         logger.info('[GRTasksEscalation] Processing overdue tasks...');
