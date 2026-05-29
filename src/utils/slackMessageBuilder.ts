@@ -90,18 +90,25 @@ const formatRefundStayDates = (refundRequest: RefundRequestEntity) => {
 
 const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
     const channelName = (refundRequest as any).channelName || (refundRequest as any).source;
+    const leftColumn = [
+        `*Listing:* ${normalizeSlackField(refundRequest.listingName)}`,
+        `*Channel:* ${normalizeSlackField(channelName)}`,
+        `*Guest Name:* ${normalizeSlackField(refundRequest.guestName)}`,
+        `*Stay Dates:* ${formatRefundStayDates(refundRequest)}`,
+    ].join("\n");
+    const rightColumn = [
+        `*Amount:* ${formatCurrency(refundRequest.refundAmount)}`,
+        `*Charge to Client:* ${normalizeRefundChargeToClient(refundRequest.chargeToClient)}`,
+        `*Payment Method:* ${normalizeSlackField(refundRequest.paymentMethod)}`,
+        `*Payment Details:* ${normalizeSlackField(refundRequest.paymentDetails)}`,
+    ].join("\n");
+
     return [
         {
             type: "section",
             fields: [
-                { type: "mrkdwn", text: `*Listing:* ${normalizeSlackField(refundRequest.listingName)}` },
-                { type: "mrkdwn", text: `*Amount:* ${formatCurrency(refundRequest.refundAmount)}` },
-                { type: "mrkdwn", text: `*Channel:* ${normalizeSlackField(channelName)}` },
-                { type: "mrkdwn", text: `*Charge to Client:* ${normalizeRefundChargeToClient(refundRequest.chargeToClient)}` },
-                { type: "mrkdwn", text: `*Guest Name:* ${normalizeSlackField(refundRequest.guestName)}` },
-                { type: "mrkdwn", text: `*Payment Method:* ${normalizeSlackField(refundRequest.paymentMethod)}` },
-                { type: "mrkdwn", text: `*Stay Dates:* ${formatRefundStayDates(refundRequest)}` },
-                { type: "mrkdwn", text: `*Payment Details:* ${normalizeSlackField(refundRequest.paymentDetails)}` },
+                { type: "mrkdwn", text: leftColumn },
+                { type: "mrkdwn", text: rightColumn },
             ]
         },
         {
@@ -557,7 +564,6 @@ export const buildMitigationRefundRequestUpdateMessage = (
                     text: `${description}\n*Refund Request:* <https://securestay.ai/luxury-lodging/refund-requests?id=${refundRequest.id}|${normalizeSlackField(refundRequest.guestName)} — ${formatCurrency(refundRequest.refundAmount)}>`
                 }
             },
-            ...buildRefundRequestDetailBlocks(refundRequest),
             {
                 type: "context",
                 elements: [
@@ -632,6 +638,7 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
 
 
 export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
+    const issueLink = buildRefundIssueLink(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently`,
@@ -640,7 +647,7 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently. *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                    text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently.${issueLink ? ` ${issueLink}` : ""}`
                 }
             },
             {
@@ -660,6 +667,7 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
 };
 
 export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
+    const issueLink = buildRefundIssueLink(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `${user} updated the status of refund request for ${refundRequest.guestName}`,
@@ -668,7 +676,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.  *<https://securestay.ai/issues?id=${JSON.parse(refundRequest.issueId).join(",")}|View Issue>*`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}`
                 }
             },
         ]
@@ -2372,6 +2380,7 @@ export interface ResolutionsCheckoutMessageData {
     ownerRevenue: string;
     status: string;
     assignee: string;
+    visibility?: string | null;
     ssUrl: string;
     reviewCheckoutId: number;
     statusOptions: string[];
@@ -2385,6 +2394,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const {
         emoji, listingName, guestName, hostifyUrl, channelName, integrationName,
         checkIn, checkOut, totalPaid, ownerRevenue, status, assignee, ssUrl,
+        visibility,
         reviewCheckoutId, statusOptions, assigneeOptions, tagOptions = [], selectedTags = [],
         isCancelled = false,
     } = data;
@@ -2399,12 +2409,13 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
         ? `${normalizedChannelName} - ${normalizedIntegrationName}`
         : normalizedChannelName;
-    const headerText = `${emoji} *${escapeSlackLinkText(listingName)}* | ${guestText} | ${escapeSlackLinkText(channelLabel)} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
+    const headerText = `*${escapeSlackLinkText(listingName)}* ${emoji} | ${guestText} | ${escapeSlackLinkText(channelLabel)} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
     // Slack static_select requires at least 1 option — fall back to defaults if caller passed nothing
     const effectiveStatusOptions = statusOptions.length
         ? statusOptions
         : ['New', 'In Progress', 'Completed'];
+    const visibilityOptions = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Archived'];
     const allStatusSelectOptions = effectiveStatusOptions.map((s) => ({
         text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: toSlackOptionValue('status', s),
@@ -2416,9 +2427,14 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
             value: toSlackOptionValue('assignee', a.value),
         })),
     ];
+    const allVisibilitySelectOptions = visibilityOptions.map((v) => ({
+        text: { type: 'plain_text' as const, text: truncateSlackOptionText(v) },
+        value: toSlackOptionValue('visibility', v),
+    }));
 
     const currentStatusOption = allStatusSelectOptions.find((o) => o.value === toSlackOptionValue('status', status)) || allStatusSelectOptions[0];
     const currentAssigneeOption = allAssigneeSelectOptions.find((o) => o.value === toSlackOptionValue('assignee', assignee || '')) || allAssigneeSelectOptions[0];
+    const currentVisibilityOption = allVisibilitySelectOptions.find((o) => o.value === toSlackOptionValue('visibility', visibility || '')) || allVisibilitySelectOptions[0];
     const statusSelectOptions = limitSlackSelectOptions(
         allStatusSelectOptions,
         currentStatusOption,
@@ -2427,6 +2443,11 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const assigneeSelectOptions = limitSlackSelectOptions(
         allAssigneeSelectOptions,
         currentAssigneeOption,
+        (left, right) => left.value === right.value
+    );
+    const visibilitySelectOptions = limitSlackSelectOptions(
+        allVisibilitySelectOptions,
+        currentVisibilityOption,
         (left, right) => left.value === right.value
     );
     const normalizedSelectedTags = new Set(selectedTags.map((tag) => tag.toLowerCase()));
@@ -2444,8 +2465,8 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     });
 
     const tagsText = selectedTags.length > 0
-        ? `🏷️ *Tags:* ${selectedTags.map((t) => escapeSlackLinkText(t)).join(' · ')}`
-        : '🏷️ *Tags*';
+        ? `*Tags:* ${selectedTags.map((t) => escapeSlackLinkText(t)).join(' · ')}`
+        : '*Tags*';
 
     return {
         channel: RESOLUTIONS_TEAM_CHANNEL,
@@ -2472,6 +2493,13 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                         placeholder: { type: 'plain_text', text: 'Assignee' },
                         ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
                         options: assigneeSelectOptions,
+                    },
+                    {
+                        type: 'static_select',
+                        action_id: 'update_review_checkout_visibility',
+                        placeholder: { type: 'plain_text', text: 'Visibility' },
+                        ...(currentVisibilityOption ? { initial_option: currentVisibilityOption } : {}),
+                        options: visibilitySelectOptions,
                     },
                     {
                         type: 'button',
@@ -2539,7 +2567,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const reviewText = String(details || '').trim() || 'No review text provided.';
             const sentimentLabel = String(reviewSentiment || '').trim();
             const sentimentLine = sentimentLabel
-                ? `Review Sentiment: ${sentimentLabel}${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                ? `${sentimentLabel}${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
                 : '';
             const assessmentLine = safeRating < 5 && notificationMentions.length
                 ? `For assessment if we’re keeping ${notificationMentions.join(' ')}`
@@ -2570,12 +2598,11 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
             const tagDisplay = action === 'Removed' && shownTag !== '—' ? `~${shownTag}~` : shownTag;
-            const mentionLine = action === 'Added' && notificationMentions.length
-                ? `\n${notificationMentions.join(' ')}`
-                : '';
             text = previousTag && nextTag
                 ? `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${shownTag}\n~▸ ${previousTag}~\n──────────`
-                : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${tagDisplay}${mentionLine}\n──────────`;
+                : action === 'Added'
+                    ? `🏷️ ${actorLabel} added Resolution Tag → \`${shownTag}\``
+                    : `Resolution Tag ${action} By: ${actorLabel}\n🏷️ ${tagDisplay}\n──────────`;
             break;
         }
         case 'comment':
@@ -2650,9 +2677,6 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const action = previousTag && nextTag ? 'Edited' : previousTag ? 'Removed' : 'Added';
             const shownTag = nextTag || previousTag || '—';
             const tagDisplay = action === 'Removed' && shownTag !== '—' ? `~${shownTag}~` : shownTag;
-            const mentionElements = action === 'Added' && notificationMentions.length
-                ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notificationMentions.join(' ') }] }]
-                : [];
 
             blocks = previousTag && nextTag
                 ? [
@@ -2661,10 +2685,13 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${previousTag}~` }] },
                     { type: 'divider' },
                 ]
-                : [
+                : action === 'Added'
+                    ? [
+                        { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${actorLabel} added Resolution Tag → \`${shownTag}\`` } },
+                    ]
+                    : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Resolution Tag ${action} By: ${actorLabel}` }] },
                     { type: 'section', text: { type: 'mrkdwn', text: `🏷️ ${tagDisplay}` } },
-                    ...mentionElements,
                     { type: 'divider' },
                 ];
         } else if (type === 'review_posted') {
@@ -2673,7 +2700,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const reviewText = String(details || '').trim() || 'No review text provided.';
             const sentimentLabel = String(reviewSentiment || '').trim();
             const sentimentLine = sentimentLabel
-                ? `Review Sentiment: *${sentimentLabel}*${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                ? `*${sentimentLabel}*${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
                 : '';
             const sentimentHelpText = String(reviewSentimentReason || '').trim();
             const assessmentLine = safeRating < 5 && notificationMentions.length

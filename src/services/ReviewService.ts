@@ -207,6 +207,7 @@ export class ReviewService {
         'issues-grouped': 'ui-settings:issues-grouped',
         vendors: 'ui-settings:vendors',
         'vendor-contacts': 'ui-settings:vendor-contacts',
+        'refund-requests': 'ui-settings:refund-requests',
         'accounting-income': 'ui-settings:accounting-income',
         'accounting-expense': 'ui-settings:accounting-expense',
         'accounting-extras': 'ui-settings:accounting-extras',
@@ -256,7 +257,7 @@ export class ReviewService {
         return this.settingsRepo.save(setting);
     }
 
-    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution') {
+    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution') {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
         const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
@@ -271,19 +272,19 @@ export class ReviewService {
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
+    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
         return this.saveReviewUiSettings(pageKey, payload);
     }
 
-    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         return this.saveReviewUiSettings(pageKey, {
             ...(Array.isArray(payload.sharedFilterViews) ? { sharedFilterViews: payload.sharedFilterViews } : {}),
             ...(Array.isArray(payload.sharedSavedViews) ? { sharedSavedViews: payload.sharedSavedViews } : {}),
         });
     }
 
-    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         const displayNames: Record<typeof pageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
@@ -291,6 +292,7 @@ export class ReviewService {
             'issues-grouped': 'Shared Grouped Issues UI Settings',
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
+            'refund-requests': 'Shared Refund Requests UI Settings',
             'accounting-income': 'Shared Accounting Income UI Settings',
             'accounting-expense': 'Shared Accounting Expense UI Settings',
             'accounting-extras': 'Shared Accounting Extras UI Settings',
@@ -1633,8 +1635,8 @@ export class ReviewService {
                 type: "review_posted",
                 details: reviewText,
                 rating: ratingValue,
-                reviewSentiment: review.reviewSentiment,
-                reviewSentimentReason: review.reviewSentimentReason,
+                reviewSentiment: review.publicReviewSentiment,
+                reviewSentimentReason: review.publicReviewSentimentReason,
             });
         } catch (error) {
             logger.error("[ReviewService] Failed to post review-published message to Slack:", error);
@@ -1649,17 +1651,27 @@ export class ReviewService {
     }
 
     private async ensureReviewSentiment(review: ReviewEntity) {
+        const publicReviewText = String(review.publicReview || "").trim();
         const privateReviewText = String(review.privateReview || "").trim();
-        if (!privateReviewText || review.reviewSentiment) {
-            return review;
+
+        if (publicReviewText && !review.publicReviewSentiment) {
+            try {
+                const analysis = await this.getOpenAIService().analyzePublicReviewSentiment(publicReviewText);
+                review.publicReviewSentiment = analysis.sentiment;
+                review.publicReviewSentimentReason = analysis.reason;
+            } catch (error) {
+                logger.error(`[ReviewService] Failed to analyze public review sentiment for review ${review.id}:`, error);
+            }
         }
 
-        try {
-            const analysis = await this.getOpenAIService().analyzePrivateReviewSentiment(privateReviewText);
-            review.reviewSentiment = analysis.sentiment;
-            review.reviewSentimentReason = analysis.reason;
-        } catch (error) {
-            logger.error(`[ReviewService] Failed to analyze private review sentiment for review ${review.id}:`, error);
+        if (privateReviewText && !review.reviewSentiment) {
+            try {
+                const analysis = await this.getOpenAIService().analyzePrivateReviewSentiment(privateReviewText);
+                review.reviewSentiment = analysis.sentiment;
+                review.reviewSentimentReason = analysis.reason;
+            } catch (error) {
+                logger.error(`[ReviewService] Failed to analyze private review sentiment for review ${review.id}:`, error);
+            }
         }
 
         return review;
@@ -1701,6 +1713,10 @@ export class ReviewService {
                     existingReview.channelId = reviewData.channelId;
                     existingReview.rating = reviewData.rating;
                     existingReview.externalReservationId = reviewData.externalReservationId;
+                    if (String(existingReview.publicReview || "").trim() !== String(reviewData.publicReview || "").trim()) {
+                        existingReview.publicReviewSentiment = null;
+                        existingReview.publicReviewSentimentReason = null;
+                    }
                     existingReview.publicReview = reviewData.publicReview;
                     existingReview.submittedAt = reviewData.submittedAt;
                     existingReview.arrivalDate = reviewData.arrivalDate;
@@ -1713,6 +1729,10 @@ export class ReviewService {
                     existingReview.isHidden = existingReview.updatedBy ? existingReview.isHidden : (reviewData?.isHidden || 0);
                     existingReview.reservationId = reviewData?.reservationId || null;
                     if ((reviewData as any)?.feedback) {
+                        if (String(existingReview.privateReview || "").trim() !== String((reviewData as any).feedback || "").trim()) {
+                            existingReview.reviewSentiment = null;
+                            existingReview.reviewSentimentReason = null;
+                        }
                         existingReview.privateReview = (reviewData as any).feedback;
                     }
                     await this.ensureReviewSentiment(existingReview);
@@ -1836,9 +1856,17 @@ export class ReviewService {
                     const hadPostedReview = Boolean(existingReview.publicReview && existingReview.rating);
                     existingReview.reviewerName = existingReview.reviewerName || reviewData.reviewerName;
                     existingReview.rating = existingReview.channelName == "Booking.com" ? reviewData.rating / 2 : reviewData.rating;
+                    if (String(existingReview.publicReview || "").trim() !== String(reviewData.comments || "").trim()) {
+                        existingReview.publicReviewSentiment = null;
+                        existingReview.publicReviewSentimentReason = null;
+                    }
                     existingReview.publicReview = reviewData.comments;
                     existingReview.submittedAt = reviewData.review_published_at;
                     existingReview.reservationId = reviewData?.reservation_id || existingReview.reservationId || null;
+                    if (reviewData?.feedback && String(existingReview.privateReview || "").trim() !== String(reviewData.feedback || "").trim()) {
+                        existingReview.reviewSentiment = null;
+                        existingReview.reviewSentimentReason = null;
+                    }
                     existingReview.privateReview = reviewData?.feedback || existingReview.privateReview || null;
                     await this.ensureReviewSentiment(existingReview);
                     this.applyAutoVisibility(existingReview);
@@ -2954,6 +2982,9 @@ export class ReviewService {
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
         }
+        const linkedReview = data.visibility !== undefined && reviewCheckout.reservationInfo?.id
+            ? await this.reviewRepository.findOne({ where: { reservationId: Number(reviewCheckout.reservationInfo.id) } })
+            : null;
 
         const prevStatus = reviewCheckout.status;
         const prevAssignee = reviewCheckout.assignee;
@@ -2962,7 +2993,7 @@ export class ReviewService {
             comments: reviewCheckout.comments ?? null,
             assignee: reviewCheckout.assignee ?? null,
             isActive: reviewCheckout.isActive ?? null,
-            visibility: reviewCheckout.visibility ?? null,
+            visibility: linkedReview?.visibility ?? reviewCheckout.visibility ?? null,
         };
 
         if (data.status !== undefined) {
@@ -2981,6 +3012,13 @@ export class ReviewService {
         }
         if (data.visibility !== undefined) {
             reviewCheckout.visibility = data.visibility;
+            if (linkedReview) {
+                linkedReview.visibility = data.visibility;
+                linkedReview.isHidden = data.visibility === 'Removed' ? 1 : 0;
+                linkedReview.updatedAt = new Date();
+                linkedReview.updatedBy = userId;
+                await this.reviewRepository.save(linkedReview);
+            }
         }
         await this.reviewCheckoutRepo.save(reviewCheckout);
 
@@ -4056,6 +4094,8 @@ export class ReviewService {
                 rating: review.rating,
                 externalReservationId: review.externalReservationId,
                 publicReview: review.publicReview,
+                publicReviewSentiment: review.publicReviewSentiment,
+                publicReviewSentimentReason: review.publicReviewSentimentReason,
                 privateReview: review.privateReview,
                 reviewSentiment: review.reviewSentiment,
                 reviewSentimentReason: review.reviewSentimentReason,
@@ -4099,6 +4139,8 @@ export class ReviewService {
                     assignee: row.assignee || null,
                     assigneeName: row.assignee || null,
                     publicReview: matchedReview?.publicReview ?? null,
+                    publicReviewSentiment: matchedReview?.publicReviewSentiment ?? null,
+                    publicReviewSentimentReason: matchedReview?.publicReviewSentimentReason ?? null,
                     privateReview: matchedReview?.privateReview ?? null,
                     reviewSentiment: matchedReview?.reviewSentiment ?? null,
                     reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,
@@ -4281,6 +4323,8 @@ export class ReviewService {
             rating: review.rating,
             externalReservationId: review.externalReservationId,
             publicReview: review.publicReview,
+            publicReviewSentiment: review.publicReviewSentiment,
+            publicReviewSentimentReason: review.publicReviewSentimentReason,
             privateReview: review.privateReview,
             reviewSentiment: review.reviewSentiment,
             reviewSentimentReason: review.reviewSentimentReason,
@@ -4326,6 +4370,8 @@ export class ReviewService {
                 assignee: row.assignee || null,
                 assigneeName: row.assignee || null,
                 publicReview: matchedReview?.publicReview ?? null,
+                publicReviewSentiment: matchedReview?.publicReviewSentiment ?? null,
+                publicReviewSentimentReason: matchedReview?.publicReviewSentimentReason ?? null,
                 privateReview: matchedReview?.privateReview ?? null,
                 reviewSentiment: matchedReview?.reviewSentiment ?? null,
                 reviewSentimentReason: matchedReview?.reviewSentimentReason ?? null,

@@ -170,13 +170,13 @@ export class OpenAIService {
         return translatedText;
     }
 
-    async analyzePrivateReviewSentiment(text: string): Promise<ReviewSentimentAnalysis> {
+    private async analyzeReviewSentiment(text: string, reviewType: "public" | "private"): Promise<ReviewSentimentAnalysis> {
         const normalizedText = String(text || "").trim();
         if (!normalizedText) {
-            throw new Error("Private review text is required");
+            throw new Error(`${reviewType === "public" ? "Public" : "Private"} review text is required`);
         }
         if (normalizedText.length > 10000) {
-            throw new Error("Private review text must be 10000 characters or fewer");
+            throw new Error(`${reviewType === "public" ? "Public" : "Private"} review text must be 10000 characters or fewer`);
         }
 
         const response = await this.openai.chat.completions.create({
@@ -185,10 +185,10 @@ export class OpenAIService {
                 {
                     role: "system",
                     content: [
-                        "Analyze the private guest review sentiment for a hospitality operations team.",
+                        `Analyze the ${reviewType} guest review sentiment for a hospitality operations team.`,
                         "Return strict JSON only with keys sentiment and reason.",
                         "The sentiment must be exactly one of: Positive, Neutral, Negative, Mixed.",
-                        "Use Positive when the private review is clearly favorable.",
+                        `Use Positive when the ${reviewType} review is clearly favorable.`,
                         "Use Negative when it is clearly unfavorable or highlights problems.",
                         "Use Mixed when it has meaningful praise and meaningful criticism.",
                         "Use Neutral when there is not enough emotional signal.",
@@ -212,6 +212,14 @@ export class OpenAIService {
         const reason = String(parsed?.reason || sentiment).trim().slice(0, 500);
 
         return { sentiment, reason };
+    }
+
+    async analyzePrivateReviewSentiment(text: string): Promise<ReviewSentimentAnalysis> {
+        return this.analyzeReviewSentiment(text, "private");
+    }
+
+    async analyzePublicReviewSentiment(text: string): Promise<ReviewSentimentAnalysis> {
+        return this.analyzeReviewSentiment(text, "public");
     }
 
     /**
