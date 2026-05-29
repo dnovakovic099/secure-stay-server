@@ -39,7 +39,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         owner: arrayOrSingle(Joi.string().required()).required(),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
-        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Archived").required()).allow(null, ""),
+        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Remove Failed", "Archived").required()).allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: arrayOrSingle(Joi.string().required()),
         serviceType: arrayOrSingle(Joi.string().required()),
@@ -85,7 +85,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
 
 export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Archived"),
+        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Remove Failed", "Archived"),
     });
 
     const { error } = schema.validate(request.body);
@@ -216,6 +216,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         aiAnalysis: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
         aiAnalysisSearch: Joi.string().allow('').optional(),
         publicReviewSearch: Joi.string().allow('').optional(),
+        groupField: Joi.string().allow('').optional(),
     });
 
     const { error } = schema.validate(request.query);
