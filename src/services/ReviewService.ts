@@ -1227,7 +1227,7 @@ export class ReviewService {
                 condition.reservationId = In(filteredReservationIds.length > 0 ? filteredReservationIds : [-1]);
             }
 
-            const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate"];
+            const allowedDateTypes = ["submittedAt", "arrivalDate", "departureDate", "updatedAt"];
 
             if (fromDate !== undefined && fromDate !== null && toDate !== undefined && toDate !== null && dateType && allowedDateTypes.includes(dateType)) {
                 condition[dateType] = Between(fromDate, toDate);

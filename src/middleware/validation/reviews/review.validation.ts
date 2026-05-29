@@ -19,7 +19,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         ).optional().allow(null, "");
 
     const schema = Joi.object({
-        dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt"),
+        dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt", "updatedAt"),
         fromDate: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'fromDate must be in the format "yyyy-mm-dd"' }).optional(),
