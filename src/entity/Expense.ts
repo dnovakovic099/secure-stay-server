@@ -24,7 +24,7 @@ export class ExpenseEntity {
     @Column({ type: 'varchar' })
     expenseDate: string;
 
-    @Column({ type: 'varchar', length: 255 })
+    @Column({ type: 'text' })
     concept: string;
 
     @Column({ type: 'float' })
