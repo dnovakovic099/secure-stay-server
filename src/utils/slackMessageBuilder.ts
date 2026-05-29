@@ -2415,7 +2415,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const effectiveStatusOptions = statusOptions.length
         ? statusOptions
         : ['New', 'In Progress', 'Completed'];
-    const visibilityOptions = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Archived'];
+    const visibilityOptions = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Remove Failed', 'Archived'];
     const allStatusSelectOptions = effectiveStatusOptions.map((s) => ({
         text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: toSlackOptionValue('status', s),

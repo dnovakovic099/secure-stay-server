@@ -14,7 +14,7 @@ import { Claim } from "../entity/Claim";
 import { buildClaimReviewReceivedMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { ListingService } from "./ListingService";
-import { addDays, endOfDay, format, getDay, startOfDay, subMonths } from "date-fns";
+import { addDays, differenceInCalendarDays, endOfDay, format, getDay, startOfDay, subMonths } from "date-fns";
 import { ActionItemsService } from "./ActionItemsService";
 import { IssuesService } from "./IssuesService";
 import { UsersEntity } from "../entity/Users";
@@ -108,6 +108,7 @@ interface Filter {
     aiAnalysis?: string[] | null | undefined;
     aiAnalysisSearch?: string | null | undefined;
     publicReviewSearch?: string | null | undefined;
+    groupField?: string | null | undefined;
 }
 
 
@@ -1549,7 +1550,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Archived'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Remove Failed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }
@@ -2114,6 +2115,7 @@ export class ReviewService {
             aiAnalysis: rawAiAnalysis,
             aiAnalysisSearch,
             publicReviewSearch,
+            groupField,
         } = filters;
 
         // qs parses a single repeated query param as a string, not an array.
@@ -2678,6 +2680,8 @@ export class ReviewService {
             );
         }
 
+        const groupCountQuery = groupField ? query.clone() : null;
+
         query.skip((page - 1) * limit).take(limit);
         query.orderBy("reviewCheckout.createdAt", "DESC");
 
@@ -2689,6 +2693,9 @@ export class ReviewService {
         logger.info(`[getReviewsForCheckout] Query parameters: ${JSON.stringify(query.getParameters())}`);
 
         const [reviewCheckoutList, total] = await query.getManyAndCount();
+        const groupCounts = groupCountQuery
+            ? await this.getReviewCheckoutGroupCounts(groupCountQuery, String(groupField || ''))
+            : undefined;
 
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
         const latestReservationUpdates = await this.reservationHistoryService.getLatestUpdatesForReservations(reservationIds);
@@ -2859,7 +2866,121 @@ export class ReviewService {
             };
         }));
 
-        return { result: transformedData, total };
+        return { result: transformedData, total, ...(groupCounts ? { groupCounts } : {}) };
+    }
+
+    private normalizeMitigationGroupKey(value: unknown) {
+        const text = String(value ?? '').trim();
+        return text || 'Unassigned';
+    }
+
+    private getMitigationDaysLeftGroupKey(checkoutDate?: string | Date | null, checkOutTime?: number | string | null) {
+        if (!checkoutDate) return '0 days left';
+        const baseDate = this.normalizeReviewDate(checkoutDate);
+        const hour = Number(checkOutTime);
+        const checkoutAt = new Date(`${baseDate || checkoutDate}T${Number.isFinite(hour) ? String(hour).padStart(2, '0') : '23'}:00:00`);
+        const deadline = addDays(checkoutAt, 14);
+        const diffDays = differenceInCalendarDays(deadline, new Date());
+        if (diffDays <= 0) return '0 days left';
+        const daysLeft = Math.min(14, Math.max(1, diffDays));
+        return `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`;
+    }
+
+    private async getReviewCheckoutGroupCounts(query: any, groupField: string) {
+        const field = String(groupField || '').trim();
+        if (!field) return undefined;
+
+        const rows = await query.getMany() as ReviewCheckout[];
+        if (!rows.length) return {};
+
+        const reservationIds = rows.map((row) => Number(row.reservationInfo?.id)).filter(Boolean);
+        const listingIds = Array.from(new Set(rows.map((row) => Number(row.reservationInfo?.listingMapId)).filter(Boolean)));
+        const [listings, reviews, guestAnalyses, latestRefundsByReservation] = await Promise.all([
+            listingIds.length > 0
+                ? this.listingRepo.find({ where: { id: In(listingIds) }, select: ['id', 'tags', 'checkOutTime'] })
+                : Promise.resolve([]),
+            reservationIds.length > 0
+                ? this.reviewRepository.find({ where: { reservationId: In(reservationIds) }, order: { createdAt: 'DESC' } })
+                : Promise.resolve([]),
+            reservationIds.length > 0
+                ? this.guestAnalysisRepo.find({ where: { reservationId: In(reservationIds) }, order: { analyzedAt: 'DESC' } })
+                : Promise.resolve([]),
+            this.getLatestRefundRequests(reservationIds),
+        ]);
+
+        const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+        const latestReviewMap = new Map<number, ReviewEntity>();
+        reviews.forEach((review) => {
+            const reservationId = Number(review.reservationId);
+            if (!latestReviewMap.has(reservationId)) latestReviewMap.set(reservationId, review);
+        });
+        const latestAnalysisMap = new Map<number, GuestAnalysisEntity>();
+        guestAnalyses.forEach((analysis) => {
+            const reservationId = Number(analysis.reservationId);
+            if (!latestAnalysisMap.has(reservationId)) latestAnalysisMap.set(reservationId, analysis);
+        });
+
+        const counts: Record<string, number> = {};
+        rows.forEach((row) => {
+            const reservation = row.reservationInfo;
+            const reservationId = Number(reservation?.id);
+            const listing = listingMap.get(Number(reservation?.listingMapId));
+            const review = latestReviewMap.get(reservationId);
+            const analysis = latestAnalysisMap.get(reservationId);
+            const refund = latestRefundsByReservation.get(reservationId);
+            const key = (() => {
+                switch (field) {
+                    case 'arrivalDate':
+                        return this.normalizeReviewDate(reservation?.arrivalDate) || 'Unassigned';
+                    case 'departureDate':
+                        return this.normalizeReviewDate(reservation?.departureDate) || 'Unassigned';
+                    case 'daysLeft':
+                        return this.getMitigationDaysLeftGroupKey(reservation?.departureDate, reservation?.checkOutTime ?? listing?.checkOutTime);
+                    case 'channelName':
+                    case 'channelNameText':
+                        return reservation?.channelName;
+                    case 'integration':
+                        return reservation?.integration_nickname || reservation?.source || reservation?.channelName;
+                    case 'listingName':
+                        return reservation?.listingName;
+                    case 'guestName':
+                        return reservation?.guestName;
+                    case 'confirmationCode':
+                        return reservation?.channelReservationId || reservation?.hostawayReservationId || review?.externalReservationId;
+                    case 'propertyType':
+                        return this.extractPropertyTypeFromTags(listing?.tags);
+                    case 'serviceType':
+                        return this.extractServiceTypeFromTags(listing?.tags);
+                    case 'status':
+                        return row.status;
+                    case 'assignee':
+                        return row.assignee;
+                    case 'isHidden':
+                    case 'visibility':
+                        return row.visibility || review?.visibility;
+                    case 'rating':
+                        return review?.rating;
+                    case 'reviewSentiment':
+                        return review?.reviewSentiment;
+                    case 'sentiment':
+                        return analysis?.sentiment;
+                    case 'refundAmount':
+                        return refund?.refundAmount;
+                    case 'refundStatus':
+                        return refund?.status;
+                    case 'totalPaid':
+                        return reservation?.totalPrice;
+                    case 'ownerRevenue':
+                        return reservation?.owner_revenue;
+                    default:
+                        return (row as any)[field] ?? (reservation as any)?.[field] ?? (review as any)?.[field];
+                }
+            })();
+            const normalizedKey = this.normalizeMitigationGroupKey(key);
+            counts[normalizedKey] = (counts[normalizedKey] || 0) + 1;
+        });
+
+        return counts;
     }
 
 
