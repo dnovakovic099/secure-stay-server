@@ -1,6 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
-import { Between, Brackets, EntityManager, ILike, In } from "typeorm";
+import { Between, Brackets, EntityManager, ILike, In, IsNull, LessThanOrEqual, MoreThanOrEqual, Not } from "typeorm";
 import { format } from "date-fns";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -660,8 +660,8 @@ export class RefundRequestService {
         return await this.decorateRefundRequests(refundRequest);
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; sortRules?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, sortRules } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -679,6 +679,9 @@ export class RefundRequestService {
         const statusFilters = normalizeArray(status);
         const createdByFilters = normalizeArray(createdBy);
         const paymentMethodFilters = normalizeArray(paymentMethod);
+        const minAmount = refundAmountMin !== undefined && refundAmountMin !== null && refundAmountMin !== "" ? Number(refundAmountMin) : null;
+        const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
+        const selectedExpenseEntry = String(expenseEntry || "").trim();
         const selectedKeywordField = keywordField === "guestName" || keywordField === "explaination" ? keywordField : "all";
         const directSortColumns: Record<string, keyof RefundRequestEntity> = {
             status: "status",
@@ -798,6 +801,20 @@ export class RefundRequestService {
             whereConditions.paymentMethod = In(paymentMethodFilters);
         }
 
+        if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
+            whereConditions.refundAmount = Between(minAmount, maxAmount);
+        } else if (minAmount !== null && !Number.isNaN(minAmount)) {
+            whereConditions.refundAmount = MoreThanOrEqual(minAmount);
+        } else if (maxAmount !== null && !Number.isNaN(maxAmount)) {
+            whereConditions.refundAmount = LessThanOrEqual(maxAmount);
+        }
+
+        if (selectedExpenseEntry === "with") {
+            whereConditions.expenseId = Not(IsNull());
+        } else if (selectedExpenseEntry === "without") {
+            whereConditions.expenseId = IsNull();
+        }
+
         const selectedDateField = dateType === "checkIn" ? "checkIn" : dateType === "checkOut" ? "checkOut" : dateType === "updatedAt" ? "updatedAt" : dateType === "datePaid" ? "datePaid" : "createdAt";
         if (selectedDateField === "datePaid") {
             const qb = this.refundRequestRepo
@@ -832,6 +849,18 @@ export class RefundRequestService {
             }
             if (paymentMethodFilters.length) {
                 qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
+            }
+            if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
+                qb.andWhere("refundRequest.refundAmount BETWEEN :minAmount AND :maxAmount", { minAmount, maxAmount });
+            } else if (minAmount !== null && !Number.isNaN(minAmount)) {
+                qb.andWhere("refundRequest.refundAmount >= :minAmount", { minAmount });
+            } else if (maxAmount !== null && !Number.isNaN(maxAmount)) {
+                qb.andWhere("refundRequest.refundAmount <= :maxAmount", { maxAmount });
+            }
+            if (selectedExpenseEntry === "with") {
+                qb.andWhere("refundRequest.expenseId IS NOT NULL");
+            } else if (selectedExpenseEntry === "without") {
+                qb.andWhere("refundRequest.expenseId IS NULL");
             }
             if (fromDate || toDate) {
                 qb.andWhere("expense.datePaid BETWEEN :fromDate AND :toDate", {

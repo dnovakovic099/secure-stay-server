@@ -72,7 +72,7 @@ export class RefundRequestController {
     async getRefundRequestList(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const refundRequestService = new RefundRequestService();
-            const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, sortRules } = request.query;
+            const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = request.query;
             return response.send(await refundRequestService.getRefundRequestList({
                 page: Number(page) || 1,
                 limit: Number(limit) || 10,
@@ -89,6 +89,9 @@ export class RefundRequestController {
                 toDate: toDate as string,
                 createdBy: createdBy as string,
                 paymentMethod: paymentMethod as string,
+                refundAmountMin: refundAmountMin as string,
+                refundAmountMax: refundAmountMax as string,
+                expenseEntry: expenseEntry as string,
                 sortRules: sortRules as string,
             }));
         } catch (error) {
