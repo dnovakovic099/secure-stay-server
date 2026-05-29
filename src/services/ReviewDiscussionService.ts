@@ -218,10 +218,14 @@ export class ReviewDiscussionService {
         const withoutPrefix = String(content || "")
             .replace(/^\s*(?:Resolution\s+)?Notes\s+(?:Added|Edited)\s+By:\s*[\s\S]*?(?:💬|:speech_balloon:|📝|:memo:)\s*/i, "");
 
-        return withoutPrefix
+        const withoutDividers = withoutPrefix
             .split(/\r?\n/)
             .filter((line) => !/^\s*[─_\-]{5,}\s*$/.test(line))
             .join("\n")
+            .trim();
+
+        return withoutDividers
+            .replace(/\s+[-–](\s*)(?=[A-Z])/g, (_match, spacing) => `\n-${spacing || ""}`)
             .trim();
     }
 
@@ -520,9 +524,12 @@ export class ReviewDiscussionService {
         const authorDisplay = authorKey
             ? await this.getUserDisplay(authorKey)
             : null;
-        const content = await this.resolveDiscussionContent(message.content, message.metadata?.source === "slack");
+        const shouldStripSlackWrapper = message.metadata?.source === "slack" || /^\s*(?:Resolution\s+)?Notes\s+(?:Added|Edited)\s+By:/i.test(String(message.content || ""));
+        const content = await this.resolveDiscussionContent(message.content, shouldStripSlackWrapper);
         const slackMessageTs = String(message.metadata?.slackMessageTs || "").trim() || null;
         const slackPermalink = this.buildSlackPermalink(slackChannelId, slackMessageTs);
+        const actorKey = String(message.metadata?.actor || "").trim();
+        const actorDisplay = actorKey ? await this.getUserDisplay(actorKey) : null;
 
         return {
             id: String(message.id),
@@ -537,6 +544,7 @@ export class ReviewDiscussionService {
             createdAt: message.createdAt.toISOString(),
             metadata: {
                 ...(message.metadata || {}),
+                ...(actorDisplay?.userName ? { actorName: actorDisplay.userName } : {}),
                 ...(slackPermalink ? { slackPermalink } : {}),
             },
             reactions: this.buildReactionSummary(message.id, reactions, currentUserId),

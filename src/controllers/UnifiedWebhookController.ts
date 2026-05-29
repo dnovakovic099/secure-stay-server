@@ -46,6 +46,7 @@ export class UnifiedWebhookController {
 
         if (prefix === "status") return { newStatus: actionValue };
         if (prefix === "assignee") return { assignee: actionValue };
+        if (prefix === "visibility") return { visibility: actionValue };
         if (prefix === "tag") return { tag: actionValue.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') };
         return {};
     }
@@ -160,6 +161,10 @@ export class UnifiedWebhookController {
                 }
                 case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_ASSIGNEE: {
                     logger.info(`Review checkout assignee update request`);
+                    break;
+                }
+                case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_VISIBILITY: {
+                    logger.info(`Review checkout visibility update request`);
                     break;
                 }
                 case slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_TAGS: {
@@ -395,6 +400,19 @@ export class UnifiedWebhookController {
                         logger.info(`${user} updated review checkout ${reviewCheckoutId} assignee to ${assignee || 'Unassigned'}`);
                     } catch (error) {
                         logger.error(`Error updating review checkout assignee: ${error}`);
+                    }
+                    break;
+                }
+                case `${slackInteractivityEventNames.UPDATE_REVIEW_CHECKOUT_VISIBILITY}`: {
+                    try {
+                        const requestObj = this.parseReviewCheckoutActionValue(action.selected_option?.value || action.value);
+                        const reviewCheckoutId = this.getReviewCheckoutIdFromAction(action, requestObj);
+                        const { visibility } = requestObj;
+                        const reviewService = new ReviewService();
+                        await reviewService.updateReviewCheckout(Number(reviewCheckoutId), { visibility }, user);
+                        logger.info(`${user} updated review checkout ${reviewCheckoutId} visibility to ${visibility}`);
+                    } catch (error) {
+                        logger.error(`Error updating review checkout visibility: ${error}`);
                     }
                     break;
                 }

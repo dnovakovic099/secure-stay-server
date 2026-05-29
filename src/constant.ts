@@ -82,6 +82,7 @@ export const slackInteractivityEventNames={
     UPDATE_ITEM_SUPPLY_REQUEST_STATUS: "update_item_supply_request_status",
     UPDATE_REVIEW_CHECKOUT_STATUS: "update_review_checkout_status",
     UPDATE_REVIEW_CHECKOUT_ASSIGNEE: "update_review_checkout_assignee",
+    UPDATE_REVIEW_CHECKOUT_VISIBILITY: "update_review_checkout_visibility",
     UPDATE_REVIEW_CHECKOUT_TAGS: "update_review_checkout_tags",
 }
 

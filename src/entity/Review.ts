@@ -27,6 +27,12 @@ export class ReviewEntity {
     @Column({ type: 'text', nullable: true })
     publicReview: string;
 
+    @Column({ name: 'public_review_sentiment', type: 'varchar', length: 20, nullable: true })
+    publicReviewSentiment: string;
+
+    @Column({ name: 'public_review_sentiment_reason', type: 'text', nullable: true })
+    publicReviewSentimentReason: string;
+
     @Column({name: 'private_review', type: 'text', nullable: true })
     privateReview: string;
 

@@ -19,7 +19,7 @@ export class ReviewDetailController {
             await discussionService.createSystemMessage(
                 reviewId,
                 `Review detail created${reviewDetail?.claimResolutionStatus ? ` with status ${reviewDetail.claimResolutionStatus}` : ""}.`,
-                { eventType: "review_detail_created" }
+                { eventType: "review_detail_created", actor: userId }
             );
             return response.status(201).json({
                 success: true,
@@ -40,7 +40,7 @@ export class ReviewDetailController {
             await discussionService.createSystemMessage(
                 reviewId,
                 `Review detail updated${updatedReviewDetail?.claimResolutionStatus ? ` with status ${updatedReviewDetail.claimResolutionStatus}` : ""}.`,
-                { eventType: "review_detail_updated" }
+                { eventType: "review_detail_updated", actor: userId }
             );
             return response.status(200).json({
                 success: true,
