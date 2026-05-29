@@ -30,6 +30,7 @@ export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+  private expenseRepo = appDatabase.getRepository(ExpenseEntity);
   private listingRepo = appDatabase.getRepository(Listing);
   private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
@@ -100,20 +101,32 @@ export class RefundRequestService {
 
     const listingIds = Array.from(new Set(rows.map((request) => Number(request.listingId)).filter(Boolean)));
     const reservationIds = Array.from(new Set(rows.map((request) => Number(request.reservationId)).filter(Boolean)));
-    const [listings, reservations] = await Promise.all([
+    const expenseIds = Array.from(new Set(rows.map((request) => Number(request.expenseId)).filter(Boolean)));
+    const [listings, reservations, expenses] = await Promise.all([
       listingIds.length ? this.listingRepo.find({ where: { id: In(listingIds) } }) : [],
       reservationIds.length ? this.reservationInfoRepo.find({ where: { id: In(reservationIds) } }) : [],
+      expenseIds.length ? this.expenseRepo.find({ where: { id: In(expenseIds) } }) : [],
     ]);
     const listingMap = new Map<number, Listing>(listings.map((listing) => [Number(listing.id), listing] as [number, Listing]));
     const reservationMap = new Map<number, ReservationInfoEntity>(reservations.map((reservation) => [Number(reservation.id), reservation] as [number, ReservationInfoEntity]));
+    const expenseMap = new Map<number, ExpenseEntity>(expenses.map((expense) => [Number(expense.id), expense] as [number, ExpenseEntity]));
 
     rows.forEach((request: any) => {
       const listing = listingMap.get(Number(request.listingId));
       const reservation = reservationMap.get(Number(request.reservationId));
+      const expense = expenseMap.get(Number(request.expenseId));
       request.propertyType = this.inferPropertyTypeTag(listing);
       request.serviceType = this.inferServiceTypeTag(listing);
       request.listingTags = listing?.tags || null;
       request.channelName = reservation?.channelName || reservation?.source || null;
+      request.expenseStatus = expense?.status || null;
+      request.expense = expense
+        ? {
+          id: expense.id,
+          expenseId: expense.expenseId,
+          status: expense.status,
+        }
+        : null;
     });
 
     return refundRequests;
@@ -682,7 +695,8 @@ export class RefundRequestService {
         const minAmount = refundAmountMin !== undefined && refundAmountMin !== null && refundAmountMin !== "" ? Number(refundAmountMin) : null;
         const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
         const selectedExpenseEntry = String(expenseEntry || "").trim();
-        const selectedKeywordField = keywordField === "guestName" || keywordField === "explaination" ? keywordField : "all";
+        const keywordFieldOptions = ["guestName", "explaination", "notes", "paymentDetails"];
+        const selectedKeywordField = keywordFieldOptions.includes(String(keywordField || "")) ? String(keywordField) : "all";
         const directSortColumns: Record<string, keyof RefundRequestEntity> = {
             status: "status",
             guestName: "guestName",
@@ -747,9 +761,19 @@ export class RefundRequestService {
                     subQuery.where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike });
                     return;
                 }
+                if (selectedKeywordField === "notes") {
+                    subQuery.where("LOWER(refundRequest.notes) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
+                if (selectedKeywordField === "paymentDetails") {
+                    subQuery.where("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
                 subQuery
                     .where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike })
-                    .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike });
+                    .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike })
+                    .orWhere("LOWER(refundRequest.notes) LIKE :keyword", { keyword: keywordLike })
+                    .orWhere("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike });
             }));
         };
 
@@ -898,10 +922,16 @@ export class RefundRequestService {
             ? { ...whereConditions, guestName: ILike(`%${keyword}%`) }
             : selectedKeywordField === "explaination"
                 ? { ...whereConditions, explaination: ILike(`%${keyword}%`) }
-                : [
-                    { ...whereConditions, explaination: ILike(`%${keyword}%`) },
-                    { ...whereConditions, guestName: ILike(`%${keyword}%`) },
-                ]
+                : selectedKeywordField === "notes"
+                    ? { ...whereConditions, notes: ILike(`%${keyword}%`) }
+                    : selectedKeywordField === "paymentDetails"
+                        ? { ...whereConditions, paymentDetails: ILike(`%${keyword}%`) }
+                        : [
+                            { ...whereConditions, explaination: ILike(`%${keyword}%`) },
+                            { ...whereConditions, guestName: ILike(`%${keyword}%`) },
+                            { ...whereConditions, notes: ILike(`%${keyword}%`) },
+                            { ...whereConditions, paymentDetails: ILike(`%${keyword}%`) },
+                        ]
         : whereConditions;
 
         const [data, total] = await this.refundRequestRepo.findAndCount({
