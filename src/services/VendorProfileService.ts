@@ -61,6 +61,7 @@ export class VendorProfileService {
             CREATE TABLE IF NOT EXISTS vendor_profiles (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
+                companyName VARCHAR(255) NULL,
                 contact VARCHAR(100) NULL,
                 email VARCHAR(255) NULL,
                 source VARCHAR(100) NULL,
@@ -163,6 +164,7 @@ export class VendorProfileService {
             )
         `);
 
+        await this.addColumnIfMissing("vendor_profiles", "companyName", "VARCHAR(255) NULL");
         await this.addColumnIfMissing("vendor_profiles", "notes", "TEXT NULL");
         await this.addColumnIfMissing("vendor_profiles", "avatarUrl", "VARCHAR(2048) NULL");
         await this.addColumnIfMissing("vendor_profiles", "icon", "VARCHAR(100) NULL");
@@ -256,6 +258,7 @@ export class VendorProfileService {
     private getProfileAuditChanges(existing: VendorProfile, next: Partial<VendorProfile>) {
         const fields: Array<{ key: keyof VendorProfile; label: string; nextValue?: any }> = [
             { key: "name", label: "Vendor Name", nextValue: next.name },
+            { key: "companyName", label: "Company Name", nextValue: next.companyName },
             { key: "contact", label: "Phone Number", nextValue: next.contact },
             { key: "email", label: "Email", nextValue: next.email },
             { key: "source", label: "Source", nextValue: next.source },
@@ -617,6 +620,7 @@ export class VendorProfileService {
 
             const profile = await profileRepo.save(profileRepo.create({
                 name: body.name,
+                companyName: body.companyName || null,
                 contact: body.contact || null,
                 email: body.email || null,
                 source: body.source || null,
@@ -649,6 +653,7 @@ export class VendorProfileService {
         if (!existing) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
         const nextValues = {
             name: body.name,
+            companyName: body.companyName,
             contact: body.contact,
             email: body.email,
             source: body.source,

@@ -10,6 +10,9 @@ export class VendorProfile {
     @Column({ type: "varchar", length: 255 })
     name: string;
 
+    @Column({ type: "varchar", length: 255, nullable: true })
+    companyName: string | null;
+
     @Column({ type: "varchar", length: 100, nullable: true })
     contact: string | null;
 
