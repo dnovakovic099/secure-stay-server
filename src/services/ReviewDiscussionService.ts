@@ -15,6 +15,8 @@ import logger from "../utils/logger.utils";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { generateSlackMessageLink } from "../helpers/helpers";
 import { supabaseAdmin } from "../utils/supabase";
+import { uploadFileToSlack } from "../utils/uploadFileToSlack";
+import { RESOLUTIONS_TEAM_CHANNEL } from "../utils/slackMessageBuilder";
 
 type DiscussionFilter = "all" | "notes" | "system" | "ai" | "mentions";
 type DiscussionSort = "oldest" | "newest";
@@ -451,15 +453,16 @@ export class ReviewDiscussionService {
 
             analyses.forEach((analysis) => {
                 items.push({
-                    id: `ai-${analysis.id}`,
+                    id: `system-ai-analysis-${analysis.id}`,
                     persistentId: null,
                     parentMessageId: null,
-                    sourceType: "ai",
+                    sourceType: "system",
                     authorName: analysis.analyzedBy === "auto" ? "AI Manager" : "AI Analysis",
-                    content: analysis.summary || "AI analysis generated",
+                    content: "AI analysis was generated.",
                     mentions: [],
                     createdAt: analysis.analyzedAt?.toISOString?.() || new Date().toISOString(),
                     metadata: {
+                        eventType: "ai_analysis",
                         sentiment: analysis.sentiment,
                         flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
                     },
@@ -768,15 +771,16 @@ export class ReviewDiscussionService {
         });
         analyses.forEach((analysis) => {
             items.push({
-                id: `ai-${analysis.id}`,
+                id: `system-ai-analysis-${analysis.id}`,
                 persistentId: null,
                 parentMessageId: null,
-                sourceType: "ai",
+                sourceType: "system",
                 authorName: analysis.analyzedBy === "auto" ? "AI Manager" : "AI Analysis",
-                content: analysis.summary || "AI analysis generated",
+                content: "AI analysis was generated.",
                 mentions: [],
                 createdAt: analysis.analyzedAt?.toISOString?.() || new Date().toISOString(),
                 metadata: {
+                    eventType: "ai_analysis",
                     sentiment: analysis.sentiment,
                     flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
                 },
@@ -898,14 +902,14 @@ export class ReviewDiscussionService {
         try {
             const rc = await this.reviewCheckoutRepo.findOne({
                 where: { reservationInfo: { id: Number(reservationId) } },
-                select: ["id", "slackThreadTs"],
+                select: ["id", "slackThreadTs", "slackChannelId"],
             });
             if (rc?.slackThreadTs) {
                 const resolutionsService = new ResolutionsTeamSlackService();
                 const slackMessageTs = await resolutionsService.postActivityToThread(rc.id, {
                     type: "comment",
                     actor: userId,
-                    details: [trimmedContent, ...attachments.map((attachment) => attachment.url)].filter(Boolean).join("\n"),
+                    details: trimmedContent || `Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}.`,
                 });
                 if (slackMessageTs && slackMessageTs !== rc.slackThreadTs) {
                     saved.metadata = {
@@ -914,6 +918,15 @@ export class ReviewDiscussionService {
                         slackMessageTs,
                     };
                     saved = await this.messageRepo.save(saved);
+
+                    if (attachments.length) {
+                        await uploadFileToSlack(
+                            rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL,
+                            attachments.map((attachment) => attachment.fileName),
+                            "review-discussion",
+                            slackMessageTs
+                        );
+                    }
                 }
             }
         } catch (err) {
