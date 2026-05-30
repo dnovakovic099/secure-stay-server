@@ -25,6 +25,7 @@ interface SlackMessageFile {
     title?: string;
     mimetype?: string;
     filetype?: string;
+    size?: number;
     url_private?: string;
     url_private_download?: string;
     permalink_public?: string;
@@ -142,7 +143,7 @@ export class SlackEventsService {
                 const resolutionsService = new ResolutionsTeamSlackService();
                 const slackUsers = await getSlackUsers();
                 const processedText = replaceSlackIdsWithMentions(event.text, slackUsers);
-                await resolutionsService.syncSlackReplyToSS(rc.id, event.user, processedText, event.ts);
+                await resolutionsService.syncSlackReplyToSS(rc.id, event.user, processedText, event.ts, event.files || []);
                 return;
             }
 
@@ -162,7 +163,8 @@ export class SlackEventsService {
                     slackMessageRecord.entityId,
                     event.user,
                     processedText,
-                    event.ts
+                    event.ts,
+                    event.files || []
                 );
                 return;
             }

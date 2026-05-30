@@ -7,7 +7,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { ReviewEntity } from "../entity/Review";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
-import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+import { ReviewDiscussionAttachment, ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { UsersEntity } from "../entity/Users";
 import { Employee } from "../entity/Employee";
 import { FileInfo } from "../entity/FileInfo";
@@ -42,6 +42,23 @@ interface ActivityPayload {
     rating?: number | null;
     reviewSentiment?: string | null;
     reviewSentimentReason?: string | null;
+}
+
+interface SlackThreadFileAttachment {
+    id?: string;
+    name?: string;
+    title?: string;
+    mimetype?: string;
+    filetype?: string;
+    size?: number;
+    url_private?: string;
+    url_private_download?: string;
+    permalink_public?: string;
+    permalink?: string;
+    thumb_1024?: string;
+    thumb_720?: string;
+    thumb_480?: string;
+    thumb_360?: string;
 }
 
 const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
@@ -96,14 +113,47 @@ export class ResolutionsTeamSlackService {
         return "U08END0JTBM";
     }
 
-    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
-        if (!fileInfo) return null;
+    private getPublicBaseUrl() {
         const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
-        const baseUrl = (
+        return (
             configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
                 ? configuredBaseUrl
                 : "https://securestay.ai"
         ).replace(/\/$/, "");
+    }
+
+    private buildSlackDiscussionAttachments(files?: SlackThreadFileAttachment[] | null): ReviewDiscussionAttachment[] {
+        return (files || [])
+            .map((file, index) => {
+                const rawUrl =
+                    file.url_private_download ||
+                    file.url_private ||
+                    file.permalink_public ||
+                    file.permalink ||
+                    "";
+                if (!rawUrl) return null;
+
+                const previewRawUrl =
+                    file.thumb_1024 ||
+                    file.thumb_720 ||
+                    file.thumb_480 ||
+                    file.thumb_360 ||
+                    rawUrl;
+                const fileName = file.name || `slack_file_${file.id || index + 1}`;
+                return {
+                    fileName,
+                    originalName: file.title || fileName,
+                    mimeType: file.mimetype || file.filetype || "",
+                    size: Number(file.size || 0),
+                    url: `${this.getPublicBaseUrl()}/issues/slack-file?url=${encodeURIComponent(previewRawUrl)}`,
+                };
+            })
+            .filter((attachment): attachment is ReviewDiscussionAttachment => Boolean(attachment));
+    }
+
+    private buildEmployeePhotoUrl(fileInfo?: FileInfo | null) {
+        if (!fileInfo) return null;
+        const baseUrl = this.getPublicBaseUrl();
 
         if (fileInfo.status === "uploaded" && fileInfo.driveFileId) {
             return `${baseUrl}/getdriveimage/${fileInfo.driveFileId}`;
@@ -951,7 +1001,8 @@ export class ResolutionsTeamSlackService {
         reviewCheckoutId: number,
         slackUserId: string,
         text: string,
-        slackMessageTs: string
+        slackMessageTs: string,
+        files: SlackThreadFileAttachment[] = []
     ): Promise<void> {
         try {
             const rc = await this.reviewCheckoutRepo.findOne({
@@ -989,6 +1040,8 @@ export class ResolutionsTeamSlackService {
                 );
             }
 
+            const discussionAttachments = this.buildSlackDiscussionAttachments(files);
+
             // Sync to review_discussion_messages — always attempted, with its own independent dedup
             let reservationId = rc.reservationInfo?.id ?? null;
             if (!reservationId) {
@@ -1025,13 +1078,27 @@ export class ResolutionsTeamSlackService {
                         authorAvatar: null,
                         content: text,
                         mentions: [],
-                        metadata: { source: "slack", slackMessageTs },
+                        metadata: {
+                            source: "slack",
+                            slackMessageTs,
+                            attachments: discussionAttachments,
+                        },
                     });
                     await this.reviewDiscussionMessageRepo.save(discussionMsg);
                     logger.info(
                         `[ResolutionsTeam] Synced Slack reply to review_discussion_messages for reservation ${reservationId}`
                     );
                 } else {
+                    const existingAttachments = Array.isArray(existingDiscussionMsg.metadata?.attachments)
+                        ? existingDiscussionMsg.metadata?.attachments
+                        : [];
+                    if (discussionAttachments.length && existingAttachments.length === 0) {
+                        existingDiscussionMsg.metadata = {
+                            ...(existingDiscussionMsg.metadata || {}),
+                            attachments: discussionAttachments,
+                        };
+                        await this.reviewDiscussionMessageRepo.save(existingDiscussionMsg);
+                    }
                     logger.debug(
                         `[ResolutionsTeam] Duplicate Slack reply for review_discussion_messages, skipping: ${slackMessageTs}`
                     );
@@ -1091,7 +1158,7 @@ export class ResolutionsTeamSlackService {
                 if (!msg.user) continue;                              // skip anonymous messages
 
                 const processedText = replaceSlackIdsWithMentions(msg.text || "", slackUsers);
-                await this.syncSlackReplyToSS(rc.id, msg.user, processedText, msg.ts);
+                await this.syncSlackReplyToSS(rc.id, msg.user, processedText, msg.ts, msg.files || []);
                 synced++;
             }
 
