@@ -64,6 +64,8 @@ router.route('/')
 
 router.route('/syncreviews').get(reviewController.syncReviews.bind(reviewController));
 
+router.route('/sentiment/generate').post(verifySession, reviewController.generateMissingPublicReviewSentiment.bind(reviewController));
+
 router.route('/reviewvisibility/:id').put(verifySession, validateUpdateReviewVisibilityStatusRequest, reviewController.updateReviewVisibility.bind(reviewController))
 
 router

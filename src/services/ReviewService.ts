@@ -33,6 +33,7 @@ import { EscalationSettings } from "../entity/EscalationSettings";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ExpenseEntity } from "../entity/Expense";
+import { CategoryEntity } from "../entity/Category";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 import { Employee } from "../entity/Employee";
@@ -90,6 +91,9 @@ interface Filter {
     isClaimOnly?: boolean | string | null | undefined;
     refundStatus?: string[] | null | undefined;
     rating?: number[] | null | undefined;
+    reviewSentiment?: string[] | null | undefined;
+    publicReview?: string[] | null | undefined;
+    accountingLogs?: string[] | null | undefined;
     reservationId?: string | number | null | undefined;
     confirmationCode?: string | null | undefined;
     totalPaidOperator?: string | null | undefined;
@@ -128,6 +132,26 @@ interface FilterBadReviews {
     status?: string[] | null | undefined;
     isActive?: boolean | null | undefined;
     tab?: string | null | undefined;
+}
+
+interface AccountingLogEntrySummary {
+    id: number;
+    category: string;
+    description: string | null;
+    findings: string | null;
+    status: string | null;
+    amount: number;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+}
+
+interface AccountingLogSummary {
+    count: number;
+    positiveCount: number;
+    negativeCount: number;
+    tone: "positive" | "mixed" | "negative" | "neutral";
+    netAmount: number;
+    entries: AccountingLogEntrySummary[];
 }
 
 interface DashboardFilters {
@@ -451,6 +475,7 @@ export class ReviewService {
     private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private categoryRepo = appDatabase.getRepository(CategoryEntity);
     private reservationHistoryService = new ReservationHistoryService();
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private openAIService: OpenAIService | null = null;
@@ -631,28 +656,78 @@ export class ReviewService {
         return latestByReservation;
     }
 
+    private parseAccountingCategoryIds(categories: string | null | undefined) {
+        const raw = String(categories || '').trim();
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+        } catch {
+            // Some historical expenses store categories as comma-separated ids instead of JSON.
+        }
+        return raw
+            .split(',')
+            .map((value) => Number(value.replace(/[\[\]"]/g, '').trim()))
+            .filter((value) => Number.isFinite(value));
+    }
+
+    private getAccountingCategoryLabel(categories: string | null | undefined, categoryMap: Map<number, string>) {
+        const labels = this.parseAccountingCategoryIds(categories)
+            .map((id) => categoryMap.get(id))
+            .filter(Boolean) as string[];
+        return labels.length ? labels.join(', ') : 'Uncategorized';
+    }
+
     private async getAccountingLogSummaries(reservationIds: number[]) {
         const normalizedReservationIds = Array.from(new Set(
             reservationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
         ));
-        if (!normalizedReservationIds.length) return new Map<number, { count: number; positiveCount: number; negativeCount: number; tone: "positive" | "mixed" | "negative" | "neutral" }>();
+        if (!normalizedReservationIds.length) return new Map<number, AccountingLogSummary>();
 
-        const rows = await this.expenseRepo
+        const expenses = await this.expenseRepo
             .createQueryBuilder("expense")
-            .select("expense.reservationId", "reservationId")
-            .addSelect("COUNT(*)", "count")
-            .addSelect("SUM(CASE WHEN expense.amount > 0 THEN 1 ELSE 0 END)", "positiveCount")
-            .addSelect("SUM(CASE WHEN expense.amount < 0 THEN 1 ELSE 0 END)", "negativeCount")
             .where("expense.reservationId IN (:...reservationIds)", { reservationIds: normalizedReservationIds.map(String) })
             .andWhere("expense.isDeleted = :isDeleted", { isDeleted: 0 })
-            .groupBy("expense.reservationId")
-            .getRawMany();
+            .orderBy("expense.createdAt", "DESC")
+            .addOrderBy("expense.updatedAt", "DESC")
+            .getMany();
 
-        return rows.reduce((map, row: any) => {
-            const reservationId = Number(row.reservationId);
-            const count = Number(row.count || 0);
-            const positiveCount = Number(row.positiveCount || 0);
-            const negativeCount = Number(row.negativeCount || 0);
+        const categories = await this.categoryRepo.find();
+        const categoryMap = new Map<number, string>();
+        categories.forEach((category) => {
+            categoryMap.set(Number(category.id), category.categoryName);
+            if (category.hostawayId != null) categoryMap.set(Number(category.hostawayId), category.categoryName);
+        });
+
+        return expenses.reduce((map, expense) => {
+            const reservationId = Number(expense.reservationId);
+            if (!reservationId) return map;
+            const existing = map.get(reservationId) || {
+                count: 0,
+                positiveCount: 0,
+                negativeCount: 0,
+                tone: "neutral" as const,
+                netAmount: 0,
+                entries: [],
+            };
+            const amount = Number(expense.amount || 0);
+            existing.count += 1;
+            existing.positiveCount += amount > 0 ? 1 : 0;
+            existing.negativeCount += amount < 0 ? 1 : 0;
+            existing.netAmount += amount;
+            existing.entries.push({
+                id: expense.id,
+                category: this.getAccountingCategoryLabel(expense.categories, categoryMap),
+                description: expense.concept || null,
+                findings: expense.findings || null,
+                status: expense.status || null,
+                amount,
+                createdAt: expense.createdAt || null,
+                updatedAt: expense.updatedAt || null,
+            });
+            const count = existing.count;
+            const positiveCount = existing.positiveCount;
+            const negativeCount = existing.negativeCount;
             const tone = count > 0 && positiveCount === count
                 ? "positive"
                 : count > 0 && negativeCount === count
@@ -660,9 +735,9 @@ export class ReviewService {
                     : count > 0 && positiveCount > 0 && negativeCount > 0
                         ? "mixed"
                         : "neutral";
-            map.set(reservationId, { count, positiveCount, negativeCount, tone });
+            map.set(reservationId, { ...existing, tone });
             return map;
-        }, new Map<number, { count: number; positiveCount: number; negativeCount: number; tone: "positive" | "mixed" | "negative" | "neutral" }>());
+        }, new Map<number, AccountingLogSummary>());
     }
 
     /**
@@ -676,6 +751,25 @@ export class ReviewService {
     private normalizeTagFilterValues(values?: string[] | string | null) {
         const arr = Array.isArray(values) ? values : (values ? [String(values)] : []);
         return arr.flatMap((value) => String(value || '').split(','));
+    }
+
+    private splitPresenceFilterValues(values?: string[] | string | null) {
+        const normalized = this.normalizeTagFilterValues(values)
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+        const exactValues = normalized.filter((value) => !['with-entry', 'no-entry'].includes(value.toLowerCase()));
+        return {
+            exactValues,
+            wantsWith: normalized.some((value) => value.toLowerCase() === 'with-entry'),
+            wantsNo: normalized.some((value) => value.toLowerCase() === 'no-entry'),
+        };
+    }
+
+    private reservationTagsPresenceCondition(alias: string, wantsWith: boolean) {
+        const tagSql = `TRIM(COALESCE(${alias}.tags, ''))`;
+        return wantsWith
+            ? `(${tagSql} != '' AND ${tagSql} NOT IN ('[]', '{}', 'null'))`
+            : `(${tagSql} = '' OR ${tagSql} IN ('[]', '{}', 'null'))`;
     }
 
     private normalizePropertyTypeFilters(values?: string[] | string | null) {
@@ -1142,6 +1236,7 @@ export class ReviewService {
         owner,
         assignee,
         latestUpdate,
+        sentiment,
         claimResolutionStatus,
         status,
         isClaimOnly,
@@ -1149,6 +1244,11 @@ export class ReviewService {
         propertyType,
         serviceType,
         tags,
+        refundStatus,
+        reviewSentiment,
+        publicReview,
+        resolutionNotes,
+        accountingLogs,
         dateType,
         channel,
         integration,
@@ -1160,7 +1260,14 @@ export class ReviewService {
             let listingIds: number[] | null = null;
             const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
             const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
-            const normalizedTags = this.normalizeReservationTagFilters(tags as string[] | null | undefined);
+            const tagPresence = this.splitPresenceFilterValues(tags as string[] | null | undefined);
+            const normalizedTags = this.normalizeReservationTagFilters(tagPresence.exactValues);
+            const sentimentPresence = this.splitPresenceFilterValues(sentiment as string[] | null | undefined);
+            const reviewSentimentPresence = this.splitPresenceFilterValues(reviewSentiment as string[] | null | undefined);
+            const publicReviewPresence = this.splitPresenceFilterValues(publicReview as string[] | null | undefined);
+            const refundPresence = this.splitPresenceFilterValues(refundStatus as string[] | null | undefined);
+            const resolutionNotesPresence = this.splitPresenceFilterValues(resolutionNotes as string[] | null | undefined);
+            const accountingPresence = this.splitPresenceFilterValues(accountingLogs as string[] | null | undefined);
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
                 : String(status || '').trim()
@@ -1255,9 +1362,136 @@ export class ReviewService {
                 }
             }
 
+            if (sentimentPresence.exactValues.length > 0 || sentimentPresence.wantsWith !== sentimentPresence.wantsNo) {
+                const sentimentQb = this.guestAnalysisRepo
+                    .createQueryBuilder('analysis')
+                    .select('DISTINCT analysis.reservationId', 'reservationId')
+                    .where('analysis.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = analysis.reservationId)');
+                if (sentimentPresence.exactValues.length > 0) {
+                    sentimentQb.andWhere('analysis.sentiment IN (:...sentiment)', { sentiment: sentimentPresence.exactValues });
+                }
+                if (sentimentPresence.wantsWith !== sentimentPresence.wantsNo) {
+                    sentimentQb.andWhere("(analysis.sentiment IS NOT NULL AND TRIM(analysis.sentiment) != '')");
+                }
+                const sentimentRows = await sentimentQb.getRawMany();
+                const sentimentReservationIds = sentimentRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                if (sentimentPresence.wantsNo && !sentimentPresence.wantsWith && !sentimentPresence.exactValues.length) {
+                    if (filteredReservationIds !== null) {
+                        filteredReservationIds = filteredReservationIds.filter((id) => !sentimentReservationIds.includes(id));
+                    } else if (sentimentReservationIds.length > 0) {
+                        condition.reservationId = Not(In(sentimentReservationIds));
+                    }
+                } else {
+                    filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, sentimentReservationIds);
+                }
+            }
+
+            if (reviewSentimentPresence.exactValues.length > 0 || reviewSentimentPresence.wantsWith !== reviewSentimentPresence.wantsNo) {
+                const reviewSentimentQb = this.reviewRepository
+                    .createQueryBuilder('review')
+                    .select('DISTINCT review.reservationId', 'reservationId');
+                const clauses: string[] = [];
+                const params: Record<string, any> = {};
+                if (reviewSentimentPresence.exactValues.length > 0) {
+                    clauses.push('review.publicReviewSentiment IN (:...reviewSentiment)');
+                    params.reviewSentiment = reviewSentimentPresence.exactValues;
+                }
+                if (reviewSentimentPresence.wantsWith !== reviewSentimentPresence.wantsNo) {
+                    clauses.push("(review.publicReviewSentiment IS NOT NULL AND TRIM(review.publicReviewSentiment) != '')");
+                }
+                reviewSentimentQb.where(clauses.join(' AND '), params);
+                const reviewSentimentRows = await reviewSentimentQb.getRawMany();
+                const reviewSentimentReservationIds = reviewSentimentRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                if (reviewSentimentPresence.wantsNo && !reviewSentimentPresence.wantsWith && !reviewSentimentPresence.exactValues.length) {
+                    if (filteredReservationIds !== null) {
+                        filteredReservationIds = filteredReservationIds.filter((id) => !reviewSentimentReservationIds.includes(id));
+                    } else if (reviewSentimentReservationIds.length > 0) {
+                        condition.reservationId = Not(In(reviewSentimentReservationIds));
+                    }
+                } else {
+                    filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, reviewSentimentReservationIds);
+                }
+            }
+
+            if (publicReviewPresence.wantsWith !== publicReviewPresence.wantsNo) {
+                const publicReviewRows = await this.reviewRepository
+                    .createQueryBuilder('review')
+                    .select('DISTINCT review.reservationId', 'reservationId')
+                    .where(publicReviewPresence.wantsWith
+                        ? "(review.publicReview IS NOT NULL AND TRIM(review.publicReview) != '')"
+                        : "(review.publicReview IS NULL OR TRIM(review.publicReview) = '')")
+                    .getRawMany();
+                const publicReviewReservationIds = publicReviewRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, publicReviewReservationIds);
+            }
+
+            if (refundPresence.exactValues.length > 0 || refundPresence.wantsWith !== refundPresence.wantsNo) {
+                const refundQb = this.refundRequestRepo
+                    .createQueryBuilder('refund')
+                    .select('DISTINCT refund.reservationId', 'reservationId')
+                    .where('refund.deletedAt IS NULL');
+                if (refundPresence.exactValues.length > 0) {
+                    refundQb.andWhere('LOWER(refund.status) IN (:...refundStatuses)', {
+                        refundStatuses: refundPresence.exactValues.map((status) => status.toLowerCase()),
+                    });
+                }
+                const refundRows = await refundQb.getRawMany();
+                const refundReservationIds = refundRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                if (refundPresence.wantsNo && !refundPresence.wantsWith) {
+                    if (filteredReservationIds !== null) {
+                        filteredReservationIds = filteredReservationIds.filter((id) => !refundReservationIds.includes(id));
+                    } else if (refundReservationIds.length > 0) {
+                        condition.reservationId = Not(In(refundReservationIds));
+                    }
+                } else {
+                    filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, refundReservationIds);
+                }
+            }
+
+            if (resolutionNotesPresence.wantsWith !== resolutionNotesPresence.wantsNo) {
+                const resolutionRows = await this.reviewCheckoutRepo
+                    .createQueryBuilder('reviewCheckout')
+                    .leftJoin('reviewCheckout.reservationInfo', 'reservationInfo')
+                    .select('DISTINCT reservationInfo.id', 'reservationId')
+                    .where(resolutionNotesPresence.wantsWith
+                        ? "(reviewCheckout.comments IS NOT NULL AND TRIM(reviewCheckout.comments) != '')"
+                        : "(reviewCheckout.comments IS NULL OR TRIM(reviewCheckout.comments) = '')")
+                    .getRawMany();
+                const resolutionReservationIds = resolutionRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, resolutionReservationIds);
+            }
+
+            if (accountingPresence.wantsWith !== accountingPresence.wantsNo) {
+                const accountingRows = await this.expenseRepo
+                    .createQueryBuilder('expense')
+                    .select('DISTINCT expense.reservationId', 'reservationId')
+                    .where('expense.isDeleted = :isDeleted', { isDeleted: 0 })
+                    .getRawMany();
+                const accountingReservationIds = accountingRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
+                if (accountingPresence.wantsNo && !accountingPresence.wantsWith) {
+                    if (filteredReservationIds !== null) {
+                        filteredReservationIds = filteredReservationIds.filter((id) => !accountingReservationIds.includes(id));
+                    } else if (accountingReservationIds.length > 0) {
+                        condition.reservationId = Not(In(accountingReservationIds));
+                    }
+                } else {
+                    filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, accountingReservationIds);
+                }
+            }
+
             if (normalizedTags.length > 0) {
                 const tagReservationIds = await this.getReservationIdsByTags(normalizedTags);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, tagReservationIds);
+            }
+
+            if (tagPresence.wantsWith !== tagPresence.wantsNo) {
+                const tagRows = await this.reservationInfoRepo
+                    .createQueryBuilder('reservation')
+                    .select('reservation.id', 'id')
+                    .where(this.reservationTagsPresenceCondition('reservation', tagPresence.wantsWith))
+                    .getRawMany();
+                const tagPresenceReservationIds = tagRows.map((row: any) => Number(row.id)).filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, tagPresenceReservationIds);
             }
 
             if (filteredReservationIds !== null) {
@@ -1505,6 +1739,8 @@ export class ReviewService {
                     accountingLogPositiveCount: accountingSummary?.positiveCount || 0,
                     accountingLogNegativeCount: accountingSummary?.negativeCount || 0,
                     accountingLogTone: accountingSummary?.tone || "neutral",
+                    accountingLogNetAmount: accountingSummary?.netAmount || 0,
+                    accountingLogEntries: accountingSummary?.entries || [],
                     reservationStatus: reservationInfo?.status || null,
                     isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
                     cancelledAt: lateCancellationInfo?.cancelledAt || null,
@@ -1693,9 +1929,8 @@ export class ReviewService {
         return this.openAIService;
     }
 
-    private async ensureReviewSentiment(review: ReviewEntity) {
+    private async ensurePublicReviewSentiment(review: ReviewEntity) {
         const publicReviewText = String(review.publicReview || "").trim();
-        const privateReviewText = String(review.privateReview || "").trim();
 
         if (publicReviewText && !review.publicReviewSentiment) {
             try {
@@ -1706,6 +1941,14 @@ export class ReviewService {
                 logger.error(`[ReviewService] Failed to analyze public review sentiment for review ${review.id}:`, error);
             }
         }
+
+        return review;
+    }
+
+    private async ensureReviewSentiment(review: ReviewEntity) {
+        await this.ensurePublicReviewSentiment(review);
+
+        const privateReviewText = String(review.privateReview || "").trim();
 
         if (privateReviewText && !review.reviewSentiment) {
             try {
@@ -1718,6 +1961,57 @@ export class ReviewService {
         }
 
         return review;
+    }
+
+    async generateMissingPublicReviewSentiment(options: { reviewIds?: Array<string | number>; reservationIds?: Array<string | number>; limit?: number } = {}) {
+        const reviewIds = Array.from(new Set((options.reviewIds || []).map((id) => String(id).trim()).filter(Boolean)));
+        const reservationIds = Array.from(new Set((options.reservationIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
+        const limit = Math.min(Math.max(Number(options.limit || 250), 1), 500);
+
+        const qb = this.reviewRepository
+            .createQueryBuilder("review")
+            .where("review.publicReview IS NOT NULL")
+            .andWhere("TRIM(review.publicReview) <> ''")
+            .andWhere("(review.publicReviewSentiment IS NULL OR TRIM(review.publicReviewSentiment) = '')")
+            .orderBy("review.submittedAt", "DESC")
+            .addOrderBy("review.createdAt", "DESC")
+            .take(limit);
+
+        if (reviewIds.length) {
+            qb.andWhere("review.id IN (:...reviewIds)", { reviewIds });
+        }
+        if (reservationIds.length) {
+            qb.andWhere("review.reservationId IN (:...reservationIds)", { reservationIds });
+        }
+
+        const reviews = await qb.getMany();
+        const updatedReviews: ReviewEntity[] = [];
+        const failed: Array<{ id: string | number; reason: string }> = [];
+
+        for (const review of reviews) {
+            try {
+                await this.ensurePublicReviewSentiment(review);
+                if (review.publicReviewSentiment) {
+                    await this.reviewRepository.save(review);
+                    updatedReviews.push(review);
+                }
+            } catch (error: any) {
+                failed.push({ id: review.id, reason: error?.message || "Unable to generate sentiment" });
+            }
+        }
+
+        return {
+            requested: reviewIds.length || reservationIds.length || limit,
+            matched: reviews.length,
+            updated: updatedReviews.length,
+            failed,
+            reviews: updatedReviews.map((review) => ({
+                id: review.id,
+                reservationId: review.reservationId,
+                publicReviewSentiment: review.publicReviewSentiment,
+                publicReviewSentimentReason: review.publicReviewSentimentReason,
+            })),
+        };
     }
 
 
@@ -2052,7 +2346,8 @@ export class ReviewService {
     }
 
     private async createReview(obj: any) {
-        const newReview = this.reviewRepository.create(obj);
+        const newReview = this.reviewRepository.create(obj) as unknown as ReviewEntity;
+        await this.ensurePublicReviewSentiment(newReview);
         return await this.reviewRepository.save(newReview);
     }
 
@@ -2137,6 +2432,9 @@ export class ReviewService {
             isClaimOnly,
             refundStatus: rawRefundStatus,
             rating: rawRating,
+            reviewSentiment: rawReviewSentiment,
+            publicReview: rawPublicReview,
+            accountingLogs: rawAccountingLogs,
             currentlyStaying,
             reservationId,
             confirmationCode,
@@ -2177,6 +2475,9 @@ export class ReviewService {
         const owner = toArr(rawOwner);
         const refundStatus = toArr(rawRefundStatus);
         const rating = toArr(rawRating);
+        const reviewSentiment = toArr(rawReviewSentiment);
+        const publicReview = toArr(rawPublicReview);
+        const accountingLogs = toArr(rawAccountingLogs);
         const resolutionNotes = toArr(rawResolutionNotes);
         const issuesEntry = toArr(rawIssuesEntry);
         const issueCategory = toArr(rawIssueCategory);
@@ -2192,7 +2493,13 @@ export class ReviewService {
 
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
-        const normalizedTags = this.normalizeReservationTagFilters(tags as string[] | null | undefined);
+        const tagPresence = this.splitPresenceFilterValues(tags as string[] | null | undefined);
+        const normalizedTags = this.normalizeReservationTagFilters(tagPresence.exactValues);
+        const sentimentPresence = this.splitPresenceFilterValues(sentiment as string[] | null | undefined);
+        const reviewSentimentPresence = this.splitPresenceFilterValues(reviewSentiment as string[] | null | undefined);
+        const publicReviewPresence = this.splitPresenceFilterValues(publicReview as string[] | null | undefined);
+        const refundPresence = this.splitPresenceFilterValues(refundStatus as string[] | null | undefined);
+        const accountingPresence = this.splitPresenceFilterValues(accountingLogs as string[] | null | undefined);
 
         //fetch reviewCheckoutList
         const query = this.reviewCheckoutRepo
@@ -2284,6 +2591,9 @@ export class ReviewService {
         }
 
         this.applyReservationTagsFilter(query, 'reservationInfo', normalizedTags, 'checkoutTag');
+        if (tagPresence.wantsWith !== tagPresence.wantsNo) {
+            query.andWhere(this.reservationTagsPresenceCondition('reservationInfo', tagPresence.wantsWith));
+        }
 
         // Guest name filter
         if (guestName) {
@@ -2410,6 +2720,23 @@ export class ReviewService {
             );
         }
 
+        if (publicReviewPresence.wantsWith !== publicReviewPresence.wantsNo) {
+            const publicReviewPresenceRows = await this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId')
+                .where("(review.publicReview IS NOT NULL AND TRIM(review.publicReview) != '')")
+                .getRawMany();
+            const publicReviewPresenceIds = publicReviewPresenceRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            if (publicReviewPresence.wantsNo) {
+                query.andWhere(publicReviewPresenceIds.length > 0 ? 'reservationInfo.id NOT IN (:...publicReviewPresenceIds)' : '1 = 1', publicReviewPresenceIds.length > 0 ? { publicReviewPresenceIds } : {});
+            } else {
+                query.andWhere(
+                    publicReviewPresenceIds.length > 0 ? 'reservationInfo.id IN (:...publicReviewPresenceIds)' : '1 = 0',
+                    publicReviewPresenceIds.length > 0 ? { publicReviewPresenceIds } : {}
+                );
+            }
+        }
+
         if (publicReviewSearch) {
             const publicReviewRows = await this.reviewRepository
                 .createQueryBuilder('review')
@@ -2515,18 +2842,53 @@ export class ReviewService {
         // Sentiment filter — subquery from guest_analysis (latest analysis per reservation only)
         // A reservation can have multiple analyses (different bookingPhase or re-analyses). We must
         // match only the most recent one so the filter agrees with what the table displays.
-        if (sentiment && (sentiment as string[]).length > 0) {
-            const sentimentRows = await this.guestAnalysisRepo
+        if (sentimentPresence.exactValues.length > 0 || sentimentPresence.wantsWith !== sentimentPresence.wantsNo) {
+            const sentimentQb = this.guestAnalysisRepo
                 .createQueryBuilder('a')
                 .select('DISTINCT a.reservationId', 'reservationId')
-                .where('a.sentiment IN (:...sentiment)', { sentiment })
-                .andWhere('a.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = a.reservationId)')
-                .getRawMany();
+                .where('a.analyzedAt = (SELECT MAX(a2.analyzedAt) FROM guest_analysis a2 WHERE a2.reservationId = a.reservationId)');
+            if (sentimentPresence.exactValues.length > 0) {
+                sentimentQb.andWhere('a.sentiment IN (:...sentiment)', { sentiment: sentimentPresence.exactValues });
+            }
+            if (sentimentPresence.wantsWith !== sentimentPresence.wantsNo) {
+                sentimentQb.andWhere("(a.sentiment IS NOT NULL AND TRIM(a.sentiment) != '')");
+            }
+            const sentimentRows = await sentimentQb.getRawMany();
             const sentimentIds = sentimentRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
-            query.andWhere(
-                sentimentIds.length > 0 ? 'reservationInfo.id IN (:...sentimentIds)' : '1 = 0',
-                sentimentIds.length > 0 ? { sentimentIds } : {}
-            );
+            if (sentimentPresence.wantsNo && !sentimentPresence.wantsWith && !sentimentPresence.exactValues.length) {
+                query.andWhere(sentimentIds.length > 0 ? 'reservationInfo.id NOT IN (:...sentimentIds)' : '1 = 1', sentimentIds.length > 0 ? { sentimentIds } : {});
+            } else {
+                query.andWhere(
+                    sentimentIds.length > 0 ? 'reservationInfo.id IN (:...sentimentIds)' : '1 = 0',
+                    sentimentIds.length > 0 ? { sentimentIds } : {}
+                );
+            }
+        }
+
+        if (reviewSentimentPresence.exactValues.length > 0 || reviewSentimentPresence.wantsWith !== reviewSentimentPresence.wantsNo) {
+            const reviewSentimentQb = this.reviewRepository
+                .createQueryBuilder('review')
+                .select('DISTINCT review.reservationId', 'reservationId');
+            const clauses: string[] = [];
+            const params: Record<string, any> = {};
+            if (reviewSentimentPresence.exactValues.length > 0) {
+                clauses.push('review.publicReviewSentiment IN (:...reviewSentiment)');
+                params.reviewSentiment = reviewSentimentPresence.exactValues;
+            }
+            if (reviewSentimentPresence.wantsWith !== reviewSentimentPresence.wantsNo) {
+                clauses.push("(review.publicReviewSentiment IS NOT NULL AND TRIM(review.publicReviewSentiment) != '')");
+            }
+            reviewSentimentQb.where(clauses.join(' AND '), params);
+            const reviewSentimentRows = await reviewSentimentQb.getRawMany();
+            const reviewSentimentIds = reviewSentimentRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            if (reviewSentimentPresence.wantsNo && !reviewSentimentPresence.wantsWith && !reviewSentimentPresence.exactValues.length) {
+                query.andWhere(reviewSentimentIds.length > 0 ? 'reservationInfo.id NOT IN (:...reviewSentimentIds)' : '1 = 1', reviewSentimentIds.length > 0 ? { reviewSentimentIds } : {});
+            } else {
+                query.andWhere(
+                    reviewSentimentIds.length > 0 ? 'reservationInfo.id IN (:...reviewSentimentIds)' : '1 = 0',
+                    reviewSentimentIds.length > 0 ? { reviewSentimentIds } : {}
+                );
+            }
         }
 
         // Visibility filter
@@ -2693,19 +3055,47 @@ export class ReviewService {
         }
 
         // Refund status filter — subquery from refund_request_info table
-        if (refundStatus && (refundStatus as string[]).length > 0) {
-            const refundRows = await this.refundRequestRepo
+        if (refundPresence.exactValues.length > 0 || refundPresence.wantsWith !== refundPresence.wantsNo) {
+            const refundQb = this.refundRequestRepo
                 .createQueryBuilder('refund')
                 .select('DISTINCT refund.reservationId', 'reservationId')
-                .where('LOWER(refund.status) IN (:...refundStatuses)', {
-                    refundStatuses: (refundStatus as string[]).map((s: string) => s.toLowerCase()),
-                })
-                .getRawMany();
+                .where('refund.deletedAt IS NULL');
+            if (refundPresence.exactValues.length > 0) {
+                refundQb.andWhere('LOWER(refund.status) IN (:...refundStatuses)', {
+                    refundStatuses: refundPresence.exactValues.map((s: string) => s.toLowerCase()),
+                });
+            }
+            const refundRows = await refundQb.getRawMany();
             const refundIds = refundRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
-            query.andWhere(
-                refundIds.length > 0 ? 'reservationInfo.id IN (:...refundIds)' : '1 = 0',
-                refundIds.length > 0 ? { refundIds } : {}
-            );
+            if (refundPresence.wantsNo && !refundPresence.wantsWith) {
+                if (refundIds.length > 0) {
+                    query.andWhere('reservationInfo.id NOT IN (:...refundIds)', { refundIds });
+                }
+            } else {
+                query.andWhere(
+                    refundIds.length > 0 ? 'reservationInfo.id IN (:...refundIds)' : '1 = 0',
+                    refundIds.length > 0 ? { refundIds } : {}
+                );
+            }
+        }
+
+        if (accountingPresence.wantsWith !== accountingPresence.wantsNo) {
+            const accountingRows = await this.expenseRepo
+                .createQueryBuilder('expense')
+                .select('DISTINCT expense.reservationId', 'reservationId')
+                .where('expense.isDeleted = :isDeleted', { isDeleted: 0 })
+                .getRawMany();
+            const accountingIds = accountingRows.map((r: any) => Number(r.reservationId)).filter(Boolean);
+            if (accountingPresence.wantsNo && !accountingPresence.wantsWith) {
+                if (accountingIds.length > 0) {
+                    query.andWhere('reservationInfo.id NOT IN (:...accountingIds)', { accountingIds });
+                }
+            } else {
+                query.andWhere(
+                    accountingIds.length > 0 ? 'reservationInfo.id IN (:...accountingIds)' : '1 = 0',
+                    accountingIds.length > 0 ? { accountingIds } : {}
+                );
+            }
         }
 
         // Claim only filter — only show reservations that have a refund/claim request
@@ -2897,6 +3287,8 @@ export class ReviewService {
                     accountingLogPositiveCount: accountingSummary?.positiveCount || 0,
                     accountingLogNegativeCount: accountingSummary?.negativeCount || 0,
                     accountingLogTone: accountingSummary?.tone || "neutral",
+                    accountingLogNetAmount: accountingSummary?.netAmount || 0,
+                    accountingLogEntries: accountingSummary?.entries || [],
                     checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.checkOutTime ?? null,
                     timeZoneName: listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.timeZoneName ?? 'America/New_York',
                     reservationStatus: rc.reservationInfo?.status || null,
@@ -3009,7 +3401,7 @@ export class ReviewService {
                     case 'rating':
                         return review?.rating;
                     case 'reviewSentiment':
-                        return review?.reviewSentiment;
+                        return review?.publicReviewSentiment;
                     case 'sentiment':
                         return analysis?.sentiment;
                     case 'refundAmount':
@@ -3899,9 +4291,9 @@ export class ReviewService {
             this.applyDashboardReviewFilters(
                 this.reviewRepository
                 .createQueryBuilder('r')
-                .select("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored')", 'sentiment')
+                .select("COALESCE(NULLIF(TRIM(r.publicReviewSentiment), ''), 'Unscored')", 'sentiment')
                 .addSelect('COUNT(*)', 'count')
-                .groupBy("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored')")
+                .groupBy("COALESCE(NULLIF(TRIM(r.publicReviewSentiment), ''), 'Unscored')")
                 .orderBy('count', 'DESC'),
                 filters,
                 listingIds
@@ -4226,7 +4618,7 @@ export class ReviewService {
                     title = `${value} Reviews`;
                     break;
                 case 'review_sentiment':
-                    reviewQuery.andWhere("COALESCE(NULLIF(TRIM(r.reviewSentiment), ''), 'Unscored') = :sentiment", { sentiment: value });
+                    reviewQuery.andWhere("COALESCE(NULLIF(TRIM(r.publicReviewSentiment), ''), 'Unscored') = :sentiment", { sentiment: value });
                     title = `${value} Review Sentiment`;
                     break;
                 default:

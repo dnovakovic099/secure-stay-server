@@ -36,6 +36,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
         paymentMethod: Joi.string().required().allow(null, "")
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         paymentDetails: Joi.string().optional().allow(null, ""),
+        slackNotes: Joi.string().optional().allow(null, ""),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null, ""),
@@ -101,6 +102,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         paymentMethod: Joi.string().required().allow(null, "")
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         paymentDetails: Joi.string().optional().allow(null, ""),
+        slackNotes: Joi.string().optional().allow(null, ""),
         datePaid: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
         }).required().allow(null, ""),
