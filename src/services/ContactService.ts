@@ -9,6 +9,7 @@ import { ListingDetail } from "../entity/ListingDetails";
 import { ContactRole } from "../entity/ContactRole";
 import { ContactUpdates } from "../entity/ContactUpdates";
 import { ListingSchedule } from "../entity/ListingSchedule";
+import { VendorAssignment } from "../entity/VendorAssignment";
 
 interface FilterQuery {
     page: number;
@@ -51,6 +52,7 @@ export class ContactService {
     private contactRoleRepo = appDatabase.getRepository(ContactRole);
     private contactUpdatesRepo = appDatabase.getRepository(ContactUpdates);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
 
     private getRoleAliases(role: Partial<ContactRole>) {
         return Array.from(new Set([
@@ -379,7 +381,7 @@ export class ContactService {
         return await this.contactRoleRepo.save(contactRole);
     }
 
-    async updateContactRole(body: Partial<ContactRole>, userId: string) {
+    async updateContactRole(body: Partial<ContactRole> & { updateVendorAssignments?: boolean }, userId: string) {
         const existingRole = await this.contactRoleRepo.findOneBy({ id: body.id });
         if (!existingRole) {
             throw CustomErrorHandler.notFound(`Contact Role with ID ${body.id} not found.`);
@@ -399,6 +401,12 @@ export class ContactService {
                 { role: In(previousAliases) },
                 { role: nextRoleName, updatedBy: userId }
             );
+            if (body.updateVendorAssignments !== false) {
+                await this.vendorAssignmentRepo.update(
+                    { role: In(previousAliases) },
+                    { role: nextRoleName, updatedBy: userId }
+                );
+            }
         }
 
         return savedRole;
@@ -415,8 +423,22 @@ export class ContactService {
             workCategory: options?.workCategory || contactRole.workCategory
         });
 
+        if (roleAliases.length > 0 && !options?.replacementRole) {
+            const [contactCount, vendorAssignmentCount] = await Promise.all([
+                this.contactRepo.count({ where: { role: In(roleAliases) } }),
+                this.vendorAssignmentRepo.count({ where: { role: In(roleAliases) } })
+            ]);
+            if (contactCount + vendorAssignmentCount > 0) {
+                throw CustomErrorHandler.validationError("Choose a replacement role before deleting a role that is used by existing vendors.");
+            }
+        }
+
         if (options?.replacementRole && roleAliases.length > 0) {
             await this.contactRepo.update(
+                { role: In(roleAliases) },
+                { role: options.replacementRole, updatedBy: userId }
+            );
+            await this.vendorAssignmentRepo.update(
                 { role: In(roleAliases) },
                 { role: options.replacementRole, updatedBy: userId }
             );
@@ -434,9 +456,14 @@ export class ContactService {
             const contactCount = aliases.length
                 ? await this.contactRepo.count({ where: { role: In(aliases) } })
                 : 0;
+            const vendorAssignmentCount = aliases.length
+                ? await this.vendorAssignmentRepo.count({ where: { role: In(aliases) } })
+                : 0;
             return {
                 ...role,
-                contactCount
+                contactCount,
+                vendorAssignmentCount,
+                usageCount: contactCount + vendorAssignmentCount
             };
         }));
     }
