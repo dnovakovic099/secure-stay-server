@@ -261,7 +261,9 @@ const buildIssueSlackHeader = (issue: Issue) => {
     return `${getIssueListingEmoji(issue)} ${listingName} | ${guestNameText} | ${channelName} | ${stayDates}`;
 };
 
-const buildIssueStatusDropdown = (issue: Issue) => ({
+const buildIssueStatusDropdown = (issue: Issue, statusField: "ir" | "gr", label: string) => {
+    const currentStatus = statusField === "gr" ? ((issue as any).gr_status || "New") : (issue.status || "New");
+    return {
     type: "actions",
     elements: [
         {
@@ -269,18 +271,19 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
             action_id: slackInteractivityEventNames.UPDATE_ISSUE_STATUS,
             placeholder: {
                 type: "plain_text",
-                text: "Update Status",
+                text: `Update ${label}`,
                 emoji: true
             },
             initial_option: {
                 text: {
                     type: "plain_text",
-                    text: getIssueStatusLabelWithEmoji(issue.status || "New"),
+                    text: getIssueStatusLabelWithEmoji(currentStatus),
                     emoji: true
                 },
                 value: JSON.stringify({
                     id: issue.id,
-                    status: issue.status || "New"
+                    status: currentStatus,
+                    statusField
                 })
             },
             options: ISSUE_STATUS_OPTIONS.map((status) => ({
@@ -291,12 +294,14 @@ const buildIssueStatusDropdown = (issue: Issue) => ({
                 },
                 value: JSON.stringify({
                     id: issue.id,
-                    status
+                    status,
+                    statusField
                 })
             }))
         }
     ]
-});
+    };
+};
 
 export const formatSecureStayMarkdownForSlack = (value?: unknown) => {
     return String(value || "")
@@ -699,7 +704,8 @@ export const buildIssueSlackMessage = (issue: Issue, updatedBy?: string) => {
                     text: `*${headerText}* *<https://securestay.ai/issues?id=${issue.id}|View Issue>*`
                 }
             },
-            buildIssueStatusDropdown(issue),
+            buildIssueStatusDropdown(issue, "ir", "IR Status"),
+            buildIssueStatusDropdown(issue, "gr", "GR Status"),
             {
                 type: "section",
                 text: { type: "mrkdwn", text: `*Issue Category:* ${issueCategoryEmoji(issue.category)} ${issue.category || '-'}` }
@@ -1152,7 +1158,7 @@ export const buildIssuesSlackMessageUpdate = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Status:* ${capitalizeFirstLetter(issue.status)}`
+                    text: `*IR Status:* ${capitalizeFirstLetter(issue.status)}\n*GR Status:* ${capitalizeFirstLetter((issue as any).gr_status || "New")}`
                 },
             },
             {
@@ -1175,16 +1181,17 @@ export const buildIssuesSlackMessageUpdate = (
 };
 
 
-export const buildIssueStatusUpdateMessage = (issue: Issue, user: string) => {
+export const buildIssueStatusUpdateMessage = (issue: Issue, user: string, statusLabel = "IR Status") => {
+    const statusValue = statusLabel === "GR Status" ? ((issue as any).gr_status || "New") : (issue.status || "New");
     const slackMessage = {
         channel: ISSUE_NOTIFICATION_CHANNEL,
-        text: `${user} updated the status to ${issueStatusEmoji(issue.status)}${issue.status.toUpperCase()}`,
+        text: `${user} updated the ${statusLabel} to ${issueStatusEmoji(statusValue)}${statusValue.toUpperCase()}`,
         blocks: [
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${issueStatusEmoji(issue.status)}${issue.status.toUpperCase()} by ${user} `
+                    text: `*${statusLabel}:* ${issueStatusEmoji(statusValue)}${statusValue.toUpperCase()} by ${user} `
                 }
             },
         ]

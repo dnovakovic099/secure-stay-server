@@ -251,7 +251,8 @@ export const validateUpdateContactRole = (request: Request, response: Response, 
     const schema = Joi.object({
         id: Joi.number().integer().required(),
         workCategory: Joi.string().required(),
-        role: Joi.string().required()
+        role: Joi.string().required(),
+        updateVendorAssignments: Joi.boolean().optional()
     });
 
     const { error } = schema.validate(request.body);

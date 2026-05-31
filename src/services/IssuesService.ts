@@ -1017,12 +1017,14 @@ export class IssuesService {
       throw new Error("Issue not found");
     }
 
-    if (issue.status !== "Completed" && data.status === "Completed") {
-      data.completed_at = new Date();
-      data.completed_by = userId;
-    } else {
-      data.completed_at = null;
-      data.completed_by = null;
+    if (Object.prototype.hasOwnProperty.call(data, "status")) {
+      if (issue.status !== "Completed" && data.status === "Completed") {
+        data.completed_at = new Date();
+        data.completed_by = userId;
+      } else if (data.status !== "Completed") {
+        data.completed_at = null;
+        data.completed_by = null;
+      }
     }
 
     if (data.mistake && data.mistake === "Resolved") {
@@ -1122,6 +1124,8 @@ export class IssuesService {
         listingIds.length > 0 && { listing_id: In(listingIds) }),
       ...(filters.status &&
         filters.status.length > 0 && { status: In(filters.status) }),
+      ...(filters.grStatus &&
+        filters.grStatus.length > 0 && { gr_status: In(filters.grStatus) }),
       ...(filters.fromDate &&
         filters.toDate && {
           created_at: Between(
@@ -1154,7 +1158,8 @@ export class IssuesService {
     // Format all fields for export
     const formattedData = issues.map((issue) => ({
       ID: issue.id,
-      Status: issue.status,
+      "IR Status": issue.status,
+      "GR Status": issue.gr_status,
       Category: issue.category,
       "Listing ID": issue.listing_id,
       "Listing Name": issue.listing_name,
@@ -1522,6 +1527,7 @@ export class IssuesService {
       fromDate,
       toDate,
       status,
+      grStatus,
       guestName,
       page,
       limit,
@@ -1572,6 +1578,7 @@ export class IssuesService {
     }
 
     const issueStatus = status;
+    const grIssueStatus = grStatus;
     const currentDate = format(new Date(), "yyyy-MM-dd");
 
     // dateType=created/updated/completed/due filters on the Issue table directly.
@@ -1728,6 +1735,8 @@ export class IssuesService {
           listingIds.length > 0 && { listing_id: In(listingIds) }),
         ...(issueStatus &&
           issueStatus.length > 0 && { status: In(issueStatus) }),
+        ...(grIssueStatus &&
+          grIssueStatus.length > 0 && { gr_status: In(grIssueStatus) }),
         ...(dateColumn && dateColumnFilter && { [dateColumn]: dateColumnFilter }),
         ...(guestName && { guest_name: guestName }),
         ...(effectiveIssueIds &&
@@ -2535,6 +2544,9 @@ export class IssuesService {
             issue.completed_by = null;
           }
         }
+        if (updateData.gr_status !== undefined) {
+          issue.gr_status = updateData.gr_status;
+        }
         if (updateData.category !== undefined) {
           issue.category = updateData.category;
         }
@@ -2722,12 +2734,16 @@ export class IssuesService {
     return await this.issueRepo.save(issue);
   }
 
-  async updateStatus(id: number, status: string, userId: string) {
+  async updateStatus(id: number, status: string, userId: string, statusField: "ir" | "gr" = "ir") {
     const issue = await this.issueRepo.findOne({ where: { id } });
     if (!issue) {
       throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
     }
-    issue.status = status;
+    if (statusField === "gr") {
+      issue.gr_status = status;
+    } else {
+      issue.status = status;
+    }
     issue.updated_by = userId;
     return await this.issueRepo.save(issue);
   }

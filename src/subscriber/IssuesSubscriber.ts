@@ -103,7 +103,9 @@ export class IssuesSubscriber
 
         let eventType = "update";
         if ((entity.status != databaseEntity.status)) {
-            eventType = "statusUpdate";
+            eventType = "irStatusUpdate";
+        } else if ((entity.gr_status != databaseEntity.gr_status)) {
+            eventType = "grStatusUpdate";
         } else if (entity.deleted_at) {
             eventType = "delete";
         }
@@ -127,8 +129,11 @@ export class IssuesSubscriber
             if (eventType == "delete") {
                 slackMessage = buildIssueMessageDelete(issueForSlack, user);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
-            } else if (eventType == "statusUpdate") {
-                slackMessage = buildIssueStatusUpdateMessage(issueForSlack, user);
+            } else if (eventType == "irStatusUpdate") {
+                slackMessage = buildIssueStatusUpdateMessage(issueForSlack, user, "IR Status");
+                await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
+            } else if (eventType == "grStatusUpdate") {
+                slackMessage = buildIssueStatusUpdateMessage(issueForSlack, user, "GR Status");
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             }
 
