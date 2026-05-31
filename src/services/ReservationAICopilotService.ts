@@ -1,11 +1,21 @@
 import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
+import { In, IsNull, Like } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { GuestAnalysisService, type GuestAnalysisDetailContext, type GuestAnalysisRecord, type SentimentType } from "./GuestAnalysisService";
 import { GuestCommunicationService } from "./GuestCommunicationService";
 import { ReservationAICopilotEvidenceItem, ReservationAICopilotMessageEntity, ReservationAICopilotThreadEntity } from "../entity/ReservationAICopilot";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ReviewCheckoutUpdates } from "../entity/ReviewCheckoutUpdates";
+import { ReviewEntity } from "../entity/Review";
+import { ReviewDetailEntity } from "../entity/ReviewDetail";
+import { Issue } from "../entity/Issue";
+import { RefundRequestEntity } from "../entity/RefundRequest";
+import { ExpenseEntity } from "../entity/Expense";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 interface CopilotAnswerPayload {
     answer: string;
@@ -43,6 +53,15 @@ interface ReservationCopilotThreadResponse {
 export class ReservationAICopilotService {
     private threadRepo = appDatabase.getRepository(ReservationAICopilotThreadEntity);
     private messageRepo = appDatabase.getRepository(ReservationAICopilotMessageEntity);
+    private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private reviewCheckoutUpdateRepo = appDatabase.getRepository(ReviewCheckoutUpdates);
+    private reviewRepo = appDatabase.getRepository(ReviewEntity);
+    private reviewDetailRepo = appDatabase.getRepository(ReviewDetailEntity);
+    private issueRepo = appDatabase.getRepository(Issue);
+    private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private discussionRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
+    private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private analysisService = new GuestAnalysisService();
     private communicationService = new GuestCommunicationService();
     private openai: OpenAI;
@@ -199,18 +218,194 @@ export class ReservationAICopilotService {
             throw new Error("No AI analysis detail found for this reservation");
         }
 
+        const reviewDetailContext = await this.buildReviewDetailContext(reservationId);
+
         return {
             reservationId,
             detail,
             communications,
+            reviewDetailContext,
             propertyPatternCount: detail.propertyContext.records.length,
             categoryLabels: detail.categoryContext.map((item) => item.label),
             departmentLabels: detail.departmentContext.map((item) => item.label),
-            promptContext: this.buildPromptContext(detail, communications),
+            promptContext: this.buildPromptContext(detail, communications, reviewDetailContext),
         };
     }
 
-    private buildPromptContext(detail: GuestAnalysisDetailContext, communications: GuestCommunicationEntity[]) {
+    private async buildReviewDetailContext(reservationId: number) {
+        const [reservation, reviewCheckout, review, discussionMessages, issues, refundRequests] = await Promise.all([
+            this.reservationRepo.findOne({ where: { id: reservationId } }),
+            this.reviewCheckoutRepo.findOne({ where: { reservationInfo: { id: reservationId } } as any }),
+            this.reviewRepo.findOne({ where: { reservationId } as any }),
+            this.discussionRepo.find({
+                where: { reservationId },
+                order: { createdAt: "DESC" },
+                take: 10,
+            }),
+            this.issueRepo.find({
+                where: [
+                    { reservation_id: String(reservationId) },
+                    { linked_reservations: Like(`%${reservationId}%`) },
+                ] as any,
+                order: { updated_at: "DESC" },
+                take: 8,
+            }),
+            this.refundRequestRepo.find({
+                where: { reservationId, deletedAt: IsNull() } as any,
+                order: { updatedAt: "DESC" },
+                take: 6,
+            }),
+        ]);
+
+        const [reviewCheckoutUpdates, reviewDetail, directExpenses] = await Promise.all([
+            reviewCheckout?.id
+                ? this.reviewCheckoutUpdateRepo.find({
+                    where: { reviewCheckout: { id: reviewCheckout.id } } as any,
+                    order: { createdAt: "DESC" },
+                    take: 8,
+                })
+                : Promise.resolve([]),
+            review?.id
+                ? this.reviewDetailRepo.findOne({
+                    where: { reviewId: review.id },
+                    relations: ["removalAttempts"],
+                })
+                : Promise.resolve(null),
+            this.expenseRepo.find({
+                where: { reservationId: String(reservationId), isDeleted: 0 } as any,
+                order: { updatedAt: "DESC" },
+                take: 8,
+            }),
+        ]);
+
+        const refundExpenseIds = refundRequests
+            .map((request) => Number(request.expenseId))
+            .filter((value) => Number.isFinite(value) && value > 0);
+        const refundExpenses = refundExpenseIds.length
+            ? await this.expenseRepo.find({
+                where: { id: In(refundExpenseIds), isDeleted: 0 } as any,
+                order: { updatedAt: "DESC" },
+                take: 8,
+            })
+            : [];
+        const expensesById = new Map<number, ExpenseEntity>();
+        [...directExpenses, ...refundExpenses].forEach((expense) => {
+            expensesById.set(Number(expense.id), expense);
+        });
+
+        return {
+            mitigation: {
+                reviewCheckoutId: reviewCheckout?.id || null,
+                status: reviewCheckout?.status || null,
+                assignee: reviewCheckout?.assignee || null,
+                visibility: reviewCheckout?.visibility || review?.visibility || null,
+                resolutionNotes: this.truncate(reviewCheckout?.comments || "", 900),
+                isActive: reviewCheckout?.isActive ?? null,
+                adjustedCheckoutDate: reviewCheckout?.adjustedCheckoutDate || null,
+                sevenDaysAfterCheckout: reviewCheckout?.sevenDaysAfterCheckout || null,
+                fourteenDaysAfterCheckout: reviewCheckout?.fourteenDaysAfterCheckout || null,
+                slackThreadTs: reviewCheckout?.slackThreadTs || null,
+                slackChannelId: reviewCheckout?.slackChannelId || null,
+                updatedAt: reviewCheckout?.updatedAt instanceof Date ? reviewCheckout.updatedAt.toISOString() : null,
+                updates: reviewCheckoutUpdates.map((update) => ({
+                    content: this.truncate(update.updates || "", 420),
+                    source: update.source || null,
+                    createdBy: update.createdBy || null,
+                    createdAt: update.createdAt instanceof Date ? update.createdAt.toISOString() : null,
+                })),
+            },
+            reservationOperationalState: {
+                reservationStatus: reservation?.status || null,
+                paymentStatus: reservation?.paymentStatus || null,
+                reservationTags: this.splitTags(reservation?.tags),
+                hostNote: this.truncate(reservation?.hostNote || "", 500),
+                ownerRevenue: reservation?.owner_revenue ?? null,
+                totalPaid: reservation?.airbnbTotalPaidAmount ?? null,
+                daysLeft: this.calculateDaysLeft(reservation?.departureDate),
+            },
+            review: review ? {
+                reviewId: review.id,
+                rating: review.rating ?? null,
+                visibility: review.visibility || null,
+                publicReview: this.truncate(review.publicReview || "", 700),
+                publicReviewSentiment: review.publicReviewSentiment || null,
+                publicReviewSentimentReason: this.truncate(review.publicReviewSentimentReason || "", 500),
+                privateReview: this.truncate(review.privateReview || "", 700),
+                privateReviewSentiment: review.reviewSentiment || null,
+                privateReviewSentimentReason: this.truncate(review.reviewSentimentReason || "", 500),
+                submittedAt: review.submittedAt || null,
+                isHidden: review.isHidden ?? null,
+            } : null,
+            reviewDetail: reviewDetail ? {
+                guestPhone: reviewDetail.guestPhone || null,
+                guestEmail: reviewDetail.guestEmail || null,
+                bookingAmount: reviewDetail.bookingAmount ?? null,
+                claimResolutionStatus: reviewDetail.claimResolutionStatus || null,
+                resolutionAmount: reviewDetail.resolutionAmount ?? null,
+                resolutionDateRequested: reviewDetail.resolutionDateRequested || null,
+                expenseId: reviewDetail.expenseId || null,
+                removalAttempts: (reviewDetail.removalAttempts || []).slice(0, 6).map((attempt) => ({
+                    dateAttempted: attempt.dateAttempted || null,
+                    result: attempt.result || null,
+                    details: this.truncate(attempt.details || "", 420),
+                    resolutionAmount: attempt.resolutionAmount ?? null,
+                    refundRequestId: attempt.refundRequestId || null,
+                })),
+            } : null,
+            linkedIssues: issues.map((issue) => ({
+                id: issue.id,
+                status: issue.status || null,
+                category: issue.category || null,
+                assignee: issue.assignee || null,
+                urgency: issue.urgency ?? null,
+                description: this.truncate(issue.issue_description || "", 500),
+                ownerNotes: this.truncate(issue.owner_notes || "", 420),
+                nextSteps: this.truncate(issue.next_steps || "", 420),
+                resolution: this.truncate(issue.resolution || "", 420),
+                aiResolutionStatus: issue.ai_resolution_status || null,
+                aiGuestSentiment: issue.ai_guest_sentiment || null,
+                updatedAt: issue.updated_at instanceof Date ? issue.updated_at.toISOString() : null,
+            })),
+            refundRequests: refundRequests.map((request) => ({
+                id: request.id,
+                status: request.status || null,
+                amount: request.refundAmount ?? null,
+                chargeToClient: Boolean(request.chargeToClient),
+                paymentMethod: request.paymentMethod || null,
+                paymentDetails: this.truncate(request.paymentDetails || "", 280),
+                explanation: this.truncate(request.explaination || "", 700),
+                notes: this.truncate(request.notes || "", 500),
+                requestedBy: request.requestedBy || null,
+                expenseId: request.expenseId || null,
+                updatedAt: request.updatedAt instanceof Date ? request.updatedAt.toISOString() : null,
+            })),
+            expenseLogs: Array.from(expensesById.values()).map((expense) => ({
+                id: expense.id,
+                status: expense.status || null,
+                concept: this.truncate(expense.concept || "", 500),
+                amount: expense.amount ?? null,
+                categories: this.splitTags(expense.categories),
+                paymentMethod: expense.paymentMethod || null,
+                paymentDetails: this.truncate(expense.paymentDetails || "", 280),
+                comesFrom: expense.comesFrom || null,
+                refundLinked: refundRequests.some((request) => Number(request.expenseId) === Number(expense.id)),
+                updatedAt: expense.updatedAt instanceof Date ? expense.updatedAt.toISOString() : null,
+            })),
+            discussion: discussionMessages.map((message) => ({
+                sourceType: message.sourceType,
+                authorName: message.authorName,
+                content: this.truncate(message.content || "", 520),
+                createdAt: message.createdAt instanceof Date ? message.createdAt.toISOString() : null,
+                metadata: message.metadata ? {
+                    eventType: message.metadata.eventType || null,
+                    type: message.metadata.type || null,
+                    source: message.metadata.source || null,
+                } : null,
+            })),
+        };
+    }
+
+    private buildPromptContext(detail: GuestAnalysisDetailContext, communications: GuestCommunicationEntity[], reviewDetailContext: Record<string, any>) {
         const topCommunications = [...communications]
             .sort((left, right) => new Date(right.communicatedAt).getTime() - new Date(left.communicatedAt).getTime())
             .slice(0, 16)
@@ -270,6 +465,7 @@ export class ReservationAICopilotService {
                 count: item.count,
                 records: item.records.slice(0, 5).map((record) => this.summarizeRelatedRecord(record)),
             })),
+            reviewDetailContext,
             recentCommunications: topCommunications,
         };
     }
@@ -309,6 +505,7 @@ export class ReservationAICopilotService {
             "Keep the answer continuous and easy to read; do not write as a list of disconnected snippets.",
             "Return valid JSON only with keys: answer, insufficientEvidence, evidence.",
             "The evidence array must contain concise evidence objects with: type, label, detail, reservationId, timestamp, phase, category, department, polarity.",
+            "Use evidence types that best match the source: reservation_summary, operational_flag, communication, phase_summary, property_pattern, category_pattern, department_pattern, review_detail, linked_issue, refund_request, expense_log, discussion_update.",
             "Limit evidence to the most relevant 6 items.",
         ].join(" ");
 
@@ -370,6 +567,11 @@ export class ReservationAICopilotService {
             "property_pattern",
             "category_pattern",
             "department_pattern",
+            "review_detail",
+            "linked_issue",
+            "refund_request",
+            "expense_log",
+            "discussion_update",
         ];
         return allowed.includes(String(value) as ReservationAICopilotEvidenceItem["type"])
             ? (String(value) as ReservationAICopilotEvidenceItem["type"])
@@ -436,6 +638,23 @@ export class ReservationAICopilotService {
         const normalized = String(value || "").trim();
         if (normalized.length <= maxLength) return normalized;
         return `${normalized.slice(0, maxLength - 1)}…`;
+    }
+
+    private splitTags(value?: string | null) {
+        return String(value || "")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    private calculateDaysLeft(departureDate?: string | Date | null) {
+        if (!departureDate) return null;
+        const target = new Date(departureDate);
+        if (Number.isNaN(target.getTime())) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        target.setHours(0, 0, 0, 0);
+        return Math.ceil((target.getTime() - today.getTime()) / 86400000);
     }
 
     private async ensureSchema() {

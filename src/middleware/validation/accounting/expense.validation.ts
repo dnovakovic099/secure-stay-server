@@ -209,6 +209,11 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         keyword: Joi.string().optional(),
         expenseId: Joi.array().items(Joi.number()).optional(),
         issueId: Joi.array().items(Joi.number()).optional(),
+        reservationId: Joi.alternatives().try(
+            Joi.number(),
+            Joi.string(),
+            Joi.array().items(Joi.alternatives().try(Joi.number(), Joi.string()))
+        ).optional(),
         isRecurring: Joi.number().valid(0, 1).optional(),
         excludeCategories: Joi.string().valid('true', 'false').optional(),
         excludeContractorName: Joi.string().valid('true', 'false').optional(),

@@ -32,6 +32,7 @@ import { Issue } from "../entity/Issue";
 import { EscalationSettings } from "../entity/EscalationSettings";
 import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { RefundRequestEntity } from "../entity/RefundRequest";
+import { ExpenseEntity } from "../entity/Expense";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReservationHistoryService, ReservationHistoryDiff } from "./ReservationHistoryService";
 import { Employee } from "../entity/Employee";
@@ -449,6 +450,7 @@ export class ReviewService {
     private issueRepo = appDatabase.getRepository(Issue);
     private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private reservationHistoryService = new ReservationHistoryService();
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private openAIService: OpenAIService | null = null;
@@ -627,6 +629,40 @@ export class ReviewService {
             latestByReservation.set(reservationId, refund);
         });
         return latestByReservation;
+    }
+
+    private async getAccountingLogSummaries(reservationIds: number[]) {
+        const normalizedReservationIds = Array.from(new Set(
+            reservationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+        ));
+        if (!normalizedReservationIds.length) return new Map<number, { count: number; positiveCount: number; negativeCount: number; tone: "positive" | "mixed" | "negative" | "neutral" }>();
+
+        const rows = await this.expenseRepo
+            .createQueryBuilder("expense")
+            .select("expense.reservationId", "reservationId")
+            .addSelect("COUNT(*)", "count")
+            .addSelect("SUM(CASE WHEN expense.amount > 0 THEN 1 ELSE 0 END)", "positiveCount")
+            .addSelect("SUM(CASE WHEN expense.amount < 0 THEN 1 ELSE 0 END)", "negativeCount")
+            .where("expense.reservationId IN (:...reservationIds)", { reservationIds: normalizedReservationIds.map(String) })
+            .andWhere("expense.isDeleted = :isDeleted", { isDeleted: 0 })
+            .groupBy("expense.reservationId")
+            .getRawMany();
+
+        return rows.reduce((map, row: any) => {
+            const reservationId = Number(row.reservationId);
+            const count = Number(row.count || 0);
+            const positiveCount = Number(row.positiveCount || 0);
+            const negativeCount = Number(row.negativeCount || 0);
+            const tone = count > 0 && positiveCount === count
+                ? "positive"
+                : count > 0 && negativeCount === count
+                    ? "negative"
+                    : count > 0 && positiveCount > 0 && negativeCount > 0
+                        ? "mixed"
+                        : "neutral";
+            map.set(reservationId, { count, positiveCount, negativeCount, tone });
+            return map;
+        }, new Map<number, { count: number; positiveCount: number; negativeCount: number; tone: "positive" | "mixed" | "negative" | "neutral" }>());
     }
 
     /**
@@ -1372,7 +1408,7 @@ export class ReviewService {
             );
 
             const reservationIds = reviews.map((review) => Number(review.reservationId)).filter(Boolean);
-            const [issues, guestAnalyses, latestNotesByReservation, latestRefundsByReservation] = await Promise.all([
+            const [issues, guestAnalyses, latestNotesByReservation, latestRefundsByReservation, accountingSummariesByReservation] = await Promise.all([
                 reservationIds.length > 0
                     ? this.issueRepo.find({ where: { reservation_id: In(reservationIds) } })
                     : Promise.resolve([]),
@@ -1381,6 +1417,7 @@ export class ReviewService {
                     : Promise.resolve([]),
                 this.getLatestReservationNotes(reservationIds),
                 this.getLatestRefundRequests(reservationIds),
+                this.getAccountingLogSummaries(reservationIds),
             ]);
             const reviewCheckouts = reservationIds.length > 0
                 ? await this.reviewCheckoutRepo.find({
@@ -1422,6 +1459,7 @@ export class ReviewService {
                     latestNotesByReservation.get(Number(review.reservationId)) || null
                 );
                 const latestRefund = latestRefundsByReservation.get(Number(review.reservationId)) || null;
+                const accountingSummary = accountingSummariesByReservation.get(Number(review.reservationId)) || null;
                 const slackThreadPermalink = this.buildSlackThreadPermalink(reviewCheckout?.slackChannelId || null, reviewCheckout?.slackThreadTs || null);
                 const ownerRevenue = reservationInfo?.owner_revenue ?? null;
                 const refundAmount = latestRefund?.refundAmount ?? null;
@@ -1463,6 +1501,10 @@ export class ReviewService {
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
+                    accountingLogCount: accountingSummary?.count || 0,
+                    accountingLogPositiveCount: accountingSummary?.positiveCount || 0,
+                    accountingLogNegativeCount: accountingSummary?.negativeCount || 0,
+                    accountingLogTone: accountingSummary?.tone || "neutral",
                     reservationStatus: reservationInfo?.status || null,
                     isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
                     cancelledAt: lateCancellationInfo?.cancelledAt || null,
@@ -2721,7 +2763,7 @@ export class ReviewService {
         const actionItemServices = new ActionItemsService();
 
         // Run all secondary queries in parallel for better performance
-        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses, latestNotesByReservation, latestRefundsByReservation] = await Promise.all([
+        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses, latestNotesByReservation, latestRefundsByReservation, accountingSummariesByReservation] = await Promise.all([
             // Fetch reviews
             this.reviewRepository.find({
                 where: {
@@ -2749,6 +2791,7 @@ export class ReviewService {
             }),
             this.getLatestReservationNotes(reservationIds),
             this.getLatestRefundRequests(reservationIds),
+            this.getAccountingLogSummaries(reservationIds),
         ]);
 
         const userMap = new Map(users.map(user => [
@@ -2816,6 +2859,7 @@ export class ReviewService {
                 latestNotesByReservation.get(reservationId) || null
             );
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
+            const accountingSummary = accountingSummariesByReservation.get(reservationId) || null;
             const slackThreadPermalink = this.buildSlackThreadPermalink(rc.slackChannelId || null, rc.slackThreadTs || null);
             const ownerRevenue = rc.reservationInfo?.owner_revenue ?? null;
             const refundAmount = latestRefund?.refundAmount ?? null;
@@ -2849,6 +2893,10 @@ export class ReviewService {
                     refundStatus: latestRefund?.status ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
+                    accountingLogCount: accountingSummary?.count || 0,
+                    accountingLogPositiveCount: accountingSummary?.positiveCount || 0,
+                    accountingLogNegativeCount: accountingSummary?.negativeCount || 0,
+                    accountingLogTone: accountingSummary?.tone || "neutral",
                     checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.checkOutTime ?? null,
                     timeZoneName: listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.timeZoneName ?? 'America/New_York',
                     reservationStatus: rc.reservationInfo?.status || null,

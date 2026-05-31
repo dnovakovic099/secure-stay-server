@@ -10,7 +10,12 @@ export interface ReservationAICopilotEvidenceItem {
         | "phase_summary"
         | "property_pattern"
         | "category_pattern"
-        | "department_pattern";
+        | "department_pattern"
+        | "review_detail"
+        | "linked_issue"
+        | "refund_request"
+        | "expense_log"
+        | "discussion_update";
     label: string;
     detail: string;
     reservationId?: number | null;
