@@ -761,11 +761,11 @@ export class IssuesController {
 
   async updateStatus(request: any, response: Response, next: NextFunction) {
     try {
-      const { id, status } = request.body;
+      const { id, status, statusField } = request.body;
       const userId = request.user.id;
 
       const issuesService = new IssuesService();
-      const result = await issuesService.updateStatus(id, status, userId);
+      const result = await issuesService.updateStatus(id, status, userId, statusField);
 
       return response.status(200).json({
         status: true,

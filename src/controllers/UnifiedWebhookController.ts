@@ -257,7 +257,8 @@ export class UnifiedWebhookController {
                         await issuesService.updateStatus(
                             Number(requestObj.id),
                             requestObj.status,
-                            user
+                            user,
+                            requestObj.statusField === "gr" ? "gr" : "ir"
                         );
                     } catch (error) {
                         logger.error(`Error updating issue status: ${error}`);

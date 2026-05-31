@@ -16,6 +16,16 @@ export class Issue {
     status: string;
 
     @Index()
+    @Column({
+        type: "enum",
+        enum: ["New", "In Progress", "Overdue", "Completed", "Need Help", "Scheduled"],
+        default: "New",
+        nullable: true,
+        name: "gr_status"
+    })
+    gr_status: string;
+
+    @Index()
     @Column()
     listing_id: string;
 
