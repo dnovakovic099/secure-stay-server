@@ -66,6 +66,9 @@ export class ExpenseEntity {
     @Column({ type: 'text', nullable: true })
     paymentDetails: string;
 
+    @Column({ type: 'text', nullable: true })
+    slackNotes: string;
+
     @Column({ nullable: true })
     issues: string;
 

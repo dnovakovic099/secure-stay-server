@@ -1478,6 +1478,11 @@ const expenseStatusEmoji = (status: ExpenseStatus): string => {
     }
 };
 
+const formatExpenseSlackAmount = (amount: number): string => {
+    const amountPrefix = amount < 0 ? "-" : "";
+    return `${amountPrefix}${formatCurrency(Math.abs(amount))}`;
+};
+
 // Expense Slack Message Builders
 export const buildExpenseSlackMessage = (
     expense: ExpenseEntity,
@@ -1505,7 +1510,7 @@ export const buildExpenseSlackMessage = (
             {
                 type: "section",
                 fields: [
-                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
+                    { type: "mrkdwn", text: `*Amount:* ${formatExpenseSlackAmount(expense.amount)}` },
                     { type: "mrkdwn", text: `*Status:* ${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}` }
                 ]
             },
@@ -1534,6 +1539,13 @@ export const buildExpenseSlackMessage = (
                 text: {
                     type: "mrkdwn",
                     text: `*Payment Details:*\n${expense.paymentDetails}`
+                }
+            }] : []),
+            ...(expense.slackNotes ? [{
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Slack Notes:*\n${expense.slackNotes}`
                 }
             }] : []),
             {
@@ -1639,7 +1651,7 @@ export const buildExpenseSlackMessageDelete = (
             {
                 type: "section",
                 fields: [
-                    { type: "mrkdwn", text: `*Amount:* ${formatCurrency(Math.abs(expense.amount))}` },
+                    { type: "mrkdwn", text: `*Amount:* ${formatExpenseSlackAmount(expense.amount)}` },
                     { type: "mrkdwn", text: `*Description:* ${expense.concept || 'No description provided'}` },
                     { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
                     { type: "mrkdwn", text: `*Deleted By:* ${deletedBy}` }
@@ -2555,6 +2567,12 @@ export interface ResolutionsActivityData {
 export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) => {
     const { type, actor, actorIconUrl, details, oldValue, newValue, anjSlackId, notificationMentions = [], rating, reviewSentiment, reviewSentimentReason } = data;
     const actorLabel = actor || 'SecureStay';
+    const getReviewSentimentPrefix = (value?: string | null) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === 'negative') return '🔴 ';
+        if (normalized === 'neutral' || normalized === 'mixed') return '⭕️ ';
+        return '';
+    };
 
     let text = '';
     let blocks: any[] = [];
@@ -2574,12 +2592,9 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const reviewText = String(details || '').trim() || 'No review text provided.';
             const sentimentLabel = String(reviewSentiment || '').trim();
             const sentimentLine = sentimentLabel
-                ? `${sentimentLabel}${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                ? `${getReviewSentimentPrefix(sentimentLabel)}${sentimentLabel}${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
                 : '';
-            const assessmentLine = safeRating < 5 && notificationMentions.length
-                ? `For assessment if we’re keeping ${notificationMentions.join(' ')}`
-                : '';
-            text = `${stars}\n_${reviewText}_${sentimentLine ? `\n${sentimentLine}` : ''}${assessmentLine ? `\n${assessmentLine}` : ''}`;
+            text = `${stars}\n_${reviewText}_${sentimentLine ? `\n${sentimentLine}` : ''}`;
             break;
         }
         case 'reservation_cancelled':
@@ -2707,19 +2722,13 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             const reviewText = String(details || '').trim() || 'No review text provided.';
             const sentimentLabel = String(reviewSentiment || '').trim();
             const sentimentLine = sentimentLabel
-                ? `*${sentimentLabel}*${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
+                ? `${getReviewSentimentPrefix(sentimentLabel)}*${sentimentLabel}*${sentimentLabel.toLowerCase() !== 'positive' && notificationMentions.length ? ` ${notificationMentions.join(' ')}` : ''}`
                 : '';
             const sentimentHelpText = String(reviewSentimentReason || '').trim();
-            const assessmentLine = safeRating < 5 && notificationMentions.length
-                ? `For assessment if we’re keeping ${notificationMentions.join(' ')}`
-                : '';
             blocks = [
                 { type: 'section', text: { type: 'mrkdwn', text: `${stars}\n_${reviewText}_` } },
                 ...(sentimentLine
                     ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: sentimentHelpText ? `${sentimentLine} — ${sentimentHelpText}` : sentimentLine }] }]
-                    : []),
-                ...(assessmentLine
-                    ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: assessmentLine }] }]
                     : []),
             ];
         } else {

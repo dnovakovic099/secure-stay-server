@@ -24,7 +24,7 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, assignee, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, tags, dateType, channel, integration, sortField, sortDir, currentlyStaying, latestUpdate } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, assignee, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, tags, dateType, channel, integration, sortField, sortDir, currentlyStaying, latestUpdate, sentiment, refundStatus, reviewSentiment, publicReview, resolutionNotes, accountingLogs } = request.query;
 
             const { reviewList, totalCount } = await reviewService.getReviews({
                 fromDate,
@@ -36,6 +36,7 @@ export class ReviewController {
                 owner: this.normalizeArrayParam(owner),
                 assignee: this.normalizeArrayParam(assignee),
                 latestUpdate: this.normalizeArrayParam(latestUpdate),
+                sentiment: this.normalizeArrayParam(sentiment),
                 claimResolutionStatus,
                 status: this.normalizeArrayParam(status),
                 isClaimOnly,
@@ -43,6 +44,11 @@ export class ReviewController {
                 propertyType: this.normalizeArrayParam(propertyType),
                 serviceType: this.normalizeArrayParam(serviceType),
                 tags: this.normalizeArrayParam(tags),
+                refundStatus: this.normalizeArrayParam(refundStatus),
+                reviewSentiment: this.normalizeArrayParam(reviewSentiment),
+                publicReview: this.normalizeArrayParam(publicReview),
+                resolutionNotes: this.normalizeArrayParam(resolutionNotes),
+                accountingLogs: this.normalizeArrayParam(accountingLogs),
                 dateType,
                 channel: this.normalizeArrayParam(channel),
                 integration: this.normalizeArrayParam(integration),
@@ -71,6 +77,25 @@ export class ReviewController {
             });
         } catch (error) {
             logger.error("Error syncing reviews:", error);
+            return next(error);
+        }
+    }
+
+    async generateMissingPublicReviewSentiment(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const result = await reviewService.generateMissingPublicReviewSentiment({
+                reviewIds: this.normalizeArrayParam(request.body?.reviewIds),
+                reservationIds: this.normalizeArrayParam(request.body?.reservationIds),
+                limit: Number(request.body?.limit || 250),
+            });
+
+            return response.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            logger.error("Error generating public review sentiment:", error);
             return next(error);
         }
     }

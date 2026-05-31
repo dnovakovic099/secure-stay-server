@@ -48,6 +48,7 @@ export class ExpenseSubscriber
         status: "Status",
         paymentMethod: "Payment Method",
         paymentDetails: "Payment Details",
+        slackNotes: "Slack Notes",
         datePaid: "Date Paid",
         issues: "Issues",
         isRecurring: "Recurring",
@@ -71,18 +72,22 @@ export class ExpenseSubscriber
         "resolutionId"
     ]);
 
-    private async resolvePaymentDetailsMentions(expense: ExpenseEntity) {
-        if (!expense.paymentDetails) return expense;
+    private async resolveSlackMentions(expense: ExpenseEntity) {
+        if (!expense.paymentDetails && !expense.slackNotes) return expense;
         const slackUsers = await getSlackUsers();
         const userByHandle = new Map(
             slackUsers.map((user: any) => [String(user.name || '').toLowerCase(), user.id])
         );
-        const paymentDetails = expense.paymentDetails.replace(/@([A-Za-z0-9._-]+)/g, (match, handle) => {
+        const replaceMentions = (value?: string | null) => value?.replace(/@([A-Za-z0-9._-]+)/g, (match, handle) => {
             const slackId = userByHandle.get(String(handle || '').toLowerCase());
             return slackId ? `<@${slackId}>` : match;
-        });
+        }) || value;
 
-        return { ...expense, paymentDetails };
+        return {
+            ...expense,
+            paymentDetails: replaceMentions(expense.paymentDetails),
+            slackNotes: replaceMentions(expense.slackNotes),
+        };
     }
 
     async afterInsert(event: InsertEvent<ExpenseEntity>) {
@@ -99,7 +104,7 @@ export class ExpenseSubscriber
             const categoryNames = await this.getCategoryNames(expense.categories);
 
             const slackMessageService = new SlackMessageService();
-            const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
+            const expenseForSlack = await this.resolveSlackMentions(expense);
             const slackMessage = buildExpenseSlackMessage(expenseForSlack as ExpenseEntity, user, listingInfo?.internalListingName, undefined, categoryNames);
             const slackResponse = await sendSlackMessage(slackMessage);
 
@@ -161,7 +166,11 @@ export class ExpenseSubscriber
 
     private async formatChangeValue(field: string, value: any) {
         if (value === null || value === undefined || value === "") return "-";
-        if (field === "amount") return `$${Math.abs(Number(value)).toFixed(2)}`;
+        if (field === "amount") {
+            const amount = Number(value);
+            const amountPrefix = amount < 0 ? "-" : "";
+            return `${amountPrefix}$${Math.abs(amount).toFixed(2)}`;
+        }
         if (field === "categories") return await this.getCategoryNames(String(value));
         if (field === "listingMapId") {
             const listingInfo = await this.listingRepo.findOne({ where: { id: Number(value) } });
@@ -194,7 +203,7 @@ export class ExpenseSubscriber
             const listingInfo = await this.listingRepo.findOne({ where: { id: expense.listingMapId } });
             const categoryNames = await this.getCategoryNames(expense.categories);
 
-            const expenseForSlack = await this.resolvePaymentDetailsMentions(expense);
+            const expenseForSlack = await this.resolveSlackMentions(expense);
             const changeRows = await this.buildChangeRows(diff);
             let slackMessage: any = buildExpenseSlackMessageUpdate(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames, changeRows);
             const slackMessageInfo = await this.slackMessageInfo.findOne({

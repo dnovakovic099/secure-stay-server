@@ -59,6 +59,7 @@ interface ExpenseBulkUpdateObject {
     status: ExpenseStatus;
     paymentMethod: string;
     paymentDetails?: string;
+    slackNotes?: string;
     categories: string;
     concept: string;
     listingMapId: number;
@@ -248,6 +249,7 @@ export class ExpenseService {
             status,
             paymentMethod,
             paymentDetails,
+            slackNotes,
             datePaid,
             issues,
             isRecurring,
@@ -276,6 +278,7 @@ export class ExpenseService {
         newExpense.status = status;
         newExpense.paymentMethod = paymentMethod;
         newExpense.paymentDetails = paymentDetails || null;
+        newExpense.slackNotes = slackNotes || null;
         newExpense.createdBy = userId;
         newExpense.datePaid = datePaid ? datePaid : "";
         newExpense.issues = issues ? issues : null;
@@ -586,6 +589,7 @@ export class ExpenseService {
                     findings: expense.findings,
                     paymentMethod: expense.paymentMethod,
                     paymentDetails: expense.paymentDetails,
+                    slackNotes: expense.slackNotes,
                     slackThreadPermalink: this.buildSlackPermalink(slackMessageMap.get(expense.id)),
                     createdAt: this.formatAccountingTimestamp(expense.createdAt),
                     updatedAt: this.formatAccountingTimestamp(expense.updatedAt),
@@ -791,9 +795,10 @@ export class ExpenseService {
             contractorNumber,
             findings,
             status,
-            paymentMethod,
-            paymentDetails,
-            datePaid,
+           paymentMethod,
+           paymentDetails,
+            slackNotes,
+           datePaid,
             issues,
             isRecurring,
             llCover,
@@ -824,6 +829,7 @@ export class ExpenseService {
         expense.status = status;
         expense.paymentMethod = paymentMethod;
         expense.paymentDetails = paymentDetails || null;
+        expense.slackNotes = slackNotes || null;
         expense.updatedBy = userId;
         expense.updatedAt = new Date();
         expense.datePaid = datePaid ? datePaid : "";
@@ -872,6 +878,7 @@ export class ExpenseService {
                 "status",
                 "paymentMethod",
                 "paymentDetails",
+                "slackNotes",
                 "datePaid",
                 "issues",
                 "isRecurring",
@@ -1286,6 +1293,7 @@ export class ExpenseService {
             status,
             paymentMethod,
             paymentDetails,
+            slackNotes,
             categories,
             concept,
             listingMapId,
@@ -1318,6 +1326,7 @@ export class ExpenseService {
             if (status) expense.status = status;
             if (paymentMethod) expense.paymentMethod = paymentMethod;
             if (paymentDetails !== undefined && paymentDetails !== null) expense.paymentDetails = paymentDetails;
+            if (slackNotes !== undefined && slackNotes !== null) expense.slackNotes = slackNotes;
             if (categories) expense.categories = categories;
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
@@ -1346,6 +1355,7 @@ export class ExpenseService {
                     "status",
                     "paymentMethod",
                     "paymentDetails",
+                    "slackNotes",
                     "categories",
                     "concept",
                     "listingMapId",
