@@ -362,6 +362,7 @@ export class ExpenseService {
             keyword,
             expenseId,
             issueId,
+            reservationId,
             isRecurring,
             type,
             excludeCategories,
@@ -379,6 +380,11 @@ export class ExpenseService {
             : [];
         const issueIds = issueId
             ? (Array.isArray(issueId) ? issueId.map(Number) : String(issueId).split(',').map(Number)).filter((id) => Number.isFinite(id))
+            : [];
+        const reservationIds = reservationId
+            ? (Array.isArray(reservationId) ? reservationId.map(String) : String(reservationId).split(','))
+                .map((id) => id.trim())
+                .filter(Boolean)
             : [];
 
         // fetch all the listingIds associated with the tags
@@ -467,6 +473,7 @@ export class ExpenseService {
                         llCover: normalizedLlCover[0],
                     }),
                     ...(expenseIds.length > 0 && { id: In(expenseIds) }),
+                    ...(reservationIds.length > 0 && { reservationId: In(reservationIds) }),
                     ...(issueIds.length > 0 && {
                         issues: Raw((alias) => {
                             const containsChecks = issueIds
@@ -616,6 +623,10 @@ export class ExpenseService {
 
         if (expenseIds.length > 0) {
             qb.andWhere('expense.id IN (:...expenseIds)', { expenseIds });
+        }
+
+        if (reservationIds.length > 0) {
+            qb.andWhere('expense.reservationId IN (:...reservationIds)', { reservationIds });
         }
 
 
