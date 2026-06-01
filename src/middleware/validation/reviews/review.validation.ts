@@ -69,6 +69,12 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             Joi.string().valid('with-updates', 'no-updates', ''),
             Joi.array().items(Joi.string().valid('with-updates', 'no-updates'))
         ).optional().allow(null, ""),
+        sentiment: arrayOrSingle(Joi.string().required()),
+        reviewSentiment: arrayOrSingle(Joi.string().required()),
+        refundStatus: arrayOrSingle(Joi.string().required()),
+        publicReview: arrayOrSingle(Joi.string().required()),
+        resolutionNotes: arrayOrSingle(Joi.string().required()),
+        accountingLogs: arrayOrSingle(Joi.string().required()),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
@@ -163,6 +169,10 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional(),
+        reviewSentiment: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
         latestUpdate: Joi.alternatives().try(
             Joi.string(),
             Joi.array().items(Joi.string().valid('with-updates', 'no-updates'))
@@ -172,6 +182,14 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.array().items(Joi.string())
         ).optional(),
         refundStatus: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        publicReview: Joi.alternatives().try(
+            Joi.string(),
+            Joi.array().items(Joi.string())
+        ).optional(),
+        accountingLogs: Joi.alternatives().try(
             Joi.string(),
             Joi.array().items(Joi.string())
         ).optional(),
