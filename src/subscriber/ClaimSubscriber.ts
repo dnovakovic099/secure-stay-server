@@ -32,6 +32,59 @@ export class ClientTicketSubscriber
     private listingRepo = appDatabase.getRepository(Listing);
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
 
+    private getClaimAttachmentGroups(claim: Claim) {
+        const groups = {
+            photos: [] as string[],
+            invoices: [] as string[],
+        };
+        const add = (target: "photos" | "invoices", fileName?: string | null) => {
+            if (fileName && !groups[target].includes(fileName)) {
+                groups[target].push(fileName);
+            }
+        };
+
+        try {
+            const workspace = JSON.parse(claim.workspace_data || "{}");
+            const claimRequest = workspace?.claimRequest || {};
+            (claimRequest.sharedPhotos || []).forEach((asset: any) => add("photos", asset?.fileName));
+            add("invoices", claimRequest.sharedInvoice?.fileName);
+            (claimRequest.entries || []).forEach((entry: any) => {
+                (entry?.photos || []).forEach((asset: any) => add("photos", asset?.fileName));
+                add("invoices", entry?.invoice?.fileName);
+            });
+        } catch (error) {
+            logger.warn(`Unable to parse claim workspace attachments for claim ${claim.id}`, error);
+        }
+
+        try {
+            const fileNames = JSON.parse(claim.fileNames || "[]");
+            if (Array.isArray(fileNames)) {
+                fileNames.forEach((fileName: string) => {
+                    if (!groups.photos.includes(fileName) && !groups.invoices.includes(fileName)) {
+                        add("photos", fileName);
+                    }
+                });
+            }
+        } catch {
+            // File names are best-effort fallback only.
+        }
+
+        return groups;
+    }
+
+    private async uploadClaimAttachmentsToSlackThread(claim: Claim, channelId: string, threadTs?: string) {
+        if (!channelId || !threadTs) return;
+        const moduleFolder = "claims";
+        const groups = this.getClaimAttachmentGroups(claim);
+
+        if (groups.photos.length > 0) {
+            await uploadFileToSlack(channelId, groups.photos, moduleFolder, threadTs, "Photo(s) Attached");
+        }
+        if (groups.invoices.length > 0) {
+            await uploadFileToSlack(channelId, groups.invoices, moduleFolder, threadTs, "Invoice(s) Attached");
+        }
+    }
+
     async afterInsert(event: InsertEvent<Claim>) {
         const { entity, manager } = event;
         await this.sendSlackMessage(entity, entity.created_by).then((slackResponse) => {
@@ -40,22 +93,19 @@ export class ClientTicketSubscriber
                 return;
             }
 
-            const fileNames = JSON.parse(entity.fileNames);
-            if (fileNames && fileNames.length > 0) {
-                const moduleFolder = "claims";
-                const channelId = slackResponse.channel || "";
-                if (!channelId) {
-                    logger.error("SLACK_CHANNEL_ID is not found in the response.");
-                    return;
-                }
-                uploadFileToSlack(channelId, fileNames, moduleFolder)
-                    .then(() => {
-                        logger.info("File uploaded to Slack successfully.");
-                    })
-                    .catch((error) => {
-                        logger.error("Error uploading images to Slack:", error);
-                    });
+            const channelId = slackResponse.channel || "";
+            const threadTs = slackResponse.ts || "";
+            if (!channelId || !threadTs) {
+                logger.error("Slack channel or thread timestamp is missing from the claim Slack response.");
+                return;
             }
+            this.uploadClaimAttachmentsToSlackThread(entity, channelId, threadTs)
+                .then(() => {
+                    logger.info("Claim attachments uploaded to Slack thread successfully.");
+                })
+                .catch((error) => {
+                    logger.error("Error uploading claim attachments to Slack thread:", error);
+                });
         });
     }
 

@@ -358,9 +358,9 @@ export class ClaimWorkspaceService {
             currentUserName: currentUser.name,
             claimStatusOptions: {
                 New: ["New"],
-                "Pre-Filing": ["Reviewing", "Gathering Documents", "Ready to Submit"],
-                Submitted: ["Awaiting Guest Response", "Airbnb Involved", "In Discussion", "Additional Docs Required"],
-                Closed: ["Denied", "Appealed", "Appeal Denied"],
+                "Pre-Submission": ["Missing Information", "Ready to Submit"],
+                Submitted: ["Awaiting Guest Response", "Airbnb Involved", "Additional Docs Required"],
+                Closed: ["Appealed", "Appeal Denied", "Denied", "Partial Amount", "Full Amount"],
             },
             claimCategories: ["Damage", "Missing Items", "House Rule Violation", "Extra Cleaning", "Others"],
             reportedByOptions: ["Cleaner", "Owner", "Add Custom"],
