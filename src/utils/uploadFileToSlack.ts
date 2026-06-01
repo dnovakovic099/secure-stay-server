@@ -16,9 +16,10 @@ export async function uploadFileToSlack(
     channelId: string,
     fileNames: string[],
     moduleFolder: string,
-    threadTs?: string
+    threadTs?: string,
+    initialComment = ""
 ): Promise<void> {
-    for (const fileName of fileNames) {
+    for (const [index, fileName] of fileNames.entries()) {
         const filePath = path.join(__dirname, `../../public/${moduleFolder}`, fileName);
 
         if (!fs.existsSync(filePath)) {
@@ -31,13 +32,13 @@ export async function uploadFileToSlack(
                 ? {
                     channels: channelId,
                     thread_ts: threadTs,
-                    initial_comment: ``,
+                    initial_comment: index === 0 ? initialComment : ``,
                     file: fs.createReadStream(filePath),
                     filename: fileName,
                 }
                 : {
                     channel_id: channelId,
-                    initial_comment: ``,
+                    initial_comment: index === 0 ? initialComment : ``,
                     file: fs.createReadStream(filePath),
                     filename: fileName,
                 };
