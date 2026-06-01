@@ -542,6 +542,64 @@ export class ReviewService {
         return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), channelId, messageTs);
     }
 
+    private decodeDiscussionEntities(content: string) {
+        return String(content || "")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'");
+    }
+
+    private stripSlackActivityWrapper(content: string) {
+        const withoutPrefix = String(content || "")
+            .replace(/^\s*(?:Resolution\s+)?Notes\s+(?:Added|Edited)\s+By:\s*[\s\S]*?(?:💬|:speech_balloon:|📝|:memo:)\s*/i, "");
+
+        const withoutDividers = withoutPrefix
+            .split(/\r?\n/)
+            .filter((line) => !/^\s*[─_\-]{5,}\s*$/.test(line))
+            .join("\n")
+            .trim();
+
+        return withoutDividers
+            .replace(/\s+[-–](\s*)(?=[A-Z])/g, (_match, spacing) => `\n-${spacing || ""}`)
+            .trim();
+    }
+
+    private async getSlackDisplayName(slackUserId: string) {
+        const rawSlackUserId = String(slackUserId || "").trim();
+        if (!rawSlackUserId) return null;
+        try {
+            const slackUsers = await getSlackUsers();
+            const slackUser = slackUsers.find((member: any) => member.id === rawSlackUserId);
+            return String(slackUser?.displayName || slackUser?.real_name || slackUser?.name || "").trim() || null;
+        } catch {
+            return null;
+        }
+    }
+
+    private async resolveLatestUpdateContent(message: ReviewDiscussionMessageEntity) {
+        const rawContent = String(message.content || "");
+        const matches = Array.from(rawContent.matchAll(/<@([A-Za-z0-9]+)(?:\|([^>]+))?>/g));
+        const displayBySlackId = new Map<string, string>();
+
+        await Promise.all(Array.from(new Set(matches.map((match) => match[1]).filter(Boolean))).map(async (slackUserId) => {
+            const displayName = await this.getSlackDisplayName(slackUserId);
+            displayBySlackId.set(slackUserId, displayName || slackUserId);
+        }));
+
+        const resolvedContent = rawContent.replace(/<@([A-Za-z0-9]+)(?:\|([^>]+))?>/g, (_match, slackUserId, label) => {
+            const displayName = String(label || displayBySlackId.get(slackUserId) || slackUserId).trim();
+            return `@${displayName.replace(/^@+/, "")}`;
+        });
+        const decodedContent = this.decodeDiscussionEntities(resolvedContent);
+        const shouldStripSlackWrapper = message.metadata?.source === "slack"
+            || /^\s*(?:Resolution\s+)?Notes\s+(?:Added|Edited)\s+By:/i.test(decodedContent);
+
+        return shouldStripSlackWrapper ? this.stripSlackActivityWrapper(decodedContent) : decodedContent;
+    }
+
     private async buildLatestUpdatePayload(message: ReviewDiscussionMessageEntity | null) {
         if (!message) return null;
 
@@ -553,7 +611,7 @@ export class ReviewService {
                 const slackUsers = await getSlackUsers();
                 const employee = await this.employeeRepo.findOne({
                     where: { userId: user.id, deletedAt: null as any },
-                    select: ["userId", "preferredName", "profilePhoto", "slackUserId"],
+                    select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
                 });
                 const preferredName = String(employee?.preferredName || "").trim();
                 authorName = preferredName || String(user.firstName || "").trim() || user.email || user.uid || message.authorName;
@@ -562,8 +620,9 @@ export class ReviewService {
                 const fileInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
                     ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
                     : null;
-                const slackAvatarUrl = employee?.slackUserId
-                    ? slackUsers.find((member: any) => member.id === employee.slackUserId)?.image || null
+                const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+                const slackAvatarUrl = slackMemberId
+                    ? slackUsers.find((member: any) => member.id === slackMemberId)?.image || null
                     : null;
                 authorAvatar = this.buildEmployeePhotoUrl(fileInfo) || slackAvatarUrl || authorAvatar;
             } else {
@@ -572,7 +631,7 @@ export class ReviewService {
         }
 
         return {
-            content: message.content,
+            content: await this.resolveLatestUpdateContent(message),
             createdAt: message.updatedAt || message.createdAt,
             authorName,
             authorAvatar,
@@ -1065,7 +1124,7 @@ export class ReviewService {
         const employees = users.length > 0
             ? await this.employeeRepo.find({
                 where: { userId: In(users.map((user) => user.id)), deletedAt: null as any },
-                select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId'],
+                select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId', 'slackId'],
             })
             : [];
         const employeeByUserId = new Map(employees.map((employee) => [employee.userId, employee]));
@@ -1112,8 +1171,9 @@ export class ReviewService {
             const employeePhotoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
                 ? this.buildEmployeePhotoUrl(photoInfoById.get(profilePhotoId) || null)
                 : null;
-            const slackPhotoUrl = employee?.slackUserId
-                ? slackUserById.get(employee.slackUserId)?.image || null
+            const slackMemberId = String(employee?.slackUserId || employee?.slackId || '').trim();
+            const slackPhotoUrl = slackMemberId
+                ? slackUserById.get(slackMemberId)?.image || null
                 : null;
 
             summaryMap.set(uid, {
@@ -1164,7 +1224,14 @@ export class ReviewService {
     }
 
     private applyDashboardMitigationFilters(query: any, filters: DashboardFilters, listingIds: number[] | null) {
-        query.leftJoin('rc.reservationInfo', 'ri');
+        const hasReservationJoin = Boolean(
+            query?.expressionMap?.joinAttributes?.some((join: any) => join?.alias?.name === 'ri') ||
+            query?.expressionMap?.aliases?.some((alias: any) => alias?.name === 'ri')
+        );
+
+        if (!hasReservationJoin) {
+            query.leftJoin('rc.reservationInfo', 'ri');
+        }
 
         if (listingIds !== null) {
             query.andWhere('ri.listingMapId IN (:...listingIds)', { listingIds: listingIds.length ? listingIds : [-1] });
