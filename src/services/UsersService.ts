@@ -630,7 +630,7 @@ export class UsersService {
         const slackUserMap = new Map<string, { id: string; image?: string | null }>(slackUsers.map((user) => [user.id, user]));
         const employees = await this.employeeRepo.find({
             where: { deletedAt: null as any },
-            select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId'],
+            select: ['userId', 'preferredName', 'profilePhoto', 'slackUserId', 'slackId'],
         });
         const profilePhotoIds = [...new Set(
             employees
@@ -658,8 +658,9 @@ export class UsersService {
             const employeePhotoUrl = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
                 ? this.buildEmployeePhotoUrl(photoInfoById.get(profilePhotoId) || null)
                 : null;
-            const slackPhotoUrl = employee?.slackUserId
-                ? slackUserMap.get(employee.slackUserId)?.image || null
+            const slackMemberId = String(employee?.slackUserId || employee?.slackId || '').trim();
+            const slackPhotoUrl = slackMemberId
+                ? slackUserMap.get(slackMemberId)?.image || null
                 : null;
             const photoUrl = employeePhotoUrl || slackPhotoUrl;
 
