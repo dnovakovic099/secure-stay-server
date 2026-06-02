@@ -32,11 +32,11 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         endDate: Joi.string()
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'endDate must be in the format "yyyy-mm-dd"' }).optional().allow(null, ""),
-        listingId: arrayOrSingle(Joi.number().required()).required(),
+        listingId: arrayOrSingle(Joi.number().required()),
         page: Joi.number().required(),
         limit: Joi.number().required(),
         rating: arrayOrSingle(Joi.number().max(10).min(0).required()),
-        owner: arrayOrSingle(Joi.string().required()).required(),
+        owner: arrayOrSingle(Joi.string().required()),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
         status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Remove Failed", "Archived").required()).allow(null, ""),
@@ -82,7 +82,10 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         return value;
     });
 
-    const { error } = schema.validate(request.query);
+    const cleanQuery = Object.fromEntries(
+        Object.entries(request.query as Record<string, unknown>).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+    );
+    const { error } = schema.validate(cleanQuery);
     if (error) {
         return next(error);
     }
