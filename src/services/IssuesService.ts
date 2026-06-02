@@ -1603,7 +1603,10 @@ export class IssuesService {
       if (Array.isArray(stayStatus) && stayStatus.length > 0) {
         const stayConditions: string[] = [];
         if (stayStatus.includes("currently-staying")) {
-          stayConditions.push("(r.arrivalDate <= :today AND r.departureDate >= :today)");
+          stayConditions.push("(r.arrivalDate <= :today AND r.departureDate > :today)");
+        }
+        if (stayStatus.includes("co-today")) {
+          stayConditions.push("r.departureDate = :today");
         }
         if (stayStatus.includes("past")) {
           stayConditions.push("r.departureDate < :today");
@@ -1658,6 +1661,11 @@ export class IssuesService {
         : activityType === "completed"
         ? "completed_by"
         : "created_by";
+    const normalizedActivityUsers = Array.isArray(activityUser)
+      ? activityUser.map((value: any) => String(value || "").trim()).filter(Boolean)
+      : activityUser
+      ? [String(activityUser).trim()].filter(Boolean)
+      : [];
 
     const normalizedKeyword = String(keyword || "").trim();
     const normalizedActivityKeyword = String(activityKeyword || "").trim();
@@ -1746,7 +1754,7 @@ export class IssuesService {
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
-        ...(activityUser && { [activityColumn]: activityUser }),
+        ...(normalizedActivityUsers.length > 0 && { [activityColumn]: In(normalizedActivityUsers) }),
         ...(issueResolution && { ai_resolution_status: issueResolution }),
         ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
       },

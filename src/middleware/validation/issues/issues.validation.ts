@@ -222,11 +222,14 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         keyword: Joi.string().optional(),
         channel: Joi.array().items(Joi.string()).min(1).optional(),
         dateType: Joi.string().valid('created', 'updated', 'completed', 'due', 'check_in', 'check_out').optional(),
-        stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'past', 'upcoming')).min(1).optional(),
+        stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'co-today', 'past', 'upcoming')).min(1).optional(),
         assignee: Joi.array().items(Joi.string()).min(1).optional(),
         urgency: Joi.array().items(Joi.number()).min(1).optional(),
         activityType: Joi.string().valid('created', 'updated', 'completed').optional(),
-        activityUser: Joi.string().optional(),
+        activityUser: Joi.alternatives().try(
+          Joi.string(),
+          Joi.array().items(Joi.string()).min(1)
+        ).optional(),
         activityKeyword: Joi.string().optional(),
         vendorThreadStatus: Joi.string().valid('with-vendor-thread', 'no-vendor-thread').optional(),
         issueResolution: Joi.string().valid('Resolved', 'Not Resolved', '—').optional(),
