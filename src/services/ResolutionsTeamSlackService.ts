@@ -371,7 +371,7 @@ export class ResolutionsTeamSlackService {
     }
 
     private async getResolutionsAssigneeOptions() {
-        const assigneeData = await this.usersService.fetchUserListByDepartment("resolutions");
+        const assigneeData = await this.usersService.fetchUserListByDepartment("default");
         return assigneeData.allUsers.map((user) => ({
             label: user.displayName || user.name,
             value: user.uid,
@@ -873,7 +873,7 @@ export class ResolutionsTeamSlackService {
             );
 
             // Keep root controls in sync after edits from Slack or the app.
-            if (activity.type === "status" || activity.type === "assignee" || activity.type === "resolution_tag") {
+            if (activity.type === "status" || activity.type === "assignee" || activity.type === "visibility" || activity.type === "resolution_tag") {
                 const listing = rc.reservationInfo?.listingMapId
                     ? await this.listingRepo.findOne({
                           where: { id: rc.reservationInfo.listingMapId },
