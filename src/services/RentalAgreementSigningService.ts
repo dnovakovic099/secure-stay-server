@@ -69,6 +69,8 @@ type RentalAgreementOverviewRow = {
     isEdited: boolean;
     isOverridden: boolean;
     overrideReason: string | null;
+    skipIdUpload: boolean;
+    skipIdUploadReason: string | null;
     propertyType: string | null;
     serviceType: string | null;
     viewedAt: string | null;
@@ -623,6 +625,8 @@ export class RentalAgreementSigningService {
             isEdited: Boolean(raw.isEdited),
             isOverridden,
             overrideReason: raw.overrideReason || null,
+            skipIdUpload: Boolean(raw.skipIdUpload),
+            skipIdUploadReason: raw.skipIdUploadReason || null,
             propertyType: raw.propertyType || null,
             serviceType: raw.serviceType || null,
             viewedAt: raw.lastViewedAt ? new Date(raw.lastViewedAt).toISOString() : raw.firstViewedAt ? new Date(raw.firstViewedAt).toISOString() : null,
@@ -912,6 +916,8 @@ export class RentalAgreementSigningService {
                 "document.isEdited AS isEdited",
                 "document.isOverridden AS isOverridden",
                 "document.overrideReason AS overrideReason",
+                "document.skipIdUpload AS skipIdUpload",
+                "document.skipIdUploadReason AS skipIdUploadReason",
                 "document.firstViewedAt AS firstViewedAt",
                 "document.lastViewedAt AS lastViewedAt",
                 "document.overriddenBy AS overriddenBy",
@@ -1179,8 +1185,14 @@ export class RentalAgreementSigningService {
             sourceTemplateId: snapshot.sourceTemplateId,
             reservationInfo: {
                 id: reservationInfo.id,
+                hostifyReservationId: String(reservationInfo.id),
+                reservationCode: reservationInfo.reservationId || "",
+                hostifyReservationUrl: reservationInfo.reservationId
+                    ? `https://us.hostify.com/reservations/view/${reservationInfo.reservationId}`
+                    : `https://us.hostify.com/reservations/view/${hostifyReservationId}`,
                 guestName: reservationInfo.guestName || "",
                 guestEmail: reservationInfo.guestEmail || "",
+                channelName: reservationInfo.channelName || "",
                 listingName: this.getDisplayPropertyName(reservationInfo, listing),
                 propertyFullAddress: listing?.address || "",
                 arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
@@ -1203,6 +1215,7 @@ export class RentalAgreementSigningService {
                 skipIdUpload: reservationDocument?.skipIdUpload ?? false,
                 skipIdUploadAt: reservationDocument?.skipIdUploadAt ? reservationDocument.skipIdUploadAt.toISOString() : null,
                 skipIdUploadBy: reservationDocument?.skipIdUploadBy || null,
+                skipIdUploadReason: reservationDocument?.skipIdUploadReason || null,
             },
             preview: {
                 headerHtml: rendered.resolvedHeaderHtml,
@@ -1302,6 +1315,7 @@ export class RentalAgreementSigningService {
             markAsOverridden?: boolean;
             overrideReason?: string | null;
             skipIdUpload?: boolean;
+            skipIdUploadReason?: string | null;
         },
         userId?: string,
     ) {
@@ -1330,12 +1344,20 @@ export class RentalAgreementSigningService {
             nextDocument.overriddenAt = new Date();
             nextDocument.overriddenBy = userId || null;
             nextDocument.overrideReason = payload.overrideReason || nextDocument.overrideReason || "Edited from internal agreement detail";
+        } else if (payload.markAsOverridden === false) {
+            nextDocument.isOverridden = false;
+            nextDocument.overriddenAt = null;
+            nextDocument.overriddenBy = null;
+            nextDocument.overrideReason = null;
         }
 
         if (typeof payload.skipIdUpload === "boolean") {
             nextDocument.skipIdUpload = payload.skipIdUpload;
-            nextDocument.skipIdUploadAt = new Date();
-            nextDocument.skipIdUploadBy = userId || null;
+            nextDocument.skipIdUploadAt = payload.skipIdUpload ? new Date() : null;
+            nextDocument.skipIdUploadBy = payload.skipIdUpload ? (userId || null) : null;
+            nextDocument.skipIdUploadReason = payload.skipIdUpload
+                ? (String(payload.skipIdUploadReason || "").trim() || nextDocument.skipIdUploadReason || "Manual ID upload requirement override")
+                : null;
         }
 
         await reservationDocumentRepo().save(nextDocument);
