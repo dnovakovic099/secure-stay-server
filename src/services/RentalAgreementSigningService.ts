@@ -505,7 +505,7 @@ export class RentalAgreementSigningService {
     }
 
     private async buildAgreementSnapshot(hostifyReservationId: string, info: ReservationInfoEntity, listing: Listing | null) {
-        const template = await rentalAgreementTemplateService.getDefault();
+        const template = await rentalAgreementTemplateService.getForReservationContext(info.listingMapId, info.channelId);
         if (!template) throw new Error("No active rental agreement template configured");
 
         const reservationDocument = await this.getReservationDocument(hostifyReservationId);

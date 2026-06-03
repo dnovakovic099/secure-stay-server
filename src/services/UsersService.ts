@@ -26,7 +26,7 @@ import { getSlackUsers } from "../utils/getSlackUsers";
 
 // Priority departments per page type
 const PAGE_DEPARTMENT_PRIORITIES: Record<string, string[]> = {
-    'resolutions': ['Resolutions', 'Guest Relations'],
+    'resolutions': ['Resolutions'],
     'action-items': ['Guest Relations', 'Maintenance', 'Resolutions'],
     'client-tickets': ['Client Relations', 'Onboarding', 'Maintenance', 'Guest Relations', 'Resolutions'],
     'guest-issues': ['Issue Resolution', 'Guest Relations', 'Maintenance'],
@@ -761,15 +761,20 @@ export class UsersService {
         const addedDeptNames = new Set(priorityDepartments.map(d => d.name.toLowerCase()));
         const remainingDepts = Object.values(departmentUsersMap)
             .filter(d => !addedDeptNames.has(d.name.toLowerCase()) && d.users.length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .sort((a, b) => {
+                if (pageType === 'resolutions') {
+                    const aIsGuestRelations = a.name.toLowerCase() === 'guest relations';
+                    const bIsGuestRelations = b.name.toLowerCase() === 'guest relations';
+                    if (aIsGuestRelations !== bIsGuestRelations) return aIsGuestRelations ? -1 : 1;
+                }
+                if (a.name.toLowerCase() === 'unassigned') return 1;
+                if (b.name.toLowerCase() === 'unassigned') return -1;
+                return a.name.localeCompare(b.name);
+            });
 
-        if (pageType !== 'resolutions') {
-            otherDepartments.push(...remainingDepts);
-        }
+        otherDepartments.push(...remainingDepts);
 
-        const visibleDepartments = pageType === 'resolutions'
-            ? priorityDepartments
-            : [...priorityDepartments, ...otherDepartments];
+        const visibleDepartments = [...priorityDepartments, ...otherDepartments];
 
         return {
             priorityDepartments,

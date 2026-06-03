@@ -371,11 +371,19 @@ export class ResolutionsTeamSlackService {
     }
 
     private async getResolutionsAssigneeOptions() {
-        const assigneeData = await this.usersService.fetchUserListByDepartment("default");
-        return assigneeData.allUsers.map((user) => ({
-            label: user.displayName || user.name,
-            value: user.uid,
-        }));
+        const assigneeData = await this.usersService.fetchUserListByDepartment("resolutions");
+        const groups = [
+            ...(assigneeData.priorityDepartments || []),
+            ...(assigneeData.otherDepartments || []),
+        ];
+
+        return groups.flatMap((department) =>
+            department.users.map((user) => ({
+                label: user.displayName || user.name,
+                value: user.uid,
+                department: department.name,
+            }))
+        );
     }
 
     private parseJsonValue<T>(value: any, fallback: T): T {

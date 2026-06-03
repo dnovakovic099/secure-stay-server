@@ -30,6 +30,15 @@ export class RentalAgreementTemplateController {
         }
     }
 
+    async getRules(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const rules = await rentalAgreementTemplateService.getRules();
+            res.json({ success: true, data: rules });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
     async create(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const userId = req.user?.email || req.user?.id;
@@ -56,6 +65,45 @@ export class RentalAgreementTemplateController {
             res.json({ success: true, message: "Template deactivated" });
         } catch (err: any) {
             res.status(err.message === "Template not found" ? 404 : 500).json({ success: false, message: err.message });
+        }
+    }
+
+    async createRules(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const userId = req.user?.email || req.user?.id;
+            const rules = await rentalAgreementTemplateService.upsertRules(req.body, userId);
+            res.status(201).json({ success: true, data: rules });
+        } catch (err: any) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    async updateRule(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const userId = req.user?.email || req.user?.id;
+            const rule = await rentalAgreementTemplateService.updateRule(Number(req.params.ruleId), req.body, userId);
+            res.json({ success: true, data: rule });
+        } catch (err: any) {
+            res.status(err.message === "Template rule not found" ? 404 : 400).json({ success: false, message: err.message });
+        }
+    }
+
+    async bulkUpdateRules(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const userId = req.user?.email || req.user?.id;
+            const rules = await rentalAgreementTemplateService.bulkUpdateRules(req.body.ids || [], req.body, userId);
+            res.json({ success: true, data: rules });
+        } catch (err: any) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    async deleteRule(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            await rentalAgreementTemplateService.deleteRule(Number(req.params.ruleId));
+            res.json({ success: true, message: "Template rule deleted" });
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
         }
     }
 }

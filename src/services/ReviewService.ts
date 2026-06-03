@@ -94,6 +94,9 @@ interface Filter {
     reviewSentiment?: string[] | null | undefined;
     publicReview?: string[] | null | undefined;
     accountingLogs?: string[] | null | undefined;
+    reservationStatus?: string[] | null | undefined;
+    daysLeft?: number[] | null | undefined;
+    urgency?: number[] | null | undefined;
     reservationId?: string | number | null | undefined;
     confirmationCode?: string | null | undefined;
     totalPaidOperator?: string | null | undefined;
@@ -1303,19 +1306,27 @@ export class ReviewService {
         owner,
         assignee,
         latestUpdate,
+        latestUpdateSearch,
         sentiment,
         claimResolutionStatus,
         status,
         isClaimOnly,
         keyword,
+        guestName,
+        confirmationCode,
         propertyType,
         serviceType,
         tags,
         refundStatus,
         reviewSentiment,
         publicReview,
+        publicReviewSearch,
         resolutionNotes,
+        resolutionNotesSearch,
         accountingLogs,
+        reservationStatus,
+        daysLeft,
+        urgency,
         dateType,
         channel,
         integration,
@@ -1335,6 +1346,17 @@ export class ReviewService {
             const refundPresence = this.splitPresenceFilterValues(refundStatus as string[] | null | undefined);
             const resolutionNotesPresence = this.splitPresenceFilterValues(resolutionNotes as string[] | null | undefined);
             const accountingPresence = this.splitPresenceFilterValues(accountingLogs as string[] | null | undefined);
+            const selectedReservationStatuses = Array.isArray(reservationStatus)
+                ? reservationStatus.map((value) => String(value || '').trim()).filter(Boolean)
+                : String(reservationStatus || '').trim()
+                    ? [String(reservationStatus).trim()]
+                    : [];
+            const selectedDaysLeft = (Array.isArray(daysLeft) ? daysLeft : daysLeft != null ? [daysLeft] : [])
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value));
+            const selectedUrgency = (Array.isArray(urgency) ? urgency : urgency != null ? [urgency] : [])
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value));
             const selectedStatuses = Array.isArray(status)
                 ? status.map((value) => String(value || '').trim()).filter(Boolean)
                 : String(status || '').trim()
@@ -1389,6 +1411,33 @@ export class ReviewService {
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, integrationReservationIds);
             }
 
+            if (guestName) {
+                const guestRows = await this.reservationInfoRepo
+                    .createQueryBuilder("reservation")
+                    .select("reservation.id", "id")
+                    .where("reservation.guestName LIKE :guestName", { guestName: `%${guestName}%` })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, guestRows.map((item: any) => Number(item.id)).filter(Boolean));
+            }
+
+            if (confirmationCode) {
+                const codeRows = await this.reservationInfoRepo
+                    .createQueryBuilder("reservation")
+                    .select("reservation.id", "id")
+                    .where("reservation.confirmation_code LIKE :confirmationCode", { confirmationCode: `%${confirmationCode}%` })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, codeRows.map((item: any) => Number(item.id)).filter(Boolean));
+            }
+
+            if (selectedReservationStatuses.length > 0) {
+                const statusRows = await this.reservationInfoRepo
+                    .createQueryBuilder("reservation")
+                    .select("reservation.id", "id")
+                    .where("reservation.status IN (:...reservationStatus)", { reservationStatus: selectedReservationStatuses })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, statusRows.map((item: any) => Number(item.id)).filter(Boolean));
+            }
+
             if (assignee && assignee.length > 0) {
                 const assigneeRows = await this.reviewCheckoutRepo.find({
                     where: { assignee: In(assignee as string[]) },
@@ -1400,9 +1449,38 @@ export class ReviewService {
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, assigneeReservationIds);
             }
 
+            if (selectedUrgency.length > 0) {
+                const urgencyRows = await this.reviewCheckoutRepo.find({
+                    where: { urgency: In(selectedUrgency) },
+                    relations: ['reservationInfo'],
+                });
+                filteredReservationIds = this.mergeNumberFilters(
+                    filteredReservationIds,
+                    urgencyRows.map((item) => Number(item.reservationInfo?.id)).filter(Boolean)
+                );
+            }
+
             if (currentlyStaying === true || currentlyStaying === 'true') {
                 const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(filteredReservationIds, listingIds);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, currentStayReservationIds);
+            }
+
+            if (selectedDaysLeft.length > 0) {
+                const today = new Date();
+                const reviewRows = await this.reviewRepository.find({ select: ['reservationId', 'departureDate'] as any });
+                const daysLeftReservationIds = reviewRows
+                    .filter((review: any) => {
+                        const checkout = review.departureDate ? new Date(review.departureDate) : null;
+                        if (!checkout || Number.isNaN(checkout.getTime())) return selectedDaysLeft.includes(0);
+                        checkout.setDate(checkout.getDate() + 14);
+                        const diffMs = checkout.setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0);
+                        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                        const value = diffDays <= 0 ? 0 : Math.min(14, Math.max(1, diffDays));
+                        return selectedDaysLeft.includes(value);
+                    })
+                    .map((review: any) => Number(review.reservationId))
+                    .filter(Boolean);
+                filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, daysLeftReservationIds);
             }
 
             if (latestUpdate && latestUpdate.length > 0) {
@@ -1427,6 +1505,19 @@ export class ReviewService {
                         condition.reservationId = Not(In(updateReservationIds));
                     }
                 }
+            }
+
+            if (latestUpdateSearch) {
+                const updateRows = await this.discussionMessageRepo
+                    .createQueryBuilder('message')
+                    .select('DISTINCT message.reservationId', 'reservationId')
+                    .where('message.sourceType = :sourceType', { sourceType: 'note' })
+                    .andWhere('message.body LIKE :latestUpdateSearch', { latestUpdateSearch: `%${latestUpdateSearch}%` })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(
+                    filteredReservationIds,
+                    updateRows.map((row: any) => Number(row.reservationId)).filter(Boolean)
+                );
             }
 
             if (sentimentPresence.exactValues.length > 0 || sentimentPresence.wantsWith !== sentimentPresence.wantsNo) {
@@ -1492,6 +1583,18 @@ export class ReviewService {
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, publicReviewReservationIds);
             }
 
+            if (publicReviewSearch) {
+                const publicReviewRows = await this.reviewRepository
+                    .createQueryBuilder('review')
+                    .select('DISTINCT review.reservationId', 'reservationId')
+                    .where('review.publicReview LIKE :publicReviewSearch', { publicReviewSearch: `%${publicReviewSearch}%` })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(
+                    filteredReservationIds,
+                    publicReviewRows.map((row: any) => Number(row.reservationId)).filter(Boolean)
+                );
+            }
+
             if (refundPresence.exactValues.length > 0 || refundPresence.wantsWith !== refundPresence.wantsNo) {
                 const refundQb = this.refundRequestRepo
                     .createQueryBuilder('refund')
@@ -1526,6 +1629,19 @@ export class ReviewService {
                     .getRawMany();
                 const resolutionReservationIds = resolutionRows.map((row: any) => Number(row.reservationId)).filter(Boolean);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, resolutionReservationIds);
+            }
+
+            if (resolutionNotesSearch) {
+                const resolutionRows = await this.reviewCheckoutRepo
+                    .createQueryBuilder('reviewCheckout')
+                    .leftJoin('reviewCheckout.reservationInfo', 'reservationInfo')
+                    .select('DISTINCT reservationInfo.id', 'reservationId')
+                    .where('reviewCheckout.comments LIKE :resolutionNotesSearch', { resolutionNotesSearch: `%${resolutionNotesSearch}%` })
+                    .getRawMany();
+                filteredReservationIds = this.mergeNumberFilters(
+                    filteredReservationIds,
+                    resolutionRows.map((row: any) => Number(row.reservationId)).filter(Boolean)
+                );
             }
 
             if (accountingPresence.wantsWith !== accountingPresence.wantsNo) {
@@ -1592,6 +1708,8 @@ export class ReviewService {
                     'to be removed': 'To be Removed',
                     'to-be-removed': 'To be Removed',
                     removed: 'Removed',
+                    'unable to remove': 'Unable to Remove',
+                    'unable-to-remove': 'Unable to Remove',
                 };
                 const explicitVisibilityStates = Array.from(
                     new Set(
@@ -1795,6 +1913,7 @@ export class ReviewService {
                     slackThreadPermalink,
                     assignee: reviewCheckout?.assignee || null,
                     assigneeName: reviewCheckout?.assignee ? (userMap.get(reviewCheckout.assignee) || reviewCheckout.assignee) : null,
+                    urgency: reviewCheckout?.urgency || null,
                     resolutionNotes: reviewCheckout?.comments || null,
                     latestUpdate,
                     refundAmount,
@@ -1895,7 +2014,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Remove Failed', 'Archived'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Unable to Remove', 'Remove Failed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }
@@ -2505,6 +2624,7 @@ export class ReviewService {
             currentlyStaying,
             reservationId,
             confirmationCode,
+            reservationStatus: rawReservationStatus,
             totalPaidOperator,
             totalPaidMin,
             totalPaidMax,
@@ -2512,6 +2632,7 @@ export class ReviewService {
             ownerPayoutMin,
             ownerPayoutMax,
             latestUpdateSearch,
+            daysLeft: rawDaysLeft,
             resolutionNotes: rawResolutionNotes,
             resolutionNotesSearch,
             issuesEntry: rawIssuesEntry,
@@ -2554,6 +2675,8 @@ export class ReviewService {
         const actionItemsStatus = toArr(rawActionItemsStatus);
         const issuesStatus = toArr(rawIssuesStatus);
         const tags = toArr(rawTags);
+        const reservationStatus = toArr(rawReservationStatus);
+        const daysLeft = toArr(rawDaysLeft).map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value));
         const requestedReservationId = reservationId != null && reservationId !== ''
             ? Number(reservationId)
             : null;
@@ -2669,6 +2792,29 @@ export class ReviewService {
 
         if (confirmationCode) {
             query.andWhere("reservationInfo.confirmation_code LIKE :confirmationCode", { confirmationCode: `%${confirmationCode}%` });
+        }
+
+        if (reservationStatus.length > 0) {
+            query.andWhere("reservationInfo.status IN (:...reservationStatus)", { reservationStatus });
+        }
+
+        if (daysLeft.length > 0) {
+            const today = new Date();
+            const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+            const matchingCheckoutRows = await this.reviewCheckoutRepo.find({ relations: ['reservationInfo'] });
+            const matchingIds = matchingCheckoutRows
+                .filter((checkout: any) => {
+                    const rawDate = checkout?.reservationInfo?.departureDate || checkout?.adjustedCheckoutDate;
+                    const checkoutDate = rawDate ? new Date(rawDate) : null;
+                    if (!checkoutDate || Number.isNaN(checkoutDate.getTime())) return daysLeft.includes(0);
+                    checkoutDate.setDate(checkoutDate.getDate() + 14);
+                    const diffDays = Math.ceil((checkoutDate.setHours(0, 0, 0, 0) - todayStart) / (1000 * 60 * 60 * 24));
+                    const value = diffDays <= 0 ? 0 : Math.min(14, Math.max(1, diffDays));
+                    return daysLeft.includes(value);
+                })
+                .map((checkout: any) => Number(checkout.id))
+                .filter(Boolean);
+            query.andWhere(matchingIds.length > 0 ? "reviewCheckout.id IN (:...daysLeftCheckoutIds)" : "1 = 0", matchingIds.length > 0 ? { daysLeftCheckoutIds: matchingIds } : {});
         }
 
         this.applyNumberRangeFilter(query, "reservationInfo.totalPrice", "totalPaid", totalPaidOperator, totalPaidMin, totalPaidMax);
@@ -2979,6 +3125,7 @@ export class ReviewService {
             if (visibilityList.includes('Visible')) {
                 reviewConditions.push("(review.visibility = 'Visible')");
                 reviewConditions.push("(review.visibility = 'Keep')");
+                reviewConditions.push("(review.visibility = 'Unable to Remove')");
                 reviewConditions.push("(review.visibility IN ('Awaiting Review','No Review') AND review.rating IS NOT NULL AND review.rating > 0)");
             }
             if (visibilityList.includes('Awaiting Review')) {
@@ -3010,6 +3157,7 @@ export class ReviewService {
             if (visibilityList.includes('Visible')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Visible'");
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Keep'");
+                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Unable to Remove'");
             }
             if (visibilityList.includes('Awaiting Review')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Awaiting Review'");
@@ -3328,6 +3476,7 @@ export class ReviewService {
                 ...rc,
                 assignee: rc.assignee || null,
                 assigneeName: rc.assignee ? await resolveUserDisplayName(rc.assignee) : null,
+                urgency: rc.urgency || null,
                 createdBy: await resolveUserDisplayName(rc.createdBy),
                 updatedBy: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
                 deletedBy: await resolveUserDisplayName(rc.deletedBy),
@@ -3605,7 +3754,7 @@ export class ReviewService {
         return { created, skipped, errors };
     }
 
-    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; isActive?: boolean; visibility?: string }, userId: string) {
+    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; urgency?: number | null; isActive?: boolean; visibility?: string }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
@@ -3620,6 +3769,7 @@ export class ReviewService {
             status: reviewCheckout.status ?? null,
             comments: reviewCheckout.comments ?? null,
             assignee: reviewCheckout.assignee ?? null,
+            urgency: reviewCheckout.urgency ?? null,
             isActive: reviewCheckout.isActive ?? null,
             visibility: linkedReview?.visibility ?? reviewCheckout.visibility ?? null,
         };
@@ -3632,6 +3782,9 @@ export class ReviewService {
         }
         if (data.assignee !== undefined) {
             reviewCheckout.assignee = data.assignee || null;
+        }
+        if (data.urgency !== undefined) {
+            reviewCheckout.urgency = data.urgency || null;
         }
         reviewCheckout.updatedAt = new Date();
         reviewCheckout.updatedBy = userId;
@@ -3654,6 +3807,7 @@ export class ReviewService {
             status: { old: previousState.status, new: reviewCheckout.status ?? null },
             resolutionNotes: { old: previousState.comments, new: reviewCheckout.comments ?? null },
             assignee: { old: previousState.assignee, new: reviewCheckout.assignee ?? null },
+            urgency: { old: previousState.urgency, new: reviewCheckout.urgency ?? null },
             isActive: { old: previousState.isActive, new: reviewCheckout.isActive ?? null },
             visibility: { old: previousState.visibility, new: reviewCheckout.visibility ?? null },
         });
@@ -3684,6 +3838,14 @@ export class ReviewService {
                     oldValue: previousState.comments,
                     newValue: reviewCheckout.comments ?? null,
                     content: reviewCheckout.comments ? "Resolution notes updated." : "Resolution notes cleared.",
+                });
+            }
+            if (data.urgency !== undefined && (reviewCheckout.urgency ?? null) !== (previousState.urgency ?? null)) {
+                systemChanges.push({
+                    field: "urgency",
+                    oldValue: previousState.urgency,
+                    newValue: reviewCheckout.urgency ?? null,
+                    content: `Urgency changed from ${this.formatSystemChangeValue(previousState.urgency)} to ${this.formatSystemChangeValue(reviewCheckout.urgency)}.`,
                 });
             }
             if (data.visibility !== undefined && (reviewCheckout.visibility ?? null) !== (previousState.visibility ?? null)) {

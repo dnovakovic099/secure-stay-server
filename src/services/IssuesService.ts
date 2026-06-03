@@ -1603,16 +1603,16 @@ export class IssuesService {
       if (Array.isArray(stayStatus) && stayStatus.length > 0) {
         const stayConditions: string[] = [];
         if (stayStatus.includes("currently-staying")) {
-          stayConditions.push("(r.arrivalDate <= :today AND r.departureDate > :today)");
+          stayConditions.push("(DATE(r.arrivalDate) <= :today AND DATE(r.departureDate) > :today)");
         }
         if (stayStatus.includes("co-today")) {
-          stayConditions.push("r.departureDate = :today");
+          stayConditions.push("DATE(r.departureDate) = :today");
         }
         if (stayStatus.includes("past")) {
-          stayConditions.push("r.departureDate < :today");
+          stayConditions.push("DATE(r.departureDate) < :today");
         }
         if (stayStatus.includes("upcoming")) {
-          stayConditions.push("r.arrivalDate > :today");
+          stayConditions.push("DATE(r.arrivalDate) > :today");
         }
         if (stayConditions.length > 0) {
           qb.andWhere(`(${stayConditions.join(" OR ")})`, { today: currentDate });

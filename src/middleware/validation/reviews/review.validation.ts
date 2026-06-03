@@ -33,13 +33,16 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             .pattern(/^\d{4}-\d{2}-\d{2}$/)
             .messages({ 'string.pattern.base': 'endDate must be in the format "yyyy-mm-dd"' }).optional().allow(null, ""),
         listingId: arrayOrSingle(Joi.number().required()),
+        guestName: Joi.string().allow('').optional(),
+        confirmationCode: Joi.string().allow('').optional(),
+        reservationStatus: arrayOrSingle(Joi.string().required()),
         page: Joi.number().required(),
         limit: Joi.number().required(),
         rating: arrayOrSingle(Joi.number().max(10).min(0).required()),
         owner: arrayOrSingle(Joi.string().required()),
         claimResolutionStatus: Joi.string().optional().valid("N/A", "Pending", "Completed", "Denied"),
         isClaimOnly: Joi.boolean().optional(),
-        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Remove Failed", "Archived").required()).allow(null, ""),
+        status: arrayOrSingle(Joi.string().valid("active", "hidden", "Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Unable to Remove", "Remove Failed", "Archived").required()).allow(null, ""),
         keyword: Joi.string().optional(),
         propertyType: arrayOrSingle(Joi.string().required()),
         serviceType: arrayOrSingle(Joi.string().required()),
@@ -69,12 +72,17 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             Joi.string().valid('with-updates', 'no-updates', ''),
             Joi.array().items(Joi.string().valid('with-updates', 'no-updates'))
         ).optional().allow(null, ""),
+        latestUpdateSearch: Joi.string().allow('').optional(),
         sentiment: arrayOrSingle(Joi.string().required()),
         reviewSentiment: arrayOrSingle(Joi.string().required()),
+        urgency: arrayOrSingle(Joi.number().min(1).max(5).required()),
         refundStatus: arrayOrSingle(Joi.string().required()),
         publicReview: arrayOrSingle(Joi.string().required()),
+        publicReviewSearch: Joi.string().allow('').optional(),
         resolutionNotes: arrayOrSingle(Joi.string().required()),
+        resolutionNotesSearch: Joi.string().allow('').optional(),
         accountingLogs: arrayOrSingle(Joi.string().required()),
+        daysLeft: arrayOrSingle(Joi.number().min(0).max(14).required()),
     }).custom((value, helpers) => {
         if ((value?.fromDate && !value?.toDate) || (!value?.fromDate && value?.toDate)) {
             return helpers.message({ custom: 'Both fromDate and toDate must be provided together' });
@@ -94,7 +102,7 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
 
 export const validateUpdateReviewVisibilityStatusRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Remove Failed", "Archived"),
+        reviewVisibility: Joi.string().required().valid("Awaiting Review", "Submitted", "Visible", "No Review", "Remove/Keep?", "Keep", "To be Removed", "Removed", "Unable to Remove", "Remove Failed", "Archived"),
     });
 
     const { error } = schema.validate(request.body);
@@ -220,6 +228,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         currentlyStaying: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
         reservationId: Joi.alternatives().try(Joi.number(), Joi.string()).optional(),
         confirmationCode: Joi.string().allow('').optional(),
+        reservationStatus: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
         totalPaidOperator: Joi.string().valid('gt', 'lt', 'between', 'eq', '').optional(),
         totalPaidMin: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).optional(),
         totalPaidMax: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).optional(),
@@ -227,6 +236,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         ownerPayoutMin: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).optional(),
         ownerPayoutMax: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).optional(),
         latestUpdateSearch: Joi.string().allow('').optional(),
+        daysLeft: Joi.alternatives().try(Joi.number(), Joi.array().items(Joi.number())).optional(),
         resolutionNotes: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
         resolutionNotesSearch: Joi.string().allow('').optional(),
         issuesEntry: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
@@ -253,9 +263,10 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
         status: Joi.string().optional(),
         comments: Joi.string().allow('', null),
         assignee: Joi.string().allow('', null).optional(),
+        urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
         isActive: Joi.boolean().optional(),
         visibility: Joi.string().optional(),
-    }).or('status', 'comments', 'assignee', 'isActive', 'visibility');
+    }).or('status', 'comments', 'assignee', 'urgency', 'isActive', 'visibility');
 
     const { error } = schema.validate(request.body);
     if (error) {

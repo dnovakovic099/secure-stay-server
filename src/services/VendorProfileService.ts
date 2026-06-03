@@ -1,4 +1,4 @@
-import { In, Like } from "typeorm";
+import { In, IsNull, Like, Repository } from "typeorm";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { Contact } from "../entity/Contact";
 import { Listing } from "../entity/Listing";
@@ -33,6 +33,35 @@ export class VendorProfileService {
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
     private static schemaReady = false;
     private static schemaPromise: Promise<void> | null = null;
+
+    private async assertSingleActiveCleanerAssignment(
+        assignmentRepo: Repository<VendorAssignment>,
+        assignment: Partial<VendorAssignment>,
+        excludeAssignmentId?: number,
+    ) {
+        const listingId = String(assignment.listingId || "").trim();
+        const role = String(assignment.role || "").trim().toLowerCase();
+        const status = String(assignment.status || "").trim().toLowerCase();
+        if (!listingId || role !== "cleaner" || status !== "active") return;
+
+        const activeAssignments = await assignmentRepo.find({
+            where: {
+                listingId,
+                status: "active",
+                deletedAt: IsNull(),
+            },
+        });
+        const existingActiveCleaner = activeAssignments.find(existing => (
+            existing.id !== excludeAssignmentId
+            && String(existing.role || "").trim().toLowerCase() === "cleaner"
+        ));
+
+        if (existingActiveCleaner) {
+            throw CustomErrorHandler.validationError(
+                "An active cleaner already exists for this listing. Please change the current active cleaner to 'active-backup' or 'inactive' first."
+            );
+        }
+    }
 
     private async ensureVendorSchema() {
         if (VendorProfileService.schemaReady) {
@@ -632,14 +661,16 @@ export class VendorProfileService {
             }));
 
             for (const assignment of body.assignments || []) {
-                await assignmentRepo.save(assignmentRepo.create({
+                const assignmentPayload = {
                     ...assignment,
                     vendorProfileId: profile.id,
                     vendorProfile: profile,
                     listingId: String(assignment.listingId || ""),
                     createdBy: userId,
                     updatedBy: userId,
-                }));
+                };
+                await this.assertSingleActiveCleanerAssignment(assignmentRepo, assignmentPayload);
+                await assignmentRepo.save(assignmentRepo.create(assignmentPayload));
             }
 
             return profile.id;
@@ -705,6 +736,7 @@ export class VendorProfileService {
             createdBy: userId,
             updatedBy: userId,
         };
+        await this.assertSingleActiveCleanerAssignment(this.vendorAssignmentRepo, payload);
         const assignment = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.create(payload));
         await this.createAssignmentChangeUpdate(assignment, [{ label: "Assignment", oldValue: null, newValue: "Created" }], userId);
         return this.getVendorProfile(vendorProfileId, userId);
@@ -719,6 +751,7 @@ export class VendorProfileService {
             listingId: body.listingId !== undefined ? String(body.listingId) : undefined,
             updatedBy: userId,
         };
+        await this.assertSingleActiveCleanerAssignment(this.vendorAssignmentRepo, { ...existing, ...nextValues }, existing.id);
         const changes = this.getAssignmentAuditChanges(existing, nextValues);
         const saved = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(existing, nextValues));
         await this.createAssignmentChangeUpdate(saved, changes, userId);
