@@ -71,6 +71,9 @@ export class RentalAgreementReservationDocument {
     @Column({ type: "varchar", length: 255, nullable: true })
     skipIdUploadBy: string | null;
 
+    @Column({ type: "text", nullable: true })
+    skipIdUploadReason: string | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 
