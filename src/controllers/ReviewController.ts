@@ -24,7 +24,7 @@ export class ReviewController {
     async getReviews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, page, limit, rating, owner, assignee, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, tags, dateType, channel, integration, sortField, sortDir, currentlyStaying, latestUpdate, sentiment, refundStatus, reviewSentiment, publicReview, resolutionNotes, accountingLogs } = request.query;
+            const { fromDate, toDate, listingId, page, limit, rating, owner, assignee, claimResolutionStatus, status, isClaimOnly, keyword, propertyType, serviceType, tags, dateType, channel, integration, sortField, sortDir, currentlyStaying, latestUpdate, latestUpdateSearch, sentiment, refundStatus, reviewSentiment, publicReview, publicReviewSearch, resolutionNotes, resolutionNotesSearch, accountingLogs, guestName, confirmationCode, reservationStatus, daysLeft, urgency } = request.query;
 
             const { reviewList, totalCount } = await reviewService.getReviews({
                 fromDate,
@@ -36,19 +36,27 @@ export class ReviewController {
                 owner: this.normalizeArrayParam(owner),
                 assignee: this.normalizeArrayParam(assignee),
                 latestUpdate: this.normalizeArrayParam(latestUpdate),
+                latestUpdateSearch,
                 sentiment: this.normalizeArrayParam(sentiment),
                 claimResolutionStatus,
                 status: this.normalizeArrayParam(status),
                 isClaimOnly,
                 keyword,
+                guestName,
+                confirmationCode,
+                reservationStatus: this.normalizeArrayParam(reservationStatus),
                 propertyType: this.normalizeArrayParam(propertyType),
                 serviceType: this.normalizeArrayParam(serviceType),
                 tags: this.normalizeArrayParam(tags),
                 refundStatus: this.normalizeArrayParam(refundStatus),
                 reviewSentiment: this.normalizeArrayParam(reviewSentiment),
                 publicReview: this.normalizeArrayParam(publicReview),
+                publicReviewSearch,
                 resolutionNotes: this.normalizeArrayParam(resolutionNotes),
+                resolutionNotesSearch,
                 accountingLogs: this.normalizeArrayParam(accountingLogs),
+                daysLeft: this.normalizeNumberArrayParam(daysLeft),
+                urgency: this.normalizeNumberArrayParam(urgency),
                 dateType,
                 channel: this.normalizeArrayParam(channel),
                 integration: this.normalizeArrayParam(integration),
@@ -441,10 +449,10 @@ export class ReviewController {
     async updateReviewCheckout(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { id, status, comments, assignee, isActive, visibility } = request.body;
+            const { id, status, comments, assignee, urgency, isActive, visibility } = request.body;
             const userId = request.user.id;
 
-            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, { status, comments, assignee, isActive, visibility }, userId);
+            const updatedReviewCheckout = await reviewService.updateReviewCheckout(id, { status, comments, assignee, urgency, isActive, visibility }, userId);
 
             return response.status(200).json({
                 success: true,

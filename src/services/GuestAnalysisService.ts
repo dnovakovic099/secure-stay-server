@@ -219,14 +219,24 @@ export class GuestAnalysisService {
         const flags = Array.isArray(analysis.flags) ? analysis.flags : [];
         const greenFlags = flags.filter((flag: any) => flag?.polarity === "positive").length;
         const redFlags = flags.filter((flag: any) => flag?.polarity !== "positive").length;
+        const sentiment = String(analysis.sentiment || "—").trim() || "—";
+        const sentimentPrefix = this.getReviewSentimentPrefix(sentiment);
         const sentimentReason = String(analysis.sentimentReason || "—").trim() || "—";
 
         return [
             "*AI ANALYSIS*",
+            `Sentiment: ${sentimentPrefix}${sentiment}`,
             `*Green Flags:* ${greenFlags} | *Red Flags:* ${redFlags}`,
             "",
             `*👩🏻‍💻 Overall sentiment reason:* ${sentimentReason}`,
         ].join("\n");
+    }
+
+    private getReviewSentimentPrefix(value?: string | null) {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "negative") return "🔴 ";
+        if (normalized === "neutral" || normalized === "mixed") return "⭕️ ";
+        return "";
     }
 
     private async postAnalysisGeneratedToSlack(analysis: GuestAnalysisEntity) {

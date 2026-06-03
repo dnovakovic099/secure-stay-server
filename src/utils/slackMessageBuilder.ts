@@ -2403,11 +2403,17 @@ export interface ResolutionsCheckoutMessageData {
     ssUrl: string;
     reviewCheckoutId: number;
     statusOptions: string[];
-    assigneeOptions: { label: string; value: string }[];
+    assigneeOptions: { label: string; value: string; department?: string }[];
     tagOptions?: { label: string; value: string }[];
     selectedTags?: string[];
     isCancelled?: boolean;
 }
+
+type ResolutionsAssigneeSlackOption = {
+    text: { type: 'plain_text'; text: string };
+    value: string;
+    department?: string;
+};
 
 export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
     const {
@@ -2434,16 +2440,18 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const effectiveStatusOptions = statusOptions.length
         ? statusOptions
         : ['New', 'In Progress', 'Completed'];
-    const visibilityOptions = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Remove Failed', 'Archived'];
+    const visibilityOptions = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removed', 'Unable to Remove', 'Remove Failed', 'Archived'];
     const allStatusSelectOptions = effectiveStatusOptions.map((s) => ({
         text: { type: 'plain_text' as const, text: truncateSlackOptionText(formatResolutionsStatusLabel(s)) },
         value: toSlackOptionValue('status', s),
     }));
-    const allAssigneeSelectOptions = [
-        { text: { type: 'plain_text' as const, text: 'Unassigned' }, value: 'assignee:' },
+    const unassignedAssigneeOption: ResolutionsAssigneeSlackOption = { text: { type: 'plain_text' as const, text: 'Unassigned' }, value: 'assignee:' };
+    const allAssigneeSelectOptions: ResolutionsAssigneeSlackOption[] = [
+        unassignedAssigneeOption,
         ...assigneeOptions.map((a) => ({
             text: { type: 'plain_text' as const, text: truncateSlackOptionText(a.label) },
             value: toSlackOptionValue('assignee', a.value),
+            department: a.department || 'Other Departments',
         })),
     ];
     const allVisibilitySelectOptions = visibilityOptions.map((v) => ({
@@ -2454,16 +2462,27 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const currentStatusOption = allStatusSelectOptions.find((o) => o.value === toSlackOptionValue('status', status)) || allStatusSelectOptions[0];
     const currentAssigneeOption = allAssigneeSelectOptions.find((o) => o.value === toSlackOptionValue('assignee', assignee || '')) || allAssigneeSelectOptions[0];
     const currentVisibilityOption = allVisibilitySelectOptions.find((o) => o.value === toSlackOptionValue('visibility', visibility || '')) || allVisibilitySelectOptions[0];
+    const currentAssigneeSlackOption = currentAssigneeOption
+        ? (({ department: _department, ...option }) => option)(currentAssigneeOption)
+        : undefined;
     const statusSelectOptions = limitSlackSelectOptions(
         allStatusSelectOptions,
         currentStatusOption,
         (left, right) => left.value === right.value
     );
-    const assigneeSelectOptions = limitSlackSelectOptions(
-        allAssigneeSelectOptions,
-        currentAssigneeOption,
-        (left, right) => left.value === right.value
-    );
+    const assigneeGroupsByDepartment = new Map<string, typeof allAssigneeSelectOptions>();
+    for (const option of allAssigneeSelectOptions) {
+        const department = option.value === 'assignee:' ? 'Resolutions' : option.department || 'Other Departments';
+        if (!assigneeGroupsByDepartment.has(department)) assigneeGroupsByDepartment.set(department, []);
+        assigneeGroupsByDepartment.get(department)!.push(option);
+    }
+    const assigneeSelectOptionGroups = Array.from(assigneeGroupsByDepartment.entries())
+        .filter(([, options]) => options.length > 0)
+        .map(([department, options]) => ({
+            label: { type: 'plain_text' as const, text: truncateSlackOptionText(department) },
+            options: options.slice(0, 100).map(({ department: _department, ...option }) => option),
+        }))
+        .slice(0, 100);
     const visibilitySelectOptions = limitSlackSelectOptions(
         allVisibilitySelectOptions,
         currentVisibilityOption,
@@ -2510,8 +2529,8 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
                         type: 'static_select',
                         action_id: 'update_review_checkout_assignee',
                         placeholder: { type: 'plain_text', text: 'Assignee' },
-                        ...(currentAssigneeOption ? { initial_option: currentAssigneeOption } : {}),
-                        options: assigneeSelectOptions,
+                        ...(currentAssigneeSlackOption ? { initial_option: currentAssigneeSlackOption } : {}),
+                        option_groups: assigneeSelectOptionGroups,
                     },
                     {
                         type: 'static_select',
@@ -2629,7 +2648,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
         }
         case 'comment':
             text = oldValue
-                ? `Notes Edited By: ${actorLabel}\n💬 ${newValue || details || '—'}\n~▸ ${String(oldValue || '').trim() || '—'}~\n──────────`
+                ? `Notes Edited By: ${actorLabel}\n💬 ${newValue || details || '—'}`
                 : `Notes Added By: ${actorLabel}\n💬 ${details || '—'}\n──────────`;
             break;
         case 'refund_request':
@@ -2643,32 +2662,34 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
     }
 
     if (type === 'comment') {
+        const previousNote = String(oldValue || '').trim() || '—';
+        const nextNote = String(newValue || details || '').trim() || '—';
         if (actorIconUrl) {
             botName = actorLabel;
             botIcon = actorIconUrl;
             blocks = oldValue
                 ? [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Edited By: ${actorLabel}` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${newValue || details || '—'}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${String(oldValue || '').trim() || '—'}~` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${previousNote}~` }] },
                     { type: 'divider' },
                 ]
                 : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Added By: ${actorLabel}` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${details || '—'}` } },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
                     { type: 'divider' },
                 ];
         } else {
             blocks = oldValue
                 ? [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Edited By: ${actorLabel}` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${newValue || details || '—'}` } },
-                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${String(oldValue || '').trim() || '—'}~` }] },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
+                    { type: 'context', elements: [{ type: 'mrkdwn', text: `~▸ ${previousNote}~` }] },
                     { type: 'divider' },
                 ]
                 : [
                     { type: 'context', elements: [{ type: 'mrkdwn', text: `Notes Added By: ${actorLabel}` }] },
-                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${details || '—'}` } },
+                    { type: 'section', text: { type: 'mrkdwn', text: `💬 ${nextNote}` } },
                     { type: 'divider' },
                 ];
         }

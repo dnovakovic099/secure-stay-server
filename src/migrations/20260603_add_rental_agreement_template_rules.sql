@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `rental_agreement_template_rules` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `listingId` BIGINT NOT NULL,
+    `channelId` INT NULL,
+    `channelName` VARCHAR(100) NULL,
+    `templateId` INT NOT NULL,
+    `isActive` TINYINT(1) NOT NULL DEFAULT 1,
+    `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `createdBy` VARCHAR(255) NULL,
+    `updatedBy` VARCHAR(255) NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_rat_rule_listing_channel` (`listingId`, `channelId`),
+    INDEX `idx_rat_rule_listing` (`listingId`),
+    INDEX `idx_rat_rule_channel` (`channelId`),
+    INDEX `idx_rat_rule_template` (`templateId`),
+    INDEX `idx_rat_rule_active` (`isActive`),
+    CONSTRAINT `fk_rat_rule_listing` FOREIGN KEY (`listingId`) REFERENCES `listing_info` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_rat_rule_template` FOREIGN KEY (`templateId`) REFERENCES `rental_agreement_templates` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
