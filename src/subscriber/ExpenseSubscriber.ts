@@ -244,15 +244,17 @@ export class ExpenseSubscriber
         const { databaseEntity, entity, manager } = event;
         if (!databaseEntity || !entity) return;
 
-        const oldData = { ...databaseEntity };
+        const slackPreviousData = (entity as any).__slackPreviousData;
+        const oldData = slackPreviousData ? { ...slackPreviousData } : { ...databaseEntity };
         const newData = { ...entity };
+        delete (newData as any).__slackPreviousData;
         const diff = getDiff(oldData, newData);
 
         // nothing changed?
         if (Object.keys(diff).length === 0) return;
 
         let eventType = "update";
-        if ((entity.status != databaseEntity.status)) {
+        if (diff.status || (entity.status != oldData.status)) {
             eventType = "statusUpdate";
         } else if (entity.isDeleted == 1) {
             eventType = "delete";

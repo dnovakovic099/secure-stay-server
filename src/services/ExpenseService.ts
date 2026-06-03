@@ -93,6 +93,19 @@ export class ExpenseService {
         return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), slackMessage.channel, slackMessage.threadTs);
     }
 
+    private async attachSlackPermalink(expense: ExpenseEntity) {
+        const slackMessage = await this.slackMessageRepo.findOne({
+            where: { entityType: "expense", entityId: expense.id },
+            order: { id: "DESC" },
+        });
+
+        return {
+            ...expense,
+            expenseId: expense.id,
+            slackThreadPermalink: this.buildSlackPermalink(slackMessage),
+        };
+    }
+
     private getTimeZoneOffsetMs(date: Date, timeZone: string) {
         const parts = new Intl.DateTimeFormat("en-US", {
             timeZone,
@@ -318,7 +331,7 @@ export class ExpenseService {
                 await this.fileInfoRepo.save(fileRecord);
             }
         }
-        return expense;
+        return this.attachSlackPermalink(expense);
     }
 
     private async createHostawayExpense(requestBody: {
@@ -737,10 +750,7 @@ export class ExpenseService {
             throw CustomErrorHandler.notFound('Expense not found.');
         }
         expense.amount = Math.abs(expense.amount); // Ensure amount is positive for display
-        return {
-            ...expense,
-            expenseId: expense.id
-        };
+        return this.attachSlackPermalink(expense);
     }
 
     async getExpenseHistory(expenseId: number) {
@@ -839,6 +849,7 @@ export class ExpenseService {
         expense.comesFrom = comesFrom || null;
         expense.reservationId = reservationId || null;
         expense.guestName = guestName || null;
+        (expense as any).__slackPreviousData = previousExpense;
         if (fileNames && fileNames.length > 0) {
             expense.fileNames = JSON.stringify(fileNames);
         }
@@ -857,6 +868,7 @@ export class ExpenseService {
         // }
 
         await this.expenseRepo.save(expense);
+        delete (expense as any).__slackPreviousData;
         if (!skipRefundRequestSync) {
             await this.syncLinkedRefundRequestFromExpense(expense, userId);
         }
@@ -902,7 +914,7 @@ export class ExpenseService {
                 await this.fileInfoRepo.save(fileRecord);
             }
         }
-        return expense;
+        return this.attachSlackPermalink(expense);
     }
 
     async updateExpenseStatus(request: Request, userId: string,) {
@@ -918,6 +930,7 @@ export class ExpenseService {
         const previousById = new Map(expense.map((element) => [element.id, { ...element }]));
 
         expense.forEach((element) => {
+            (element as any).__slackPreviousData = previousById.get(element.id);
             element.status = status;
             if (paidDate !== "") {
                 element.datePaid = paidDate;
@@ -926,6 +939,9 @@ export class ExpenseService {
             element.updatedAt = new Date();
         });
         await this.expenseRepo.save(expense);
+        expense.forEach((element) => {
+            delete (element as any).__slackPreviousData;
+        });
         for (const element of expense) {
             if (!skipRefundRequestSync) {
                 await this.syncLinkedRefundRequestFromExpense(element, userId);
