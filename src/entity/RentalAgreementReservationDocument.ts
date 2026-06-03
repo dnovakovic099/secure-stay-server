@@ -74,6 +74,18 @@ export class RentalAgreementReservationDocument {
     @Column({ type: "text", nullable: true })
     skipIdUploadReason: string | null;
 
+    @Column({ type: "timestamp", nullable: true })
+    signatureTimestampOverrideAt: Date | null;
+
+    @Column({ type: "varchar", length: 100, nullable: true })
+    signatureTimezoneOverride: string | null;
+
+    @Column({ type: "timestamp", nullable: true })
+    signatureTimestampOverrideUpdatedAt: Date | null;
+
+    @Column({ type: "varchar", length: 255, nullable: true })
+    signatureTimestampOverrideUpdatedBy: string | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

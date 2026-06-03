@@ -14,6 +14,7 @@ import { PUPPETEER_LAUNCH_OPTIONS } from "../constants";
 import { rentalAgreementTemplateService } from "./RentalAgreementTemplateService";
 import { sendSupportEmail } from "../utils/sendSupportEmail";
 import { RentalAgreementReservationDocument } from "../entity/RentalAgreementReservationDocument";
+import { formatPhoneForDisplay } from "../utils/phoneDisplay.util";
 
 const signingRepo = () => appDatabase.getRepository(RentalAgreementSigning);
 const fileInfoRepo = () => appDatabase.getRepository(FileInfo);
@@ -29,6 +30,16 @@ type RentalAgreementAdminFilters = {
     toDate?: string;
     dateType?: string;
     channel?: string;
+    property?: string;
+    listingId?: string;
+    propertyType?: string;
+    serviceType?: string;
+    bothCompletion?: string;
+    signatureCompletion?: string;
+    idCompletion?: string;
+    overridden?: string;
+    overriddenBy?: string;
+    signatureTimestampOverridden?: string;
     sort?: string;
     page?: number;
     limit?: number;
@@ -71,12 +82,20 @@ type RentalAgreementOverviewRow = {
     overrideReason: string | null;
     skipIdUpload: boolean;
     skipIdUploadReason: string | null;
+    signatureComplete: boolean;
+    idUploadComplete: boolean;
+    idFrontUploaded: boolean;
+    idBackUploaded: boolean;
     propertyType: string | null;
     serviceType: string | null;
     viewedAt: string | null;
     firstViewedAt: string | null;
     lastViewedAt: string | null;
     overriddenBy: string | null;
+    overriddenAt: string | null;
+    signatureTimestampOverrideAt: string | null;
+    signatureTimezoneOverride: string | null;
+    signatureTimestampOverrideUpdatedBy: string | null;
     lastEditedBy: string | null;
     agreementStatus: "signed" | "overridden" | "not_yet_signed";
 };
@@ -101,6 +120,7 @@ type RentalAgreementTemplateContext = {
     totalPrice: string;
     currency: string;
     reservationId: string;
+    confirmationCode: string;
 };
 
 type AgreementSnapshot = {
@@ -118,6 +138,7 @@ type AgreementSnapshot = {
 type PreviewReservationContext = {
     hostifyReservationId: string;
     reservationCode: string;
+    confirmationCode: string;
     guestName: string;
     guestEmail: string;
     guestPhone: string;
@@ -268,6 +289,21 @@ export class RentalAgreementSigningService {
         return listing?.name || listing?.externalListingName || info.listingName || listing?.internalListingName || "";
     }
 
+    private formatAgreementHtmlPhone(html: string | null | undefined, phone?: string | null): string {
+        const source = String(html || "");
+        const formattedPhone = formatPhoneForDisplay(phone);
+        const rawPhone = String(phone || "").trim();
+        if (!source || !formattedPhone || !rawPhone || formattedPhone === rawPhone) return source;
+
+        const escapedRaw = rawPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const digitsOnly = rawPhone.replace(/\D/g, "");
+        let result = source.replace(new RegExp(escapedRaw, "g"), formattedPhone);
+        if (digitsOnly.length >= 10) {
+            result = result.replace(new RegExp(`\\+?${digitsOnly}`, "g"), formattedPhone);
+        }
+        return result;
+    }
+
     private buildTemplateContext(info: ReservationInfoEntity, listing: Listing | null): RentalAgreementTemplateContext {
         const propertyName = this.getDisplayPropertyName(info, listing);
         const listingName = this.getActualListingName(info, listing);
@@ -280,7 +316,7 @@ export class RentalAgreementSigningService {
             guestFirstName: info.guestFirstName || "",
             guestLastName: info.guestLastName || "",
             guestEmail: info.guestEmail || "",
-            guestPhone: info.phone || "",
+            guestPhone: formatPhoneForDisplay(info.phone) || info.phone || "",
             channel: info.channelName || "",
             petCount: String(info.pets || 0),
             checkInDate: this.formatDateValue(info.arrivalDate),
@@ -295,6 +331,7 @@ export class RentalAgreementSigningService {
             totalPrice: String(info.totalPrice || ""),
             currency: info.currency || "",
             reservationId: info.reservationId || "",
+            confirmationCode: info.confirmation_code || "",
         };
     }
 
@@ -320,6 +357,7 @@ export class RentalAgreementSigningService {
             totalPrice: context.totalPrice,
             currency: context.currency,
             reservationId: context.reservationId,
+            confirmationCode: context.confirmationCode,
         };
 
         return source.replace(/\{\{(\w+)\}\}/g, (_, token) => tokenMap[token] ?? "");
@@ -599,6 +637,10 @@ export class RentalAgreementSigningService {
     ): RentalAgreementOverviewRow {
         const isSigned = Boolean(raw.signingId);
         const isOverridden = Boolean(raw.isOverridden);
+        const signatureComplete = isSigned || isOverridden;
+        const idFrontUploaded = Boolean(raw.idFrontFileInfoId);
+        const idBackUploaded = Boolean(raw.idBackFileInfoId);
+        const idUploadComplete = Boolean(raw.skipIdUpload) || (idFrontUploaded && idBackUploaded);
         const agreementStatus = isSigned ? "signed" : isOverridden ? "overridden" : "not_yet_signed";
 
         return {
@@ -627,12 +669,20 @@ export class RentalAgreementSigningService {
             overrideReason: raw.overrideReason || null,
             skipIdUpload: Boolean(raw.skipIdUpload),
             skipIdUploadReason: raw.skipIdUploadReason || null,
+            signatureComplete,
+            idUploadComplete,
+            idFrontUploaded,
+            idBackUploaded,
             propertyType: raw.propertyType || null,
             serviceType: raw.serviceType || null,
             viewedAt: raw.lastViewedAt ? new Date(raw.lastViewedAt).toISOString() : raw.firstViewedAt ? new Date(raw.firstViewedAt).toISOString() : null,
             firstViewedAt: raw.firstViewedAt ? new Date(raw.firstViewedAt).toISOString() : null,
             lastViewedAt: raw.lastViewedAt ? new Date(raw.lastViewedAt).toISOString() : null,
             overriddenBy: raw.overriddenBy || null,
+            overriddenAt: raw.overriddenAt ? new Date(raw.overriddenAt).toISOString() : null,
+            signatureTimestampOverrideAt: raw.signatureTimestampOverrideAt ? new Date(raw.signatureTimestampOverrideAt).toISOString() : null,
+            signatureTimezoneOverride: raw.signatureTimezoneOverride || null,
+            signatureTimestampOverrideUpdatedBy: raw.signatureTimestampOverrideUpdatedBy || null,
             lastEditedBy: raw.lastEditedBy || null,
             agreementStatus,
         };
@@ -863,6 +913,8 @@ export class RentalAgreementSigningService {
         overallSummary: RentalAgreementSummaryCard;
         records: RentalAgreementOverviewRow[];
         availableChannels: string[];
+        availableProperties: string[];
+        availableOverriddenBy: string[];
         total: number;
         page: number;
         limit: number;
@@ -879,6 +931,31 @@ export class RentalAgreementSigningService {
             .split(",")
             .map((value) => value.trim())
             .filter(Boolean);
+        const propertyValues = String(filters.property || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const listingIdValues = String(filters.listingId || "")
+            .split(",")
+            .map((value) => Number(value.trim()))
+            .filter(Boolean);
+        const propertyTypeValues = String(filters.propertyType || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const serviceTypeValues = String(filters.serviceType || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const overriddenByValues = String(filters.overriddenBy || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const bothCompletion = String(filters.bothCompletion || "all");
+        const signatureCompletion = String(filters.signatureCompletion || "all");
+        const idCompletion = String(filters.idCompletion || "all");
+        const overridden = String(filters.overridden || "all");
+        const signatureTimestampOverridden = String(filters.signatureTimestampOverridden || "all");
         const sort = String(filters.sort || "checkInAsc");
         const editedOnly = String(filters.editedOnly || "false") === "true";
         const bucket = String(filters.bucket || "");
@@ -913,6 +990,8 @@ export class RentalAgreementSigningService {
                 "signing.signedByEmail AS signedByEmail",
                 "signing.pdfStatus AS pdfStatus",
                 "signing.fileInfoId AS fileInfoId",
+                "signing.idFrontFileInfoId AS idFrontFileInfoId",
+                "signing.idBackFileInfoId AS idBackFileInfoId",
                 "document.isEdited AS isEdited",
                 "document.isOverridden AS isOverridden",
                 "document.overrideReason AS overrideReason",
@@ -921,6 +1000,10 @@ export class RentalAgreementSigningService {
                 "document.firstViewedAt AS firstViewedAt",
                 "document.lastViewedAt AS lastViewedAt",
                 "document.overriddenBy AS overriddenBy",
+                "document.overriddenAt AS overriddenAt",
+                "document.signatureTimestampOverrideAt AS signatureTimestampOverrideAt",
+                "document.signatureTimezoneOverride AS signatureTimezoneOverride",
+                "document.signatureTimestampOverrideUpdatedBy AS signatureTimestampOverrideUpdatedBy",
                 "document.lastEditedBy AS lastEditedBy",
                 "listing.tags AS listingTags",
             ])
@@ -947,6 +1030,10 @@ export class RentalAgreementSigningService {
                 qb.andWhere("COALESCE(document.lastViewedAt, document.firstViewedAt) IS NOT NULL");
                 qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+            } else if (dateType === "overridden") {
+                qb.andWhere("document.overriddenAt IS NOT NULL");
+                qb.andWhere("DATE(document.overriddenAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                qb.andWhere("DATE(document.overriddenAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else {
                 qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
                 qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
@@ -956,6 +1043,30 @@ export class RentalAgreementSigningService {
         const channelWhere = this.buildRentalAgreementChannelWhere(channelValues);
         if (channelWhere) {
             qb.andWhere(channelWhere.sql, channelWhere.params);
+        }
+
+        if (propertyValues.length) {
+            qb.andWhere("reservation.listingName IN (:...propertyValues)", { propertyValues });
+        }
+
+        if (listingIdValues.length) {
+            qb.andWhere("reservation.listingMapId IN (:...listingIdValues)", { listingIdValues });
+        }
+
+        if (propertyTypeValues.length) {
+            const clauses = propertyTypeValues.map((value, index) => {
+                const param = `propertyType${index}`;
+                return `(listing.tags LIKE :${param} OR listing.propertyType LIKE :${param})`;
+            });
+            qb.andWhere(`(${clauses.join(" OR ")})`, Object.fromEntries(propertyTypeValues.map((value, index) => [`propertyType${index}`, `%${value}%`])));
+        }
+
+        if (serviceTypeValues.length) {
+            const clauses = serviceTypeValues.map((value, index) => {
+                const param = `serviceType${index}`;
+                return `listing.tags LIKE :${param}`;
+            });
+            qb.andWhere(`(${clauses.join(" OR ")})`, Object.fromEntries(serviceTypeValues.map((value, index) => [`serviceType${index}`, `%${value}%`])));
         }
 
         if (search) {
@@ -981,6 +1092,40 @@ export class RentalAgreementSigningService {
 
         if (editedOnly) {
             qb.andWhere("COALESCE(document.isEdited, 0) = 1");
+        }
+
+        if (overridden === "overridden") {
+            qb.andWhere("COALESCE(document.isOverridden, 0) = 1");
+        } else if (overridden === "not_overridden") {
+            qb.andWhere("COALESCE(document.isOverridden, 0) = 0");
+        }
+
+        if (overriddenByValues.length) {
+            qb.andWhere("document.overriddenBy IN (:...overriddenByValues)", { overriddenByValues });
+        }
+
+        if (signatureTimestampOverridden === "overridden") {
+            qb.andWhere("document.signatureTimestampOverrideAt IS NOT NULL");
+        } else if (signatureTimestampOverridden === "not_overridden") {
+            qb.andWhere("document.signatureTimestampOverrideAt IS NULL");
+        }
+
+        const signatureCompleteSql = "(signing.id IS NOT NULL OR COALESCE(document.isOverridden, 0) = 1)";
+        const idCompleteSql = "(COALESCE(document.skipIdUpload, 0) = 1 OR (signing.idFrontFileInfoId IS NOT NULL AND signing.idBackFileInfoId IS NOT NULL))";
+        if (bothCompletion === "complete") {
+            qb.andWhere(`${signatureCompleteSql} AND ${idCompleteSql}`);
+        } else if (bothCompletion === "incomplete") {
+            qb.andWhere(`NOT (${signatureCompleteSql} AND ${idCompleteSql})`);
+        }
+        if (signatureCompletion === "complete") {
+            qb.andWhere(signatureCompleteSql);
+        } else if (signatureCompletion === "incomplete") {
+            qb.andWhere(`NOT ${signatureCompleteSql}`);
+        }
+        if (idCompletion === "complete") {
+            qb.andWhere(idCompleteSql);
+        } else if (idCompletion === "incomplete") {
+            qb.andWhere(`NOT ${idCompleteSql}`);
         }
 
         if (pdfStatus === "ready") {
@@ -1034,9 +1179,32 @@ export class RentalAgreementSigningService {
             .orderBy("reservation.channelName", "ASC")
             .getRawMany();
 
-        const [rawRows, channelRows] = await Promise.all([
+        const propertyRowsPromise = reservationInfoRepo()
+            .createQueryBuilder("reservation")
+            .select("DISTINCT reservation.listingName", "propertyName")
+            .where("reservation.arrivalDate IS NOT NULL")
+            .andWhere("reservation.arrivalDate >= :minArrivalDate", {
+                minArrivalDate: this.rentalAgreementMinArrivalDate,
+            })
+            .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
+                excludedStatuses: this.excludedReservationStatuses,
+            })
+            .andWhere("COALESCE(reservation.listingName, '') <> ''")
+            .orderBy("reservation.listingName", "ASC")
+            .getRawMany();
+
+        const overriddenByRowsPromise = reservationDocumentRepo()
+            .createQueryBuilder("document")
+            .select("DISTINCT document.overriddenBy", "overriddenBy")
+            .where("COALESCE(document.overriddenBy, '') <> ''")
+            .orderBy("document.overriddenBy", "ASC")
+            .getRawMany();
+
+        const [rawRows, channelRows, propertyRows, overriddenByRows] = await Promise.all([
             qb.getRawMany(),
             channelRowsPromise,
+            propertyRowsPromise,
+            overriddenByRowsPromise,
         ]);
         const hasMore = rawRows.length > limit;
         const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
@@ -1045,6 +1213,20 @@ export class RentalAgreementSigningService {
             new Set(
                 channelRows
                     .map((row) => this.normalizeRentalAgreementChannel(row.channelName))
+                    .filter(Boolean),
+            ),
+        ).sort((a, b) => a.localeCompare(b));
+        const availableProperties = Array.from(
+            new Set(
+                propertyRows
+                    .map((row) => String(row.propertyName || "").trim())
+                    .filter(Boolean),
+            ),
+        ).sort((a, b) => a.localeCompare(b));
+        const availableOverriddenBy = Array.from(
+            new Set(
+                overriddenByRows
+                    .map((row) => String(row.overriddenBy || "").trim())
                     .filter(Boolean),
             ),
         ).sort((a, b) => a.localeCompare(b));
@@ -1126,6 +1308,8 @@ export class RentalAgreementSigningService {
             overallSummary,
             records,
             availableChannels,
+            availableProperties,
+            availableOverriddenBy,
             total,
             page,
             limit,
@@ -1154,9 +1338,10 @@ export class RentalAgreementSigningService {
         const previewReservation: PreviewReservationContext = {
             hostifyReservationId: String(reservationInfo.id),
             reservationCode: reservationInfo.reservationId || "",
+            confirmationCode: reservationInfo.confirmation_code || "",
             guestName: reservationInfo.guestName || "",
             guestEmail: reservationInfo.guestEmail || "",
-            guestPhone: reservationInfo.phone || "",
+            guestPhone: formatPhoneForDisplay(reservationInfo.phone) || reservationInfo.phone || "",
             channel: reservationInfo.channelName || "",
             petCount: reservationInfo.pets || 0,
             listingName: this.getActualListingName(reservationInfo, listing),
@@ -1179,6 +1364,14 @@ export class RentalAgreementSigningService {
         const rendered = this.renderAgreementSnapshot(snapshot, reservationInfo, listing);
         const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
         const fileInfo = signing ? await this.getFileInfoForSigning(signing) : null;
+        const toIdPhotoResult = (fi: FileInfo | null) =>
+            fi
+                ? {
+                    status: fi.status,
+                    webViewLink: fi.webViewLink || null,
+                    webContentLink: fi.webContentLink || null,
+                }
+                : null;
 
         return {
             templateId: template.id,
@@ -1187,11 +1380,13 @@ export class RentalAgreementSigningService {
                 id: reservationInfo.id,
                 hostifyReservationId: String(reservationInfo.id),
                 reservationCode: reservationInfo.reservationId || "",
+                confirmationCode: reservationInfo.confirmation_code || "",
                 hostifyReservationUrl: reservationInfo.reservationId
                     ? `https://us.hostify.com/reservations/view/${reservationInfo.reservationId}`
                     : `https://us.hostify.com/reservations/view/${hostifyReservationId}`,
                 guestName: reservationInfo.guestName || "",
                 guestEmail: reservationInfo.guestEmail || "",
+                guestPhone: formatPhoneForDisplay(reservationInfo.phone) || reservationInfo.phone || "",
                 channelName: reservationInfo.channelName || "",
                 listingName: this.getDisplayPropertyName(reservationInfo, listing),
                 propertyFullAddress: listing?.address || "",
@@ -1216,6 +1411,9 @@ export class RentalAgreementSigningService {
                 skipIdUploadAt: reservationDocument?.skipIdUploadAt ? reservationDocument.skipIdUploadAt.toISOString() : null,
                 skipIdUploadBy: reservationDocument?.skipIdUploadBy || null,
                 skipIdUploadReason: reservationDocument?.skipIdUploadReason || null,
+                signatureTimestampOverrideAt: reservationDocument?.signatureTimestampOverrideAt ? reservationDocument.signatureTimestampOverrideAt.toISOString() : null,
+                signatureTimezoneOverride: reservationDocument?.signatureTimezoneOverride || null,
+                signatureTimestampOverrideUpdatedBy: reservationDocument?.signatureTimestampOverrideUpdatedBy || null,
             },
             preview: {
                 headerHtml: rendered.resolvedHeaderHtml,
@@ -1229,18 +1427,18 @@ export class RentalAgreementSigningService {
                 signedAt: signing.signedAt ? signing.signedAt.toISOString() : null,
                 signedByName: signing.signedByName || null,
                 signedByEmail: signing.signedByEmail || null,
+                renderedHtml: this.formatAgreementHtmlPhone(signing.renderedHtml, reservationInfo.phone) || null,
+                signatureDataUrl: signing.signatureDataUrl || null,
                 pdfStatus: signing.pdfStatus || null,
                 pdfDownloadAvailable: this.isDownloadArtifactAvailable(fileInfo),
                 pdfViewUrl: fileInfo?.webViewLink || null,
             } : null,
-        idFrontPhoto: signing?.idFrontFileInfoId
-            ? await fileInfoRepo().findOne({ where: { id: signing.idFrontFileInfoId } }).then((fi) =>
-                fi ? { status: fi.status, webViewLink: fi.webViewLink || null } : null)
-            : null,
-        idBackPhoto: signing?.idBackFileInfoId
-            ? await fileInfoRepo().findOne({ where: { id: signing.idBackFileInfoId } }).then((fi) =>
-                fi ? { status: fi.status, webViewLink: fi.webViewLink || null } : null)
-            : null,
+            idFrontPhoto: signing?.idFrontFileInfoId
+                ? await fileInfoRepo().findOne({ where: { id: signing.idFrontFileInfoId } }).then(toIdPhotoResult)
+                : null,
+            idBackPhoto: signing?.idBackFileInfoId
+                ? await fileInfoRepo().findOne({ where: { id: signing.idBackFileInfoId } }).then(toIdPhotoResult)
+                : null,
         };
     }
 
@@ -1316,6 +1514,8 @@ export class RentalAgreementSigningService {
             overrideReason?: string | null;
             skipIdUpload?: boolean;
             skipIdUploadReason?: string | null;
+            signatureTimestampOverrideAt?: string | null;
+            signatureTimezoneOverride?: string | null;
         },
         userId?: string,
     ) {
@@ -1358,6 +1558,15 @@ export class RentalAgreementSigningService {
             nextDocument.skipIdUploadReason = payload.skipIdUpload
                 ? (String(payload.skipIdUploadReason || "").trim() || nextDocument.skipIdUploadReason || "Manual ID upload requirement override")
                 : null;
+        }
+
+        if (payload.signatureTimestampOverrideAt !== undefined || payload.signatureTimezoneOverride !== undefined) {
+            const timestampValue = String(payload.signatureTimestampOverrideAt || "").trim();
+            const timezoneValue = String(payload.signatureTimezoneOverride || "").trim();
+            nextDocument.signatureTimestampOverrideAt = timestampValue ? new Date(timestampValue) : null;
+            nextDocument.signatureTimezoneOverride = timestampValue ? (timezoneValue || "America/New_York") : null;
+            nextDocument.signatureTimestampOverrideUpdatedAt = timestampValue ? new Date() : null;
+            nextDocument.signatureTimestampOverrideUpdatedBy = timestampValue ? (userId || null) : null;
         }
 
         await reservationDocumentRepo().save(nextDocument);
@@ -1476,29 +1685,85 @@ export class RentalAgreementSigningService {
         };
     }
 
+    private async getFileInfoDataUri(fileInfoId?: number | null): Promise<string | null> {
+        if (!fileInfoId) return null;
+        const fileInfo = await fileInfoRepo().findOne({ where: { id: fileInfoId } });
+        if (!fileInfo?.localPath || !fs.existsSync(fileInfo.localPath)) return null;
+        const mimetype = fileInfo.mimetype || "image/jpeg";
+        const fileContent = fs.readFileSync(fileInfo.localPath);
+        return `data:${mimetype};base64,${fileContent.toString("base64")}`;
+    }
+
     private async generateAndUploadPdf(signingId: number, reservationInfo: ReservationInfoEntity): Promise<void> {
         const signing = await signingRepo().findOne({ where: { id: signingId } });
         if (!signing) return;
 
         let browser: any;
         try {
+            const reservationDocument = await this.getReservationDocument(signing.hostifyReservationId);
+            const includeIdDocuments = !(reservationDocument?.skipIdUpload ?? false);
+            const includeSignature = !(reservationDocument?.isOverridden ?? false);
+            const [idFrontDataUri, idBackDataUri] = await Promise.all([
+                this.getFileInfoDataUri(signing.idFrontFileInfoId),
+                this.getFileInfoDataUri(signing.idBackFileInfoId),
+            ]);
+            const renderIdCard = (label: string, dataUri: string | null) => `
+                <div class="id-card">
+                    <div class="id-label">${label}</div>
+                    ${dataUri
+                        ? `<img class="id-img" src="${dataUri}" alt="${label}" />`
+                        : `<div class="id-placeholder">Not available</div>`}
+                </div>
+            `;
+            const idDocumentsSection = includeIdDocuments && (idFrontDataUri || idBackDataUri) ? `
+                <div class="id-documents">
+                    <h3>Identity Verification Documents</h3>
+                    <div class="id-row">
+                        ${renderIdCard("Front ID", idFrontDataUri)}
+                        ${renderIdCard("Back ID", idBackDataUri)}
+                    </div>
+                </div>
+            ` : "";
+            const displayedSignedAt = reservationDocument?.signatureTimestampOverrideAt || signing.signedAt;
+            const displayedSignedTimezone = reservationDocument?.signatureTimezoneOverride || "America/New_York";
+            const displayedPhone = formatPhoneForDisplay(reservationInfo.phone) || reservationInfo.phone || "N/A";
+            const renderedAgreementHtml = this.formatAgreementHtmlPhone(signing.renderedHtml, reservationInfo.phone);
+            const signatureDetailsSection = includeSignature ? `
+                <div class="signer-details">
+                  <p><strong>Signed by:</strong> ${signing.signedByName}</p>
+                  <p><strong>Email:</strong> ${signing.signedByEmail || "N/A"}</p>
+                  <p><strong>Phone:</strong> ${displayedPhone}</p>
+                </div>
+                <img class="sig-img" src="${signing.signatureDataUrl}" alt="Signature" />
+                <p class="timestamp">Signed: ${displayedSignedAt.toLocaleString("en-US", { timeZone: displayedSignedTimezone, year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" })} | IP: ${signing.ipAddress || "N/A"}</p>
+            ` : "";
+            const completedSection = idDocumentsSection || signatureDetailsSection ? `
+                <div class="sig-section">
+                    ${idDocumentsSection}
+                    ${signatureDetailsSection}
+                </div>
+            ` : "";
             const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   body { font-family: Arial, sans-serif; margin: 40px; color: #333; line-height: 1.6; }
-  .agreement-header-block { display: none !important; }
+  .agreement-header-block { margin-bottom: 24px; }
   .agreement-footer-block { margin-bottom: 24px; }
-  .agreement-body { padding-top: 20px; }
+  .agreement-body { padding-top: 0; }
   .sig-section { margin-top: 40px; border-top: 2px solid #333; padding-top: 20px; }
-  .sig-img { max-width: 300px; border: 1px solid #ccc; display: block; margin-top: 10px; }
+  .id-documents { margin-bottom: 22px; }
+  .id-documents h3 { margin: 0 0 14px; font-size: 18px; line-height: 1.2; color: #111; }
+  .id-row { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: start; }
+  .id-label { margin-bottom: 8px; font-size: 14px; font-weight: 700; color: #111; }
+  .id-img { width: 100%; max-height: 190px; object-fit: contain; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+  .id-placeholder { height: 150px; border: 1px dashed #cbd5e1; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 13px; }
+  .signer-details { margin-top: 12px; margin-bottom: 10px; line-height: 1.22; }
+  .signer-details p { margin: 0 0 4px; }
+  .signer-details strong { display: inline-block; min-width: 72px; }
+  .sig-img { max-width: 300px; border: 1px solid #ccc; display: block; margin-top: 8px; }
   .timestamp { margin-top: 10px; font-size: 12px; color: #777; }
 </style></head><body>
-  <div class="agreement-body">${signing.renderedHtml}</div>
-  <div class="sig-section">
-    <p><strong>Signed by:</strong> ${signing.signedByName}</p>
-    <p><strong>Email:</strong> ${signing.signedByEmail || "N/A"}</p>
-    <img class="sig-img" src="${signing.signatureDataUrl}" alt="Signature" />
-    <p class="timestamp">Signed: ${signing.signedAt.toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" })} | IP: ${signing.ipAddress || "N/A"}</p>
-  </div>
+  <div class="agreement-body">${renderedAgreementHtml}</div>
+  ${completedSection}
 </body></html>`;
 
             browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
