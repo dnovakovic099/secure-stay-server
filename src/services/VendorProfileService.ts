@@ -374,9 +374,20 @@ export class VendorProfileService {
         return new Map(users.map(user => [user.uid, `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.uid]));
     }
 
+    private async withArchivedListingStatus<T extends Partial<VendorAssignment>>(assignment: T): Promise<T> {
+        if (!assignment.listingId) return assignment;
+        const listing = await this.listingRepo
+            .createQueryBuilder("listing")
+            .withDeleted()
+            .select(["listing.id", "listing.deletedAt"])
+            .where("listing.id = :listingId", { listingId: assignment.listingId })
+            .getOne();
+        return listing?.deletedAt ? { ...assignment, status: "archived" } : assignment;
+    }
+
     private async getListingMeta(userId: string) {
         const listingService = new ListingService();
-        const listings = await listingService.getListingNames(userId);
+        const listings = await listingService.getListingNames(userId, true);
         const listingDetails = await this.listingDetailRepo.find();
         const listingSchedules = await this.listingScheduleRepo.find();
         const listingById = new Map(listings.map((listing: any) => [String(listing.id), listing]));
@@ -391,10 +402,13 @@ export class VendorProfileService {
 
     private hydrateAssignment(assignment: VendorAssignment, listingMeta: Awaited<ReturnType<VendorProfileService["getListingMeta"]>>, userMap: Map<string, string>) {
         const listing = listingMeta.listingById.get(String(assignment.listingId));
+        const listingIsArchived = Boolean(listing?.deletedAt);
         return {
             ...assignment,
             listingName: listing?.internalListingName || listing?.name,
             internalListingName: listing?.internalListingName,
+            listingDeletedAt: listing?.deletedAt || null,
+            status: listingIsArchived ? "archived" : assignment.status,
             tags: listing?.tags,
             propertyType: listing?.propertyType,
             serviceType: listing?.serviceType,
@@ -725,7 +739,7 @@ export class VendorProfileService {
         if (body.copyFromAssignmentId) {
             sourceAssignment = await this.vendorAssignmentRepo.findOneBy({ id: body.copyFromAssignmentId });
         }
-        const payload = {
+        const payload = await this.withArchivedListingStatus({
             ...(sourceAssignment || {}),
             ...body,
             id: undefined,
@@ -735,7 +749,7 @@ export class VendorProfileService {
             listingId: String(body.listingId || sourceAssignment?.listingId || ""),
             createdBy: userId,
             updatedBy: userId,
-        };
+        });
         await this.assertSingleActiveCleanerAssignment(this.vendorAssignmentRepo, payload);
         const assignment = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.create(payload));
         await this.createAssignmentChangeUpdate(assignment, [{ label: "Assignment", oldValue: null, newValue: "Created" }], userId);
@@ -746,11 +760,11 @@ export class VendorProfileService {
         await this.ensureVendorSchema();
         const existing = await this.vendorAssignmentRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor assignment with ID ${id} not found.`);
-        const nextValues = {
+        const nextValues = await this.withArchivedListingStatus({
             ...body,
-            listingId: body.listingId !== undefined ? String(body.listingId) : undefined,
+            listingId: body.listingId !== undefined ? String(body.listingId) : existing.listingId,
             updatedBy: userId,
-        };
+        });
         await this.assertSingleActiveCleanerAssignment(this.vendorAssignmentRepo, { ...existing, ...nextValues }, existing.id);
         const changes = this.getAssignmentAuditChanges(existing, nextValues);
         const saved = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(existing, nextValues));
@@ -764,7 +778,11 @@ export class VendorProfileService {
         if (assignments.length !== ids.length) throw CustomErrorHandler.notFound("One or more vendor assignments could not be found.");
         const vendorProfileId = assignments[0]?.vendorProfileId;
         for (const assignment of assignments) {
-            const nextValues = { ...updateData, updatedBy: userId };
+            const nextValues = await this.withArchivedListingStatus({
+                ...updateData,
+                listingId: updateData.listingId !== undefined ? String(updateData.listingId) : assignment.listingId,
+                updatedBy: userId,
+            });
             const changes = this.getAssignmentAuditChanges(assignment, nextValues);
             const saved = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(assignment, nextValues));
             await this.createAssignmentChangeUpdate(saved, changes, userId);
