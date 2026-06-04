@@ -25,6 +25,7 @@ import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Employee } from "../entity/Employee";
+import { getEasternTimestampRange } from "../utils/easternTime.util";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -914,8 +915,7 @@ export class RefundRequestService {
             if (selectedDateField === "checkIn" || selectedDateField === "checkOut") {
                 whereConditions[selectedDateField] = Between(fromDate || "1970-01-01", toDate || "2999-12-31");
             } else {
-                const start = fromDate ? new Date(`${fromDate}T00:00:00`) : new Date("1970-01-01T00:00:00");
-                const end = toDate ? new Date(`${toDate}T23:59:59`) : new Date("2999-12-31T23:59:59");
+                const { start, end } = getEasternTimestampRange(fromDate || "1970-01-01", toDate || "2999-12-31");
                 whereConditions[selectedDateField] = Between(start, end);
             }
         }
