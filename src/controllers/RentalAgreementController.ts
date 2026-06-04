@@ -33,6 +33,7 @@ export class RentalAgreementController {
                 statusTab: req.query.statusTab as string | undefined,
                 bucket: req.query.bucket as string | undefined,
                 editedOnly: req.query.editedOnly as string | undefined,
+                includeMetadata: req.query.includeMetadata as string | undefined,
             });
             res.json({ success: true, data: result });
         } catch (err: any) {

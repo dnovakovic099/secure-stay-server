@@ -43,6 +43,7 @@ type RentalAgreementAdminFilters = {
     sort?: string;
     page?: number;
     limit?: number;
+    includeMetadata?: string | boolean;
     statusTab?: string;
     bucket?: string;
     editedOnly?: string | boolean;
@@ -65,6 +66,8 @@ type RentalAgreementOverviewRow = {
     propertyName: string;
     propertyAddress: string;
     channelName: string;
+    currency: string | null;
+    securityDepositFee: number | null;
     arrivalDate: string | null;
     departureDate: string | null;
     checkInTime: string;
@@ -652,6 +655,10 @@ export class RentalAgreementSigningService {
             propertyName: raw.propertyName || "—",
             propertyAddress: raw.propertyAddress || "",
             channelName: raw.channelName || "—",
+            currency: raw.currency || null,
+            securityDepositFee: raw.securityDepositFee !== null && raw.securityDepositFee !== undefined
+                ? Number(raw.securityDepositFee)
+                : null,
             arrivalDate: this.formatDateOnlyValue(raw.arrivalDate),
             departureDate: this.formatDateOnlyValue(raw.departureDate),
             checkInTime: this.formatHourValue(raw.checkInTime ?? raw.listingCheckInTime),
@@ -922,6 +929,7 @@ export class RentalAgreementSigningService {
     }> {
         const page = Math.max(1, Number(filters.page) || 1);
         const limit = Math.min(200, Math.max(10, Number(filters.limit) || 50));
+        const includeMetadata = String(filters.includeMetadata ?? "true") !== "false";
         const search = String(filters.search || "").trim();
         const signingStatus = String(filters.signingStatus || "all");
         const statusTab = String(filters.statusTab || "all");
@@ -977,6 +985,8 @@ export class RentalAgreementSigningService {
                 "reservation.guestEmail AS guestEmail",
                 "reservation.listingName AS propertyName",
                 "reservation.channelName AS channelName",
+                "reservation.currency AS currency",
+                "reservation.securityDepositFee AS securityDepositFee",
                 "reservation.arrivalDate AS arrivalDate",
                 "reservation.departureDate AS departureDate",
                 "reservation.checkInTime AS checkInTime",
@@ -1018,25 +1028,25 @@ export class RentalAgreementSigningService {
         const bucketWhere = this.buildBucketWhere(bucket);
         if (bucketWhere) {
             qb.andWhere(bucketWhere.sql, bucketWhere.params);
-        } else if (fromDate && toDate) {
+        } else if (fromDate || toDate) {
             if (dateType === "checkOut") {
-                qb.andWhere("reservation.departureDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-                qb.andWhere("reservation.departureDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+                if (fromDate) qb.andWhere("reservation.departureDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                if (toDate) qb.andWhere("reservation.departureDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else if (dateType === "signed") {
                 qb.andWhere("signing.signedAt IS NOT NULL");
-                qb.andWhere("DATE(signing.signedAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-                qb.andWhere("DATE(signing.signedAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+                if (fromDate) qb.andWhere("DATE(signing.signedAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                if (toDate) qb.andWhere("DATE(signing.signedAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else if (dateType === "viewed") {
                 qb.andWhere("COALESCE(document.lastViewedAt, document.firstViewedAt) IS NOT NULL");
-                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-                qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+                if (fromDate) qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                if (toDate) qb.andWhere("DATE(COALESCE(document.lastViewedAt, document.firstViewedAt)) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else if (dateType === "overridden") {
                 qb.andWhere("document.overriddenAt IS NOT NULL");
-                qb.andWhere("DATE(document.overriddenAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-                qb.andWhere("DATE(document.overriddenAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+                if (fromDate) qb.andWhere("DATE(document.overriddenAt) >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                if (toDate) qb.andWhere("DATE(document.overriddenAt) <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             } else {
-                qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
-                qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
+                if (fromDate) qb.andWhere("reservation.arrivalDate >= :fromDate", { fromDate: format(fromDate, "yyyy-MM-dd") });
+                if (toDate) qb.andWhere("reservation.arrivalDate <= :toDate", { toDate: format(toDate, "yyyy-MM-dd") });
             }
         }
 
@@ -1165,7 +1175,7 @@ export class RentalAgreementSigningService {
         qb.addOrderBy("reservation.id", "DESC");
         qb.skip((page - 1) * limit).take(limit + 1);
 
-        const channelRowsPromise = reservationInfoRepo()
+        const channelRowsPromise = includeMetadata ? reservationInfoRepo()
             .createQueryBuilder("reservation")
             .select("DISTINCT reservation.channelName", "channelName")
             .where("reservation.arrivalDate IS NOT NULL")
@@ -1177,9 +1187,9 @@ export class RentalAgreementSigningService {
             })
             .andWhere("COALESCE(reservation.channelName, '') <> ''")
             .orderBy("reservation.channelName", "ASC")
-            .getRawMany();
+            .getRawMany() : Promise.resolve([]);
 
-        const propertyRowsPromise = reservationInfoRepo()
+        const propertyRowsPromise = includeMetadata ? reservationInfoRepo()
             .createQueryBuilder("reservation")
             .select("DISTINCT reservation.listingName", "propertyName")
             .where("reservation.arrivalDate IS NOT NULL")
@@ -1191,14 +1201,14 @@ export class RentalAgreementSigningService {
             })
             .andWhere("COALESCE(reservation.listingName, '') <> ''")
             .orderBy("reservation.listingName", "ASC")
-            .getRawMany();
+            .getRawMany() : Promise.resolve([]);
 
-        const overriddenByRowsPromise = reservationDocumentRepo()
+        const overriddenByRowsPromise = includeMetadata ? reservationDocumentRepo()
             .createQueryBuilder("document")
             .select("DISTINCT document.overriddenBy", "overriddenBy")
             .where("COALESCE(document.overriddenBy, '') <> ''")
             .orderBy("document.overriddenBy", "ASC")
-            .getRawMany();
+            .getRawMany() : Promise.resolve([]);
 
         const [rawRows, channelRows, propertyRows, overriddenByRows] = await Promise.all([
             qb.getRawMany(),
@@ -1281,7 +1291,7 @@ export class RentalAgreementSigningService {
         const tomorrow = addDays(today, 1);
         const nextSevenEnd = addDays(today, 6);
 
-        const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days, overallSummary] = await Promise.all([
+        const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days, overallSummary] = includeMetadata ? await Promise.all([
             buildSummaryCard("Ongoing Stay", "reservation.arrivalDate < :today AND reservation.departureDate >= :today", {
                 today: format(today, "yyyy-MM-dd"),
             }),
@@ -1296,7 +1306,13 @@ export class RentalAgreementSigningService {
                 nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
             }),
             buildSummaryCard("Overall", "reservation.arrivalDate IS NOT NULL", {}),
-        ]);
+        ]) : [
+            { label: "Ongoing Stay", total: 0, signed: 0, unsigned: 0, overridden: 0 },
+            { label: "Checking In Today", total: 0, signed: 0, unsigned: 0, overridden: 0 },
+            { label: "Checking In Tomorrow", total: 0, signed: 0, unsigned: 0, overridden: 0 },
+            { label: "Next 7 Days", total: 0, signed: 0, unsigned: 0, overridden: 0 },
+            { label: "Overall", total: 0, signed: 0, unsigned: 0, overridden: 0 },
+        ];
 
         return {
             summary: {
@@ -1390,6 +1406,8 @@ export class RentalAgreementSigningService {
                 channelName: reservationInfo.channelName || "",
                 listingName: this.getDisplayPropertyName(reservationInfo, listing),
                 propertyFullAddress: listing?.address || "",
+                propertyType: this.extractPropertyTypeFromTags(listing?.tags) || null,
+                serviceType: this.extractServiceTypeFromTags(listing?.tags) || null,
                 arrivalDate: reservationInfo.arrivalDate ? new Date(reservationInfo.arrivalDate).toISOString() : null,
                 departureDate: reservationInfo.departureDate ? new Date(reservationInfo.departureDate).toISOString() : null,
             },
@@ -1529,6 +1547,9 @@ export class RentalAgreementSigningService {
             isEdited: false,
             isOverridden: false,
         });
+        const previousSignatureTimestampOverrideAt = nextDocument.signatureTimestampOverrideAt?.getTime() ?? null;
+        const previousSignatureTimezoneOverride = nextDocument.signatureTimezoneOverride || null;
+        let signatureTimestampOverrideChanged = false;
 
         nextDocument.headerHtml = payload.headerHtml ?? snapshot.headerHtml;
         nextDocument.bodyHtml = payload.bodyHtml ?? snapshot.bodyHtml;
@@ -1567,9 +1588,20 @@ export class RentalAgreementSigningService {
             nextDocument.signatureTimezoneOverride = timestampValue ? (timezoneValue || "America/New_York") : null;
             nextDocument.signatureTimestampOverrideUpdatedAt = timestampValue ? new Date() : null;
             nextDocument.signatureTimestampOverrideUpdatedBy = timestampValue ? (userId || null) : null;
+            signatureTimestampOverrideChanged =
+                previousSignatureTimestampOverrideAt !== (nextDocument.signatureTimestampOverrideAt?.getTime() ?? null)
+                || previousSignatureTimezoneOverride !== (nextDocument.signatureTimezoneOverride || null);
         }
 
         await reservationDocumentRepo().save(nextDocument);
+        if (signatureTimestampOverrideChanged) {
+            const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
+            if (signing?.signedAt) {
+                signing.pdfStatus = "pending_pdf";
+                signing.fileInfoId = null;
+                await signingRepo().save(signing);
+            }
+        }
         return this.getReservationDocumentForAdmin(hostifyReservationId);
     }
 
