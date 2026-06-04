@@ -220,6 +220,43 @@ export class Hostify {
         }
     }
 
+    async getTransactions(apiKey: string, filter: Record<string, any> = {}) {
+        try {
+            const url = "https://api-rms.hostify.com/transactions";
+            const per_page = 100;
+            let page = 1;
+            let hasMore = true;
+            const transactions: any[] = [];
+
+            while (hasMore) {
+                const response = await axios.get(url, {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Cache-Control": "no-cache",
+                    },
+                    params: {
+                        page,
+                        per_page,
+                        ...filter,
+                    },
+                });
+
+                const fetchedTransactions = response.data?.transactions || [];
+                transactions.push(...fetchedTransactions);
+                if (fetchedTransactions.length < per_page) {
+                    hasMore = false;
+                } else {
+                    page += 1;
+                }
+            }
+
+            return transactions;
+        } catch (error: any) {
+            logger.error("Error fetching Hostify transactions:", error.message);
+            return [];
+        }
+    }
+
     async updateReservationInfo(apiKey: string, reservationId: number, payload: Record<string, any>) {
         try {
             const url = `https://api-rms.hostify.com/reservations/${reservationId}`;

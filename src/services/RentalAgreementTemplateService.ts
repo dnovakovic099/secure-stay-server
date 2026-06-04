@@ -12,6 +12,7 @@ type TemplateRulePayload = {
     channels?: Array<{ channelId?: number | string | null; channelName?: string | null }>;
     templateId?: number | string;
     isActive?: boolean;
+    action?: "update" | "removeProperty" | "addChannels" | "removeChannels";
 };
 
 export class RentalAgreementTemplateService {
@@ -145,13 +146,68 @@ export class RentalAgreementTemplateService {
     async bulkUpdateRules(ids: number[], payload: Partial<TemplateRulePayload>, userId?: string): Promise<RentalAgreementTemplateRule[]> {
         const normalizedIds = ids.map((id) => Number(id)).filter(Boolean);
         if (!normalizedIds.length) throw new Error("Select at least one rule");
-        if (payload.templateId !== undefined) {
+        const action = payload.action || "update";
+        const channels = this.normalizeChannels(payload as TemplateRulePayload);
+        if (payload.templateId !== undefined && payload.templateId !== null && payload.templateId !== "") {
             const template = await this.getById(Number(payload.templateId));
             if (!template.isActive) throw new Error("Template must be active");
         }
         const rules = await ruleRepo().find({ where: { id: In(normalizedIds) } });
+        if (!rules.length) return this.getRules();
+
+        if (action === "removeProperty") {
+            await ruleRepo().delete({ id: In(normalizedIds) });
+            return this.getRules();
+        }
+
+        if (action === "removeChannels") {
+            const selectedChannelKeys = new Set(channels.map((channel) => channel.channelId === null ? "all" : String(channel.channelId)));
+            const idsToDelete = rules
+                .filter((rule) => selectedChannelKeys.has(rule.channelId === null ? "all" : String(rule.channelId)))
+                .map((rule) => rule.id);
+            if (idsToDelete.length) await ruleRepo().delete({ id: In(idsToDelete) });
+            return this.getRules();
+        }
+
+        if (action === "addChannels") {
+            const targetRows = new Map<string, RentalAgreementTemplateRule>();
+            rules.forEach((rule) => {
+                const templateId = payload.templateId !== undefined && payload.templateId !== null && payload.templateId !== ""
+                    ? Number(payload.templateId)
+                    : rule.templateId;
+                const isActive = payload.isActive !== undefined ? Boolean(payload.isActive) : rule.isActive;
+                targetRows.set(`${rule.listingId}-${templateId}-${isActive ? "active" : "inactive"}`, {
+                    ...rule,
+                    templateId,
+                    isActive,
+                } as RentalAgreementTemplateRule);
+            });
+
+            for (const rule of targetRows.values()) {
+                for (const channel of channels) {
+                    const existing = await ruleRepo().findOne({
+                        where: {
+                            listingId: rule.listingId,
+                            channelId: channel.channelId === null ? IsNull() : channel.channelId,
+                        },
+                    });
+                    const nextRule = existing || ruleRepo().create({
+                        listingId: rule.listingId,
+                        channelId: channel.channelId,
+                        createdBy: userId,
+                    });
+                    nextRule.channelName = channel.channelName;
+                    nextRule.templateId = rule.templateId;
+                    nextRule.isActive = rule.isActive;
+                    nextRule.updatedBy = userId;
+                    await ruleRepo().save(nextRule);
+                }
+            }
+            return this.getRules();
+        }
+
         for (const rule of rules) {
-            if (payload.templateId !== undefined) rule.templateId = Number(payload.templateId);
+            if (payload.templateId !== undefined && payload.templateId !== null && payload.templateId !== "") rule.templateId = Number(payload.templateId);
             if (payload.isActive !== undefined) rule.isActive = Boolean(payload.isActive);
             rule.updatedBy = userId;
         }

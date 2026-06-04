@@ -15,6 +15,7 @@ import { rentalAgreementTemplateService } from "./RentalAgreementTemplateService
 import { sendSupportEmail } from "../utils/sendSupportEmail";
 import { RentalAgreementReservationDocument } from "../entity/RentalAgreementReservationDocument";
 import { formatPhoneForDisplay } from "../utils/phoneDisplay.util";
+import { Hostify } from "../client/Hostify";
 
 const signingRepo = () => appDatabase.getRepository(RentalAgreementSigning);
 const fileInfoRepo = () => appDatabase.getRepository(FileInfo);
@@ -68,6 +69,12 @@ type RentalAgreementOverviewRow = {
     channelName: string;
     currency: string | null;
     securityDepositFee: number | null;
+    securityDepositTransactionId: number | string | null;
+    securityDepositStatus: string | null;
+    securityDepositCompleted: boolean;
+    securityDepositSource: string | null;
+    securityDepositDetails: string | null;
+    securityDepositChargeDate: string | null;
     arrivalDate: string | null;
     departureDate: string | null;
     checkInTime: string;
@@ -101,6 +108,17 @@ type RentalAgreementOverviewRow = {
     signatureTimestampOverrideUpdatedBy: string | null;
     lastEditedBy: string | null;
     agreementStatus: "signed" | "overridden" | "not_yet_signed";
+};
+
+type RentalAgreementSecurityDepositTransaction = {
+    transactionId: number | string | null;
+    amount: number | null;
+    currency: string | null;
+    status: string | null;
+    completed: boolean;
+    source: string | null;
+    details: string | null;
+    chargeDate: string | null;
 };
 
 type RentalAgreementTemplateContext = {
@@ -167,6 +185,117 @@ export class RentalAgreementSigningService {
         "withdrawn", "timedout", "not_possible", "deleted",
     ];
     private rentalAgreementMinArrivalDate = "2026-05-01";
+    private hostifyClient = new Hostify();
+    private securityDepositTransactionCache = new Map<string, {
+        expiresAt: number;
+        transaction: RentalAgreementSecurityDepositTransaction | null;
+    }>();
+    private securityDepositTransactionCacheTtlMs = 2 * 60 * 1000;
+
+    private getTransactionString(transaction: any, keys: string[]) {
+        for (const key of keys) {
+            const value = transaction?.[key];
+            if (value !== undefined && value !== null && String(value).trim()) {
+                return String(value).trim();
+            }
+        }
+        return "";
+    }
+
+    private getTransactionCompleted(transaction: any) {
+        const value = transaction?.is_completed ?? transaction?.isCompleted ?? transaction?.completed;
+        if (typeof value === "boolean") return value;
+        const normalized = String(value ?? "").trim().toLowerCase();
+        return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "completed";
+    }
+
+    private getTransactionTagsText(transaction: any) {
+        const tags = Array.isArray(transaction?.tags) ? transaction.tags : [];
+        return tags
+            .map((tag: any) => String(tag?.tag || tag?.name || tag?.label || tag || "").trim())
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    private isSecurityDepositTransaction(transaction: any) {
+        const haystack = [
+            this.getTransactionString(transaction, ["type", "transaction_type", "transactionType", "payout_type_label", "payoutTypeLabel", "category"]),
+            this.getTransactionString(transaction, ["details", "notes", "code"]),
+            this.getTransactionTagsText(transaction),
+        ].join(" ").toLowerCase();
+
+        return /\bdeposit\b/.test(haystack) || haystack.includes("security deposit");
+    }
+
+    private normalizeSecurityDepositTransaction(transaction: any): RentalAgreementSecurityDepositTransaction {
+        const amountValue = transaction?.amount ?? transaction?.value;
+        const amount = amountValue !== undefined && amountValue !== null && amountValue !== ""
+            ? Number(amountValue)
+            : null;
+        const completed = this.getTransactionCompleted(transaction);
+        const status = this.getTransactionString(transaction, ["status", "payment_status", "paymentStatus", "charge_status", "chargeStatus", "state"])
+            || (completed ? "Completed" : null);
+
+        return {
+            transactionId: transaction?.id ?? transaction?.transaction_id ?? transaction?.transactionId ?? null,
+            amount: amount !== null && !Number.isNaN(amount) ? amount : null,
+            currency: this.getTransactionString(transaction, ["currency"]) || null,
+            status,
+            completed,
+            source: this.getTransactionString(transaction, ["source"]) || null,
+            details: this.getTransactionString(transaction, ["details", "notes", "code"]) || null,
+            chargeDate: this.formatDateOnlyValue(transaction?.charge_date || transaction?.chargeDate || null),
+        };
+    }
+
+    private async getSecurityDepositTransactionsByReservation(hostifyReservationIds: string[]) {
+        const now = Date.now();
+        const uniqueReservationIds = Array.from(new Set(hostifyReservationIds.map((id) => String(id || "").trim()).filter(Boolean)));
+        const result = new Map<string, RentalAgreementSecurityDepositTransaction | null>();
+        const missingReservationIds: string[] = [];
+
+        uniqueReservationIds.forEach((reservationId) => {
+            const cached = this.securityDepositTransactionCache.get(reservationId);
+            if (cached && cached.expiresAt > now) {
+                result.set(reservationId, cached.transaction);
+            } else {
+                missingReservationIds.push(reservationId);
+            }
+        });
+
+        const apiKey = process.env.HOSTIFY_API_KEY || "";
+        if (!apiKey || missingReservationIds.length === 0) return result;
+
+        const concurrency = 5;
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < missingReservationIds.length) {
+                const reservationId = missingReservationIds[cursor++];
+                const numericReservationId = Number(reservationId);
+                if (!Number.isFinite(numericReservationId)) {
+                    result.set(reservationId, null);
+                    continue;
+                }
+                const transactions = await this.hostifyClient.getTransactions(apiKey, { reservation_id: numericReservationId });
+                const depositTransaction = transactions
+                    .filter((transaction: any) => this.getTransactionCompleted(transaction) && this.isSecurityDepositTransaction(transaction))
+                    .sort((a: any, b: any) => {
+                        const aTime = new Date(a?.charge_date || a?.chargeDate || a?.arrival_date || 0).getTime();
+                        const bTime = new Date(b?.charge_date || b?.chargeDate || b?.arrival_date || 0).getTime();
+                        return bTime - aTime;
+                    })[0] || null;
+                const normalized = depositTransaction ? this.normalizeSecurityDepositTransaction(depositTransaction) : null;
+                result.set(reservationId, normalized);
+                this.securityDepositTransactionCache.set(reservationId, {
+                    expiresAt: Date.now() + this.securityDepositTransactionCacheTtlMs,
+                    transaction: normalized,
+                });
+            }
+        };
+
+        await Promise.all(Array.from({ length: Math.min(concurrency, missingReservationIds.length) }, () => worker()));
+        return result;
+    }
 
     private normalizeRentalAgreementChannel(channelName?: string | null): string | null {
         const value = String(channelName || "").trim();
@@ -483,6 +612,25 @@ export class RentalAgreementSigningService {
         }
     }
 
+    private activeApplicabilityRuleSql(reservationAlias = "reservation") {
+        return `
+            EXISTS (
+                SELECT 1
+                FROM rental_agreement_template_rules applicabilityRule
+                INNER JOIN rental_agreement_templates applicabilityTemplate
+                    ON applicabilityTemplate.id = applicabilityRule.templateId
+                    AND applicabilityTemplate.isActive = 1
+                WHERE applicabilityRule.listingId = ${reservationAlias}.listingMapId
+                    AND applicabilityRule.isActive = 1
+                    AND (
+                        applicabilityRule.channelId IS NULL
+                        OR applicabilityRule.channelId = ${reservationAlias}.channelId
+                        OR LOWER(COALESCE(applicabilityRule.channelName, '')) = LOWER(COALESCE(${reservationAlias}.channelName, ''))
+                    )
+            )
+        `;
+    }
+
     private buildDirectDownloadPath(signingId: number) {
         return `/rental-agreement/signings/${signingId}/file`;
     }
@@ -637,6 +785,7 @@ export class RentalAgreementSigningService {
         raw: any,
         pdfDownloadAvailable: boolean,
         fileInfo: FileInfo | null,
+        securityDepositTransaction?: RentalAgreementSecurityDepositTransaction | null,
     ): RentalAgreementOverviewRow {
         const isSigned = Boolean(raw.signingId);
         const isOverridden = Boolean(raw.isOverridden);
@@ -655,10 +804,14 @@ export class RentalAgreementSigningService {
             propertyName: raw.propertyName || "—",
             propertyAddress: raw.propertyAddress || "",
             channelName: raw.channelName || "—",
-            currency: raw.currency || null,
-            securityDepositFee: raw.securityDepositFee !== null && raw.securityDepositFee !== undefined
-                ? Number(raw.securityDepositFee)
-                : null,
+            currency: securityDepositTransaction?.currency || raw.currency || null,
+            securityDepositFee: securityDepositTransaction?.amount ?? null,
+            securityDepositTransactionId: securityDepositTransaction?.transactionId || null,
+            securityDepositStatus: securityDepositTransaction?.status || null,
+            securityDepositCompleted: Boolean(securityDepositTransaction?.completed),
+            securityDepositSource: securityDepositTransaction?.source || null,
+            securityDepositDetails: securityDepositTransaction?.details || null,
+            securityDepositChargeDate: securityDepositTransaction?.chargeDate || null,
             arrivalDate: this.formatDateOnlyValue(raw.arrivalDate),
             departureDate: this.formatDateOnlyValue(raw.departureDate),
             checkInTime: this.formatHourValue(raw.checkInTime ?? raw.listingCheckInTime),
@@ -1023,7 +1176,8 @@ export class RentalAgreementSigningService {
             })
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
-            });
+            })
+            .andWhere(this.activeApplicabilityRuleSql("reservation"));
 
         const bucketWhere = this.buildBucketWhere(bucket);
         if (bucketWhere) {
@@ -1185,6 +1339,7 @@ export class RentalAgreementSigningService {
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
             })
+            .andWhere(this.activeApplicabilityRuleSql("reservation"))
             .andWhere("COALESCE(reservation.channelName, '') <> ''")
             .orderBy("reservation.channelName", "ASC")
             .getRawMany() : Promise.resolve([]);
@@ -1199,6 +1354,7 @@ export class RentalAgreementSigningService {
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
             })
+            .andWhere(this.activeApplicabilityRuleSql("reservation"))
             .andWhere("COALESCE(reservation.listingName, '') <> ''")
             .orderBy("reservation.listingName", "ASC")
             .getRawMany() : Promise.resolve([]);
@@ -1246,15 +1402,24 @@ export class RentalAgreementSigningService {
             ? await fileInfoRepo().findBy({ id: In(fileInfoIds) })
             : [];
         const fileInfoMap = new Map(fileInfos.map((fileInfo) => [fileInfo.id, fileInfo]));
+        const securityDepositTransactionsByReservation = await this.getSecurityDepositTransactionsByReservation(
+            pageRows.map((row) => String(row.hostifyReservationId || row.reservationInfoId)),
+        );
 
         const records = pageRows.map((row) => {
             const fileInfo = row.fileInfoId ? fileInfoMap.get(Number(row.fileInfoId)) || null : null;
+            const hostifyReservationId = String(row.hostifyReservationId || row.reservationInfoId);
             const enrichedRow = {
                 ...row,
                 propertyType: this.extractPropertyTypeFromTags(row.listingTags),
                 serviceType: this.extractServiceTypeFromTags(row.listingTags),
             };
-            return this.buildOverviewRow(enrichedRow, this.isDownloadArtifactAvailable(fileInfo), fileInfo);
+            return this.buildOverviewRow(
+                enrichedRow,
+                this.isDownloadArtifactAvailable(fileInfo),
+                fileInfo,
+                securityDepositTransactionsByReservation.get(hostifyReservationId) || null,
+            );
         });
 
         const buildSummaryCard = async (
@@ -1277,6 +1442,7 @@ export class RentalAgreementSigningService {
                 .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                     excludedStatuses: this.excludedReservationStatuses,
                 })
+                .andWhere(this.activeApplicabilityRuleSql("reservation"))
                 .getRawOne();
 
             return {
