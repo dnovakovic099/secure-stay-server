@@ -12,6 +12,7 @@ import { ListingScore } from "../entity/ListingScore";
 import { ListingUpdateEntity } from "../entity/ListingUpdate";
 import { ownerDetails, tagIds } from "../constant";
 import { ListingDetail } from "../entity/ListingDetails";
+import { VendorAssignment } from "../entity/VendorAssignment";
 
 import logger from "../utils/logger.utils";
 import { ListingBedTypes } from "../entity/ListingBedTypes";
@@ -1484,6 +1485,14 @@ export class ListingService {
 
           // Soft delete (recommended)
           await tx.update(Listing, listingId, { deletedAt: new Date(), deletedBy: "system" });
+          await tx
+            .createQueryBuilder()
+            .update(VendorAssignment)
+            .set({ status: "archived", updatedBy: "system" })
+            .where("listingId = :listingId", { listingId: String(listingId) })
+            .andWhere("deletedAt IS NULL")
+            .andWhere("(status IS NULL OR status != :archivedStatus)", { archivedStatus: "archived" })
+            .execute();
 
           // If you prefer hard delete, replace with:
           // await tx.delete(Listing, listingId);
