@@ -25,7 +25,7 @@ import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Employee } from "../entity/Employee";
-import { getEasternTimestampRange } from "../utils/easternTime.util";
+import { getEasternDateString, getEasternTimestampRange } from "../utils/easternTime.util";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -674,8 +674,8 @@ export class RefundRequestService {
         return await this.decorateRefundRequests(refundRequest);
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, fromDate, toDate, createdBy, paymentMethod, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -696,6 +696,9 @@ export class RefundRequestService {
         const minAmount = refundAmountMin !== undefined && refundAmountMin !== null && refundAmountMin !== "" ? Number(refundAmountMin) : null;
         const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
         const selectedExpenseEntry = String(expenseEntry || "").trim();
+        const selectedStayTiming = ["ongoing", "mitigation"].includes(String(stayTiming || "")) ? String(stayTiming) : "";
+        const easternToday = getEasternDateString();
+        const mitigationFromDate = format(new Date(`${easternToday}T12:00:00Z`).getTime() - 14 * 24 * 60 * 60 * 1000, "yyyy-MM-dd");
         const keywordFieldOptions = ["guestName", "explaination", "notes", "paymentDetails"];
         const selectedKeywordField = keywordFieldOptions.includes(String(keywordField || "")) ? String(keywordField) : "all";
         const directSortColumns: Record<string, keyof RefundRequestEntity> = {
@@ -779,6 +782,14 @@ export class RefundRequestService {
                     .orWhere("LOWER(refundRequest.notes) LIKE :keyword", { keyword: keywordLike })
                     .orWhere("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike });
             }));
+        };
+        const applyStayTimingToQuery = (qb: any) => {
+            if (selectedStayTiming === "ongoing") {
+                qb.andWhere("refundRequest.checkIn <= :easternToday", { easternToday });
+                qb.andWhere("refundRequest.checkOut >= :easternToday", { easternToday });
+            } else if (selectedStayTiming === "mitigation") {
+                qb.andWhere("refundRequest.checkOut BETWEEN :mitigationFromDate AND :easternToday", { mitigationFromDate, easternToday });
+            }
         };
 
         if (propertyTypes.length > 0 || serviceTypes.length > 0) {
@@ -890,6 +901,7 @@ export class RefundRequestService {
             } else if (selectedExpenseEntry === "without") {
                 qb.andWhere("refundRequest.expenseId IS NULL");
             }
+            applyStayTimingToQuery(qb);
             if (fromDate || toDate) {
                 qb.andWhere("expense.datePaid BETWEEN :fromDate AND :toDate", {
                     fromDate: fromDate || "1970-01-01",
@@ -918,6 +930,13 @@ export class RefundRequestService {
                 const { start, end } = getEasternTimestampRange(fromDate || "1970-01-01", toDate || "2999-12-31");
                 whereConditions[selectedDateField] = Between(start, end);
             }
+        }
+
+        if (selectedStayTiming === "ongoing") {
+            whereConditions.checkIn = LessThanOrEqual(easternToday);
+            whereConditions.checkOut = MoreThanOrEqual(easternToday);
+        } else if (selectedStayTiming === "mitigation") {
+            whereConditions.checkOut = Between(mitigationFromDate, easternToday);
         }
         
         const where = keyword
