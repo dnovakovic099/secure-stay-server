@@ -3477,6 +3477,7 @@ export class ReviewService {
                 assignee: rc.assignee || null,
                 assigneeName: rc.assignee ? await resolveUserDisplayName(rc.assignee) : null,
                 urgency: rc.urgency || null,
+                mitigationUrgency: rc.mitigationUrgency || null,
                 createdBy: await resolveUserDisplayName(rc.createdBy),
                 updatedBy: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
                 deletedBy: await resolveUserDisplayName(rc.deletedBy),
@@ -3754,7 +3755,7 @@ export class ReviewService {
         return { created, skipped, errors };
     }
 
-    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; urgency?: number | null; isActive?: boolean; visibility?: string }, userId: string) {
+    async updateReviewCheckout(id: number, data: { status?: string; comments?: string; assignee?: string | null; urgency?: number | null; mitigationUrgency?: number | null; isActive?: boolean; visibility?: string }, userId: string) {
         const reviewCheckout = await this.reviewCheckoutRepo.findOne({ where: { id }, relations: ['reservationInfo'] });
         if (!reviewCheckout) {
             throw CustomErrorHandler.notFound(`Review checkout not found with id: ${id}`);
@@ -3770,6 +3771,7 @@ export class ReviewService {
             comments: reviewCheckout.comments ?? null,
             assignee: reviewCheckout.assignee ?? null,
             urgency: reviewCheckout.urgency ?? null,
+            mitigationUrgency: reviewCheckout.mitigationUrgency ?? null,
             isActive: reviewCheckout.isActive ?? null,
             visibility: linkedReview?.visibility ?? reviewCheckout.visibility ?? null,
         };
@@ -3785,6 +3787,9 @@ export class ReviewService {
         }
         if (data.urgency !== undefined) {
             reviewCheckout.urgency = data.urgency || null;
+        }
+        if (data.mitigationUrgency !== undefined) {
+            reviewCheckout.mitigationUrgency = data.mitigationUrgency || null;
         }
         reviewCheckout.updatedAt = new Date();
         reviewCheckout.updatedBy = userId;
@@ -3808,6 +3813,7 @@ export class ReviewService {
             resolutionNotes: { old: previousState.comments, new: reviewCheckout.comments ?? null },
             assignee: { old: previousState.assignee, new: reviewCheckout.assignee ?? null },
             urgency: { old: previousState.urgency, new: reviewCheckout.urgency ?? null },
+            mitigationUrgency: { old: previousState.mitigationUrgency, new: reviewCheckout.mitigationUrgency ?? null },
             isActive: { old: previousState.isActive, new: reviewCheckout.isActive ?? null },
             visibility: { old: previousState.visibility, new: reviewCheckout.visibility ?? null },
         });
@@ -3846,6 +3852,14 @@ export class ReviewService {
                     oldValue: previousState.urgency,
                     newValue: reviewCheckout.urgency ?? null,
                     content: `Urgency changed from ${this.formatSystemChangeValue(previousState.urgency)} to ${this.formatSystemChangeValue(reviewCheckout.urgency)}.`,
+                });
+            }
+            if (data.mitigationUrgency !== undefined && (reviewCheckout.mitigationUrgency ?? null) !== (previousState.mitigationUrgency ?? null)) {
+                systemChanges.push({
+                    field: "mitigationUrgency",
+                    oldValue: previousState.mitigationUrgency,
+                    newValue: reviewCheckout.mitigationUrgency ?? null,
+                    content: `Mitigation urgency changed from ${this.formatSystemChangeValue(previousState.mitigationUrgency)} to ${this.formatSystemChangeValue(reviewCheckout.mitigationUrgency)}.`,
                 });
             }
             if (data.visibility !== undefined && (reviewCheckout.visibility ?? null) !== (previousState.visibility ?? null)) {
@@ -4928,6 +4942,7 @@ export class ReviewService {
                     reviewId: matchedReview ? Number(matchedReview.id) : null,
                     assignee: row.assignee || null,
                     assigneeName: row.assignee || null,
+                    mitigationUrgency: row.mitigationUrgency || null,
                     publicReview: matchedReview?.publicReview ?? null,
                     publicReviewSentiment: matchedReview?.publicReviewSentiment ?? null,
                     publicReviewSentimentReason: matchedReview?.publicReviewSentimentReason ?? null,
@@ -5159,6 +5174,7 @@ export class ReviewService {
                 reviewId: matchedReview ? Number(matchedReview.id) : null,
                 assignee: row.assignee || null,
                 assigneeName: row.assignee || null,
+                mitigationUrgency: row.mitigationUrgency || null,
                 publicReview: matchedReview?.publicReview ?? null,
                 publicReviewSentiment: matchedReview?.publicReviewSentiment ?? null,
                 publicReviewSentimentReason: matchedReview?.publicReviewSentimentReason ?? null,

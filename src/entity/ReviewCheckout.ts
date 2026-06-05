@@ -37,6 +37,9 @@ export class ReviewCheckout {
     @Column({ nullable: true })
     urgency: number;
 
+    @Column({ name: "mitigation_urgency", nullable: true })
+    mitigationUrgency: number;
+
     @Column({ nullable: true })
     mistake: string;
 

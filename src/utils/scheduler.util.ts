@@ -483,7 +483,7 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Scheduled AI Guest Analysis - runs daily in SecureStay without posting automated Slack updates.
+  // Scheduled AI Guest Analysis - runs daily in SecureStay and posts each generated version to tracked Slack threads.
   schedule.scheduleJob(
     { hour: 10, minute: 0, tz: "America/New_York" },
     async () => {

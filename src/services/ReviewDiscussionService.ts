@@ -374,6 +374,16 @@ export class ReviewDiscussionService {
         });
     }
 
+    private async hasStoredAiDiscussionMessage(reviewId?: string | null, reservationId?: number | null) {
+        const where: any[] = [];
+        if (reviewId) where.push({ reviewId, sourceType: "ai" });
+        if (reservationId) where.push({ reservationId, sourceType: "ai" });
+        if (!where.length) return false;
+
+        const existing = await this.messageRepo.findOne({ where });
+        return Boolean(existing);
+    }
+
     private async buildSystemAndAiMessages(review: ReviewEntity): Promise<DiscussionItemDTO[]> {
         const items: DiscussionItemDTO[] = [];
         const reviewDetail = await this.reviewDetailRepo.findOne({
@@ -445,7 +455,11 @@ export class ReviewDiscussionService {
             });
         }
 
-        if (review.reservationId) {
+        const shouldUseSyntheticAiMessages = review.reservationId
+            ? !(await this.hasStoredAiDiscussionMessage(review.id, Number(review.reservationId)))
+            : !(await this.hasStoredAiDiscussionMessage(review.id, null));
+
+        if (review.reservationId && shouldUseSyntheticAiMessages) {
             const analyses = await this.analysisRepo.find({
                 where: { reservationId: Number(review.reservationId) },
                 order: { analyzedAt: "DESC" },
@@ -765,33 +779,35 @@ export class ReviewDiscussionService {
             });
         });
 
-        const analyses = await this.analysisRepo.find({
-            where: { reservationId },
-            order: { analyzedAt: "DESC" },
-        });
-        analyses.forEach((analysis) => {
-            items.push({
-                id: `system-ai-analysis-${analysis.id}`,
-                persistentId: null,
-                parentMessageId: null,
-                sourceType: "system",
-                authorName: analysis.analyzedBy === "auto" ? "AI Manager" : "AI Analysis",
-                content: "AI analysis was generated.",
-                mentions: [],
-                createdAt: analysis.analyzedAt?.toISOString?.() || new Date().toISOString(),
-                metadata: {
-                    eventType: "ai_analysis",
-                    sentiment: analysis.sentiment,
-                    flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
-                },
-                reactions: [],
-                replies: [],
-                canReply: false,
-                canReact: false,
-                canEdit: false,
-                canDelete: false,
+        if (!(await this.hasStoredAiDiscussionMessage(null, reservationId))) {
+            const analyses = await this.analysisRepo.find({
+                where: { reservationId },
+                order: { analyzedAt: "DESC" },
             });
-        });
+            analyses.forEach((analysis) => {
+                items.push({
+                    id: `system-ai-analysis-${analysis.id}`,
+                    persistentId: null,
+                    parentMessageId: null,
+                    sourceType: "system",
+                    authorName: analysis.analyzedBy === "auto" ? "AI Manager" : "AI Analysis",
+                    content: "AI analysis was generated.",
+                    mentions: [],
+                    createdAt: analysis.analyzedAt?.toISOString?.() || new Date().toISOString(),
+                    metadata: {
+                        eventType: "ai_analysis",
+                        sentiment: analysis.sentiment,
+                        flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
+                    },
+                    reactions: [],
+                    replies: [],
+                    canReply: false,
+                    canReact: false,
+                    canEdit: false,
+                    canDelete: false,
+                });
+            });
+        }
 
         return items;
     }
@@ -1114,6 +1130,44 @@ export class ReviewDiscussionService {
             content: normalizedContent,
             mentions: [],
             metadata,
+        });
+
+        return this.messageRepo.save(message);
+    }
+
+    async createAiAnalysisMessageByReservation(
+        reservationId: number | string,
+        content: string,
+        metadata: Record<string, any> | null = null
+    ) {
+        const normalizedReservationId = Number(reservationId);
+        const normalizedContent = String(content || "").trim();
+        const analysisId = String(metadata?.analysisId || "").trim();
+        if (!normalizedReservationId || Number.isNaN(normalizedReservationId) || !normalizedContent) return null;
+
+        if (analysisId) {
+            const existingMessages = await this.messageRepo.find({
+                where: { reservationId: normalizedReservationId, sourceType: "ai" },
+                order: { createdAt: "DESC" },
+            });
+            const existing = existingMessages.find((message) => String(message.metadata?.analysisId || "") === analysisId);
+            if (existing) return existing;
+        }
+
+        const message = this.messageRepo.create({
+            reviewId: null,
+            reservationId: normalizedReservationId,
+            parentMessageId: null,
+            sourceType: "ai",
+            authorId: null,
+            authorName: "AI Analysis",
+            authorAvatar: null,
+            content: normalizedContent,
+            mentions: [],
+            metadata: {
+                source: "ai_analysis",
+                ...(metadata || {}),
+            },
         });
 
         return this.messageRepo.save(message);
