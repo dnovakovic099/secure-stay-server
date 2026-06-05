@@ -75,6 +75,19 @@ export class ReviewController {
         }
     }
 
+    async getReviewFilterOptions(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const reviewService = new ReviewService();
+            const data = await reviewService.getReviewFilterOptions();
+            return response.status(200).json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async syncReviews(request: Request, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
