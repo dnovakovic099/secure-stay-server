@@ -671,7 +671,7 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
-  private async resolveIssueRowUserIssueIds(userIds: string[], columns: Array<"created_by" | "updated_by" | "completed_by">): Promise<number[]> {
+  private async resolveIssueRowUserIssueIds(userIds: string[], columns: Array<"created_by" | "updated_by" | "completed_by" | "gr_completed_by">): Promise<number[]> {
     const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
     if (normalizedUserIds.length === 0 || columns.length === 0) return [];
 
@@ -711,9 +711,13 @@ export class IssuesService {
       return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["completed_by"]);
     }
 
+    if (normalizedType === "gr_completed") {
+      return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["gr_completed_by"]);
+    }
+
     const [timelineIssueIds, issueRowIssueIds] = await Promise.all([
       this.resolveActivityTimelineUserIssueIds(normalizedUserIds),
-      this.resolveIssueRowUserIssueIds(normalizedUserIds, ["created_by", "updated_by", "completed_by"]),
+      this.resolveIssueRowUserIssueIds(normalizedUserIds, ["created_by", "updated_by", "completed_by", "gr_completed_by"]),
     ]);
 
     return Array.from(new Set([...timelineIssueIds, ...issueRowIssueIds]));
@@ -966,6 +970,13 @@ export class IssuesService {
       data.completed_at = null;
       data.completed_by = null;
     }
+    if (data.gr_status === "Completed") {
+      data.gr_completed_at = new Date();
+      data.gr_completed_by = userId;
+    } else {
+      data.gr_completed_at = null;
+      data.gr_completed_by = null;
+    }
 
     if (data.mistake && data.mistake === "Resolved") {
       data.mistakeResolvedOn = format(new Date(), "yyyy-MM-dd");
@@ -1112,6 +1123,15 @@ export class IssuesService {
       } else if (data.status !== "Completed") {
         data.completed_at = null;
         data.completed_by = null;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "gr_status")) {
+      if (issue.gr_status !== "Completed" && data.gr_status === "Completed") {
+        data.gr_completed_at = new Date();
+        data.gr_completed_by = userId;
+      } else if (data.gr_status !== "Completed") {
+        data.gr_completed_at = null;
+        data.gr_completed_by = null;
       }
     }
 
@@ -1280,8 +1300,10 @@ export class IssuesService {
       "Updated By": userMap.get(issue.updated_by) || issue.updated_by,
       "Created At": issue.created_at,
       "Updated At": issue.updated_at,
-      "Completed By": userMap.get(issue.completed_by) || issue.completed_by,
-      "Completed At": issue.completed_at,
+      "Completed (IR) By": userMap.get(issue.completed_by) || issue.completed_by,
+      "Completed (IR) At": issue.completed_at,
+      "Completed (GR) By": userMap.get(issue.gr_completed_by) || issue.gr_completed_by,
+      "Completed (GR) At": issue.gr_completed_at,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
@@ -1669,7 +1691,7 @@ export class IssuesService {
     const grIssueStatus = grStatus;
     const currentDate = format(new Date(), "yyyy-MM-dd");
 
-    // dateType=created/updated/last_updated/completed/due filters on the Issue table directly.
+    // dateType=created/updated/last_updated/completed/gr_completed/due filters on the Issue table directly.
     // dateType=activity_updated resolves matching issue IDs from issue timeline entries.
     // dateType=check_in/check_out and stayStatus require resolving matching
     // reservation IDs from reservation_info, since Issue has no check_out_date
@@ -1723,10 +1745,11 @@ export class IssuesService {
 
     const effectiveReservationIds = resolvedReservationIds ?? reservationId;
 
-    let dateColumn: "created_at" | "updated_at" | "completed_at" | "due_date" | null = null;
+    let dateColumn: "created_at" | "updated_at" | "completed_at" | "gr_completed_at" | "due_date" | null = null;
     if (fromDate || toDate) {
       if (dateType === "updated" || dateType === "last_updated") dateColumn = "updated_at";
       else if (dateType === "completed") dateColumn = "completed_at";
+      else if (dateType === "gr_completed") dateColumn = "gr_completed_at";
       else if (dateType === "due") dateColumn = "due_date";
       else if (!dateType || dateType === "created") dateColumn = "created_at";
     }
@@ -1943,6 +1966,7 @@ export class IssuesService {
         created_by: userMap.get(issue.created_by)?.name || issue.created_by,
         updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
         completed_by: userMap.get(issue.completed_by)?.name || issue.completed_by,
+        gr_completed_by: userMap.get(issue.gr_completed_by)?.name || issue.gr_completed_by,
         resolution_refreshed_by_name: userMap.get(issue.resolution_refreshed_by)?.name || (issue.resolution_refreshed_by === "system" ? "System" : issue.resolution_refreshed_by),
         manager_feedback_updated_by_name: userMap.get(issue.manager_feedback_updated_by)?.name || issue.manager_feedback_updated_by,
         issueUpdates: issue.issueUpdates.map((update) => {
@@ -2648,6 +2672,13 @@ export class IssuesService {
         }
         if (updateData.gr_status !== undefined) {
           issue.gr_status = updateData.gr_status;
+          if (updateData.gr_status === "Completed") {
+            issue.gr_completed_at = new Date();
+            issue.gr_completed_by = userId;
+          } else {
+            issue.gr_completed_at = null;
+            issue.gr_completed_by = null;
+          }
         }
         if (updateData.category !== undefined) {
           issue.category = updateData.category;
@@ -2843,8 +2874,22 @@ export class IssuesService {
     }
     if (statusField === "gr") {
       issue.gr_status = status;
+      if (status === "Completed") {
+        issue.gr_completed_at = new Date();
+        issue.gr_completed_by = userId;
+      } else {
+        issue.gr_completed_at = null;
+        issue.gr_completed_by = null;
+      }
     } else {
       issue.status = status;
+      if (status === "Completed") {
+        issue.completed_at = new Date();
+        issue.completed_by = userId;
+      } else {
+        issue.completed_at = null;
+        issue.completed_by = null;
+      }
     }
     issue.updated_by = userId;
     return await this.issueRepo.save(issue);
@@ -2914,11 +2959,15 @@ export class IssuesService {
     issueResolution: string;
     guestSentiment: string;
     resolution: string;
+    guestRelationsResolution: string;
+    managerAiFeedback: string;
   }) {
     const systemActor = "system";
     issue.ai_resolution_status = values.issueResolution;
     issue.ai_guest_sentiment = values.guestSentiment;
     issue.resolution = values.resolution;
+    issue.guest_relations_resolution = values.guestRelationsResolution;
+    issue.manager_ai_feedback = values.managerAiFeedback;
     issue.resolution_refreshed_at = new Date();
     issue.resolution_refreshed_by = systemActor;
     const saved = await this.issueRepo.save(issue);
@@ -2935,6 +2984,8 @@ export class IssuesService {
       issueResolution: saved.ai_resolution_status,
       guestSentiment: saved.ai_guest_sentiment,
       resolution: saved.resolution,
+      guestRelationsResolution: saved.guest_relations_resolution,
+      managerAiFeedback: saved.manager_ai_feedback,
       resolutionRefreshedAt: saved.resolution_refreshed_at,
       resolutionRefreshedBy: saved.resolution_refreshed_by,
       resolutionRefreshedByName: await this.getIssueUserDisplayName(saved.resolution_refreshed_by),
@@ -2955,6 +3006,8 @@ export class IssuesService {
         issueResolution: issue.ai_resolution_status,
         guestSentiment: issue.ai_guest_sentiment,
         resolution: issue.resolution,
+        guestRelationsResolution: issue.guest_relations_resolution,
+        managerAiFeedback: issue.manager_ai_feedback,
         resolutionRefreshedAt: issue.resolution_refreshed_at,
         resolutionRefreshedBy: issue.resolution_refreshed_by,
         resolutionRefreshedByName: await this.getIssueUserDisplayName(issue.resolution_refreshed_by),
@@ -3022,13 +3075,9 @@ export class IssuesService {
     const fallback = {
       issueResolution: "—",
       guestSentiment: "—",
-      resolution: [
-        "Issue Resolution",
-        "—",
-        "",
-        "Guest relation",
-        "—",
-      ].join("\n"),
+      resolution: "—",
+      guestRelationsResolution: "—",
+      managerAiFeedback: "—",
     };
 
     if (!this.openai || updates.length === 0) {
@@ -3044,14 +3093,16 @@ export class IssuesService {
           {
             role: "system",
             content:
-              "Analyze an internal issue ticket activity timeline. Return only valid JSON with keys issueResolution, guestSentiment, issueResolutionSummary, guestRelationSummary. issueResolution must be one of Resolved, Not Resolved, or —. guestSentiment must be one of Positive, Mixed, Neutral, Negative, or —. If evidence is missing, use —. Summaries should be concise, factual paragraphs.",
+              "Analyze an internal issue ticket activity timeline. Return only valid JSON with keys issueResolution, guestSentiment, issueResolutionSummary, guestRelationSummary, managerAssessment. issueResolution must be one of Resolved, Not Resolved, or —. guestSentiment must be one of Positive, Mixed, Neutral, Negative, or —. issueResolutionSummary should focus on maintenance/issue-resolution handling. guestRelationSummary should focus on guest-relations handling. managerAssessment should assess how the involved reps handled the ticket, including strengths, misses, and follow-up quality. Mention the names of the reps involved whenever the timeline identifies them. If evidence is missing, use —. Keep each summary concise and factual.",
           },
           {
             role: "user",
             content: JSON.stringify({
               category: issue.category || null,
               description: issue.issue_description || "",
-              currentResolutionNotes: issue.resolution || "",
+              currentIssueResolutionNotes: issue.resolution || "",
+              currentGuestRelationsResolutionNotes: issue.guest_relations_resolution || "",
+              currentManagerAiFeedback: issue.manager_ai_feedback || "",
               updates,
             }),
           },
@@ -3066,18 +3117,14 @@ export class IssuesService {
       const guestSentiment = this.normalizeAiGuestSentiment(parsed?.guestSentiment);
       const issueResolutionSummary = String(parsed?.issueResolutionSummary || "—").trim() || "—";
       const guestRelationSummary = String(parsed?.guestRelationSummary || "—").trim() || "—";
-      const resolution = [
-        "Issue Resolution",
-        issueResolutionSummary,
-        "",
-        "Guest relation",
-        guestRelationSummary,
-      ].join("\n");
+      const managerAssessment = String(parsed?.managerAssessment || "—").trim() || "—";
 
       return this.saveResolutionAnalysisRefresh(issue, {
         issueResolution,
         guestSentiment,
-        resolution,
+        resolution: issueResolutionSummary,
+        guestRelationsResolution: guestRelationSummary,
+        managerAiFeedback: managerAssessment,
       });
     } catch (error) {
       logger.warn(`[IssuesService] Failed to generate resolution analysis: ${error}`);

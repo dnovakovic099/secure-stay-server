@@ -120,6 +120,13 @@ export class Issue {
     completed_at: Date;
 
     @Column({ nullable: true })
+    gr_completed_by: string;
+
+    @Index()
+    @Column({ type: 'datetime', nullable: true })
+    gr_completed_at: Date;
+
+    @Column({ nullable: true })
     claim_resolution_status: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
@@ -161,6 +168,9 @@ export class Issue {
     @Column({ type: "text", nullable: true })
     resolution: string;
 
+    @Column({ type: "text", nullable: true })
+    guest_relations_resolution: string;
+
     @Column({ type: 'datetime', nullable: true })
     resolution_refreshed_at: Date;
 
@@ -175,6 +185,9 @@ export class Issue {
 
     @Column({ type: "text", nullable: true })
     manager_feedback: string;
+
+    @Column({ type: "text", nullable: true })
+    manager_ai_feedback: string;
 
     @Column({ type: 'datetime', nullable: true })
     manager_feedback_updated_at: Date;
