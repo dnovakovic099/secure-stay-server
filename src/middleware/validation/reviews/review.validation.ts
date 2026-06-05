@@ -264,9 +264,10 @@ export const validateUpdateReviewForCheckout = (request: Request, response: Resp
         comments: Joi.string().allow('', null),
         assignee: Joi.string().allow('', null).optional(),
         urgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
+        mitigationUrgency: Joi.number().optional().allow(null).empty('').min(1).max(5),
         isActive: Joi.boolean().optional(),
         visibility: Joi.string().optional(),
-    }).or('status', 'comments', 'assignee', 'urgency', 'isActive', 'visibility');
+    }).or('status', 'comments', 'assignee', 'urgency', 'mitigationUrgency', 'isActive', 'visibility');
 
     const { error } = schema.validate(request.body);
     if (error) {

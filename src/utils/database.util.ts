@@ -58,3 +58,21 @@ export async function ensureIssueMetadataColumns() {
     throw error;
   }
 }
+
+export async function ensureReviewCheckoutMetadataColumns() {
+  if (!appDatabase.isInitialized) return;
+
+  const addColumnIfMissing = async (column: string, definition: string) => {
+    const existing = await appDatabase.query("SHOW COLUMNS FROM review_checkout LIKE ?", [column]);
+    if (Array.isArray(existing) && existing.length > 0) return;
+    await appDatabase.query(`ALTER TABLE review_checkout ADD COLUMN ${column} ${definition}`);
+    logger.info(`Added missing review_checkout.${column} column`);
+  };
+
+  try {
+    await addColumnIfMissing("mitigation_urgency", "INT NULL");
+  } catch (error) {
+    logger.error("Failed to ensure review_checkout metadata columns:", error);
+    throw error;
+  }
+}

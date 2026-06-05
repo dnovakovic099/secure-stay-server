@@ -6,7 +6,7 @@ import "reflect-metadata";
 import express from "express";
 import qs from "qs";
 import { createRouting } from "./utils/router.util";
-import { ensureIssueMetadataColumns, initDatabase } from "./utils/database.util";
+import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
@@ -27,6 +27,7 @@ const main = async () => {
   // STEP 1: Connect to DB BEFORE starting server
   await initDatabase();
   await ensureIssueMetadataColumns();
+  await ensureReviewCheckoutMetadataColumns();
 
   const app = express();
   // Trust one layer of reverse proxy (Nginx) so req.ip reflects the real client IP

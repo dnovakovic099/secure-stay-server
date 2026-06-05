@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import "reflect-metadata";
-import { ensureIssueMetadataColumns, initDatabase } from "../utils/database.util";
+import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, initDatabase } from "../utils/database.util";
 import { scheduleGetReservation } from "../utils/scheduler.util";
 import logger from "../utils/logger.utils";
 
@@ -17,6 +17,7 @@ process.on("unhandledRejection", (reason) => {
 const main = async () => {
     await initDatabase();
     await ensureIssueMetadataColumns();
+    await ensureReviewCheckoutMetadataColumns();
     scheduleGetReservation();
     logger.info("Scheduler worker started");
 };

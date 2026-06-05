@@ -22,6 +22,7 @@ import {
     ResolutionsActivityType,
 } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import updateSlackMessage from "../utils/updateSlackMsg";
 import logger from "../utils/logger.utils";
 import { ReviewService } from "./ReviewService";
 import { formatCurrency, replaceSlackIdsWithMentions } from "../helpers/helpers";
@@ -1183,22 +1184,32 @@ export class ResolutionsTeamSlackService {
         channel: string,
         threadTs: string
     ): Promise<void> {
+        let loadingMessageTs: string | null = null;
         try {
             logger.info(
                 `[ResolutionsTeam] AI analysis triggered from Slack for reservation ${reservationId}`
             );
 
-            await sendSlackMessage(
+            const loadingMessage = await sendSlackMessage(
                 { channel, text: "🔄 Running AI analysis…" },
                 threadTs
             );
+            loadingMessageTs = loadingMessage?.ts || null;
 
             const guestAnalysisService = new GuestAnalysisService();
-            await guestAnalysisService.analyzeGuestCommunication(
+            const analysis = await guestAnalysisService.analyzeGuestCommunication(
                 reservationId,
                 undefined,
-                "slack"
+                "slack",
+                { skipSlackPost: Boolean(loadingMessageTs) }
             );
+
+            const analysisText = guestAnalysisService.buildAnalysisGeneratedSlackText(analysis);
+            if (loadingMessageTs) {
+                await updateSlackMessage({ text: analysisText }, loadingMessageTs, channel);
+            } else {
+                await sendSlackMessage({ channel, text: analysisText }, threadTs);
+            }
 
             logger.info(
                 `[ResolutionsTeam] AI analysis posted to thread for reservation ${reservationId}`
@@ -1209,13 +1220,12 @@ export class ResolutionsTeamSlackService {
                 err
             );
             try {
-                await sendSlackMessage(
-                    {
-                        channel,
-                        text: "❌ AI analysis encountered an error. Please check the server logs.",
-                    },
-                    threadTs
-                );
+                const errorText = "❌ AI analysis encountered an error. Please check the server logs.";
+                if (loadingMessageTs) {
+                    await updateSlackMessage({ text: errorText }, loadingMessageTs, channel);
+                } else {
+                    await sendSlackMessage({ channel, text: errorText }, threadTs);
+                }
             } catch (_) {
                 // best-effort
             }

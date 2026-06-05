@@ -13,11 +13,15 @@ import { IssueUpdates } from "../entity/IsssueUpdates";
 import { FileInfo } from "../entity/FileInfo";
 import { AIEscalationManagerService } from "./AIEscalationManagerService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReservationAICopilotService } from "./ReservationAICopilotService";
+import { GuestAnalysisService } from "./GuestAnalysisService";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import updateSlackMessage from "../utils/updateSlackMsg";
 import logger from "../utils/logger.utils";
 import axios from "axios";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { replaceSlackIdsWithMentions } from "../helpers/helpers";
+import { formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
 
 interface SlackMessageFile {
     id: string;
@@ -543,6 +547,186 @@ export class SlackEventsService {
         }
     }
 
+    private isGenerateAIAnalysisRequest(message: string): boolean {
+        const normalized = message.toLowerCase();
+        return (
+            /\b(generate|regenerate|refresh|run|create)\b.*\bai\s*analysis\b/.test(normalized) ||
+            /\bai\s*analysis\b.*\b(generate|regenerate|refresh|run|create)\b/.test(normalized)
+        );
+    }
+
+    private isOperationalFlagsRequest(message: string): boolean {
+        const normalized = message.toLowerCase();
+        return (
+            /\b(operational\s+flags?|ops\s+flags?)\b/.test(normalized) ||
+            /\b(list|show|send|what are|give me)\b.*\b(red|green)?\s*flags?\b/.test(normalized) ||
+            /\b(red|green)\s+flags?\b/.test(normalized)
+        );
+    }
+
+    private formatOperationalFlagsForSlack(detail: Awaited<ReturnType<GuestAnalysisService["getAnalysisDetailContext"]>>): string {
+        const flags = detail?.record?.flags || [];
+        if (!flags.length) {
+            return "No operational flags were found in the latest saved AI analysis for this reservation.";
+        }
+
+        const redFlags = flags.filter((flag: any) => flag?.polarity !== "positive");
+        const greenFlags = flags.filter((flag: any) => flag?.polarity === "positive");
+        const formatFlag = (flag: any, index: number) => {
+            const title = String(flag?.flag || "Operational Flag").trim();
+            const explanation = String(flag?.explanation || "No description available.").trim();
+            const evidence = String(flag?.evidence || "").trim();
+            const owner = String(flag?.owner || "").trim();
+            const phases = Array.isArray(flag?.phases) && flag.phases.length ? ` · Phases: ${flag.phases.join(", ")}` : "";
+            const ownerText = owner ? ` · Owner: ${owner}` : "";
+            const evidenceText = evidence ? `\n   Evidence: ${evidence}` : "";
+            return `${index + 1}. *${title}*${ownerText}${phases}\n   ${explanation}${evidenceText}`;
+        };
+
+        const parts = [
+            "*Operational Flags*",
+            `Reservation: ${detail?.record?.guestName || "Guest"} · ${detail?.record?.listingName || "Property"}`,
+            "",
+        ];
+
+        if (redFlags.length) {
+            parts.push("*Operational Red Flags*");
+            parts.push(redFlags.map(formatFlag).join("\n"));
+            parts.push("");
+        }
+
+        if (greenFlags.length) {
+            parts.push("*Operational Green Flags*");
+            parts.push(greenFlags.map(formatFlag).join("\n"));
+        }
+
+        return parts.join("\n").trim();
+    }
+
+    private async postSlackLoadingMessage(channel: string, threadTs: string, text: string): Promise<string | null> {
+        const loadingMessage = await sendSlackMessage({ channel, text }, threadTs);
+        return loadingMessage?.ts || null;
+    }
+
+    private async resolveSlackLoadingMessage(
+        channel: string,
+        threadTs: string,
+        loadingMessageTs: string | null,
+        text: string
+    ): Promise<void> {
+        if (loadingMessageTs) {
+            await updateSlackMessage({ text }, loadingMessageTs, channel);
+            return;
+        }
+
+        await sendSlackMessage({ channel, text }, threadTs);
+    }
+
+    private async postOperationalFlagsForReviewCheckout(
+        reservationId: number,
+        channel: string,
+        threadTs: string,
+        loadingMessageTs: string | null
+    ): Promise<void> {
+        const analysisService = new GuestAnalysisService();
+        let detail = await analysisService.getAnalysisDetailContext(reservationId);
+
+        if (!detail) {
+            await this.resolveSlackLoadingMessage(
+                channel,
+                threadTs,
+                loadingMessageTs,
+                "🔄 No saved AI analysis found. Generating AI analysis first…"
+            );
+            await analysisService.analyzeGuestCommunication(reservationId, undefined, "slack");
+            detail = await analysisService.getAnalysisDetailContext(reservationId);
+        }
+
+        await this.resolveSlackLoadingMessage(channel, threadTs, loadingMessageTs, this.formatOperationalFlagsForSlack(detail));
+    }
+
+    private async answerReviewCheckoutCopilot(
+        reservationId: number,
+        channel: string,
+        threadTs: string,
+        userMessage: string,
+        slackUserId: string,
+        loadingMessageTs: string | null
+    ): Promise<void> {
+        const copilotService = new ReservationAICopilotService();
+        const thread = await copilotService.sendMessage({
+            reservationId,
+            content: userMessage,
+            userId: slackUserId,
+        });
+        const latestAssistantMessage = [...thread.messages].reverse().find((message) => message.role === "assistant");
+        const answer = latestAssistantMessage?.content?.trim();
+        await this.resolveSlackLoadingMessage(
+            channel,
+            threadTs,
+            loadingMessageTs,
+            answer ? formatSecureStayMarkdownForSlack(answer) : "I couldn't generate a grounded copilot answer from the available SecureStay data."
+        );
+    }
+
+    private async postReviewCheckoutMentionError(
+        channel: string,
+        threadTs: string,
+        loadingMessageTs: string | null,
+        text: string
+    ): Promise<void> {
+        await this.resolveSlackLoadingMessage(channel, threadTs, loadingMessageTs, text);
+    }
+
+    private async postReviewCheckoutMentionReply(
+        reservationId: number,
+        channel: string,
+        threadTs: string,
+        userMessage: string,
+        slackUserId: string
+    ): Promise<void> {
+        const loadingMessageTs = await this.postSlackLoadingMessage(
+            channel,
+            threadTs,
+            this.isOperationalFlagsRequest(userMessage)
+                ? "🔄 Loading operational flags…"
+                : "💬 SecureStay Copilot is thinking…"
+        );
+
+        try {
+            if (this.isOperationalFlagsRequest(userMessage)) {
+                await this.postOperationalFlagsForReviewCheckout(reservationId, channel, threadTs, loadingMessageTs);
+                return;
+            }
+
+            await this.answerReviewCheckoutCopilot(reservationId, channel, threadTs, userMessage, slackUserId, loadingMessageTs);
+        } catch (error) {
+            logger.error(`[SlackEventsService] ReviewCheckout mention response failed for reservation ${reservationId}:`, error);
+            await this.postReviewCheckoutMentionError(
+                channel,
+                threadTs,
+                loadingMessageTs,
+                "❌ SecureStay could not generate a response for this reservation. Please check the server logs."
+            );
+        }
+    }
+
+    private async handleReviewCheckoutMention(
+        reservationId: number,
+        channel: string,
+        threadTs: string,
+        userMessage: string,
+        slackUserId: string,
+    ): Promise<void> {
+        if (this.isGenerateAIAnalysisRequest(userMessage)) {
+            const resolutionsService = new ResolutionsTeamSlackService();
+            await resolutionsService.triggerAIAnalysisFromSlack(reservationId, channel, threadTs);
+            return;
+        }
+
+        await this.postReviewCheckoutMentionReply(reservationId, channel, threadTs, userMessage, slackUserId);
+    }
+
     /**
      * Handle app_mention events (when bot is @mentioned)
      * Routes to AI Escalation Manager for conversational responses
@@ -556,15 +740,6 @@ export class SlackEventsService {
             // Extract the actual message (remove the bot mention)
             const botMentionRegex = /<@[A-Z0-9]+>/g;
             const userMessage = event.text.replace(botMentionRegex, '').trim();
-
-            if (!userMessage) {
-                logger.info(`[SlackEventsService] Mention with no message body — sending help response. channel=${event.channel} thread=${threadTs}`);
-                await sendSlackMessage({
-                    channel: event.channel,
-                    text: "👋 Hi! I'm the GR Tasks AI Manager. You can ask me about task status, request extensions, or provide updates. How can I help?"
-                }, threadTs);
-                return;
-            }
 
             logger.info(`[SlackEventsService] Generating AI response for mention — channel=${event.channel} thread=${threadTs} msgLength=${userMessage.length}`);
 
@@ -606,18 +781,28 @@ export class SlackEventsService {
                 return;
             }
 
-            // If this is a review_checkout thread, trigger AI guest analysis instead
+            if (!userMessage) {
+                logger.info(`[SlackEventsService] Mention with no message body — sending help response. channel=${event.channel} thread=${threadTs}`);
+                const helpText = trackedEntity.entityType === 'review_checkout'
+                    ? "👋 Hi! I'm the Reservation AI Copilot. Ask me about this reservation, or say `generate AI analysis` / `show operational flags`."
+                    : "👋 Hi! I'm the GR Tasks AI Manager. You can ask me about task status, request extensions, or provide updates. How can I help?";
+                await sendSlackMessage({ channel: event.channel, text: helpText }, threadTs);
+                return;
+            }
+
+            // Review checkout threads use the reservation copilot, with command shortcuts for AI analysis and operational flags.
             if (trackedEntity.entityType === 'review_checkout') {
-                const resolutionsService = new ResolutionsTeamSlackService();
                 const rc = await this.reviewCheckoutRepo.findOne({
                     where: { id: trackedEntity.entityId },
                     relations: ['reservationInfo'],
                 });
                 if (rc?.reservationInfo?.id) {
-                    await resolutionsService.triggerAIAnalysisFromSlack(
+                    await this.handleReviewCheckoutMention(
                         rc.reservationInfo.id,
                         event.channel,
-                        threadTs
+                        threadTs,
+                        userMessage,
+                        event.user,
                     );
                 } else {
                     await sendSlackMessage({ channel: event.channel, text: "❌ Could not find the reservation for this thread." }, threadTs);

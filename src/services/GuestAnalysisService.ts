@@ -5,6 +5,7 @@ import { appDatabase } from "../utils/database.util";
 import { BookingPhase, GuestAnalysisEntity, GuestAnalysisFlag, GuestAnalysisTimelinePhase } from "../entity/GuestAnalysis";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
 import { GuestCommunicationService } from "./GuestCommunicationService";
 import { GuestAnalysisSettingsEntry } from "../entity/GuestAnalysisSettings";
 import { GuestAnalysisSettingsService } from "./GuestAnalysisSettingsService";
@@ -145,6 +146,7 @@ export class GuestAnalysisService {
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
+    private discussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
     private communicationService: GuestCommunicationService;
     private settingsService: GuestAnalysisSettingsService;
 
@@ -165,7 +167,8 @@ export class GuestAnalysisService {
     async analyzeGuestCommunication(
         reservationId: number,
         inboxId?: string,
-        triggeredBy: string = "manual"
+        triggeredBy: string = "manual",
+        options: { skipSlackPost?: boolean } = {}
     ): Promise<GuestAnalysisEntity> {
         logger.info(`[GuestAnalysisService] Starting analysis for reservation ${reservationId}`);
 
@@ -207,7 +210,10 @@ export class GuestAnalysisService {
 
         const saved = await this.analysisRepo.save(analysis);
         logger.info(`[GuestAnalysisService] Analysis saved for reservation ${reservationId}`);
-        if (!["auto", "auto-report"].includes(triggeredBy)) {
+        this.createAnalysisDiscussionEntry(saved).catch((error) => {
+            logger.error(`[GuestAnalysisService] Failed to create AI analysis discussion entry for reservation ${reservationId}:`, error);
+        });
+        if (!options.skipSlackPost) {
             this.postAnalysisGeneratedToSlack(saved).catch((error) => {
                 logger.error(`[GuestAnalysisService] Failed to post AI analysis Slack update for reservation ${reservationId}:`, error);
             });
@@ -215,7 +221,43 @@ export class GuestAnalysisService {
         return saved;
     }
 
-    private buildAnalysisGeneratedSlackText(analysis: GuestAnalysisEntity) {
+    private buildAnalysisDiscussionText(analysis: GuestAnalysisEntity) {
+        return this.buildAnalysisGeneratedSlackText(analysis).replace(/\*/g, "");
+    }
+
+    private async createAnalysisDiscussionEntry(analysis: GuestAnalysisEntity) {
+        const reservationId = Number(analysis.reservationId);
+        if (!reservationId || Number.isNaN(reservationId)) return;
+
+        const existingMessages = await this.discussionMessageRepo.find({
+            where: { reservationId, sourceType: "ai" },
+            order: { createdAt: "DESC" },
+        });
+        const existing = existingMessages.find((message) => String(message.metadata?.analysisId || "") === String(analysis.id));
+        if (existing) return;
+
+        await this.discussionMessageRepo.save(this.discussionMessageRepo.create({
+            reviewId: null,
+            reservationId,
+            parentMessageId: null,
+            sourceType: "ai",
+            authorId: null,
+            authorName: "AI Analysis",
+            authorAvatar: null,
+            content: this.buildAnalysisDiscussionText(analysis),
+            mentions: [],
+            metadata: {
+                source: "ai_analysis",
+                analysisId: analysis.id,
+                eventType: "ai_analysis",
+                triggeredBy: analysis.analyzedBy,
+                sentiment: analysis.sentiment,
+                flagCount: Array.isArray(analysis.flags) ? analysis.flags.length : 0,
+            },
+        }));
+    }
+
+    buildAnalysisGeneratedSlackText(analysis: GuestAnalysisEntity) {
         const flags = Array.isArray(analysis.flags) ? analysis.flags : [];
         const greenFlags = flags.filter((flag: any) => flag?.polarity === "positive").length;
         const redFlags = flags.filter((flag: any) => flag?.polarity !== "positive").length;
