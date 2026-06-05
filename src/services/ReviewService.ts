@@ -483,6 +483,45 @@ export class ReviewService {
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private openAIService: OpenAIService | null = null;
 
+    async getReviewFilterOptions() {
+        const [integrationRows, sourceRows, channelRows] = await Promise.all([
+            this.reservationInfoRepo
+                .createQueryBuilder("reservation")
+                .select("DISTINCT reservation.integration_nickname", "value")
+                .addSelect("reservation.channelName", "channelName")
+                .where("reservation.integration_nickname IS NOT NULL")
+                .andWhere("reservation.integration_nickname != ''")
+                .getRawMany(),
+            this.reservationInfoRepo
+                .createQueryBuilder("reservation")
+                .select("DISTINCT reservation.source", "value")
+                .addSelect("reservation.channelName", "channelName")
+                .where("reservation.source IS NOT NULL")
+                .andWhere("reservation.source != ''")
+                .getRawMany(),
+            this.reservationInfoRepo
+                .createQueryBuilder("reservation")
+                .select("DISTINCT reservation.channelName", "value")
+                .addSelect("reservation.channelName", "channelName")
+                .where("reservation.channelName IS NOT NULL")
+                .andWhere("reservation.channelName != ''")
+                .getRawMany(),
+        ]);
+
+        const integrationMap = new Map<string, string>();
+        [...integrationRows, ...sourceRows, ...channelRows].forEach((row: any) => {
+            const value = String(row?.value || "").trim();
+            if (!value || integrationMap.has(value)) return;
+            integrationMap.set(value, String(row?.channelName || value).trim());
+        });
+
+        return {
+            integrations: Array.from(integrationMap.entries())
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([value, channelName]) => ({ value, channelName })),
+        };
+    }
+
     private async logReservationFieldChanges(
         reservationInfoId: number | null | undefined,
         changedBy: string,
@@ -1439,12 +1478,26 @@ export class ReviewService {
             }
 
             if (assignee && assignee.length > 0) {
-                const assigneeRows = await this.reviewCheckoutRepo.find({
-                    where: { assignee: In(assignee as string[]) },
-                    relations: ['reservationInfo'],
-                });
+                const assigneePresence = this.splitPresenceFilterValues(assignee as string[]);
+                const assigneeQuery = this.reviewCheckoutRepo
+                    .createQueryBuilder('reviewCheckout')
+                    .leftJoin('reviewCheckout.reservationInfo', 'reservationInfo')
+                    .select('reservationInfo.id', 'id');
+
+                if (assigneePresence.exactValues.length > 0) {
+                    assigneeQuery.andWhere('reviewCheckout.assignee IN (:...assignee)', { assignee: assigneePresence.exactValues });
+                }
+                if (assigneePresence.wantsWith !== assigneePresence.wantsNo) {
+                    assigneeQuery.andWhere(
+                        assigneePresence.wantsWith
+                            ? '(reviewCheckout.assignee IS NOT NULL AND TRIM(reviewCheckout.assignee) != "")'
+                            : '(reviewCheckout.assignee IS NULL OR TRIM(reviewCheckout.assignee) = "")',
+                    );
+                }
+
+                const assigneeRows = await assigneeQuery.getRawMany();
                 const assigneeReservationIds = assigneeRows
-                    .map((item) => Number(item.reservationInfo?.id))
+                    .map((item: any) => Number(item.id))
                     .filter(Boolean);
                 filteredReservationIds = this.mergeNumberFilters(filteredReservationIds, assigneeReservationIds);
             }
@@ -2834,7 +2887,17 @@ export class ReviewService {
         }
 
         if (assignee && assignee.length > 0) {
-            query.andWhere("reviewCheckout.assignee IN (:...assignee)", { assignee });
+            const assigneePresence = this.splitPresenceFilterValues(assignee);
+            if (assigneePresence.exactValues.length > 0) {
+                query.andWhere("reviewCheckout.assignee IN (:...assignee)", { assignee: assigneePresence.exactValues });
+            }
+            if (assigneePresence.wantsWith !== assigneePresence.wantsNo) {
+                query.andWhere(
+                    assigneePresence.wantsWith
+                        ? '(reviewCheckout.assignee IS NOT NULL AND TRIM(reviewCheckout.assignee) != "")'
+                        : '(reviewCheckout.assignee IS NULL OR TRIM(reviewCheckout.assignee) = "")',
+                );
+            }
         }
 
         if (latestUpdate && latestUpdate.length > 0) {

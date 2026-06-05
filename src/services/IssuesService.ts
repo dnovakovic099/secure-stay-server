@@ -653,6 +653,94 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
+  private async resolveActivityTimelineUserIssueIds(userIds: string[]): Promise<number[]> {
+    const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedUserIds.length === 0) return [];
+
+    const rows = await this.issueUpdatesRepo
+      .createQueryBuilder("issueUpdate")
+      .innerJoin("issueUpdate.issue", "issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("(issueUpdate.createdBy IN (:...userIds) OR issueUpdate.updatedBy IN (:...userIds))", {
+        userIds: normalizedUserIds,
+      })
+      .getRawMany<{ id: number }>();
+
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveIssueRowUserIssueIds(userIds: string[], columns: Array<"created_by" | "updated_by" | "completed_by">): Promise<number[]> {
+    const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedUserIds.length === 0 || columns.length === 0) return [];
+
+    const qb = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .distinct(true);
+
+    columns.forEach((column, index) => {
+      const clause = `issue.${column} IN (:...userIds)`;
+      if (index === 0) qb.where(clause, { userIds: normalizedUserIds });
+      else qb.orWhere(clause, { userIds: normalizedUserIds });
+    });
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveActivityUserIssueIds(activityType: string, userIds: string[]): Promise<number[]> {
+    const normalizedType = activityType || "all";
+    const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedUserIds.length === 0) return [];
+
+    if (normalizedType === "updated") {
+      return this.resolveActivityTimelineUserIssueIds(normalizedUserIds);
+    }
+
+    if (normalizedType === "last_updated") {
+      return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["updated_by"]);
+    }
+
+    if (normalizedType === "created") {
+      return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["created_by"]);
+    }
+
+    if (normalizedType === "completed") {
+      return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["completed_by"]);
+    }
+
+    const [timelineIssueIds, issueRowIssueIds] = await Promise.all([
+      this.resolveActivityTimelineUserIssueIds(normalizedUserIds),
+      this.resolveIssueRowUserIssueIds(normalizedUserIds, ["created_by", "updated_by", "completed_by"]),
+    ]);
+
+    return Array.from(new Set([...timelineIssueIds, ...issueRowIssueIds]));
+  }
+
+  private async resolveActivityTimelineDateIssueIds(fromDate?: string, toDate?: string): Promise<number[]> {
+    if (!fromDate && !toDate) return [];
+
+    const qb = this.issueUpdatesRepo
+      .createQueryBuilder("issueUpdate")
+      .innerJoin("issueUpdate.issue", "issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where("issueUpdate.deletedAt IS NULL");
+
+    if (fromDate && toDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+    } else if (fromDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) >= :fromDate", { fromDate });
+    } else if (toDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) <= :toDate", { toDate });
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
   private async resolveResolutionNotesKeywordIssueIds(keyword: string): Promise<number[]> {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) return [];
@@ -1581,7 +1669,8 @@ export class IssuesService {
     const grIssueStatus = grStatus;
     const currentDate = format(new Date(), "yyyy-MM-dd");
 
-    // dateType=created/updated/completed/due filters on the Issue table directly.
+    // dateType=created/updated/last_updated/completed/due filters on the Issue table directly.
+    // dateType=activity_updated resolves matching issue IDs from issue timeline entries.
     // dateType=check_in/check_out and stayStatus require resolving matching
     // reservation IDs from reservation_info, since Issue has no check_out_date
     // and stay status is computed from arrival/departure dates.
@@ -1636,7 +1725,7 @@ export class IssuesService {
 
     let dateColumn: "created_at" | "updated_at" | "completed_at" | "due_date" | null = null;
     if (fromDate || toDate) {
-      if (dateType === "updated") dateColumn = "updated_at";
+      if (dateType === "updated" || dateType === "last_updated") dateColumn = "updated_at";
       else if (dateType === "completed") dateColumn = "completed_at";
       else if (dateType === "due") dateColumn = "due_date";
       else if (!dateType || dateType === "created") dateColumn = "created_at";
@@ -1655,12 +1744,6 @@ export class IssuesService {
       : urgency
       ? [Number(urgency)].filter((value: number) => Number.isFinite(value))
       : [];
-    const activityColumn =
-      activityType === "updated"
-        ? "updated_by"
-        : activityType === "completed"
-        ? "completed_by"
-        : "created_by";
     const normalizedActivityUsers = Array.isArray(activityUser)
       ? activityUser.map((value: any) => String(value || "").trim()).filter(Boolean)
       : activityUser
@@ -1683,6 +1766,8 @@ export class IssuesService {
     const [
       keywordIssueIds,
       activityKeywordIssueIds,
+      activityUserIssueIds,
+      activityTimelineDateIssueIds,
       vendorThreadStatusIssueIds,
       resolutionNotesKeywordIssueIds,
       resolutionNotesPresenceIssueIds,
@@ -1691,6 +1776,8 @@ export class IssuesService {
     ] = await Promise.all([
       normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword) : Promise.resolve(undefined),
       normalizedActivityKeyword ? this.resolveActivityKeywordIssueIds(normalizedActivityKeyword) : Promise.resolve(undefined),
+      normalizedActivityUsers.length > 0 ? this.resolveActivityUserIssueIds(activityType || "all", normalizedActivityUsers) : Promise.resolve(undefined),
+      dateType === "activity_updated" && (fromDate || toDate) ? this.resolveActivityTimelineDateIssueIds(fromDate, toDate) : Promise.resolve(undefined),
       normalizedVendorThreadStatus ? this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus) : Promise.resolve(undefined),
       normalizedResolutionNotesKeyword ? this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword) : Promise.resolve(undefined),
       normalizedResolutionNotesStatus ? this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus) : Promise.resolve(undefined),
@@ -1713,6 +1800,14 @@ export class IssuesService {
     }
 
     if (!applyIssueIdFilter(activityKeywordIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(activityUserIssueIds)) {
+      return { issues: [], total: 0 };
+    }
+
+    if (!applyIssueIdFilter(activityTimelineDateIssueIds)) {
       return { issues: [], total: 0 };
     }
 
@@ -1754,7 +1849,6 @@ export class IssuesService {
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
-        ...(normalizedActivityUsers.length > 0 && { [activityColumn]: In(normalizedActivityUsers) }),
         ...(issueResolution && { ai_resolution_status: issueResolution }),
         ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
       },

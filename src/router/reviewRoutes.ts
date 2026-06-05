@@ -16,6 +16,9 @@ router.route('/ui-settings/:pageKey')
 router.route('/ui-settings/:pageKey/shared-views')
     .put(verifySession, reviewController.updateReviewSharedViews.bind(reviewController));
 
+router.route('/filter-options')
+    .get(verifySession, reviewController.getReviewFilterOptions.bind(reviewController));
+
 router.route('/mitigation-statuses')
     .get(verifySession, reviewController.getMitigationStatusOptions.bind(reviewController))
     .post(verifySession, reviewController.createMitigationStatusOption.bind(reviewController))
