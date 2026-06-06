@@ -19,7 +19,7 @@ export const validateCreateResolution = (request: Request, response: Response, n
                 'number.base': 'Listing Map ID must be a number',
                 'any.required': 'Listing Map ID is required'
             }),
-            
+
         reservationId: Joi.number()
         .required()
         .messages({
@@ -49,11 +49,18 @@ export const validateCreateResolution = (request: Request, response: Response, n
                 'any.required': 'Amount is required'
             }),
 
+        amountToPayout: Joi.number()
+            .optional()
+            .allow(null)
+            .messages({
+                'number.base': 'Amount to payout must be a number'
+            }),
+
         arrivalDate: Joi.string().required().messages({
             'string.empty': 'Arrival date is required',
             'any.required': 'Arrival date is required'
         }),
-        
+
         departureDate: Joi.string().required().messages({
             'string.empty': 'Departure date is required',
             'any.required': 'Departure date is required'
@@ -62,10 +69,10 @@ export const validateCreateResolution = (request: Request, response: Response, n
 
     const { error } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
-}; 
+};
 
 
 export const validateGetResolutions = (request: Request, response: Response, next: NextFunction) => {
@@ -87,7 +94,7 @@ export const validateGetResolutions = (request: Request, response: Response, nex
     });
     const { error } = schema.validate(request.query);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
 };
@@ -163,7 +170,7 @@ export const validateUpdateResolution = (request: Request, response: Response, n
 
     const { error } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
 };
@@ -239,7 +246,7 @@ export const validateBulkUpdateResolutions = (request: Request, response: Respon
 
     const { error } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
-}; 
+};

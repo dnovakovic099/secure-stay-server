@@ -553,7 +553,7 @@ export const buildMitigationRefundRequestUpdateMessage = (
         ? ` <@${options.anjSlackId || "U08END0JTBM"}> please process`
         : "";
     const rawDescription = isStatusUpdate
-        ? `Refund status changed from *${options.oldStatus || "—"}* to *${getRefundStatusLabelWithEmoji(normalizedNewStatus)}*${processingMention}`
+        ? `Refund request status updated from *${options.oldStatus || "—"}* → *${getRefundStatusLabelWithEmoji(normalizedNewStatus)}*${processingMention}`
         : options.description.trim();
     const description = rawDescription.startsWith("💸") ? rawDescription : `💸 ${rawDescription}`;
     const assigneeLabel = normalizeSlackField(options.assigneeMention, "Unassigned");
@@ -2502,8 +2502,9 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         return normalizedSelectedTags.has(decodeTagValue(rawValue).toLowerCase());
     });
 
+    const formatSelectedTag = (tag: string) => `\`${escapeSlackLinkText(tag).replace(/`/g, "'")}\``;
     const tagsText = selectedTags.length > 0
-        ? `*Tags:* ${selectedTags.map((t) => escapeSlackLinkText(t)).join(' · ')}`
+        ? `*Tags:* ${selectedTags.map(formatSelectedTag).join(' · ')}`
         : '*Tags*';
 
     return {

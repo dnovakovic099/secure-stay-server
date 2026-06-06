@@ -117,6 +117,7 @@ interface Filter {
     aiAnalysisSearch?: string | null | undefined;
     publicReviewSearch?: string | null | undefined;
     groupField?: string | null | undefined;
+    includeOpeningMitigationWindow?: boolean | string | null | undefined;
 }
 
 
@@ -2680,6 +2681,7 @@ export class ReviewService {
             publicReview: rawPublicReview,
             accountingLogs: rawAccountingLogs,
             currentlyStaying,
+            includeOpeningMitigationWindow: rawIncludeOpeningMitigationWindow,
             reservationId,
             confirmationCode,
             reservationStatus: rawReservationStatus,
@@ -2735,6 +2737,7 @@ export class ReviewService {
         const tags = toArr(rawTags);
         const reservationStatus = toArr(rawReservationStatus);
         const daysLeft = toArr(rawDaysLeft).map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value));
+        const includeOpeningMitigationWindow = rawIncludeOpeningMitigationWindow === true || rawIncludeOpeningMitigationWindow === 'true';
         const requestedReservationId = reservationId != null && reservationId !== ''
             ? Number(reservationId)
             : null;
@@ -2759,7 +2762,27 @@ export class ReviewService {
             query.andWhere("reservationInfo.id = :requestedReservationId", { requestedReservationId });
         }
 
-        if (currentlyStaying === true || currentlyStaying === 'true') {
+        if (includeOpeningMitigationWindow) {
+            const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(
+                null,
+                listingMapId.length > 0 ? listingMapId.map((id) => Number(id)).filter(Boolean) : null,
+            );
+            const today = new Date();
+            query.andWhere(new Brackets((qb) => {
+                let hasPredicate = false;
+                if (currentStayReservationIds.length > 0) {
+                    qb.where('reservationInfo.id IN (:...openingCurrentStayReservationIds)', { openingCurrentStayReservationIds: currentStayReservationIds });
+                    hasPredicate = true;
+                }
+                const dateClause = 'DATE(reservationInfo.departureDate) BETWEEN :openingMitigationFromDate AND :openingMitigationToDate';
+                const dateParams = {
+                    openingMitigationFromDate: format(addDays(today, -14), 'yyyy-MM-dd'),
+                    openingMitigationToDate: format(today, 'yyyy-MM-dd'),
+                };
+                if (hasPredicate) qb.orWhere(dateClause, dateParams);
+                else qb.where(dateClause, dateParams);
+            }));
+        } else if (currentlyStaying === true || currentlyStaying === 'true') {
             const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(
                 null,
                 listingMapId.length > 0 ? listingMapId.map((id) => Number(id)).filter(Boolean) : null,
@@ -2955,7 +2978,7 @@ export class ReviewService {
             query.andWhere("reviewCheckout.comments LIKE :resolutionNotesSearch", { resolutionNotesSearch: `%${resolutionNotesSearch}%` });
         }
 
-        if (fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
+        if (!includeOpeningMitigationWindow && fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
             const matchingReviewRows = await this.reviewRepository
                 .createQueryBuilder('review')
                 .select('DISTINCT review.reservationId', 'reservationId')
@@ -2972,9 +2995,9 @@ export class ReviewService {
             } else {
                 query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
             }
-        } else if (fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
+        } else if (!includeOpeningMitigationWindow && fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
             query.andWhere(`DATE(reservationInfo.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
-        } else if (fromDate && toDate && dateType === 'refundedAt') {
+        } else if (!includeOpeningMitigationWindow && fromDate && toDate && dateType === 'refundedAt') {
             const refundDateRows = await this.refundRequestRepo
                 .createQueryBuilder('refund')
                 .select('DISTINCT refund.reservationId', 'reservationId')
@@ -3954,6 +3977,11 @@ export class ReviewService {
         // Post activity to Slack thread (fire-and-forget, never blocks the main flow)
         if (reviewCheckout.slackThreadTs) {
             const slackService = new ResolutionsTeamSlackService();
+            const shouldSyncRootMessage =
+                (data.status !== undefined && data.status !== prevStatus)
+                || (data.assignee !== undefined && (data.assignee || null) !== prevAssignee)
+                || (data.visibility !== undefined && (data.visibility ?? null) !== (previousState.visibility ?? null));
+
             if (data.status !== undefined && data.status !== prevStatus) {
                 slackService.postActivityToThread(id, {
                     type: 'status',
@@ -3985,6 +4013,10 @@ export class ReviewService {
                     oldValue: previousState.visibility,
                     newValue: data.visibility ?? '',
                 }).catch((err) => logger.error('[ReviewService] Slack visibility activity post failed:', err));
+            }
+            if (shouldSyncRootMessage) {
+                slackService.syncRootMessageForReviewCheckout(id)
+                    .catch((err) => logger.error('[ReviewService] Slack root message sync failed:', err));
             }
         }
 

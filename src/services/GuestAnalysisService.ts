@@ -503,15 +503,12 @@ export class GuestAnalysisService {
 
         for (const reservation of reservations) {
             try {
-                // Check if analysis already exists and was done recently (within last 24 hours)
+                // Scheduled runs should only backfill missing analysis; manual refreshes still create new versions.
                 const existing = await this.getAnalysisByReservation(reservation.id);
-                if (existing && existing.analyzedAt) {
-                    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                    if (existing.analyzedAt > twentyFourHoursAgo) {
-                        logger.info(`[GuestAnalysisService] Skipping reservation ${reservation.id} - recent analysis exists`);
-                        skipped++;
-                        continue;
-                    }
+                if (existing) {
+                    logger.info(`[GuestAnalysisService] Skipping reservation ${reservation.id} - analysis already exists`);
+                    skipped++;
+                    continue;
                 }
 
                 logger.info(`[GuestAnalysisService] Processing reservation ${reservation.id} (${reservation.guestName})`);
