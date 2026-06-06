@@ -1,5 +1,9 @@
 import { NextFunction, Request, Response } from "express";
 import { ReservationInfoService } from "../services/ReservationInfoService";
+import { appDatabase } from "../utils/database.util";
+import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -230,6 +234,16 @@ export class ReservationInfoController {
                     message: "Reservation not found",
                 });
             }
+
+            appDatabase.getRepository(ReviewCheckout).findOne({
+                where: { reservationInfo: { id: reservationId } },
+                relations: ["reservationInfo"],
+            }).then((reviewCheckout) => {
+                if (!reviewCheckout?.slackThreadTs) return;
+                return new ResolutionsTeamSlackService().syncRootMessageForReviewCheckout(reviewCheckout.id);
+            }).catch((error) => {
+                logger.error(`[ReservationInfoController] Failed to sync review checkout tag root message for reservation ${reservationId}:`, error);
+            });
 
             return response.status(200).json({
                 status: true,

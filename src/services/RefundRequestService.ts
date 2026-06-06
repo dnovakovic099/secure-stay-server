@@ -55,6 +55,41 @@ export class RefundRequestService {
     return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid || null;
   }
 
+  private formatRefundUpdateValue(value: unknown, field?: string) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (field === "amount") return formatCurrency(Number(value) || 0);
+    if (field === "charge to client") return this.normalizeChargeToClient(value) ? "Yes" : "No";
+    if (value instanceof Date) return format(value, "MMM d, yyyy");
+    return String(value);
+  }
+
+  private buildRefundRequestUpdateDescription(field: string, oldValue: unknown, newValue: unknown) {
+    return `Refund request ${field} updated from *${this.formatRefundUpdateValue(oldValue, field)}* → *${this.formatRefundUpdateValue(newValue, field)}*`;
+  }
+
+  private getPrimaryRefundRequestUpdateDescription(
+    previousState: Partial<RefundRequestEntity>,
+    savedRefundRequest: RefundRequestEntity
+  ) {
+    const fields: Array<{ label: string; oldValue: unknown; newValue: unknown }> = [
+      { label: "status", oldValue: previousState.status, newValue: savedRefundRequest.status },
+      { label: "amount", oldValue: previousState.refundAmount, newValue: savedRefundRequest.refundAmount },
+      { label: "charge to client", oldValue: previousState.chargeToClient, newValue: savedRefundRequest.chargeToClient },
+      { label: "payment method", oldValue: previousState.paymentMethod, newValue: savedRefundRequest.paymentMethod },
+      { label: "payment details", oldValue: previousState.paymentDetails, newValue: savedRefundRequest.paymentDetails },
+      { label: "explanation", oldValue: previousState.explaination, newValue: savedRefundRequest.explaination },
+      { label: "notes", oldValue: previousState.notes, newValue: savedRefundRequest.notes },
+      { label: "check-in", oldValue: previousState.checkIn, newValue: savedRefundRequest.checkIn },
+      { label: "check-out", oldValue: previousState.checkOut, newValue: savedRefundRequest.checkOut },
+      { label: "requested by", oldValue: previousState.requestedBy, newValue: savedRefundRequest.requestedBy },
+    ];
+    const changed = fields.find(({ label, oldValue, newValue }) =>
+      this.formatRefundUpdateValue(oldValue, label) !== this.formatRefundUpdateValue(newValue, label)
+    );
+    if (!changed) return "Refund request updated";
+    return this.buildRefundRequestUpdateDescription(changed.label, changed.oldValue, changed.newValue);
+  }
+
   private inferPropertyTypeTag(listing?: Listing | null) {
     const explicit = String(listing?.propertyType || "").trim().toLowerCase();
     if (explicit === "pm") return "PM";
@@ -434,6 +469,18 @@ export class RefundRequestService {
     user: string,
     slackMessageService: SlackMessageService
     ) {
+        const previousState = {
+            explaination: refundRequest.explaination ?? null,
+            refundAmount: refundRequest.refundAmount ?? null,
+            requestedBy: refundRequest.requestedBy ?? null,
+            status: refundRequest.status ?? null,
+            paymentMethod: refundRequest.paymentMethod ?? null,
+            paymentDetails: refundRequest.paymentDetails ?? null,
+            chargeToClient: refundRequest.chargeToClient ?? 0,
+            notes: refundRequest.notes ?? null,
+            checkIn: refundRequest.checkIn ?? null,
+            checkOut: refundRequest.checkOut ?? null,
+        };
         const previousStatus = refundRequest.status;
         const isStatusChanged = previousStatus !== body.status;
 
@@ -447,9 +494,7 @@ export class RefundRequestService {
         slackMessageService
       );
       if (mitigationThreadHandled) {
-        const description = isStatusChanged
-          ? `Refund status changed from *${previousStatus || "—"}* to *${savedRefundRequest.status || "—"}*`
-          : "Refund request updated";
+        const description = this.getPrimaryRefundRequestUpdateDescription(previousState, savedRefundRequest);
         await this.postMitigationRefundUpdate(
           savedRefundRequest,
           description,
@@ -1004,7 +1049,7 @@ export class RefundRequestService {
 
         if (mitigationThreadHandled) {
           const description = isStatusChanged
-            ? `Refund status changed from *${previousStatus || "—"}* to *${status || "—"}*`
+            ? this.buildRefundRequestUpdateDescription("status", previousStatus, status)
             : "Refund request updated";
           await this.postMitigationRefundUpdate(
             refundRequest,

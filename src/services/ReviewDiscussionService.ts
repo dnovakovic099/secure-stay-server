@@ -222,6 +222,7 @@ export class ReviewDiscussionService {
 
         const withoutDividers = withoutPrefix
             .split(/\r?\n/)
+            .map((line) => line.replace(/\s*[─_\-]{5,}\s*$/g, ""))
             .filter((line) => !/^\s*[─_\-]{5,}\s*$/.test(line))
             .join("\n")
             .trim();

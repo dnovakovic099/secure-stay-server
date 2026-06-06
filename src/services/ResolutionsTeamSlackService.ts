@@ -73,6 +73,8 @@ const EMOJI_MAP: Record<string, { emoji: string; sortOrder: number }> = {
 // Module-level rate-limit: at most one Slack thread sync per reservation per minute
 const slackThreadSyncTimestamps = new Map<number, number>();
 const SLACK_SYNC_INTERVAL_MS = 60_000;
+const RESOLUTIONS_TEAM_SUBTEAM_MENTION = "<!subteam^S0A79UGQG0H>";
+const MITIGATION_INACTIVITY_REMINDER_EVENT = "mitigation_inactivity_reminder";
 
 // Evict entries older than one sync interval every minute
 setInterval(() => {
@@ -121,6 +123,42 @@ export class ResolutionsTeamSlackService {
                 ? configuredBaseUrl
                 : "https://securestay.ai"
         ).replace(/\/$/, "");
+    }
+
+    private getCheckoutLocalDateFromDeadline(deadline: string): Date {
+        const [year, month, day] = String(deadline || "").split("-").map((value) => Number(value));
+        if (!year || !month || !day) return addDays(new Date(), -14);
+        return addDays(new Date(year, month - 1, day), -14);
+    }
+
+    private async hasMitigationActivitySince(reviewCheckoutId: number, reservationId: number, sinceDate: Date): Promise<boolean> {
+        const [discussionMessages, updateCount, refundActivityCount] = await Promise.all([
+            this.reviewDiscussionMessageRepo
+                .createQueryBuilder("message")
+                .where("message.reservation_id = :reservationId", { reservationId })
+                .andWhere("message.created_at >= :sinceDate", { sinceDate })
+                .getMany(),
+            this.reviewCheckoutUpdatesRepo
+                .createQueryBuilder("checkoutUpdate")
+                .innerJoin("checkoutUpdate.reviewCheckout", "reviewCheckout")
+                .where("reviewCheckout.id = :reviewCheckoutId", { reviewCheckoutId })
+                .andWhere("checkoutUpdate.deletedAt IS NULL")
+                .andWhere("(checkoutUpdate.createdAt >= :sinceDate OR checkoutUpdate.updatedAt >= :sinceDate)", { sinceDate })
+                .getCount(),
+            this.refundRequestRepo
+                .createQueryBuilder("refundRequest")
+                .where("refundRequest.reservationId = :reservationId", { reservationId })
+                .andWhere("refundRequest.deletedAt IS NULL")
+                .andWhere("(refundRequest.createdAt >= :sinceDate OR refundRequest.updatedAt >= :sinceDate)", { sinceDate })
+                .getCount(),
+        ]);
+
+        const relevantDiscussionMessages = discussionMessages.filter((message) => {
+            const eventType = String(message.metadata?.eventType || "");
+            return eventType !== MITIGATION_INACTIVITY_REMINDER_EVENT;
+        });
+
+        return relevantDiscussionMessages.length > 0 || updateCount > 0 || refundActivityCount > 0;
     }
 
     private buildSlackDiscussionAttachments(files?: SlackThreadFileAttachment[] | null): ReviewDiscussionAttachment[] {
@@ -371,6 +409,11 @@ export class ResolutionsTeamSlackService {
         return normalized.includes("airbnb") || normalized.includes("vrbo");
     }
 
+    private isEligibleReminderListing(propertyType?: string | null, serviceType?: string | null) {
+        if (propertyType === "Own" || propertyType === "Arb") return true;
+        return propertyType === "PM" && (serviceType === "Full" || serviceType === "Pro");
+    }
+
     private async getResolutionsAssigneeOptions() {
         const assigneeData = await this.usersService.fetchUserListByDepartment("resolutions");
         const groups = [
@@ -509,6 +552,20 @@ export class ResolutionsTeamSlackService {
         } catch (err) {
             logger.error(`[ResolutionsTeam] Failed to update root message for reviewCheckout ${reviewCheckout.id}:`, err);
         }
+    }
+
+    async syncRootMessageForReviewCheckout(reviewCheckoutId: number): Promise<void> {
+        const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+            where: { id: reviewCheckoutId },
+            relations: ["reservationInfo"],
+        });
+        const reservation = reviewCheckout?.reservationInfo;
+        if (!reviewCheckout || !reservation) return;
+
+        const listing = reservation.listingMapId
+            ? await this.listingRepo.findOne({ where: { id: reservation.listingMapId } })
+            : null;
+        await this.updateRootMessage(reviewCheckout, reservation, listing);
     }
 
     private async getCancellationChangedAt(reservationId: number): Promise<Date | null> {
@@ -758,6 +815,7 @@ export class ResolutionsTeamSlackService {
                     ownerRevenue: this.getOwnerRevenueDisplay(reservation),
                     status: rc.status || "New",
                     assignee: rc.assignee || "",
+                    visibility: rc.visibility || "Awaiting Review",
                     ssUrl,
                     reviewCheckoutId: rc.id,
                     statusOptions: statusData.options,
@@ -1234,7 +1292,7 @@ export class ResolutionsTeamSlackService {
 
     async sendDaysLeftReviewReminders(): Promise<void> {
         const today = new Date();
-        const reminderTargets = [1, 2].map((daysLeft) => ({
+        const reminderTargets = [2, 1, 0].map((daysLeft) => ({
             daysLeft,
             deadline: format(addDays(today, daysLeft), "yyyy-MM-dd"),
         }));
@@ -1266,18 +1324,12 @@ export class ResolutionsTeamSlackService {
             .map((rc) => Number(rc.reservationInfo?.listingMapId))
             .filter((id) => Number.isFinite(id));
 
-        const [reviews, listings, refundRequests] = await Promise.all([
+        const [reviews, listings] = await Promise.all([
             reservationIds.length
                 ? this.reviewRepo.find({ where: { reservationId: In(reservationIds) } })
                 : [],
             listingIds.length
                 ? this.listingRepo.find({ where: { id: In(listingIds) }, select: ["id", "tags"] })
-                : [],
-            reservationIds.length
-                ? this.refundRequestRepo.find({
-                    where: { reservationId: In(reservationIds), deletedAt: null as any },
-                    select: ["id", "reservationId", "status"],
-                })
                 : [],
         ]);
 
@@ -1289,13 +1341,6 @@ export class ResolutionsTeamSlackService {
         const listingTagMap = new Map<number, string | null | undefined>(
             listings.map((listing) => [Number(listing.id), listing.tags] as [number, string | null | undefined])
         );
-        const refundRequestReservationIds = new Set(
-            refundRequests
-                .filter((refundRequest) => String(refundRequest.status || "").toLowerCase() !== "cancelled")
-                .map((refundRequest) => Number(refundRequest.reservationId))
-                .filter((reservationId) => Number.isFinite(reservationId))
-        );
-        const anjSlackId = await this.getAnjSlackUserId();
 
         let sent = 0;
         let skipped = 0;
@@ -1306,7 +1351,7 @@ export class ResolutionsTeamSlackService {
             const deadline = String(rc.fourteenDaysAfterCheckout || "").slice(0, 10);
             const daysLeft = daysLeftByDeadline.get(deadline);
 
-            if (!reservation || !daysLeft || postedReviewReservationIds.has(reservationId) || refundRequestReservationIds.has(reservationId)) {
+            if (!reservation || daysLeft == null || postedReviewReservationIds.has(reservationId)) {
                 skipped++;
                 continue;
             }
@@ -1314,7 +1359,7 @@ export class ResolutionsTeamSlackService {
             const listingTags = listingTagMap.get(Number(reservation.listingMapId)) || "";
             const propertyType = this.extractPropertyTypeFromTags(listingTags);
             const serviceType = this.extractServiceTypeFromTags(listingTags);
-            if (!["Own", "Arb"].includes(propertyType || "") || !["Full", "Pro"].includes(serviceType || "")) {
+            if (!this.isEligibleReminderListing(propertyType, serviceType)) {
                 skipped++;
                 continue;
             }
@@ -1336,11 +1381,18 @@ export class ResolutionsTeamSlackService {
                 continue;
             }
 
+            const checkoutDate = this.getCheckoutLocalDateFromDeadline(deadline);
+            const hasActivity = await this.hasMitigationActivitySince(Number(rc.id), reservationId, checkoutDate);
+            if (hasActivity) {
+                skipped++;
+                continue;
+            }
+
             const mention = rc.assignee
                 ? await this.getAssigneeActivityLabel(rc.assignee)
-                : (anjSlackId ? `<@${anjSlackId}>` : "Anj");
-            const dayLabel = daysLeft === 1 ? "1 day" : `${daysLeft} days`;
-            const text = `⏰ ${mention} review reminder: ${dayLabel} left for ${reservation.guestName || "Guest"} at ${reservation.listingName || "Unknown Property"}.`;
+                : RESOLUTIONS_TEAM_SUBTEAM_MENTION;
+            const dayLabel = daysLeft === 0 ? "0 days left (expires today)" : daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
+            const text = `⚠️ ${mention} ${dayLabel} until the mitigation ends for ${reservation.guestName || "Guest"} at ${reservation.listingName || "Unknown Property"}. The Resolution case needs to be reviewed due to inactivity.`;
 
             const result = await sendSlackMessage(
                 {
@@ -1351,7 +1403,7 @@ export class ResolutionsTeamSlackService {
                             type: "section",
                             text: {
                                 type: "mrkdwn",
-                                text: `${text}\nNo review has been posted yet.`
+                                text
                             }
                         },
                         {
@@ -1373,6 +1425,30 @@ export class ResolutionsTeamSlackService {
             );
 
             if (result?.ok && result?.ts) {
+                try {
+                    await this.reviewDiscussionMessageRepo.save(this.reviewDiscussionMessageRepo.create({
+                        reviewId: null,
+                        reservationId,
+                        parentMessageId: null,
+                        sourceType: "system",
+                        authorId: null,
+                        authorName: "SecureStay",
+                        authorAvatar: null,
+                        content: text,
+                        mentions: [],
+                        metadata: {
+                            source: "resolutions_team",
+                            eventType: MITIGATION_INACTIVITY_REMINDER_EVENT,
+                            reviewCheckoutId: rc.id,
+                            daysLeft,
+                            deadline,
+                            slackMessageTs: result.ts,
+                        },
+                    }));
+                } catch (error) {
+                    logger.error(`[ResolutionsTeam] Failed to create SecureStay inactivity reminder for reviewCheckout ${rc.id}:`, error);
+                }
+
                 const slackMsgRecord = this.slackMessageRepo.create({
                     channel: result.channel || rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL,
                     messageTs: result.ts,

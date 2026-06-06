@@ -25,6 +25,7 @@ import { ResolutionService } from "../services/ResolutionService";
 import { StripeClient } from "../client/StripeClient";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { format } from "date-fns";
+import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 
 export class UnifiedWebhookController {
 
@@ -443,6 +444,9 @@ export class UnifiedWebhookController {
                             selectedTags,
                             user
                         );
+                        new ResolutionsTeamSlackService()
+                            .syncRootMessageForReviewCheckout(Number(reviewCheckoutId))
+                            .catch((error) => logger.error(`Error syncing review checkout tags root message: ${error}`));
                         logger.info(`${user} updated review checkout ${reviewCheckoutId} tags to ${selectedTags.join(", ") || "none"}`);
                     } catch (error) {
                         logger.error(`Error updating review checkout tags: ${error}`);
