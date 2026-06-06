@@ -1409,16 +1409,21 @@ export class ReviewService {
                 listingIds = this.mergeListingIds(listingIds, results.flat());
             }
 
-            if (normalizedPropertyTypes.length > 0) {
+            // Property type and service type filters are unioned (OR) so selecting e.g. Own+Full
+            // returns all listings matching either dimension, not just their intersection.
+            if (normalizedPropertyTypes.length > 0 || normalizedServiceTypes.length > 0) {
                 const listingService = new ListingService();
-                const propertyTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map(l => l.id);
-                listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
-            }
-
-            if (normalizedServiceTypes.length > 0) {
-                const listingService = new ListingService();
-                const serviceTypeListingIds = (await listingService.getListingsByServiceTypes(normalizedServiceTypes as any)).map(l => l.id);
-                listingIds = this.mergeListingIds(listingIds, serviceTypeListingIds);
+                let scopeIds: number[] = [];
+                if (normalizedPropertyTypes.length > 0) {
+                    const ids = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map((l: any) => Number(l.id));
+                    scopeIds.push(...ids);
+                }
+                if (normalizedServiceTypes.length > 0) {
+                    const ids = (await listingService.getListingsByServiceTypes(normalizedServiceTypes as any)).map((l: any) => Number(l.id));
+                    scopeIds.push(...ids);
+                }
+                scopeIds = Array.from(new Set(scopeIds));
+                listingIds = this.mergeListingIds(listingIds, scopeIds);
             }
 
             // Add listingId(s) if provided
@@ -2799,38 +2804,38 @@ export class ReviewService {
             }
         }
 
-        // Property type filter — resolve to listing IDs first, then apply listing filter
-        if (normalizedPropertyTypes.length > 0) {
+        // Property type and service type filters are unioned (OR) — a listing matching either dimension is included.
+        // This lets users combine e.g. Own+Arb with Full+Pro and see all matching listings, not just their intersection.
+        if (normalizedPropertyTypes.length > 0 || normalizedServiceTypes.length > 0) {
             const listingService = new ListingService();
-            const propertyTypeListings = await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any);
-            const propertyTypeListingIds = propertyTypeListings.map((l: any) => Number(l.id));
+            let combinedListingIds: number[] = [];
+
+            if (normalizedPropertyTypes.length > 0) {
+                const propertyTypeListings = await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any);
+                combinedListingIds.push(...propertyTypeListings.map((l: any) => Number(l.id)));
+            }
+
+            if (normalizedServiceTypes.length > 0) {
+                const serviceTypeListings = await listingService.getListingsByServiceTypes(normalizedServiceTypes as any);
+                combinedListingIds.push(...serviceTypeListings.map((l: any) => Number(l.id)));
+            }
+
+            combinedListingIds = Array.from(new Set(combinedListingIds));
+
             if (listingMapId && listingMapId.length > 0) {
                 const requestedIds = listingMapId.map(id => Number(id));
-                const intersected = requestedIds.filter(id => propertyTypeListingIds.includes(id));
-                query.andWhere("reservationInfo.listingMapId IN (:...ptListingIds)", { ptListingIds: intersected.length > 0 ? intersected : [-1] });
+                const intersected = requestedIds.filter(id => combinedListingIds.includes(id));
+                query.andWhere("reservationInfo.listingMapId IN (:...scopeListingIds)", { scopeListingIds: intersected.length > 0 ? intersected : [-1] });
             } else {
                 query.andWhere(
-                    propertyTypeListingIds.length > 0
-                        ? "reservationInfo.listingMapId IN (:...ptListingIds)"
+                    combinedListingIds.length > 0
+                        ? "reservationInfo.listingMapId IN (:...scopeListingIds)"
                         : "1 = 0",
-                    propertyTypeListingIds.length > 0 ? { ptListingIds: propertyTypeListingIds } : {}
+                    combinedListingIds.length > 0 ? { scopeListingIds: combinedListingIds } : {}
                 );
             }
         } else if (listingMapId && listingMapId.length > 0) {
             query.andWhere("reservationInfo.listingMapId IN (:...listingMapId)", { listingMapId: listingMapId.map(id => Number(id)) });
-        }
-
-        // Service type filter — independently resolves to listing IDs and applies as additional AND constraint
-        if (normalizedServiceTypes.length > 0) {
-            const listingService = new ListingService();
-            const serviceTypeListings = await listingService.getListingsByServiceTypes(normalizedServiceTypes as any);
-            const serviceTypeListingIds = serviceTypeListings.map((l: any) => Number(l.id));
-            query.andWhere(
-                serviceTypeListingIds.length > 0
-                    ? "reservationInfo.listingMapId IN (:...stListingIds)"
-                    : "1 = 0",
-                serviceTypeListingIds.length > 0 ? { stListingIds: serviceTypeListingIds } : {}
-            );
         }
 
         this.applyReservationTagsFilter(query, 'reservationInfo', normalizedTags, 'checkoutTag');
