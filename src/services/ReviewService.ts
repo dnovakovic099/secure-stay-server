@@ -215,6 +215,31 @@ export enum BadReviewStatus {
 
 
 
+export type ReviewUiSettingsPageKey =
+    | 'reviews'
+    | 'mitigation'
+    | 'issues'
+    | 'issues-grouped'
+    | 'vendors'
+    | 'vendor-contacts'
+    | 'refund-requests'
+    | 'accounting-income'
+    | 'accounting-expense'
+    | 'accounting-extras'
+    | 'accounting-resolution'
+    | 'action-items'
+    | 'rental-agreements'
+    | 'rental-agreement-applicability'
+    | 'turnovers'
+    | 'reservations'
+    | 'claims'
+    | 'tasks'
+    | 'clients'
+    | 'client-tickets'
+    | 'client-onboarding'
+    | 'maintenance'
+    | 'maintenance-overview';
+
 export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
@@ -242,6 +267,18 @@ export class ReviewService {
         'accounting-expense': 'ui-settings:accounting-expense',
         'accounting-extras': 'ui-settings:accounting-extras',
         'accounting-resolution': 'ui-settings:accounting-resolution',
+        'action-items': 'ui-settings:action-items',
+        'rental-agreements': 'ui-settings:rental-agreements',
+        'rental-agreement-applicability': 'ui-settings:rental-agreement-applicability',
+        turnovers: 'ui-settings:turnovers',
+        reservations: 'ui-settings:reservations',
+        claims: 'ui-settings:claims',
+        tasks: 'ui-settings:tasks',
+        clients: 'ui-settings:clients',
+        'client-tickets': 'ui-settings:client-tickets',
+        'client-onboarding': 'ui-settings:client-onboarding',
+        maintenance: 'ui-settings:maintenance',
+        'maintenance-overview': 'ui-settings:maintenance-overview',
         mitigationStatuses: 'ui-settings:mitigation-statuses',
     } as const;
 
@@ -287,7 +324,7 @@ export class ReviewService {
         return this.settingsRepo.save(setting);
     }
 
-    async getReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution') {
+    async getReviewUiSettings(pageKey: ReviewUiSettingsPageKey) {
         const settingKey = this.reviewUiSettingsKeys[pageKey];
         const payload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey } }),
@@ -302,20 +339,20 @@ export class ReviewService {
         };
     }
 
-    async updateReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
+    async updateReviewUiSettings(pageKey: ReviewUiSettingsPageKey, payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }, userId: string) {
         await this.ensureSecureStayAdmin(userId);
         return this.saveReviewUiSettings(pageKey, payload);
     }
 
-    async updateReviewSharedViews(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+    async updateReviewSharedViews(pageKey: ReviewUiSettingsPageKey, payload: { sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
         return this.saveReviewUiSettings(pageKey, {
             ...(Array.isArray(payload.sharedFilterViews) ? { sharedFilterViews: payload.sharedFilterViews } : {}),
             ...(Array.isArray(payload.sharedSavedViews) ? { sharedSavedViews: payload.sharedSavedViews } : {}),
         });
     }
 
-    private async saveReviewUiSettings(pageKey: 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution', payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
-        const displayNames: Record<typeof pageKey, string> = {
+    private async saveReviewUiSettings(pageKey: ReviewUiSettingsPageKey, payload: { defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }) {
+        const displayNames: Record<ReviewUiSettingsPageKey, string> = {
             reviews: 'Shared Reviews UI Settings',
             mitigation: 'Shared Mitigation UI Settings',
             issues: 'Shared Issues UI Settings',
@@ -327,6 +364,18 @@ export class ReviewService {
             'accounting-expense': 'Shared Accounting Expense UI Settings',
             'accounting-extras': 'Shared Accounting Extras UI Settings',
             'accounting-resolution': 'Shared Accounting Resolution UI Settings',
+            'action-items': 'Shared Action Items UI Settings',
+            'rental-agreements': 'Shared Rental Agreements UI Settings',
+            'rental-agreement-applicability': 'Shared Rental Agreement Applicability UI Settings',
+            turnovers: 'Shared Turnovers UI Settings',
+            reservations: 'Shared Reservations UI Settings',
+            claims: 'Shared Claims UI Settings',
+            tasks: 'Shared Tasks UI Settings',
+            clients: 'Shared Clients UI Settings',
+            'client-tickets': 'Shared Client Tickets UI Settings',
+            'client-onboarding': 'Shared Client Onboarding UI Settings',
+            maintenance: 'Shared Maintenance UI Settings',
+            'maintenance-overview': 'Shared Maintenance Overview UI Settings',
         };
         const currentPayload = this.parseSettingPayload<{ defaultView?: any; defaultFilter?: any; sharedFilterViews?: any[]; sharedSavedViews?: any[] }>(
             await this.settingsRepo.findOne({ where: { settingKey: this.reviewUiSettingsKeys[pageKey] } }),

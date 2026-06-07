@@ -1,11 +1,41 @@
 import { NextFunction, Request, Response } from "express";
-import { ReviewService } from "../services/ReviewService";
+import { ReviewService, ReviewUiSettingsPageKey } from "../services/ReviewService";
 import { ReviewDiscussionService } from "../services/ReviewDiscussionService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
 }
+
+const REVIEW_UI_SETTINGS_PAGE_KEYS: ReviewUiSettingsPageKey[] = [
+    'reviews',
+    'mitigation',
+    'issues',
+    'issues-grouped',
+    'vendors',
+    'vendor-contacts',
+    'refund-requests',
+    'accounting-income',
+    'accounting-expense',
+    'accounting-extras',
+    'accounting-resolution',
+    'action-items',
+    'rental-agreements',
+    'rental-agreement-applicability',
+    'turnovers',
+    'reservations',
+    'claims',
+    'tasks',
+    'clients',
+    'client-tickets',
+    'client-onboarding',
+    'maintenance',
+    'maintenance-overview',
+];
+
+const isReviewUiSettingsPageKey = (pageKey: string): pageKey is ReviewUiSettingsPageKey => (
+    REVIEW_UI_SETTINGS_PAGE_KEYS.includes(pageKey as ReviewUiSettingsPageKey)
+);
 
 export class ReviewController {
     private normalizeArrayParam(value: unknown) {
@@ -209,8 +239,8 @@ export class ReviewController {
     async getReviewUiSettings(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const pageKey = request.params.pageKey as 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution';
-            if (!['reviews', 'mitigation', 'issues', 'issues-grouped', 'vendors', 'vendor-contacts', 'refund-requests', 'accounting-income', 'accounting-expense', 'accounting-extras', 'accounting-resolution'].includes(pageKey)) {
+            const pageKey = request.params.pageKey;
+            if (!isReviewUiSettingsPageKey(pageKey)) {
                 return response.status(400).json({ success: false, message: 'Invalid pageKey' });
             }
             const data = await reviewService.getReviewUiSettings(pageKey);
@@ -223,8 +253,8 @@ export class ReviewController {
     async updateReviewUiSettings(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const pageKey = request.params.pageKey as 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution';
-            if (!['reviews', 'mitigation', 'issues', 'issues-grouped', 'vendors', 'vendor-contacts', 'refund-requests', 'accounting-income', 'accounting-expense', 'accounting-extras', 'accounting-resolution'].includes(pageKey)) {
+            const pageKey = request.params.pageKey;
+            if (!isReviewUiSettingsPageKey(pageKey)) {
                 return response.status(400).json({ success: false, message: 'Invalid pageKey' });
             }
             const data = await reviewService.updateReviewUiSettings(pageKey, request.body || {}, request.user.id);
@@ -237,8 +267,8 @@ export class ReviewController {
     async updateReviewSharedViews(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const pageKey = request.params.pageKey as 'reviews' | 'mitigation' | 'issues' | 'issues-grouped' | 'vendors' | 'vendor-contacts' | 'refund-requests' | 'accounting-income' | 'accounting-expense' | 'accounting-extras' | 'accounting-resolution';
-            if (!['reviews', 'mitigation', 'issues', 'issues-grouped', 'vendors', 'vendor-contacts', 'refund-requests', 'accounting-income', 'accounting-expense', 'accounting-extras', 'accounting-resolution'].includes(pageKey)) {
+            const pageKey = request.params.pageKey;
+            if (!isReviewUiSettingsPageKey(pageKey)) {
                 return response.status(400).json({ success: false, message: 'Invalid pageKey' });
             }
             const data = await reviewService.updateReviewSharedViews(pageKey, request.body || {});
