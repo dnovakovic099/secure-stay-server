@@ -1,5 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import { TimeEntryEntity } from "../entity/TimeEntry";
+import { TimeEntryBreakEntity } from "../entity/TimeEntryBreak";
 import { UsersEntity } from "../entity/Users";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
@@ -23,6 +24,7 @@ interface TimeEntrySummary {
 
 export class TimeEntryService {
     private timeEntryRepository = appDatabase.getRepository(TimeEntryEntity);
+    private timeEntryBreakRepository = appDatabase.getRepository(TimeEntryBreakEntity);
     private usersRepository = appDatabase.getRepository(UsersEntity);
     private departmentRepository = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepository = appDatabase.getRepository(UserDepartmentEntity);
@@ -46,9 +48,7 @@ export class TimeEntryService {
         }
 
         // Check if user already has an active clock-in
-        const activeEntry = await this.timeEntryRepository.findOne({
-            where: { userId, status: 'active' },
-        });
+        const activeEntry = await this.getActiveEntry(userId);
 
         if (activeEntry) {
             return {
@@ -88,9 +88,7 @@ export class TimeEntryService {
      */
     async clockOut(userId: number, notes?: string) {
         // Find active clock-in entry
-        const activeEntry = await this.timeEntryRepository.findOne({
-            where: { userId, status: 'active' },
-        });
+        const activeEntry = await this.getActiveEntry(userId);
 
         if (!activeEntry) {
             return {
@@ -119,7 +117,18 @@ export class TimeEntryService {
         ));
 
         const clockInAt = new Date(activeEntry.clockInAt);
-        const durationSeconds = Math.floor((clockOutAt.getTime() - clockInAt.getTime()) / 1000);
+        const activeBreak = this.getActiveBreak(activeEntry);
+        if (activeBreak) {
+            const breakDurationSeconds = Math.floor((clockOutAt.getTime() - new Date(activeBreak.startBreakAt).getTime()) / 1000);
+            await this.timeEntryBreakRepository.update(activeBreak.id, {
+                endBreakAt: clockOutAt,
+                duration: Math.max(0, breakDurationSeconds),
+            });
+            activeBreak.endBreakAt = clockOutAt;
+            activeBreak.duration = Math.max(0, breakDurationSeconds);
+        }
+
+        const durationSeconds = this.getWorkDurationSeconds(activeEntry, clockOutAt);
 
         // Get all completed entries for this user on the same day (based on clock-in date)
         const previousRawSeconds = await this.getPreviousRawSeconds(userId, clockInAt);
@@ -182,28 +191,94 @@ export class TimeEntryService {
      * Get current clock-in status for a user
      */
     async getCurrentStatus(userId: number) {
-        const activeEntry = await this.timeEntryRepository.findOne({
-            where: { userId, status: 'active' },
-        });
+        const activeEntry = await this.getActiveEntry(userId);
 
         if (activeEntry) {
             const clockInAt = new Date(activeEntry.clockInAt);
             const now = new Date();
-            const elapsedSeconds = Math.floor((now.getTime() - clockInAt.getTime()) / 1000);
+            const elapsedSeconds = this.getWorkDurationSeconds(activeEntry, now);
+            const activeBreak = this.getActiveBreak(activeEntry);
 
             return {
                 isClockedIn: true,
+                isOnBreak: !!activeBreak,
                 entry: activeEntry,
+                activeBreak,
                 elapsedSeconds,
                 elapsedFormatted: this.formatDuration(elapsedSeconds),
+                breakSeconds: this.getBreakDurationSeconds(activeEntry, now),
+                breakFormatted: this.formatDuration(this.getBreakDurationSeconds(activeEntry, now)),
             };
         }
 
         return {
             isClockedIn: false,
+            isOnBreak: false,
             entry: null,
+            activeBreak: null,
             elapsedSeconds: 0,
             elapsedFormatted: null,
+            breakSeconds: 0,
+            breakFormatted: null,
+        };
+    }
+
+    /**
+     * Start a break for the active time entry.
+     */
+    async startBreak(userId: number) {
+        const activeEntry = await this.getActiveEntry(userId);
+
+        if (!activeEntry) {
+            return { success: false, message: "You are not currently clocked in." };
+        }
+
+        if (this.getActiveBreak(activeEntry)) {
+            return { success: false, message: "You are already on break." };
+        }
+
+        const now = new Date();
+        const breakEntry = await this.timeEntryBreakRepository.save({
+            timeEntryId: activeEntry.id,
+            startBreakAt: now,
+        });
+
+        return {
+            success: true,
+            message: "Break started",
+            break: breakEntry,
+            status: await this.getCurrentStatus(userId),
+        };
+    }
+
+    /**
+     * End the active break for the current time entry.
+     */
+    async endBreak(userId: number) {
+        const activeEntry = await this.getActiveEntry(userId);
+
+        if (!activeEntry) {
+            return { success: false, message: "You are not currently clocked in." };
+        }
+
+        const activeBreak = this.getActiveBreak(activeEntry);
+        if (!activeBreak) {
+            return { success: false, message: "You are not currently on break." };
+        }
+
+        const now = new Date();
+        const durationSeconds = Math.floor((now.getTime() - new Date(activeBreak.startBreakAt).getTime()) / 1000);
+
+        await this.timeEntryBreakRepository.update(activeBreak.id, {
+            endBreakAt: now,
+            duration: Math.max(0, durationSeconds),
+        });
+
+        return {
+            success: true,
+            message: "Break ended",
+            duration: this.formatDuration(Math.max(0, durationSeconds)),
+            status: await this.getCurrentStatus(userId),
         };
     }
 
@@ -217,6 +292,7 @@ export class TimeEntryService {
 
         const queryBuilder = this.timeEntryRepository
             .createQueryBuilder("entry")
+            .leftJoinAndSelect("entry.breaks", "breaks")
             .where("entry.userId = :userId", { userId });
 
         // Apply date filters
@@ -241,7 +317,10 @@ export class TimeEntryService {
         // Format entries with human-readable durations
         const formattedEntries = entries.map(entry => ({
             ...entry,
+            breaks: this.sortBreaks(entry.breaks || []),
             durationFormatted: entry.duration ? this.formatDuration(entry.duration) : null,
+            breakDuration: this.getBreakDurationSeconds(entry, entry.clockOutAt || new Date()),
+            breakDurationFormatted: this.formatDuration(this.getBreakDurationSeconds(entry, entry.clockOutAt || new Date())),
         }));
 
         return {
@@ -519,6 +598,7 @@ export class TimeEntryService {
         const queryBuilder = this.timeEntryRepository
             .createQueryBuilder("entry")
             .leftJoinAndSelect("entry.user", "user")
+            .leftJoinAndSelect("entry.breaks", "breaks")
             .where("user.deletedAt IS NULL");
 
         // Apply search filter
@@ -562,10 +642,13 @@ export class TimeEntryService {
 
             return {
                 ...entry,
+                breaks: this.sortBreaks(entry.breaks || []),
                 userName: `${entry.user?.firstName || ''} ${entry.user?.lastName || ''}`.trim(),
                 userEmail: entry.user?.email,
                 departments: userDepts.map(ud => ud.department?.name).filter(Boolean),
                 durationFormatted: entry.duration ? this.formatDuration(entry.duration) : null,
+                breakDuration: this.getBreakDurationSeconds(entry, entry.clockOutAt || new Date()),
+                breakDurationFormatted: this.formatDuration(this.getBreakDurationSeconds(entry, entry.clockOutAt || new Date())),
             };
         }));
 
@@ -818,7 +901,7 @@ export class TimeEntryService {
                 status: 'active',
                 clockInAt: LessThanOrEqual(twelveHoursAgo)
             },
-            relations: ['user']
+            relations: ['user', 'breaks']
         });
 
         logger.info(`Found ${staleEntries.length} stale time entries to process`);
@@ -827,9 +910,19 @@ export class TimeEntryService {
             const dailyHourLimit = entry.user?.dailyHourLimit ?? 8;
             const now = new Date();
             const clockInAt = new Date(entry.clockInAt);
+            const activeBreak = this.getActiveBreak(entry);
+            if (activeBreak) {
+                const breakDurationSeconds = Math.floor((now.getTime() - new Date(activeBreak.startBreakAt).getTime()) / 1000);
+                await this.timeEntryBreakRepository.update(activeBreak.id, {
+                    endBreakAt: now,
+                    duration: Math.max(0, breakDurationSeconds),
+                });
+                activeBreak.endBreakAt = now;
+                activeBreak.duration = Math.max(0, breakDurationSeconds);
+            }
 
-            // Calculate actual duration from clock-in to now
-            const actualDurationSeconds = Math.floor((now.getTime() - clockInAt.getTime()) / 1000);
+            // Calculate work duration from clock-in to now, excluding breaks
+            const actualDurationSeconds = this.getWorkDurationSeconds(entry, now);
 
             // Fetch previous sessions for that day
             const previousRawSeconds = await this.getPreviousRawSeconds(entry.userId, clockInAt);
@@ -944,6 +1037,37 @@ export class TimeEntryService {
         };
     }
 
+    private async getActiveEntry(userId: number): Promise<TimeEntryEntity | null> {
+        return await this.timeEntryRepository.findOne({
+            where: { userId, status: 'active' },
+            relations: ['breaks'],
+        });
+    }
+
+    private getActiveBreak(entry: TimeEntryEntity): TimeEntryBreakEntity | null {
+        const breaks = entry.breaks || [];
+        return breaks.find((breakEntry) => !breakEntry.endBreakAt) || null;
+    }
+
+    private sortBreaks(breaks: TimeEntryBreakEntity[]): TimeEntryBreakEntity[] {
+        return breaks.sort((a, b) => new Date(a.startBreakAt).getTime() - new Date(b.startBreakAt).getTime());
+    }
+
+    private getBreakDurationSeconds(entry: TimeEntryEntity, asOf: Date): number {
+        return (entry.breaks || []).reduce((total, breakEntry) => {
+            const startedAt = new Date(breakEntry.startBreakAt);
+            const endedAt = breakEntry.endBreakAt ? new Date(breakEntry.endBreakAt) : asOf;
+            const duration = breakEntry.duration ?? Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000);
+            return total + Math.max(0, duration);
+        }, 0);
+    }
+
+    private getWorkDurationSeconds(entry: TimeEntryEntity, asOf: Date): number {
+        const clockInAt = new Date(entry.clockInAt);
+        const grossSeconds = Math.floor((asOf.getTime() - clockInAt.getTime()) / 1000);
+        return Math.max(0, grossSeconds - this.getBreakDurationSeconds(entry, asOf));
+    }
+
     /**
      * Get notification counts for admin badge
      */
@@ -957,5 +1081,3 @@ export class TimeEntryService {
         return { pendingOvertimeCount, missedClockoutCount };
     }
 }
-
-

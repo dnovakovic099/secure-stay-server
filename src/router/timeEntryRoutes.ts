@@ -17,6 +17,8 @@ router.post('/admin/process-missed-clockouts', [verifySession, verifySuperAdmin]
 // All regular routes require authentication
 router.post('/clock-in', verifySession, controller.clockIn);
 router.post('/clock-out', verifySession, controller.clockOut);
+router.post('/start-break', verifySession, controller.startBreak);
+router.post('/end-break', verifySession, controller.endBreak);
 router.get('/status', verifySession, controller.getStatus);
 router.get('/summary', verifySession, controller.getSummary);
 router.get('/', verifySession, controller.getTimeEntries);
@@ -24,5 +26,4 @@ router.delete('/:id', verifySession, controller.deleteEntry);
 router.patch('/:id/notes', verifySession, controller.updateNotes);
 
 export default router;
-
 
