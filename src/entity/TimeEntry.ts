@@ -1,6 +1,7 @@
 // Import necessary modules from TypeORM
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { UsersEntity } from './Users';
+import { TimeEntryBreakEntity } from './TimeEntryBreak';
 
 @Entity({ name: 'time_entries' })
 export class TimeEntryEntity {
@@ -38,6 +39,9 @@ export class TimeEntryEntity {
     @JoinColumn({ name: 'userId' })
     user: UsersEntity;
 
+    @OneToMany(() => TimeEntryBreakEntity, timeEntryBreak => timeEntryBreak.timeEntry)
+    breaks: TimeEntryBreakEntity[];
+
     @CreateDateColumn()
     createdAt: Date;
 
@@ -50,5 +54,4 @@ export class TimeEntryEntity {
     @Column({ type: 'int', nullable: true })
     deletedBy: number;
 }
-
 

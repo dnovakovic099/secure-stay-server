@@ -82,6 +82,72 @@ export class TimeEntryController {
     };
 
     /**
+     * POST /time-entries/start-break
+     * Start a break for the current active time entry
+     */
+    startBreak = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const uid = req.user?.id;
+
+            if (!uid) {
+                return res.status(400).json({ success: false, message: "User ID not found" });
+            }
+
+            const user = await this.usersRepository.findOne({
+                where: { uid, deletedAt: null as any },
+            });
+
+            if (!user) {
+                return res.status(404).json({ success: false, message: "User not found" });
+            }
+
+            const result = await this.timeEntryService.startBreak(user.id);
+
+            if (!result.success) {
+                return res.status(400).json(result);
+            }
+
+            return res.status(200).json(result);
+        } catch (error) {
+            logger.error("Error starting break:", error);
+            return next(error);
+        }
+    };
+
+    /**
+     * POST /time-entries/end-break
+     * End the current active break
+     */
+    endBreak = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const uid = req.user?.id;
+
+            if (!uid) {
+                return res.status(400).json({ success: false, message: "User ID not found" });
+            }
+
+            const user = await this.usersRepository.findOne({
+                where: { uid, deletedAt: null as any },
+            });
+
+            if (!user) {
+                return res.status(404).json({ success: false, message: "User not found" });
+            }
+
+            const result = await this.timeEntryService.endBreak(user.id);
+
+            if (!result.success) {
+                return res.status(400).json(result);
+            }
+
+            return res.status(200).json(result);
+        } catch (error) {
+            logger.error("Error ending break:", error);
+            return next(error);
+        }
+    };
+
+    /**
      * GET /time-entries/status
      * Get current clock-in status for the user
      */
@@ -358,5 +424,4 @@ export class TimeEntryController {
         }
     };
 }
-
 
