@@ -82,6 +82,21 @@ export class OpenPhoneClient {
   }
 
   /**
+   * Get list of users in the Quo workspace
+   * @returns List of workspace users
+   */
+  async getUsers(maxResults = 50): Promise<GetUsersResponse> {
+    try {
+      const response = await this.client.get<GetUsersResponse>("/users", { params: { maxResults } });
+      return response.data;
+    } catch (error: any) {
+      const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      logger.error(`OpenPhone getUsers error: ${errorMsg}`, { error: error.response?.data || error });
+      throw error;
+    }
+  }
+
+  /**
    * Get list of phone numbers associated with the account
    * @returns List of phone numbers
    */
@@ -166,11 +181,15 @@ export class OpenPhoneClient {
     phoneNumberId?: string | string[];
     participants?: string[];
     createdAfter?: string;
+    maxResults?: number;
+    pageToken?: string;
   }): Promise<GetCallsResponse> {
     const params: Record<string, any> = {};
     if (filters?.phoneNumberId) params.phoneNumberId = filters.phoneNumberId;
     if (filters?.participants) params.participants = filters.participants;
     if (filters?.createdAfter) params.createdAfter = filters.createdAfter;
+    if (filters?.maxResults) params.maxResults = filters.maxResults;
+    if (filters?.pageToken) params.pageToken = filters.pageToken;
 
     try {
       logger.info(`OpenPhone getCalls params: ${JSON.stringify(params)}`);
@@ -227,6 +246,22 @@ export class OpenPhoneClient {
     } catch (error: any) {
       const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
       logger.error(`OpenPhone getCallTranscript error: ${errorMsg}`, { error: error.response?.data || error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get recordings for a call
+   * @param callId The call ID
+   * @returns Call recordings list
+   */
+  async getCallRecordings(callId: string): Promise<GetCallRecordingsResponse> {
+    try {
+      const response = await this.client.get<GetCallRecordingsResponse>(`/call-recordings/${callId}`);
+      return response.data;
+    } catch (error: any) {
+      const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      logger.error(`OpenPhone getCallRecordings error: ${errorMsg}`, { error: error.response?.data || error });
       throw error;
     }
   }
@@ -317,6 +352,23 @@ export interface GetPhoneNumbersResponse {
   }>;
 }
 
+export interface QuoUser {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  pictureUrl?: string | null;
+  role: "owner" | "admin" | "member";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GetUsersResponse {
+  data: QuoUser[];
+  totalItems?: number;
+  nextPageToken?: string | null;
+}
+
 // --- Conversation and Message Types ---
 
 export interface Conversation {
@@ -366,25 +418,28 @@ export interface GetMessagesResponse {
 export interface Call {
   id: string;
   phoneNumberId: string;
-  from: string;
-  to: string;
+  participants: string[];
   direction: "incoming" | "outgoing";
   status: string;
   duration?: number;
-  answeredAt?: string;
-  completedAt?: string;
+  answeredAt?: string | null;
+  answeredBy?: string | null;
+  initiatedBy?: string | null;
+  completedAt?: string | null;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string | null;
   userId?: string;
-  voicemail?: {
-    id: string;
-    duration: number;
-    url: string;
-  };
+  callRoute?: string | null;
+  aiHandled?: string | null;
+  // Enriched fields added by the service layer
+  agentName?: string | null;
+  answeredByName?: string | null;
+  initiatedByName?: string | null;
 }
 
 export interface GetCallsResponse {
   data: Call[];
+  nextPageToken?: string | null;
 }
 
 export interface GetCallResponse {
@@ -392,31 +447,48 @@ export interface GetCallResponse {
 }
 
 export interface CallSummary {
-  id: string;
   callId: string;
-  summary: string;
-  createdAt: string;
+  status: "absent" | "in-progress" | "completed" | "failed";
+  summary: string[] | null;
+  nextSteps: string[] | null;
+  jobs?: any[] | null;
 }
 
 export interface GetCallSummaryResponse {
   data: CallSummary;
 }
 
-export interface TranscriptSegment {
-  speaker: string;
-  text: string;
-  startTime: number;
-  endTime: number;
+export interface DialogueSegment {
+  content: string;
+  start: number;
+  end: number;
+  identifier: string | null;
+  userId: string | null;
+  // Enriched by service layer
+  speakerName?: string | null;
 }
 
 export interface CallTranscript {
-  id: string;
   callId: string;
-  segments: TranscriptSegment[];
-  text: string;
   createdAt: string;
+  duration: number;
+  status: "absent" | "in-progress" | "completed" | "failed";
+  dialogue: DialogueSegment[] | null;
 }
 
 export interface GetCallTranscriptResponse {
   data: CallTranscript;
+}
+
+export interface CallRecording {
+  id: string;
+  url: string | null;
+  duration: number | null;
+  type: string | null;
+  status: string | null;
+  startTime: string | null;
+}
+
+export interface GetCallRecordingsResponse {
+  data: CallRecording[];
 }
