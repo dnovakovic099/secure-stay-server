@@ -27,6 +27,7 @@ interface ClientTicketFilter {
   limit: number;
   ids?: number[];
   propertyType?: string[];
+  serviceType?: string[];
   keyword?: string;
   keywordField?: string;
   sortBy?: string;
@@ -144,6 +145,7 @@ export class ClientTicketService {
       limit,
       ids,
       propertyType,
+      serviceType,
       keyword,
       keywordField,
       sortBy,
@@ -158,16 +160,32 @@ export class ClientTicketService {
     let listingIds = [];
     const listingService = new ListingService();
 
-    if (propertyType && propertyType.length > 0) {
-      listingIds = (
-        await listingService.getListingsByPropertyTypes(propertyType, userId)
-      ).map((l) => l.id);
+    if (propertyType?.length || serviceType?.length) {
+      const [propertyTypeListings, serviceTypeListings] = await Promise.all([
+        propertyType?.length ? listingService.getListingsByPropertyTypes(propertyType, userId) : Promise.resolve([]),
+        serviceType?.length ? listingService.getListingsByServiceTypes(serviceType, userId) : Promise.resolve([]),
+      ]);
+      const propertyTypeIds = propertyTypeListings.map((listing) => Number(listing.id));
+      const serviceTypeIds = serviceTypeListings.map((listing) => Number(listing.id));
+      listingIds = propertyTypeIds.length && serviceTypeIds.length
+        ? propertyTypeIds.filter((id) => serviceTypeIds.includes(id))
+        : [...propertyTypeIds, ...serviceTypeIds];
+      if (!listingIds.length) listingIds = [-1];
     } else {
       listingIds = listingId;
     }
 
+    const requestedIds = ids?.length ? ids.map(Number) : [];
+    const applyTicketIds = (where: any, ticketIds: number[]) => {
+      const normalizedIds = Array.from(new Set(ticketIds.map(Number).filter(Boolean)));
+      const finalIds = requestedIds.length
+        ? normalizedIds.filter((id) => requestedIds.includes(id))
+        : normalizedIds;
+      return { ...where, id: In(finalIds.length ? finalIds : [-1]) };
+    };
+
     const baseWhere = {
-        ...(ids?.length > 0 && { id: In(ids) }),
+        ...(requestedIds.length > 0 && { id: In(requestedIds) }),
         ...(status && status.length > 0 && { status: In(status) }),
         ...(listingIds &&
           listingIds.length > 0 && { listingId: In(listingIds) }),
@@ -187,19 +205,51 @@ export class ClientTicketService {
       };
     const keywordFields = ["description", "resolution"];
     const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
+    const latestUpdateTicketIds = keyword && (selectedKeywordField === "all" || keywordField === "latestUpdate")
+      ? (await this.clientTicketUpdateRepo
+        .createQueryBuilder("ticketUpdate")
+        .leftJoin("ticketUpdate.clientTicket", "ticket")
+        .select("DISTINCT ticket.id", "id")
+        .where("ticketUpdate.updates LIKE :keyword", { keyword: `%${keyword}%` })
+        .getRawMany()).map((row) => Number(row.id))
+      : [];
     const where = keyword
-      ? selectedKeywordField === "all"
-        ? keywordFields.map((field) => ({ ...baseWhere, [field]: ILike(`%${keyword}%`) }))
-        : { ...baseWhere, [selectedKeywordField]: ILike(`%${keyword}%`) }
+      ? keywordField === "latestUpdate"
+        ? applyTicketIds(baseWhere, latestUpdateTicketIds)
+        : selectedKeywordField === "all"
+          ? [
+            ...keywordFields.map((field) => ({ ...baseWhere, [field]: ILike(`%${keyword}%`) })),
+            ...(latestUpdateTicketIds.length ? [applyTicketIds(baseWhere, latestUpdateTicketIds)] : []),
+          ]
+          : { ...baseWhere, [selectedKeywordField]: ILike(`%${keyword}%`) }
       : baseWhere;
+    const sortColumnMap: Record<string, string> = {
+      id: "id",
+      status: "status",
+      listingName: "listingId",
+      category: "category",
+      description: "description",
+      clientTicketUpdates: "updatedAt",
+      urgency: "urgency",
+      dueDate: "dueDate",
+      mistake: "mistake",
+      resolution: "resolution",
+      clientSatisfaction: "clientSatisfaction",
+      createdAt: "createdAt",
+      createdBy: "createdBy",
+      updatedAt: "updatedAt",
+      updatedBy: "updatedBy",
+      assigneeName: "assignee",
+    };
+    const sortColumn = sortBy ? sortColumnMap[sortBy] : null;
 
     const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
       where,
       relations: ["clientTicketUpdates"],
       skip: (page - 1) * limit,
       take: limit,
-      order: sortBy
-        ? { [sortBy]: sortOrder || 'DESC' }
+      order: sortColumn
+        ? { [sortColumn]: sortOrder || 'DESC' }
         : { id: 'DESC' },
     });
 
@@ -211,6 +261,9 @@ export class ClientTicketService {
         listingName: listings.find(
           (listing) => listing.id == Number(ticket.listingId)
         )?.internalListingName,
+        serviceType: ListingService.extractServiceTypeFromTags(listings.find(
+          (listing) => listing.id == Number(ticket.listingId)
+        )?.tags),
         createdBy: userMap.get(ticket.createdBy) || ticket.createdBy,
         updatedBy: userMap.get(ticket.updatedBy) || ticket.updatedBy,
         clientTicketUpdates: ticket.clientTicketUpdates.map((update) => ({
@@ -559,6 +612,7 @@ export class ClientTicketService {
     listingId?: string[];
     category?: string[];
     propertyType?: string[];
+    serviceType?: string[];
     keyword?: string;
     keywordField?: string;
   }): Promise<Buffer> {
@@ -566,13 +620,17 @@ export class ClientTicketService {
 
     const listingService = new ListingService();
     let listingIds = [];
-    if (filters.propertyType && filters.propertyType.length > 0) {
-      listingIds = (
-        await listingService.getListingsByPropertyTypes(
-          filters.propertyType,
-          userId
-        )
-      ).map((l) => l.id);
+    if (filters.propertyType?.length || filters.serviceType?.length) {
+      const [propertyTypeListings, serviceTypeListings] = await Promise.all([
+        filters.propertyType?.length ? listingService.getListingsByPropertyTypes(filters.propertyType, userId) : Promise.resolve([]),
+        filters.serviceType?.length ? listingService.getListingsByServiceTypes(filters.serviceType, userId) : Promise.resolve([]),
+      ]);
+      const propertyTypeIds = propertyTypeListings.map((listing) => Number(listing.id));
+      const serviceTypeIds = serviceTypeListings.map((listing) => Number(listing.id));
+      listingIds = propertyTypeIds.length && serviceTypeIds.length
+        ? propertyTypeIds.filter((id) => serviceTypeIds.includes(id))
+        : [...propertyTypeIds, ...serviceTypeIds];
+      if (!listingIds.length) listingIds = [-1];
     } else {
       listingIds = filters.listingId;
     }
@@ -593,10 +651,23 @@ export class ClientTicketService {
     };
     const keywordFields = ["description", "resolution"];
     const selectedKeywordField = keywordFields.includes(String(filters.keywordField || "")) ? String(filters.keywordField) : "all";
+    const latestUpdateTicketIds = filters.keyword && (selectedKeywordField === "all" || filters.keywordField === "latestUpdate")
+      ? (await this.clientTicketUpdateRepo
+        .createQueryBuilder("ticketUpdate")
+        .leftJoin("ticketUpdate.clientTicket", "ticket")
+        .select("DISTINCT ticket.id", "id")
+        .where("ticketUpdate.updates LIKE :keyword", { keyword: `%${filters.keyword}%` })
+        .getRawMany()).map((row) => Number(row.id))
+      : [];
     const whereClause = filters.keyword
-      ? selectedKeywordField === "all"
-        ? keywordFields.map((field) => ({ ...baseWhere, [field]: Like(`%${filters.keyword}%`) }))
-        : { ...baseWhere, [selectedKeywordField]: Like(`%${filters.keyword}%`) }
+      ? filters.keywordField === "latestUpdate"
+        ? { ...baseWhere, id: In(latestUpdateTicketIds.length ? latestUpdateTicketIds : [-1]) }
+        : selectedKeywordField === "all"
+          ? [
+            ...keywordFields.map((field) => ({ ...baseWhere, [field]: Like(`%${filters.keyword}%`) })),
+            ...(latestUpdateTicketIds.length ? [{ ...baseWhere, id: In(latestUpdateTicketIds) }] : []),
+          ]
+          : { ...baseWhere, [selectedKeywordField]: Like(`%${filters.keyword}%`) }
       : baseWhere;
 
     const tickets = await this.clientTicketRepo.find({

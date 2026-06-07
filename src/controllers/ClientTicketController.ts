@@ -323,6 +323,7 @@ export class ClientTicketController {
         listingId,
         category,
         propertyType,
+        serviceType,
         keyword,
         keywordField,
       } = request.query as any;
@@ -343,6 +344,11 @@ export class ClientTicketController {
           ? ((Array.isArray(propertyType)
               ? propertyType
               : [propertyType]) as string[])
+          : undefined,
+        serviceType: serviceType
+          ? ((Array.isArray(serviceType)
+              ? serviceType
+              : [serviceType]) as string[])
           : undefined,
         keyword: keyword as string,
         keywordField: keywordField as string,
