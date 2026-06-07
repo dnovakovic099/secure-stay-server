@@ -324,6 +324,7 @@ export class ClientTicketController {
         category,
         propertyType,
         keyword,
+        keywordField,
       } = request.query as any;
 
       const filters = {
@@ -344,6 +345,7 @@ export class ClientTicketController {
               : [propertyType]) as string[])
           : undefined,
         keyword: keyword as string,
+        keywordField: keywordField as string,
         userId: userId,
       };
 

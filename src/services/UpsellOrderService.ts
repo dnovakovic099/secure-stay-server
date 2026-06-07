@@ -46,7 +46,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string | string[] = '', listing_id: string | string[] = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] | string = [], upsellType: string[] | string = []) {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string | string[] = '', listing_id: string | string[] = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] | string = [], upsellType: string[] | string = [], keywordField: string = '') {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
@@ -95,11 +95,12 @@ export class UpsellOrderService {
             queryOptions.where.type = In(upsellTypeFilters);
         }
 
+        const keywordFields = ['client_name', 'description', 'property_owner'];
+        const selectedKeywordField = keywordFields.includes(String(keywordField || '')) ? String(keywordField) : 'all';
         const where = keyword
-        ? [
-            { ...queryOptions.where, client_name: ILike(`%${keyword}%`) },
-            { ...queryOptions.where, type: ILike(`%${keyword}%`) },
-        ]
+        ? selectedKeywordField === 'all'
+            ? keywordFields.map((field) => ({ ...queryOptions.where, [field]: ILike(`%${keyword}%`) }))
+            : { ...queryOptions.where, [selectedKeywordField]: ILike(`%${keyword}%`) }
         : queryOptions.where;
 
         queryOptions.where = where;
