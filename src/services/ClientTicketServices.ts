@@ -28,6 +28,7 @@ interface ClientTicketFilter {
   ids?: number[];
   propertyType?: string[];
   keyword?: string;
+  keywordField?: string;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
 }
@@ -144,6 +145,7 @@ export class ClientTicketService {
       ids,
       propertyType,
       keyword,
+      keywordField,
       sortBy,
       sortOrder,
     } = body;
@@ -164,8 +166,7 @@ export class ClientTicketService {
       listingIds = listingId;
     }
 
-    const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
-      where: {
+    const baseWhere = {
         ...(ids?.length > 0 && { id: In(ids) }),
         ...(status && status.length > 0 && { status: In(status) }),
         ...(listingIds &&
@@ -183,8 +184,17 @@ export class ClientTicketService {
             new Date(new Date(toDate).setHours(23, 59, 59, 999))
           ),
           }),
-        ...(keyword && { description: ILike(`%${keyword}%`) }),
-      },
+      };
+    const keywordFields = ["description", "resolution"];
+    const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
+    const where = keyword
+      ? selectedKeywordField === "all"
+        ? keywordFields.map((field) => ({ ...baseWhere, [field]: ILike(`%${keyword}%`) }))
+        : { ...baseWhere, [selectedKeywordField]: ILike(`%${keyword}%`) }
+      : baseWhere;
+
+    const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
+      where,
       relations: ["clientTicketUpdates"],
       skip: (page - 1) * limit,
       take: limit,
@@ -550,6 +560,7 @@ export class ClientTicketService {
     category?: string[];
     propertyType?: string[];
     keyword?: string;
+    keywordField?: string;
   }): Promise<Buffer> {
     const userId = filters["userId"]; // Отримується з контролера
 
@@ -566,7 +577,7 @@ export class ClientTicketService {
       listingIds = filters.listingId;
     }
 
-    const whereClause: any = {
+    const baseWhere: any = {
       ...(filters.category &&
         filters.category.length > 0 && { category: In(filters.category) }),
       ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
@@ -579,8 +590,14 @@ export class ClientTicketService {
             new Date(new Date(filters.toDate).setHours(23, 59, 59, 999))
           ),
         }),
-      ...(filters.keyword && { description: Like(`%${filters.keyword}%`) }),
     };
+    const keywordFields = ["description", "resolution"];
+    const selectedKeywordField = keywordFields.includes(String(filters.keywordField || "")) ? String(filters.keywordField) : "all";
+    const whereClause = filters.keyword
+      ? selectedKeywordField === "all"
+        ? keywordFields.map((field) => ({ ...baseWhere, [field]: Like(`%${filters.keyword}%`) }))
+        : { ...baseWhere, [selectedKeywordField]: Like(`%${filters.keyword}%`) }
+      : baseWhere;
 
     const tickets = await this.clientTicketRepo.find({
       where: whereClause,

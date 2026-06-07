@@ -26,6 +26,7 @@ export class ActionItemsController {
         ids: request.query.ids || undefined,
         propertyType: request.query.propertyType || undefined,
         keyword: request.query.keyword || undefined,
+        keywordField: request.query.keywordField || undefined,
         dateType: request.query.dateType || undefined,
       };
       const actionItems = await actionItemsService.getActionItems(filter);
@@ -323,6 +324,7 @@ export class ActionItemsController {
         guestName,
         propertyType,
         keyword,
+        keywordField,
         dateType,
       } = request.query;
 
@@ -345,6 +347,7 @@ export class ActionItemsController {
               : [propertyType]) as string[])
           : undefined,
         keyword: keyword as string,
+        keywordField: keywordField as string,
         dateType: dateType as string,
         userId: userId,
       };

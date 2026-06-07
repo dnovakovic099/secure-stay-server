@@ -63,6 +63,7 @@ export const getActionItemsValidation = (request: Request, response: Response, n
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
         propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         keyword: Joi.string().optional(),
+        keywordField: Joi.string().valid('all', 'item', 'guestName').optional(),
         dateType: Joi.string().valid('CREATED', 'UPDATED', 'CHECK_IN', 'CHECK_OUT').optional(),
     }).custom((value, helpers) => {
         if (value.fromDate && !value.toDate) {
@@ -194,4 +195,3 @@ export const validateUpdateStatus = (request: Request, response: Response, next:
     }
     next();
 };
-

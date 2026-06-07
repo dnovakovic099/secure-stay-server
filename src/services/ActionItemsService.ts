@@ -103,6 +103,7 @@ export class ActionItemsService {
       reservationId,
       propertyType,
       keyword,
+      keywordField,
       dateType = 'CREATED',
     } = filter;
 
@@ -164,9 +165,17 @@ export class ActionItemsService {
       .addSelect(["reservation.id", "reservation.arrivalDate", "reservation.departureDate"]);
 
     if (keyword) {
+      const keywordFields = ["item", "guestName"];
+      const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
       query.andWhere(new Brackets(qb => {
-        qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` })
-          .orWhere("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
+        if (selectedKeywordField === "item") {
+          qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` });
+        } else if (selectedKeywordField === "guestName") {
+          qb.where("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
+        } else {
+          qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` })
+            .orWhere("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
+        }
       }));
 
       if (Object.keys(whereConditions).length > 0) {
@@ -582,6 +591,7 @@ export class ActionItemsService {
     guestName?: string;
     propertyType?: string[];
     keyword?: string;
+    keywordField?: string;
     dateType?: string;
   }): Promise<Buffer> {
     const userId = filters["userId"];
@@ -624,11 +634,12 @@ export class ActionItemsService {
       ...(filters.guestName && { guestName: filters.guestName }),
     };
 
+    const keywordFields = ["item", "guestName"];
+    const selectedKeywordField = keywordFields.includes(String(filters.keywordField || "")) ? String(filters.keywordField) : "all";
     const where = filters.keyword
-      ? [
-        { ...whereConditions, item: ILike(`%${filters.keyword}%`) },
-        { ...whereConditions, guestName: ILike(`%${filters.keyword}%`) },
-      ]
+      ? selectedKeywordField === "all"
+        ? keywordFields.map((field) => ({ ...whereConditions, [field]: ILike(`%${filters.keyword}%`) }))
+        : { ...whereConditions, [selectedKeywordField]: ILike(`%${filters.keyword}%`) }
       : whereConditions;
 
     const actionItems = await this.actionItemsRepo.find({
