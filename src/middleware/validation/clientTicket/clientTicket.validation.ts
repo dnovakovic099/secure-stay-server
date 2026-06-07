@@ -84,8 +84,9 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
         limit: Joi.number().required(),
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
         propertyType: Joi.array().items(Joi.string()).min(1).optional(),
+        serviceType: Joi.array().items(Joi.string()).min(1).optional(),
         keyword: Joi.string().optional(),
-        keywordField: Joi.string().valid('all', 'description', 'resolution').optional(),
+        keywordField: Joi.string().valid('all', 'description', 'resolution', 'latestUpdate').optional(),
         sortBy: Joi.string().optional(),
         sortOrder: Joi.string().valid('ASC', 'DESC').optional()
     }).custom((value, helpers) => {

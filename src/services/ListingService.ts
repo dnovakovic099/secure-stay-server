@@ -919,7 +919,7 @@ export class ListingService {
    */
   async getAllListingsForLookup(includeDeleted: boolean = false) {
     return await this.listingRepository.find({
-      select: ['id', 'internalListingName'],
+      select: ['id', 'internalListingName', 'tags'],
       withDeleted: includeDeleted
     });
   }
