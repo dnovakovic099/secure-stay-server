@@ -248,6 +248,7 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         aiAnalysisSearch: Joi.string().allow('').optional(),
         publicReviewSearch: Joi.string().allow('').optional(),
         groupField: Joi.string().allow('').optional(),
+        includeOpeningMitigationWindow: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
     });
 
     const { error } = schema.validate(request.query);
