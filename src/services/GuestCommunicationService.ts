@@ -111,21 +111,22 @@ export class GuestCommunicationService {
                                 let content = `Call ${call.direction} - Duration: ${call.duration || 0}s`;
                                 try {
                                     const summary = await this.openPhoneClient.getCallSummary(call.id);
-                                    if (summary?.data?.summary) {
-                                        content = summary.data.summary;
+                                    if (summary?.data?.summary?.length) {
+                                        content = summary.data.summary.join(" ");
                                     }
                                 } catch {
                                     // Summary not available, try transcript
                                     try {
                                         const transcript = await this.openPhoneClient.getCallTranscript(call.id);
-                                        if (transcript?.data?.text) {
-                                            content = transcript.data.text;
+                                        if (transcript?.data?.dialogue?.length) {
+                                            content = transcript.data.dialogue.map((s: any) => s.content).join(" ");
                                         }
                                     } catch {
                                         // Use default content
                                     }
                                 }
 
+                                const guestPhone_ = call.participants?.find((p) => p !== call.participants[0]) ?? call.participants?.[0] ?? null;
                                 const comm = await this.storeCommunication({
                                     reservationId,
                                     source: "openphone_call",
@@ -133,12 +134,12 @@ export class GuestCommunicationService {
                                     content,
                                     direction: call.direction === "incoming" ? "inbound" : "outbound",
                                     senderName: call.direction === "incoming" ? reservation.guestName : "Representative",
-                                    senderPhone: call.from,
+                                    senderPhone: guestPhone_,
                                     communicatedAt: new Date(call.createdAt),
                                     metadata: {
                                         duration: call.duration,
                                         status: call.status,
-                                        hasVoicemail: !!call.voicemail,
+                                        hasVoicemail: false,
                                         phoneNumberId: pnId,
                                         matchedGuestPhone: guestPhone
                                     }

@@ -33,6 +33,11 @@ router.get('/openphone/messages/by-participant', verifySession, messagingControl
 router.get('/openphone/conversation/:conversationId/messages', verifySession, messagingController.getOpenPhoneMessages);
 router.post('/openphone/conversation/:conversationId/reply', verifySession, messagingController.sendOpenPhoneReply);
 
+router.get('/openphone/calls/by-participant', verifySession, messagingController.listOpenPhoneCalls);
+router.get('/openphone/calls/:callId/summary', verifySession, messagingController.getOpenPhoneCallSummary);
+router.get('/openphone/calls/:callId/transcript', verifySession, messagingController.getOpenPhoneCallTranscript);
+router.get('/openphone/calls/:callId/recordings', verifySession, messagingController.getOpenPhoneCallRecordings);
+
 router.get('/reservation/:reservationId/details', verifySession, messagingController.getGuestReservationDetails);
 router.put('/reservation/:reservationId/notes', verifySession, messagingController.updateGuestReservationNotes);
 

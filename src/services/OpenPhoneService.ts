@@ -294,10 +294,31 @@ export class OpenPhoneService {
   async getConversationMessages(conversationId: string, phoneNumberId: string, participants: string[], maxResults = 50) {
     try {
       const result = await this.client.getMessages({ conversationId, phoneNumberId, participants, maxResults });
+      if (result.data?.length) {
+        result.data = await this.enrichMessagesWithSenderName(result.data);
+      }
       return result;
     } catch (error: any) {
       logger.error(`[OpenPhone] Error fetching messages for conversation ${conversationId}: ${error.message}`);
       throw error;
+    }
+  }
+
+  private async enrichMessagesWithSenderName(messages: any[]): Promise<any[]> {
+    try {
+      const usersRes = await this.client.getUsers();
+      const userMap = new Map<string, string>();
+      for (const user of usersRes.data ?? []) {
+        const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+        if (name && user.id) userMap.set(user.id, name);
+      }
+      return messages.map((msg) => ({
+        ...msg,
+        senderName: msg.userId && userMap.has(msg.userId) ? userMap.get(msg.userId) : (msg.senderName ?? null),
+      }));
+    } catch (err: any) {
+      logger.warn(`[OpenPhone] Could not enrich messages with user names: ${err.message}`);
+      return messages;
     }
   }
 
@@ -326,6 +347,7 @@ export class OpenPhoneService {
           });
           logger.info(`[OpenPhone] Messages found for phoneNumberId=${pn.id}: ${result.data?.length ?? 0}`);
           if (result.data?.length) {
+            result.data = await this.enrichMessagesWithSenderName(result.data);
             return result;
           }
         } catch (innerErr: any) {
@@ -348,6 +370,119 @@ export class OpenPhoneService {
       return result;
     } catch (error: any) {
       logger.error(`[OpenPhone] Error sending reply: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Find calls by external participant phone number.
+   * Iterates account phone numbers and returns the first set of matching calls found.
+   * Enriches each call with agent name from the userId/answeredBy/initiatedBy fields.
+   */
+  async getCallsForParticipant(phone: string, maxResults = 50) {
+    try {
+      const phoneNumbersRes = await this.client.getPhoneNumbers();
+      const phoneNumbers = phoneNumbersRes.data ?? [];
+      logger.info(`[OpenPhone] getCallsForParticipant phone=${phone}, found ${phoneNumbers.length} account phone numbers`);
+
+      if (!phoneNumbers.length) {
+        return { data: [], nextPageToken: null };
+      }
+
+      // Build user name map once for enrichment
+      let userMap: Map<string, string> = new Map();
+      try {
+        const usersRes = await this.client.getUsers();
+        for (const user of usersRes.data ?? []) {
+          const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+          if (name && user.id) userMap.set(user.id, name);
+        }
+      } catch (err: any) {
+        logger.warn(`[OpenPhone] Could not fetch users for call enrichment: ${err.message}`);
+      }
+
+      for (const pn of phoneNumbers) {
+        try {
+          const result = await this.client.getCalls({
+            phoneNumberId: pn.id,
+            participants: [phone],
+            maxResults,
+          });
+          logger.info(`[OpenPhone] Calls found for phoneNumberId=${pn.id}: ${result.data?.length ?? 0}`);
+          if (result.data?.length) {
+            result.data = result.data.map((call: any) => ({
+              ...call,
+              agentName: call.userId && userMap.has(call.userId) ? userMap.get(call.userId) : null,
+              answeredByName: call.answeredBy && userMap.has(call.answeredBy) ? userMap.get(call.answeredBy) : null,
+              initiatedByName: call.initiatedBy && userMap.has(call.initiatedBy) ? userMap.get(call.initiatedBy) : null,
+            }));
+            return result;
+          }
+        } catch (innerErr: any) {
+          const detail = innerErr.response?.data ? JSON.stringify(innerErr.response.data) : innerErr.message;
+          logger.warn(`[OpenPhone] getCalls failed for phoneNumberId=${pn.id}: ${detail}`);
+        }
+      }
+
+      return { data: [], nextPageToken: null };
+    } catch (error: any) {
+      const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      logger.error(`[OpenPhone] Error finding calls by participant ${phone}: ${detail}`);
+      throw error;
+    }
+  }
+
+  async getCallSummary(callId: string) {
+    try {
+      return await this.client.getCallSummary(callId);
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error fetching call summary for ${callId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch transcript for a call, enriching dialogue segments with speaker names.
+   * If guestPhone is provided, segments with matching identifier are labelled as guest.
+   */
+  async getCallTranscript(callId: string, guestPhone?: string) {
+    try {
+      const result = await this.client.getCallTranscript(callId);
+      if (!result.data?.dialogue?.length) return result;
+
+      let userMap: Map<string, string> = new Map();
+      try {
+        const usersRes = await this.client.getUsers();
+        for (const user of usersRes.data ?? []) {
+          const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+          if (name && user.id) userMap.set(user.id, name);
+        }
+      } catch (err: any) {
+        logger.warn(`[OpenPhone] Could not fetch users for transcript enrichment: ${err.message}`);
+      }
+
+      result.data.dialogue = result.data.dialogue.map((seg: any) => {
+        let speakerName: string | null = null;
+        if (seg.userId && userMap.has(seg.userId)) {
+          speakerName = userMap.get(seg.userId)!;
+        } else if (guestPhone && seg.identifier && seg.identifier.replace(/\D/g, "").endsWith(guestPhone.replace(/\D/g, ""))) {
+          speakerName = "Guest";
+        }
+        return { ...seg, speakerName };
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error fetching call transcript for ${callId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getCallRecordings(callId: string) {
+    try {
+      return await this.client.getCallRecordings(callId);
+    } catch (error: any) {
+      logger.error(`[OpenPhone] Error fetching call recordings for ${callId}: ${error.message}`);
       throw error;
     }
   }

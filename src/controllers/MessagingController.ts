@@ -281,6 +281,70 @@ export class MessagingController {
         }
     }
 
+    async listOpenPhoneCalls(request: Request, response: Response, next: NextFunction) {
+        try {
+            const phone = request.query.phone as string;
+            if (!phone) {
+                return response.status(400).json({ status: false, message: 'phone query param is required' });
+            }
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.getCallsForParticipant(phone);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
+    async getOpenPhoneCallSummary(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { callId } = request.params;
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.getCallSummary(callId);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
+    async getOpenPhoneCallTranscript(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { callId } = request.params;
+            const guestPhone = request.query.guestPhone as string | undefined;
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.getCallTranscript(callId, guestPhone);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
+    async getOpenPhoneCallRecordings(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { callId } = request.params;
+            const openPhoneService = new OpenPhoneService();
+            const result = await openPhoneService.getCallRecordings(callId);
+            return response.status(200).json({ status: true, data: result });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
     async getGuestReservationDetails(request: Request, response: Response, next: NextFunction) {
         try {
             const { reservationId } = request.params;
