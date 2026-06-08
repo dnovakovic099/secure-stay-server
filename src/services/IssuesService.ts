@@ -8,6 +8,7 @@ import {
   MoreThan,
   Like,
   Raw,
+  IsNull,
 } from "typeorm";
 import * as XLSX from "xlsx";
 import { sendUnresolvedIssuesEmail } from "./IssuesEmailService";
@@ -700,7 +701,7 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
-  private async resolveIssueRowDateIssueIds(column: "updated_at", fromDate?: string, toDate?: string): Promise<number[]> {
+  private async resolveIssueRowDateIssueIds(column: "created_at" | "updated_at" | "completed_at" | "gr_completed_at", fromDate?: string, toDate?: string): Promise<number[]> {
     const qb = this.issueRepo
       .createQueryBuilder("issue")
       .select("issue.id", "id")
@@ -719,7 +720,7 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
-  private async resolveIssueRowUserDateIssueIds(userIds: string[], column: "updated_by", dateColumn: "updated_at", fromDate?: string, toDate?: string): Promise<number[]> {
+  private async resolveIssueRowUserDateIssueIds(userIds: string[], column: "created_by" | "updated_by" | "completed_by" | "gr_completed_by", dateColumn: "created_at" | "updated_at" | "completed_at" | "gr_completed_at", fromDate?: string, toDate?: string): Promise<number[]> {
     const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
     if (normalizedUserIds.length === 0 || (!fromDate && !toDate)) return [];
 
@@ -764,6 +765,40 @@ export class IssuesService {
       updateSource === "ticket" ? Promise.resolve([]) : this.resolveActivityTimelineUserDateIssueIds(userIds, fromDate, toDate),
     ]);
     return Array.from(new Set([...ticketIssueIds, ...timelineIssueIds]));
+  }
+
+  private async resolveActivityEventDateIssueIds(activityType: string, fromDate?: string, toDate?: string, updateSource = "all"): Promise<number[]> {
+    const normalizedType = activityType || "all";
+    if (normalizedType === "created") return this.resolveIssueRowDateIssueIds("created_at", fromDate, toDate);
+    if (normalizedType === "updated") return this.resolveUpdatedEventDateIssueIds(fromDate, toDate, updateSource);
+    if (normalizedType === "last_updated") return this.resolveLastUpdatedEventIssueIds(fromDate, toDate, undefined, updateSource);
+    if (normalizedType === "completed") return this.resolveIssueRowDateIssueIds("completed_at", fromDate, toDate);
+    if (normalizedType === "gr_completed") return this.resolveIssueRowDateIssueIds("gr_completed_at", fromDate, toDate);
+
+    const [createdIssueIds, updatedIssueIds, completedIssueIds, grCompletedIssueIds] = await Promise.all([
+      this.resolveIssueRowDateIssueIds("created_at", fromDate, toDate),
+      this.resolveUpdatedEventDateIssueIds(fromDate, toDate, updateSource),
+      this.resolveIssueRowDateIssueIds("completed_at", fromDate, toDate),
+      this.resolveIssueRowDateIssueIds("gr_completed_at", fromDate, toDate),
+    ]);
+    return Array.from(new Set([...createdIssueIds, ...updatedIssueIds, ...completedIssueIds, ...grCompletedIssueIds]));
+  }
+
+  private async resolveActivityEventUserDateIssueIds(activityType: string, userIds: string[], fromDate?: string, toDate?: string, updateSource = "all"): Promise<number[]> {
+    const normalizedType = activityType || "all";
+    if (normalizedType === "created") return this.resolveIssueRowUserDateIssueIds(userIds, "created_by", "created_at", fromDate, toDate);
+    if (normalizedType === "updated") return this.resolveUpdatedEventUserDateIssueIds(userIds, fromDate, toDate, updateSource);
+    if (normalizedType === "last_updated") return this.resolveLastUpdatedEventIssueIds(fromDate, toDate, userIds, updateSource);
+    if (normalizedType === "completed") return this.resolveIssueRowUserDateIssueIds(userIds, "completed_by", "completed_at", fromDate, toDate);
+    if (normalizedType === "gr_completed") return this.resolveIssueRowUserDateIssueIds(userIds, "gr_completed_by", "gr_completed_at", fromDate, toDate);
+
+    const [createdIssueIds, updatedIssueIds, completedIssueIds, grCompletedIssueIds] = await Promise.all([
+      this.resolveIssueRowUserDateIssueIds(userIds, "created_by", "created_at", fromDate, toDate),
+      this.resolveUpdatedEventUserDateIssueIds(userIds, fromDate, toDate, updateSource),
+      this.resolveIssueRowUserDateIssueIds(userIds, "completed_by", "completed_at", fromDate, toDate),
+      this.resolveIssueRowUserDateIssueIds(userIds, "gr_completed_by", "gr_completed_at", fromDate, toDate),
+    ]);
+    return Array.from(new Set([...createdIssueIds, ...updatedIssueIds, ...completedIssueIds, ...grCompletedIssueIds]));
   }
 
   private async resolveIssueRowUserIssueIds(userIds: string[], columns: Array<"created_by" | "updated_by" | "completed_by" | "gr_completed_by">): Promise<number[]> {
@@ -818,22 +853,8 @@ export class IssuesService {
     return Array.from(new Set([...timelineIssueIds, ...issueRowIssueIds]));
   }
 
-  private getIssueEventActivityType(dateType?: string, activityType = "all") {
-    switch (dateType) {
-      case "created":
-        return "created";
-      case "activity_updated":
-        return "updated";
-      case "updated":
-      case "last_updated":
-        return "last_updated";
-      case "completed":
-        return "completed";
-      case "gr_completed":
-        return "gr_completed";
-      default:
-        return activityType || "all";
-    }
+  private getIssueEventActivityType(activityType = "all") {
+    return activityType || "all";
   }
 
   private async resolveLastUpdatedEventIssueIds(fromDate?: string, toDate?: string, userIds?: string[], updateSource = "all"): Promise<number[]> {
@@ -1419,6 +1440,26 @@ export class IssuesService {
     return `${getPart("month")} ${getPart("day")}, ${getPart("year")} • ${getPart("hour")}:${getPart("minute")} ${getPart("dayPeriod")}`;
   }
 
+  private getIssueExportDateTimeParts(value?: string | Date | null) {
+    if (!value) return { date: "", time: "" };
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return { date: "", time: "" };
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: this.getIssueExportTimeZone(),
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).formatToParts(parsed);
+    const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    return {
+      date: `${getPart("month")} ${getPart("day")}, ${getPart("year")}`,
+      time: `${getPart("hour")}:${getPart("minute")} ${getPart("dayPeriod")}`,
+    };
+  }
+
   private getIssueExportTimeZone() {
     return process.env.ISSUES_EXPORT_TIME_ZONE || "America/New_York";
   }
@@ -1466,6 +1507,11 @@ export class IssuesService {
   }
 
   private getIssueExportBaseRow(issue: any) {
+    const created = this.getIssueExportDateTimeParts(issue.created_at);
+    const updated = this.getIssueExportDateTimeParts(issue.updated_at);
+    const completedIr = this.getIssueExportDateTimeParts(issue.completed_at);
+    const completedGr = this.getIssueExportDateTimeParts(issue.gr_completed_at);
+
     return {
       ID: issue.id,
       "IR Status": issue.status,
@@ -1473,9 +1519,6 @@ export class IssuesService {
       Category: issue.category,
       "Listing ID": issue.listing_id,
       "Listing Name": issue.listing_name,
-      "Next Steps": issue.next_steps,
-      "Claim Resolution Status": issue.claim_resolution_status,
-      "Claim Resolution Amount": issue.claim_resolution_amount,
       "Reservation ID": issue.reservation_id,
       "Check-In Date": issue.check_in_date,
       "Reservation Amount": issue.reservation_amount,
@@ -1483,29 +1526,21 @@ export class IssuesService {
       "Guest Name": issue.guest_name,
       "Guest Contact": issue.guest_contact_number,
       "Issue Description": issue.issue_description,
-      "Owner Notes": issue.owner_notes,
-      Creator: issue.creator,
-      "Date Reported": issue.date_time_reported,
-      "Next Update Date": issue.nextUpdateDate,
-      "Contractor Contacted": issue.date_time_contractor_contacted,
-      "Contractor Deployed": issue.date_time_contractor_deployed,
-      "Work Finished": issue.date_time_work_finished,
-      "Final Contractor": issue.final_contractor_name,
-      "Estimated Reasonable Price": issue.estimated_reasonable_price,
-      "Final Price": issue.final_price,
-      "Payment Information": issue.payment_information,
-      Mistake: issue.mistake,
-      "Mistake Resolved On": issue.mistakeResolvedOn,
+      "Issue Notes": issue.owner_notes,
       Urgency: issue.urgency,
       Assignee: issue.assigneeName || issue.assignee,
-      "Created By": issue.created_by,
+      "Created By": issue.creator,
       "Updated By": issue.updated_by,
-      "Created At": this.formatIssueExportTimestamp(issue.created_at),
-      "Updated At": this.formatIssueExportTimestamp(issue.updated_at),
+      "Created On": created.date,
+      "Created At": created.time,
+      "Updated On": updated.date,
+      "Last Updated At": updated.time,
       "Completed (IR) By": issue.completed_by,
-      "Completed (IR) At": this.formatIssueExportTimestamp(issue.completed_at),
+      "Completed (IR) On": completedIr.date,
+      "Completed (IR) At": completedIr.time,
       "Completed (GR) By": issue.gr_completed_by,
-      "Completed (GR) At": this.formatIssueExportTimestamp(issue.gr_completed_at),
+      "Completed (GR) On": completedGr.date,
+      "Completed (GR) At": completedGr.time,
     };
   }
 
@@ -1586,47 +1621,51 @@ export class IssuesService {
   }
 
   private filterIssueExportEvents(issue: any, events: ReturnType<IssuesService["getIssueExportEvents"]>, filters: any) {
-    const dateType = filters.dateType || "created";
-    const fromDate = filters.fromDate as string | undefined;
-    const toDate = filters.toDate as string | undefined;
+    const activityType = filters.activityType || "all";
+    const activityFromDate = filters.activityFromDate as string | undefined;
+    const activityToDate = filters.activityToDate as string | undefined;
     const activityUsers = new Set(this.normalizeIssueExportUsers(filters.activityUser));
     const matchesActivityUser = (event: typeof events[number]) =>
       activityUsers.size === 0 || (event.userUid && activityUsers.has(event.userUid));
+    const matchesActivityDate = (event: typeof events[number]) =>
+      !activityFromDate && !activityToDate
+        ? true
+        : this.isIssueExportDateInRange(event.timestamp, activityFromDate, activityToDate);
 
-    if (dateType === "activity_updated") {
+    if (activityType === "updated") {
       return events.filter((event) => {
         if (!matchesActivityUser(event)) return false;
-        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        if (!matchesActivityDate(event)) return false;
         return true;
       });
     }
 
-    if (dateType === "updated" || dateType === "last_updated") {
+    if (activityType === "last_updated") {
       const latest = events[0];
       if (!latest || !matchesActivityUser(latest)) return [];
-      if ((fromDate || toDate) && !this.isIssueExportDateInRange(latest.timestamp, fromDate, toDate)) return [];
+      if (!matchesActivityDate(latest)) return [];
       return [latest];
     }
 
-    if (dateType === "completed") {
+    if (activityType === "completed") {
       return events.filter((event) => {
         if (event.details !== "IR status completed") return false;
         if (!matchesActivityUser(event)) return false;
-        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        if (!matchesActivityDate(event)) return false;
         return true;
       });
     }
 
-    if (dateType === "gr_completed") {
+    if (activityType === "gr_completed") {
       return events.filter((event) => {
         if (event.details !== "GR status completed") return false;
         if (!matchesActivityUser(event)) return false;
-        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        if (!matchesActivityDate(event)) return false;
         return true;
       });
     }
 
-    return events;
+    return events.filter((event) => matchesActivityUser(event) && matchesActivityDate(event));
   }
 
   async exportIssuesToExcel(filters: any): Promise<Buffer> {
@@ -1649,7 +1688,7 @@ export class IssuesService {
       );
       return events.map((event) => ({
         ...baseRow,
-        "Update Source": event.sourceLabel,
+        "Activity Type": event.sourceLabel,
         "Update Timestamp": this.formatIssueExportTimestamp(event.timestamp),
         "Update User": event.user || "",
         "Update Details": event.details,
@@ -2003,6 +2042,8 @@ export class IssuesService {
       urgency,
       activityType,
       activityUser,
+      activityFromDate,
+      activityToDate,
       updateSource,
       activityKeyword,
       vendorThreadStatus,
@@ -2052,7 +2093,7 @@ export class IssuesService {
     // reservation IDs from reservation_info, since Issue has no check_out_date
     // and stay status is computed from arrival/departure dates.
     const needsReservationLookup =
-      ((dateType === "check_in" || dateType === "check_out") && fromDate && toDate) ||
+      ((dateType === "check_in" || dateType === "check_out") && (fromDate || toDate)) ||
       (Array.isArray(stayStatus) && stayStatus.length > 0);
 
     let resolvedReservationIds: number[] | undefined;
@@ -2060,10 +2101,22 @@ export class IssuesService {
       const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
       const qb = reservationRepo.createQueryBuilder("r").select("r.id", "id");
 
-      if (dateType === "check_in" && fromDate && toDate) {
-        qb.andWhere("r.arrivalDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
-      } else if (dateType === "check_out" && fromDate && toDate) {
-        qb.andWhere("r.departureDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+      if (dateType === "check_in") {
+        if (fromDate && toDate) {
+          qb.andWhere("r.arrivalDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+        } else if (fromDate) {
+          qb.andWhere("r.arrivalDate >= :fromDate", { fromDate });
+        } else if (toDate) {
+          qb.andWhere("r.arrivalDate <= :toDate", { toDate });
+        }
+      } else if (dateType === "check_out") {
+        if (fromDate && toDate) {
+          qb.andWhere("r.departureDate BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+        } else if (fromDate) {
+          qb.andWhere("r.departureDate >= :fromDate", { fromDate });
+        } else if (toDate) {
+          qb.andWhere("r.departureDate <= :toDate", { toDate });
+        }
       }
 
       if (Array.isArray(stayStatus) && stayStatus.length > 0) {
@@ -2102,10 +2155,7 @@ export class IssuesService {
 
     let dateColumn: "created_at" | "updated_at" | "completed_at" | "gr_completed_at" | "due_date" | null = null;
     if (fromDate || toDate) {
-      if (dateType === "completed") dateColumn = "completed_at";
-      else if (dateType === "gr_completed") dateColumn = "gr_completed_at";
-      else if (dateType === "due") dateColumn = "due_date";
-      else if (!dateType || dateType === "created") dateColumn = "created_at";
+      if (dateType === "due") dateColumn = "due_date";
     }
     const dateColumnFilter = dateColumn
       ? this.buildIssueCalendarDateFilter(fromDate, toDate)
@@ -2127,17 +2177,8 @@ export class IssuesService {
       ? [String(activityUser).trim()].filter(Boolean)
       : [];
     const normalizedUpdateSource = updateSource === "ticket" || updateSource === "timeline" ? updateSource : "all";
-    const eventActivityType = this.getIssueEventActivityType(dateType, activityType || "all");
-    const shouldResolveUpdatedEventWithUserAndDate =
-      dateType === "activity_updated" &&
-      eventActivityType === "updated" &&
-      normalizedActivityUsers.length > 0 &&
-      Boolean(fromDate || toDate);
-    const shouldResolveLastUpdatedEventWithUserAndDate =
-      (dateType === "updated" || dateType === "last_updated") &&
-      eventActivityType === "last_updated" &&
-      normalizedActivityUsers.length > 0 &&
-      Boolean(fromDate || toDate);
+    const eventActivityType = this.getIssueEventActivityType(activityType || "all");
+    const hasActivityDateRange = Boolean(activityFromDate || activityToDate);
 
     const normalizedKeyword = String(keyword || "").trim();
     const normalizedActivityKeyword = String(activityKeyword || "").trim();
@@ -2165,20 +2206,16 @@ export class IssuesService {
     ] = await Promise.all([
       normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword) : Promise.resolve(undefined),
       normalizedActivityKeyword ? this.resolveActivityKeywordIssueIds(normalizedActivityKeyword) : Promise.resolve(undefined),
-      normalizedActivityUsers.length > 0 && !shouldResolveUpdatedEventWithUserAndDate && !shouldResolveLastUpdatedEventWithUserAndDate
+      normalizedActivityUsers.length > 0 && !hasActivityDateRange
         ? this.resolveActivityUserIssueIds(eventActivityType, normalizedActivityUsers, normalizedUpdateSource)
         : Promise.resolve(undefined),
-      shouldResolveUpdatedEventWithUserAndDate
-        ? this.resolveUpdatedEventUserDateIssueIds(normalizedActivityUsers, fromDate, toDate, normalizedUpdateSource)
-        : shouldResolveLastUpdatedEventWithUserAndDate
-        ? this.resolveLastUpdatedEventIssueIds(fromDate, toDate, normalizedActivityUsers, normalizedUpdateSource)
-        : dateType === "activity_updated" && (fromDate || toDate)
-        ? this.resolveUpdatedEventDateIssueIds(fromDate, toDate, normalizedUpdateSource)
-        : (dateType === "updated" || dateType === "last_updated") && (fromDate || toDate)
-        ? this.resolveLastUpdatedEventIssueIds(fromDate, toDate, undefined, normalizedUpdateSource)
-        : (dateType === "updated" || dateType === "last_updated") && normalizedUpdateSource !== "all"
+      normalizedActivityUsers.length > 0 && hasActivityDateRange
+        ? this.resolveActivityEventUserDateIssueIds(eventActivityType, normalizedActivityUsers, activityFromDate, activityToDate, normalizedUpdateSource)
+        : hasActivityDateRange
+        ? this.resolveActivityEventDateIssueIds(eventActivityType, activityFromDate, activityToDate, normalizedUpdateSource)
+        : eventActivityType === "last_updated" && normalizedUpdateSource !== "all"
         ? this.resolveLastUpdatedEventIssueIds(undefined, undefined, undefined, normalizedUpdateSource)
-        : dateType === "activity_updated" && normalizedUpdateSource !== "all"
+        : eventActivityType === "updated" && normalizedUpdateSource !== "all"
         ? this.resolveUpdatedEventDateIssueIds(undefined, undefined, normalizedUpdateSource)
         : Promise.resolve(undefined),
       normalizedVendorThreadStatus ? this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus) : Promise.resolve(undefined),
@@ -2254,6 +2291,8 @@ export class IssuesService {
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
+        ...(eventActivityType === "completed" && { completed_at: Not(IsNull()) }),
+        ...(eventActivityType === "gr_completed" && { gr_completed_at: Not(IsNull()) }),
         ...(issueResolution && { ai_resolution_status: issueResolution }),
         ...(guestSentiment && { ai_guest_sentiment: guestSentiment }),
       },
