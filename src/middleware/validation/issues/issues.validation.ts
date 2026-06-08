@@ -238,6 +238,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
           Joi.string(),
           Joi.array().items(Joi.string()).min(1)
         ).optional(),
+        updateSource: Joi.string().valid('all', 'ticket', 'timeline').optional(),
         activityKeyword: Joi.string().optional(),
         vendorThreadStatus: Joi.string().valid('with-vendor-thread', 'no-vendor-thread').optional(),
         issueResolution: Joi.string().valid('Resolved', 'Not Resolved', '—').optional(),

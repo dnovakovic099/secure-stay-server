@@ -85,6 +85,9 @@ export const validateGetClientTicket = (request: Request, response: Response, ne
         ids: Joi.array().items(Joi.number().required()).min(1).optional(),
         propertyType: Joi.array().items(Joi.string()).min(1).optional(),
         serviceType: Joi.array().items(Joi.string()).min(1).optional(),
+        dateType: Joi.string().valid('createdAt', 'updatedAt', 'completedOn').optional(),
+        urgency: Joi.array().items(Joi.number().integer().min(1).max(5)).optional(),
+        clientSatisfaction: Joi.array().items(Joi.number().integer().min(1).max(5)).optional(),
         keyword: Joi.string().optional(),
         keywordField: Joi.string().valid('all', 'description', 'resolution', 'latestUpdate').optional(),
         sortBy: Joi.string().optional(),
@@ -164,6 +167,7 @@ export const validateBulkUpdateClientTicket = (request: Request, response: Respo
             description: Joi.string(),
             resolution: Joi.string().allow(null),
             clientSatisfaction: Joi.number().integer().min(1).max(5).allow(null),
+            urgency: Joi.number().integer().min(1).max(5).allow(null),
             latestUpdates: Joi.string().allow(null, ''),
             dueDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
                 'string.pattern.base': 'Due date must be in the format "yyyy-mm-dd"',

@@ -28,6 +28,9 @@ interface ClientTicketFilter {
   ids?: number[];
   propertyType?: string[];
   serviceType?: string[];
+  dateType?: string;
+  urgency?: number[] | number;
+  clientSatisfaction?: number[] | number;
   keyword?: string;
   keywordField?: string;
   sortBy?: string;
@@ -146,6 +149,9 @@ export class ClientTicketService {
       ids,
       propertyType,
       serviceType,
+      dateType,
+      urgency,
+      clientSatisfaction,
       keyword,
       keywordField,
       sortBy,
@@ -184,9 +190,31 @@ export class ClientTicketService {
       return { ...where, id: In(finalIds.length ? finalIds : [-1]) };
     };
 
+    const selectedDateField = dateType === "updatedAt" ? "updatedAt" : dateType === "completedOn" ? "completedOn" : "createdAt";
+    const dateRangeFilter = fromDate && toDate
+      ? {
+          [selectedDateField]: Between(
+            new Date(fromDate),
+            new Date(new Date(toDate).setHours(23, 59, 59, 999))
+          ),
+        }
+      : {};
+    const normalizedUrgency = Array.isArray(urgency)
+      ? urgency.map(Number).filter((value) => Number.isFinite(value))
+      : urgency
+        ? [Number(urgency)].filter((value) => Number.isFinite(value))
+        : [];
+    const normalizedClientSatisfaction = Array.isArray(clientSatisfaction)
+      ? clientSatisfaction.map(Number).filter((value) => Number.isFinite(value))
+      : clientSatisfaction
+        ? [Number(clientSatisfaction)].filter((value) => Number.isFinite(value))
+        : [];
+
     const baseWhere = {
         ...(requestedIds.length > 0 && { id: In(requestedIds) }),
         ...(status && status.length > 0 && { status: In(status) }),
+        ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
+        ...(normalizedClientSatisfaction.length > 0 && { clientSatisfaction: In(normalizedClientSatisfaction) }),
         ...(listingIds &&
           listingIds.length > 0 && { listingId: In(listingIds) }),
         ...(category &&
@@ -195,13 +223,7 @@ export class ClientTicketService {
               category.map((cat) => `${alias} LIKE '%${cat}%'`).join(" OR ")
             ),
           }),
-        ...(fromDate &&
-          toDate && {
-          createdAt: Between(
-            new Date(fromDate),
-            new Date(new Date(toDate).setHours(23, 59, 59, 999))
-          ),
-          }),
+        ...dateRangeFilter,
       };
     const keywordFields = ["description", "resolution"];
     const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
@@ -544,6 +566,9 @@ export class ClientTicketService {
         }
         if (updateData.clientSatisfaction !== undefined) {
           clientTicket.clientSatisfaction = updateData.clientSatisfaction;
+        }
+        if (updateData.urgency !== undefined) {
+          clientTicket.urgency = updateData.urgency;
         }
 
         if ((updateData as any).latestUpdates) {

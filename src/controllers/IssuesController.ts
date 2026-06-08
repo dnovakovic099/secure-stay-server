@@ -225,44 +225,72 @@ export class IssuesController {
   async exportIssuesToExcel(request: Request, response: Response) {
     try {
       const userId = (request as any).user.id; // Assuming you have user info in req.user
+      const toArray = (value: any) =>
+        value === undefined || value === null || value === ""
+          ? undefined
+          : Array.isArray(value)
+          ? value
+          : [value];
       const {
         fromDate,
         toDate,
         status,
+        grStatus,
         listingId,
         isClaimOnly,
         claimAmount,
         guestName,
         propertyType,
+        serviceType,
         keyword,
         channel,
         category,
+        dateType,
+        stayStatus,
+        assignee,
+        urgency,
+        activityType,
+        activityUser,
+        updateSource,
+        activityKeyword,
+        vendorThreadStatus,
+        issueResolution,
+        guestSentiment,
+        resolutionNotesStatus,
+        resolutionNotesKeyword,
+        managerNotesStatus,
+        managerNotesKeyword,
       } = request.query;
 
       const filters = {
         fromDate: fromDate as string,
         toDate: toDate as string,
-        status: status
-          ? ((Array.isArray(status) ? status : [status]) as string[])
-          : undefined,
-        listingId: listingId
-          ? ((Array.isArray(listingId) ? listingId : [listingId]) as string[])
-          : undefined,
+        status: toArray(status) as string[] | undefined,
+        grStatus: toArray(grStatus) as string[] | undefined,
+        listingId: toArray(listingId) as string[] | undefined,
         isClaimOnly: isClaimOnly === "true",
         claimAmount: claimAmount as string,
         guestName: guestName as string,
-        propertyType: propertyType
-          ? ((Array.isArray(propertyType)
-              ? propertyType
-              : [propertyType]) as string[])
-          : undefined,
+        propertyType: toArray(propertyType) as string[] | undefined,
+        serviceType: toArray(serviceType) as string[] | undefined,
         keyword: keyword as string,
-        channel: channel
-          ? ((Array.isArray(channel) ? channel : [channel]) as string[])
-          : undefined,
-        category: category
-          ? ((Array.isArray(category) ? category : [category]) as string[])
-          : undefined,
+        channel: toArray(channel) as string[] | undefined,
+        category: toArray(category) as string[] | undefined,
+        dateType: dateType as string,
+        stayStatus: toArray(stayStatus) as string[] | undefined,
+        assignee: toArray(assignee) as string[] | undefined,
+        urgency: toArray(urgency) as string[] | undefined,
+        activityType: activityType as string,
+        activityUser: toArray(activityUser) as string[] | undefined,
+        updateSource: updateSource as string,
+        activityKeyword: activityKeyword as string,
+        vendorThreadStatus: vendorThreadStatus as string,
+        issueResolution: issueResolution as string,
+        guestSentiment: guestSentiment as string,
+        resolutionNotesStatus: resolutionNotesStatus as string,
+        resolutionNotesKeyword: resolutionNotesKeyword as string,
+        managerNotesStatus: managerNotesStatus as string,
+        managerNotesKeyword: managerNotesKeyword as string,
         userId: userId,
       };
 
