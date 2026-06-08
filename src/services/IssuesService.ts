@@ -647,6 +647,7 @@ export class IssuesService {
       .select("issue.id", "id")
       .distinct(true)
       .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("COALESCE(issueUpdate.source, 'securestay') <> 'system'")
       .andWhere("issueUpdate.updates LIKE :keyword", { keyword: `%${normalizedKeyword}%` })
       .getRawMany<{ id: number }>();
 
@@ -663,12 +664,106 @@ export class IssuesService {
       .select("issue.id", "id")
       .distinct(true)
       .where("issueUpdate.deletedAt IS NULL")
-      .andWhere("(issueUpdate.createdBy IN (:...userIds) OR issueUpdate.updatedBy IN (:...userIds))", {
+      .andWhere("COALESCE(issueUpdate.source, 'securestay') <> 'system'")
+      .andWhere("issueUpdate.createdBy IN (:...userIds)", {
         userIds: normalizedUserIds,
       })
       .getRawMany<{ id: number }>();
 
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveActivityTimelineUserDateIssueIds(userIds: string[], fromDate?: string, toDate?: string): Promise<number[]> {
+    const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedUserIds.length === 0 || (!fromDate && !toDate)) return [];
+
+    const qb = this.issueUpdatesRepo
+      .createQueryBuilder("issueUpdate")
+      .innerJoin("issueUpdate.issue", "issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("COALESCE(issueUpdate.source, 'securestay') <> 'system'")
+      .andWhere("issueUpdate.createdBy IN (:...userIds)", {
+        userIds: normalizedUserIds,
+      });
+
+    if (fromDate && toDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) BETWEEN :fromDate AND :toDate", { fromDate, toDate });
+    } else if (fromDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) >= :fromDate", { fromDate });
+    } else if (toDate) {
+      qb.andWhere("DATE(issueUpdate.createdAt) <= :toDate", { toDate });
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveIssueRowDateIssueIds(column: "updated_at", fromDate?: string, toDate?: string): Promise<number[]> {
+    const qb = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where(`issue.${column} IS NOT NULL`);
+
+    if (fromDate && toDate) {
+      qb.andWhere(`DATE(issue.${column}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+    } else if (fromDate) {
+      qb.andWhere(`DATE(issue.${column}) >= :fromDate`, { fromDate });
+    } else if (toDate) {
+      qb.andWhere(`DATE(issue.${column}) <= :toDate`, { toDate });
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveIssueRowUserDateIssueIds(userIds: string[], column: "updated_by", dateColumn: "updated_at", fromDate?: string, toDate?: string): Promise<number[]> {
+    const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedUserIds.length === 0 || (!fromDate && !toDate)) return [];
+
+    const qb = this.issueRepo
+      .createQueryBuilder("issue")
+      .select("issue.id", "id")
+      .distinct(true)
+      .where(`issue.${column} IN (:...userIds)`, { userIds: normalizedUserIds })
+      .andWhere(`issue.${dateColumn} IS NOT NULL`);
+
+    if (fromDate && toDate) {
+      qb.andWhere(`DATE(issue.${dateColumn}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+    } else if (fromDate) {
+      qb.andWhere(`DATE(issue.${dateColumn}) >= :fromDate`, { fromDate });
+    } else if (toDate) {
+      qb.andWhere(`DATE(issue.${dateColumn}) <= :toDate`, { toDate });
+    }
+
+    const rows = await qb.getRawMany<{ id: number }>();
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  }
+
+  private async resolveUpdatedEventDateIssueIds(fromDate?: string, toDate?: string, updateSource = "all"): Promise<number[]> {
+    const [ticketIssueIds, timelineIssueIds] = await Promise.all([
+      updateSource === "timeline" ? Promise.resolve([]) : this.resolveIssueRowDateIssueIds("updated_at", fromDate, toDate),
+      updateSource === "ticket" ? Promise.resolve([]) : this.resolveActivityTimelineDateIssueIds(fromDate, toDate),
+    ]);
+    return Array.from(new Set([...ticketIssueIds, ...timelineIssueIds]));
+  }
+
+  private async resolveUpdatedEventUserIssueIds(userIds: string[], updateSource = "all"): Promise<number[]> {
+    const [ticketIssueIds, timelineIssueIds] = await Promise.all([
+      updateSource === "timeline" ? Promise.resolve([]) : this.resolveIssueRowUserIssueIds(userIds, ["updated_by"]),
+      updateSource === "ticket" ? Promise.resolve([]) : this.resolveActivityTimelineUserIssueIds(userIds),
+    ]);
+    return Array.from(new Set([...ticketIssueIds, ...timelineIssueIds]));
+  }
+
+  private async resolveUpdatedEventUserDateIssueIds(userIds: string[], fromDate?: string, toDate?: string, updateSource = "all"): Promise<number[]> {
+    const [ticketIssueIds, timelineIssueIds] = await Promise.all([
+      updateSource === "timeline" ? Promise.resolve([]) : this.resolveIssueRowUserDateIssueIds(userIds, "updated_by", "updated_at", fromDate, toDate),
+      updateSource === "ticket" ? Promise.resolve([]) : this.resolveActivityTimelineUserDateIssueIds(userIds, fromDate, toDate),
+    ]);
+    return Array.from(new Set([...ticketIssueIds, ...timelineIssueIds]));
   }
 
   private async resolveIssueRowUserIssueIds(userIds: string[], columns: Array<"created_by" | "updated_by" | "completed_by" | "gr_completed_by">): Promise<number[]> {
@@ -690,17 +785,17 @@ export class IssuesService {
     return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
   }
 
-  private async resolveActivityUserIssueIds(activityType: string, userIds: string[]): Promise<number[]> {
+  private async resolveActivityUserIssueIds(activityType: string, userIds: string[], updateSource = "all"): Promise<number[]> {
     const normalizedType = activityType || "all";
     const normalizedUserIds = userIds.map((value) => String(value || "").trim()).filter(Boolean);
     if (normalizedUserIds.length === 0) return [];
 
     if (normalizedType === "updated") {
-      return this.resolveActivityTimelineUserIssueIds(normalizedUserIds);
+      return this.resolveUpdatedEventUserIssueIds(normalizedUserIds, updateSource);
     }
 
     if (normalizedType === "last_updated") {
-      return this.resolveIssueRowUserIssueIds(normalizedUserIds, ["updated_by"]);
+      return this.resolveLastUpdatedEventIssueIds(undefined, undefined, normalizedUserIds, updateSource);
     }
 
     if (normalizedType === "created") {
@@ -723,15 +818,110 @@ export class IssuesService {
     return Array.from(new Set([...timelineIssueIds, ...issueRowIssueIds]));
   }
 
-  private async resolveActivityTimelineDateIssueIds(fromDate?: string, toDate?: string): Promise<number[]> {
-    if (!fromDate && !toDate) return [];
+  private getIssueEventActivityType(dateType?: string, activityType = "all") {
+    switch (dateType) {
+      case "created":
+        return "created";
+      case "activity_updated":
+        return "updated";
+      case "updated":
+      case "last_updated":
+        return "last_updated";
+      case "completed":
+        return "completed";
+      case "gr_completed":
+        return "gr_completed";
+      default:
+        return activityType || "all";
+    }
+  }
 
+  private async resolveLastUpdatedEventIssueIds(fromDate?: string, toDate?: string, userIds?: string[], updateSource = "all"): Promise<number[]> {
+    const normalizedUserIds = (userIds || []).map((value) => String(value || "").trim()).filter(Boolean);
+    const normalizedUpdateSource = updateSource === "ticket" || updateSource === "timeline" ? updateSource : "all";
+    if (!fromDate && !toDate && normalizedUserIds.length === 0 && normalizedUpdateSource === "all") return [];
+
+    const conditions: string[] = ["latest.last_updated_at IS NOT NULL"];
+    const params: any[] = [];
+
+    if (fromDate && toDate) {
+      conditions.push("DATE(latest.last_updated_at) BETWEEN ? AND ?");
+      params.push(fromDate, toDate);
+    } else if (fromDate) {
+      conditions.push("DATE(latest.last_updated_at) >= ?");
+      params.push(fromDate);
+    } else if (toDate) {
+      conditions.push("DATE(latest.last_updated_at) <= ?");
+      params.push(toDate);
+    }
+
+    if (normalizedUserIds.length > 0) {
+      conditions.push(`latest.last_updated_by IN (${normalizedUserIds.map(() => "?").join(",")})`);
+      params.push(...normalizedUserIds);
+    }
+
+    if (normalizedUpdateSource !== "all") {
+      conditions.push("latest.last_update_source = ?");
+      params.push(normalizedUpdateSource);
+    }
+
+    const rows = await appDatabase.query(
+      `
+      SELECT latest.id
+      FROM (
+        SELECT
+          i.id,
+          CASE
+            WHEN COALESCE(i.updated_at, '1000-01-01') >= COALESCE(t.latest_timeline_at, '1000-01-01')
+              THEN i.updated_at
+            ELSE t.latest_timeline_at
+          END AS last_updated_at,
+          CASE
+            WHEN COALESCE(i.updated_at, '1000-01-01') >= COALESCE(t.latest_timeline_at, '1000-01-01')
+              THEN i.updated_by
+            ELSE t.latest_timeline_by
+          END AS last_updated_by,
+          CASE
+            WHEN COALESCE(i.updated_at, '1000-01-01') >= COALESCE(t.latest_timeline_at, '1000-01-01')
+              THEN 'ticket'
+            ELSE 'timeline'
+          END AS last_update_source
+        FROM issues i
+        LEFT JOIN (
+          SELECT ranked.issueId, ranked.latest_timeline_at, ranked.latest_timeline_by
+          FROM (
+            SELECT
+              u.issueId,
+              u.createdAt AS latest_timeline_at,
+              u.createdBy AS latest_timeline_by,
+              ROW_NUMBER() OVER (
+                PARTITION BY u.issueId
+                ORDER BY u.createdAt DESC, u.id DESC
+              ) AS rn
+            FROM issues_updates u
+            WHERE u.deletedAt IS NULL
+              AND COALESCE(u.source, 'securestay') <> 'system'
+          ) ranked
+          WHERE ranked.rn = 1
+        ) t ON t.issueId = i.id
+        WHERE i.deleted_at IS NULL
+      ) latest
+      WHERE ${conditions.join(" AND ")}
+      `,
+      params
+    );
+
+    return rows.map((row: any) => Number(row.id)).filter((id: number) => Number.isFinite(id));
+  }
+
+  private async resolveActivityTimelineDateIssueIds(fromDate?: string, toDate?: string): Promise<number[]> {
     const qb = this.issueUpdatesRepo
       .createQueryBuilder("issueUpdate")
       .innerJoin("issueUpdate.issue", "issue")
       .select("issue.id", "id")
       .distinct(true)
-      .where("issueUpdate.deletedAt IS NULL");
+      .where("issueUpdate.deletedAt IS NULL")
+      .andWhere("COALESCE(issueUpdate.source, 'securestay') <> 'system'");
 
     if (fromDate && toDate) {
       qb.andWhere("DATE(issueUpdate.createdAt) BETWEEN :fromDate AND :toDate", { fromDate, toDate });
@@ -1212,59 +1402,71 @@ export class IssuesService {
     });
   }
 
-  async exportIssuesToExcel(filters: any): Promise<Buffer> {
-    const userId = filters["userId"]; // You'll need to pass this from the controller
+  private formatIssueExportTimestamp(value?: string | Date | null) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: this.getIssueExportTimeZone(),
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).formatToParts(date);
+    const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    return `${getPart("month")} ${getPart("day")}, ${getPart("year")} • ${getPart("hour")}:${getPart("minute")} ${getPart("dayPeriod")}`;
+  }
 
-    // Build the where clause similar to getGuestIssues
-    let listingIds = [];
-    if (filters.propertyType && filters.propertyType.length > 0) {
-      const listingService = new ListingService();
-      listingIds = (
-        await listingService.getListingsByPropertyTypes(filters.propertyType, userId)
-      ).map((l) => l.id);
-    } else {
-      listingIds = filters.listingId;
-    }
-    const whereClause: any = {
-      ...(filters.category &&
-        filters.category.length > 0 && { category: In(filters.category) }),
-      ...(listingIds &&
-        listingIds.length > 0 && { listing_id: In(listingIds) }),
-      ...(filters.status &&
-        filters.status.length > 0 && { status: In(filters.status) }),
-      ...(filters.grStatus &&
-        filters.grStatus.length > 0 && { gr_status: In(filters.grStatus) }),
-      ...(filters.fromDate &&
-        filters.toDate && {
-          created_at: Between(
-            new Date(filters.fromDate),
-            new Date(filters.toDate)
-          ),
-        }),
-      ...(filters.guestName && { guest_name: filters.guestName }),
-      ...(filters.keyword && {
-        issue_description: Like(`%${filters.keyword}%`),
-      }),
-      ...(filters.channel &&
-        filters.channel.length > 0 && { channel: In(filters.channel) }),
-      ...(filters.isClaimOnly && { claim_resolution_status: Not("N/A") }),
-      ...(filters.claimAmount && {
-        claim_resolution_amount: filters.claimAmount,
-      }),
-    };
+  private getIssueExportTimeZone() {
+    return process.env.ISSUES_EXPORT_TIME_ZONE || "America/New_York";
+  }
 
-    const issues = await this.issueRepo.find({
-      where: whereClause,
-      order: { created_at: "DESC" },
-    });
-    // Get user names for created_by and updated_by
-    const users = await this.usersRepo.find();
-    const userMap = new Map(
-      users.map((user) => [user.uid, `${user?.firstName} ${user?.lastName}`])
-    );
+  private formatIssueExportText(value?: any) {
+    return String(value || "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
-    // Format all fields for export
-    const formattedData = issues.map((issue) => ({
+  private getIssueExportTime(value?: string | Date | null) {
+    const time = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  private getIssueExportDateOnly(value?: string | Date | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: this.getIssueExportTimeZone(),
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    return `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
+  }
+
+  private isIssueExportDateInRange(value: string | Date | null | undefined, fromDate?: string, toDate?: string) {
+    const dateOnly = this.getIssueExportDateOnly(value);
+    if (!dateOnly) return false;
+    if (fromDate && dateOnly < fromDate) return false;
+    if (toDate && dateOnly > toDate) return false;
+    return true;
+  }
+
+  private normalizeIssueExportUsers(value: any) {
+    return Array.isArray(value)
+      ? value.map((item) => String(item || "").trim()).filter(Boolean)
+      : value
+      ? [String(value).trim()].filter(Boolean)
+      : [];
+  }
+
+  private getIssueExportBaseRow(issue: any) {
+    return {
       ID: issue.id,
       "IR Status": issue.status,
       "GR Status": issue.gr_status,
@@ -1295,16 +1497,164 @@ export class IssuesService {
       Mistake: issue.mistake,
       "Mistake Resolved On": issue.mistakeResolvedOn,
       Urgency: issue.urgency,
-      Assignee: userMap.get(issue.assignee) || issue.assignee,
-      "Created By": userMap.get(issue.created_by) || issue.created_by,
-      "Updated By": userMap.get(issue.updated_by) || issue.updated_by,
-      "Created At": issue.created_at,
-      "Updated At": issue.updated_at,
-      "Completed (IR) By": userMap.get(issue.completed_by) || issue.completed_by,
-      "Completed (IR) At": issue.completed_at,
-      "Completed (GR) By": userMap.get(issue.gr_completed_by) || issue.gr_completed_by,
-      "Completed (GR) At": issue.gr_completed_at,
-    }));
+      Assignee: issue.assigneeName || issue.assignee,
+      "Created By": issue.created_by,
+      "Updated By": issue.updated_by,
+      "Created At": this.formatIssueExportTimestamp(issue.created_at),
+      "Updated At": this.formatIssueExportTimestamp(issue.updated_at),
+      "Completed (IR) By": issue.completed_by,
+      "Completed (IR) At": this.formatIssueExportTimestamp(issue.completed_at),
+      "Completed (GR) By": issue.gr_completed_by,
+      "Completed (GR) At": this.formatIssueExportTimestamp(issue.gr_completed_at),
+    };
+  }
+
+  private getIssueExportEvents(issue: any, updateSource = "all") {
+    const normalizedSource = updateSource === "ticket" || updateSource === "timeline" ? updateSource : "all";
+    const events: Array<{
+      source: "ticket" | "timeline";
+      sourceLabel: string;
+      timestamp: string | Date | null;
+      user: string | null;
+      userUid?: string | null;
+      details: string;
+      sortTime: number;
+    }> = [];
+    const addEvent = (event: Omit<typeof events[number], "sortTime">) => {
+      if (!event.timestamp) return;
+      if (normalizedSource !== "all" && event.source !== normalizedSource) return;
+      events.push({ ...event, sortTime: this.getIssueExportTime(event.timestamp) });
+    };
+    const hasTicketEventNear = (timestamp?: string | Date | null) => {
+      const time = this.getIssueExportTime(timestamp);
+      if (!time) return false;
+      return events.some((event) => event.source === "ticket" && Math.abs(event.sortTime - time) <= 2000);
+    };
+
+    for (const update of issue.issueUpdates || []) {
+      if (update?.deletedAt) continue;
+      if (update?.source === "system") {
+        addEvent({
+          source: "ticket",
+          sourceLabel: "Ticket field update",
+          timestamp: update.createdAt,
+          user: update.createdBy === "system" ? "System" : update.createdBy || null,
+          userUid: update.createdByUid || null,
+          details: "Ticket fields updated",
+        });
+        continue;
+      }
+      addEvent({
+        source: "timeline",
+        sourceLabel: "Activity timeline update",
+        timestamp: update.createdAt,
+        user: update.createdBy || null,
+        userUid: update.createdByUid || null,
+        details: this.formatIssueExportText(update.updates),
+      });
+    }
+
+    addEvent({
+      source: "ticket",
+      sourceLabel: "Ticket field update",
+      timestamp: issue.completed_at,
+      user: issue.completed_by || null,
+      userUid: issue.completed_by_uid || null,
+      details: "IR status completed",
+    });
+    addEvent({
+      source: "ticket",
+      sourceLabel: "Ticket field update",
+      timestamp: issue.gr_completed_at,
+      user: issue.gr_completed_by || null,
+      userUid: issue.gr_completed_by_uid || null,
+      details: "GR status completed",
+    });
+
+    if (issue.updated_at && !hasTicketEventNear(issue.updated_at)) {
+      addEvent({
+        source: "ticket",
+        sourceLabel: "Ticket field update",
+        timestamp: issue.updated_at,
+        user: issue.updated_by || null,
+        userUid: issue.updated_by_uid || null,
+        details: "Ticket fields updated",
+      });
+    }
+
+    return events.sort((left, right) => right.sortTime - left.sortTime);
+  }
+
+  private filterIssueExportEvents(issue: any, events: ReturnType<IssuesService["getIssueExportEvents"]>, filters: any) {
+    const dateType = filters.dateType || "created";
+    const fromDate = filters.fromDate as string | undefined;
+    const toDate = filters.toDate as string | undefined;
+    const activityUsers = new Set(this.normalizeIssueExportUsers(filters.activityUser));
+    const matchesActivityUser = (event: typeof events[number]) =>
+      activityUsers.size === 0 || (event.userUid && activityUsers.has(event.userUid));
+
+    if (dateType === "activity_updated") {
+      return events.filter((event) => {
+        if (!matchesActivityUser(event)) return false;
+        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        return true;
+      });
+    }
+
+    if (dateType === "updated" || dateType === "last_updated") {
+      const latest = events[0];
+      if (!latest || !matchesActivityUser(latest)) return [];
+      if ((fromDate || toDate) && !this.isIssueExportDateInRange(latest.timestamp, fromDate, toDate)) return [];
+      return [latest];
+    }
+
+    if (dateType === "completed") {
+      return events.filter((event) => {
+        if (event.details !== "IR status completed") return false;
+        if (!matchesActivityUser(event)) return false;
+        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        return true;
+      });
+    }
+
+    if (dateType === "gr_completed") {
+      return events.filter((event) => {
+        if (event.details !== "GR status completed") return false;
+        if (!matchesActivityUser(event)) return false;
+        if ((fromDate || toDate) && !this.isIssueExportDateInRange(event.timestamp, fromDate, toDate)) return false;
+        return true;
+      });
+    }
+
+    return events;
+  }
+
+  async exportIssuesToExcel(filters: any): Promise<Buffer> {
+    const exportLimit = Number(process.env.ISSUES_EXPORT_LIMIT || 100000);
+    const result = await this.getGuestIssues(
+      {
+        ...filters,
+        page: 1,
+        limit: exportLimit,
+      },
+      filters.userId
+    );
+
+    const formattedData = (result.issues || []).flatMap((issue: any) => {
+      const baseRow = this.getIssueExportBaseRow(issue);
+      const events = this.filterIssueExportEvents(
+        issue,
+        this.getIssueExportEvents(issue, filters.updateSource || "all"),
+        filters
+      );
+      return events.map((event) => ({
+        ...baseRow,
+        "Update Source": event.sourceLabel,
+        "Update Timestamp": this.formatIssueExportTimestamp(event.timestamp),
+        "Update User": event.user || "",
+        "Update Details": event.details,
+      }));
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
     const csv = XLSX.utils.sheet_to_csv(worksheet);
@@ -1639,6 +1989,8 @@ export class IssuesService {
       status,
       grStatus,
       guestName,
+      isClaimOnly,
+      claimAmount,
       page,
       limit,
       issueId,
@@ -1651,6 +2003,7 @@ export class IssuesService {
       urgency,
       activityType,
       activityUser,
+      updateSource,
       activityKeyword,
       vendorThreadStatus,
       issueResolution,
@@ -1691,8 +2044,10 @@ export class IssuesService {
     const grIssueStatus = grStatus;
     const currentDate = format(new Date(), "yyyy-MM-dd");
 
-    // dateType=created/updated/last_updated/completed/gr_completed/due filters on the Issue table directly.
-    // dateType=activity_updated resolves matching issue IDs from issue timeline entries.
+    // dateType=created/completed/gr_completed/due filters on the Issue table directly.
+    // dateType=activity_updated resolves any update event from either issue.updated_at
+    // or issue timeline entries. dateType=updated/last_updated resolves the latest
+    // update event across those same two sources.
     // dateType=check_in/check_out and stayStatus require resolving matching
     // reservation IDs from reservation_info, since Issue has no check_out_date
     // and stay status is computed from arrival/departure dates.
@@ -1747,8 +2102,7 @@ export class IssuesService {
 
     let dateColumn: "created_at" | "updated_at" | "completed_at" | "gr_completed_at" | "due_date" | null = null;
     if (fromDate || toDate) {
-      if (dateType === "updated" || dateType === "last_updated") dateColumn = "updated_at";
-      else if (dateType === "completed") dateColumn = "completed_at";
+      if (dateType === "completed") dateColumn = "completed_at";
       else if (dateType === "gr_completed") dateColumn = "gr_completed_at";
       else if (dateType === "due") dateColumn = "due_date";
       else if (!dateType || dateType === "created") dateColumn = "created_at";
@@ -1772,6 +2126,18 @@ export class IssuesService {
       : activityUser
       ? [String(activityUser).trim()].filter(Boolean)
       : [];
+    const normalizedUpdateSource = updateSource === "ticket" || updateSource === "timeline" ? updateSource : "all";
+    const eventActivityType = this.getIssueEventActivityType(dateType, activityType || "all");
+    const shouldResolveUpdatedEventWithUserAndDate =
+      dateType === "activity_updated" &&
+      eventActivityType === "updated" &&
+      normalizedActivityUsers.length > 0 &&
+      Boolean(fromDate || toDate);
+    const shouldResolveLastUpdatedEventWithUserAndDate =
+      (dateType === "updated" || dateType === "last_updated") &&
+      eventActivityType === "last_updated" &&
+      normalizedActivityUsers.length > 0 &&
+      Boolean(fromDate || toDate);
 
     const normalizedKeyword = String(keyword || "").trim();
     const normalizedActivityKeyword = String(activityKeyword || "").trim();
@@ -1799,8 +2165,22 @@ export class IssuesService {
     ] = await Promise.all([
       normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword) : Promise.resolve(undefined),
       normalizedActivityKeyword ? this.resolveActivityKeywordIssueIds(normalizedActivityKeyword) : Promise.resolve(undefined),
-      normalizedActivityUsers.length > 0 ? this.resolveActivityUserIssueIds(activityType || "all", normalizedActivityUsers) : Promise.resolve(undefined),
-      dateType === "activity_updated" && (fromDate || toDate) ? this.resolveActivityTimelineDateIssueIds(fromDate, toDate) : Promise.resolve(undefined),
+      normalizedActivityUsers.length > 0 && !shouldResolveUpdatedEventWithUserAndDate && !shouldResolveLastUpdatedEventWithUserAndDate
+        ? this.resolveActivityUserIssueIds(eventActivityType, normalizedActivityUsers, normalizedUpdateSource)
+        : Promise.resolve(undefined),
+      shouldResolveUpdatedEventWithUserAndDate
+        ? this.resolveUpdatedEventUserDateIssueIds(normalizedActivityUsers, fromDate, toDate, normalizedUpdateSource)
+        : shouldResolveLastUpdatedEventWithUserAndDate
+        ? this.resolveLastUpdatedEventIssueIds(fromDate, toDate, normalizedActivityUsers, normalizedUpdateSource)
+        : dateType === "activity_updated" && (fromDate || toDate)
+        ? this.resolveUpdatedEventDateIssueIds(fromDate, toDate, normalizedUpdateSource)
+        : (dateType === "updated" || dateType === "last_updated") && (fromDate || toDate)
+        ? this.resolveLastUpdatedEventIssueIds(fromDate, toDate, undefined, normalizedUpdateSource)
+        : (dateType === "updated" || dateType === "last_updated") && normalizedUpdateSource !== "all"
+        ? this.resolveLastUpdatedEventIssueIds(undefined, undefined, undefined, normalizedUpdateSource)
+        : dateType === "activity_updated" && normalizedUpdateSource !== "all"
+        ? this.resolveUpdatedEventDateIssueIds(undefined, undefined, normalizedUpdateSource)
+        : Promise.resolve(undefined),
       normalizedVendorThreadStatus ? this.resolveVendorThreadStatusIssueIds(normalizedVendorThreadStatus) : Promise.resolve(undefined),
       normalizedResolutionNotesKeyword ? this.resolveResolutionNotesKeywordIssueIds(normalizedResolutionNotesKeyword) : Promise.resolve(undefined),
       normalizedResolutionNotesStatus ? this.resolveResolutionNotesPresenceIssueIds(normalizedResolutionNotesStatus) : Promise.resolve(undefined),
@@ -1865,6 +2245,8 @@ export class IssuesService {
           grIssueStatus.length > 0 && { gr_status: In(grIssueStatus) }),
         ...(dateColumn && dateColumnFilter && { [dateColumn]: dateColumnFilter }),
         ...(guestName && { guest_name: guestName }),
+        ...(isClaimOnly && { claim_resolution_status: Not("N/A") }),
+        ...(claimAmount && { claim_resolution_amount: claimAmount }),
         ...(effectiveIssueIds &&
           effectiveIssueIds.length > 0 && { id: In(effectiveIssueIds) }),
         ...(effectiveReservationIds &&
@@ -1963,6 +2345,10 @@ export class IssuesService {
       })();
       return {
         ...issue,
+        created_by_uid: issue.created_by,
+        updated_by_uid: issue.updated_by,
+        completed_by_uid: issue.completed_by,
+        gr_completed_by_uid: issue.gr_completed_by,
         created_by: userMap.get(issue.created_by)?.name || issue.created_by,
         updated_by: userMap.get(issue.updated_by)?.name || issue.updated_by,
         completed_by: userMap.get(issue.completed_by)?.name || issue.completed_by,

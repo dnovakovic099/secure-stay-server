@@ -240,6 +240,10 @@ export type ReviewUiSettingsPageKey =
     | 'maintenance'
     | 'maintenance-overview';
 
+const SECURESTAY_ADMIN_ALLOWED_EMAILS = new Set([
+    'angelica@luxurylodgingpm.com',
+]);
+
 export class ReviewService {
     private hostawayClient = new HostAwayClient();
     private reviewRepository = appDatabase.getRepository(ReviewEntity);
@@ -288,7 +292,17 @@ export class ReviewService {
 
     private async ensureSecureStayAdmin(userId: string) {
         const user = await this.usersRepo.findOne({ where: { uid: userId, deletedAt: null as any } });
-        if (!user || (user.userType !== 'admin' && user.userType !== 'super admin' && !user.isSuperAdmin)) {
+        const email = String(user?.email || '').trim().toLowerCase();
+        const isAllowedAdmin = Boolean(
+            user &&
+            (
+                user.userType === 'admin' ||
+                user.userType === 'super admin' ||
+                user.isSuperAdmin ||
+                SECURESTAY_ADMIN_ALLOWED_EMAILS.has(email)
+            )
+        );
+        if (!isAllowedAdmin) {
             throw CustomErrorHandler.forbidden('Only SecureStay admin users can update shared review settings.');
         }
         return user;
