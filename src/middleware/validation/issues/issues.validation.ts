@@ -228,6 +228,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         issueId: Joi.array().items(Joi.number()).min(1).optional(),
         reservationId: Joi.array().items(Joi.number()).min(1).optional(),
         keyword: Joi.string().optional(),
+        keywordField: Joi.string().valid('all', 'description', 'guestName', 'guestContact', 'property', 'issueNotes', 'latestUpdate', 'resolutionNotes', 'managerNotes').optional(),
         channel: Joi.array().items(Joi.string()).min(1).optional(),
         dateType: Joi.string().valid('created', 'updated', 'last_updated', 'activity_updated', 'completed', 'gr_completed', 'due', 'check_in', 'check_out').optional(),
         stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'co-today', 'past', 'upcoming')).min(1).optional(),

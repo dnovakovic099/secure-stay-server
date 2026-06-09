@@ -548,6 +548,7 @@ export class IssuesService {
       return {
         uid: user.uid,
         name: employee?.preferredName || fullName || user.uid,
+        preferredDisplayName: employee?.preferredName || firstName || fullName || user.uid,
         email: String(user.email || "").trim().toLowerCase() || null,
         department: employee?.department || user.department || null,
         avatarUrl: employee?.avatarUrl || null,
@@ -558,76 +559,138 @@ export class IssuesService {
     return result;
   }
 
-  private async resolveKeywordIssueIds(keyword: string): Promise<number[]> {
+  private async resolveKeywordIssueIds(keyword: string, keywordField: string = "all"): Promise<number[]> {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) return [];
 
     const keywordParam = `%${normalizedKeyword}%`;
+    const selectedKeywordField = [
+      "description",
+      "guestName",
+      "guestContact",
+      "property",
+      "issueNotes",
+      "latestUpdate",
+      "resolutionNotes",
+      "managerNotes",
+    ].includes(String(keywordField || ""))
+      ? String(keywordField)
+      : "all";
     const listingRepo = appDatabase.getRepository(Listing);
     const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
 
-    const matchingListings = await listingRepo
-      .createQueryBuilder("listing")
-      .select("listing.id", "id")
-      .where("listing.name LIKE :keyword", { keyword: keywordParam })
-      .orWhere("listing.internalListingName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("listing.externalListingName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("listing.address LIKE :keyword", { keyword: keywordParam })
-      .getRawMany<{ id: number }>();
+    const shouldSearchProperty = selectedKeywordField === "all" || selectedKeywordField === "property";
+    const shouldSearchGuestName = selectedKeywordField === "all" || selectedKeywordField === "guestName";
+    const shouldSearchGuestContact = selectedKeywordField === "all" || selectedKeywordField === "guestContact";
+    const shouldSearchLatestUpdate = selectedKeywordField === "all" || selectedKeywordField === "latestUpdate";
 
-    const matchingListingIds = matchingListings
-      .map((listing) => Number(listing.id))
-      .filter((id) => Number.isFinite(id));
+    const matchingListingIds = shouldSearchProperty
+      ? (await listingRepo
+          .createQueryBuilder("listing")
+          .select("listing.id", "id")
+          .where("listing.name LIKE :keyword", { keyword: keywordParam })
+          .orWhere("listing.internalListingName LIKE :keyword", { keyword: keywordParam })
+          .orWhere("listing.externalListingName LIKE :keyword", { keyword: keywordParam })
+          .orWhere("listing.address LIKE :keyword", { keyword: keywordParam })
+          .getRawMany<{ id: number }>())
+          .map((listing) => Number(listing.id))
+          .filter((id) => Number.isFinite(id))
+      : [];
 
-    const matchingReservations = await reservationRepo
+    const reservationQuery = reservationRepo
       .createQueryBuilder("reservation")
-      .select("reservation.id", "id")
-      .where("reservation.guestName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.guestFirstName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.guestLastName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.listingName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.channelName LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.reservationId LIKE :keyword", { keyword: keywordParam })
-      .orWhere("reservation.phone LIKE :keyword", { keyword: keywordParam })
-      .getRawMany<{ id: number }>();
+      .select("reservation.id", "id");
+    let hasReservationKeywordCondition = false;
+    if (shouldSearchGuestName) {
+      reservationQuery.where("reservation.guestName LIKE :keyword", { keyword: keywordParam })
+        .orWhere("reservation.guestFirstName LIKE :keyword", { keyword: keywordParam })
+        .orWhere("reservation.guestLastName LIKE :keyword", { keyword: keywordParam });
+      hasReservationKeywordCondition = true;
+    }
+    if (shouldSearchProperty) {
+      if (hasReservationKeywordCondition) {
+        reservationQuery.orWhere("reservation.listingName LIKE :keyword", { keyword: keywordParam });
+      } else {
+        reservationQuery.where("reservation.listingName LIKE :keyword", { keyword: keywordParam });
+      }
+      hasReservationKeywordCondition = true;
+    }
+    if (selectedKeywordField === "all") {
+      reservationQuery
+        .orWhere("reservation.channelName LIKE :keyword", { keyword: keywordParam })
+        .orWhere("reservation.reservationId LIKE :keyword", { keyword: keywordParam });
+      hasReservationKeywordCondition = true;
+    }
+    if (shouldSearchGuestContact) {
+      if (hasReservationKeywordCondition) {
+        reservationQuery.orWhere("reservation.phone LIKE :keyword", { keyword: keywordParam });
+      } else {
+        reservationQuery.where("reservation.phone LIKE :keyword", { keyword: keywordParam });
+      }
+      hasReservationKeywordCondition = true;
+    }
 
-    const matchingReservationIds = matchingReservations
-      .map((reservation) => Number(reservation.id))
-      .filter((id) => Number.isFinite(id));
+    const matchingReservationIds = hasReservationKeywordCondition
+      ? (await reservationQuery.getRawMany<{ id: number }>())
+          .map((reservation) => Number(reservation.id))
+          .filter((id) => Number.isFinite(id))
+      : [];
 
     const directIssueQuery = this.issueRepo
       .createQueryBuilder("issue")
-      .select("issue.id", "id")
-      .where("issue.issue_description LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.guest_name LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.guest_contact_number LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.listing_name LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.channel LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.category LIKE :keyword", { keyword: keywordParam })
-      .orWhere("issue.owner_notes LIKE :keyword", { keyword: keywordParam });
+      .select("issue.id", "id");
+    let hasDirectIssueCondition = false;
+    const addDirectIssueCondition = (condition: string) => {
+      if (hasDirectIssueCondition) {
+        directIssueQuery.orWhere(condition, { keyword: keywordParam });
+      } else {
+        directIssueQuery.where(condition, { keyword: keywordParam });
+        hasDirectIssueCondition = true;
+      }
+    };
+
+    if (selectedKeywordField === "all" || selectedKeywordField === "description") addDirectIssueCondition("issue.issue_description LIKE :keyword");
+    if (shouldSearchGuestName) addDirectIssueCondition("issue.guest_name LIKE :keyword");
+    if (shouldSearchGuestContact) addDirectIssueCondition("issue.guest_contact_number LIKE :keyword");
+    if (shouldSearchProperty) addDirectIssueCondition("issue.listing_name LIKE :keyword");
+    if (selectedKeywordField === "all") {
+      addDirectIssueCondition("issue.channel LIKE :keyword");
+      addDirectIssueCondition("issue.category LIKE :keyword");
+    }
+    if (selectedKeywordField === "all" || selectedKeywordField === "issueNotes") addDirectIssueCondition("issue.owner_notes LIKE :keyword");
+    if (selectedKeywordField === "all" || selectedKeywordField === "resolutionNotes") addDirectIssueCondition("issue.resolution LIKE :keyword");
+    if (selectedKeywordField === "all" || selectedKeywordField === "managerNotes") addDirectIssueCondition("issue.manager_feedback LIKE :keyword");
 
     if (matchingListingIds.length > 0) {
-      directIssueQuery.orWhere("issue.listing_id IN (:...matchingListingIds)", {
-        matchingListingIds,
-      });
+      if (hasDirectIssueCondition) {
+        directIssueQuery.orWhere("issue.listing_id IN (:...matchingListingIds)", { matchingListingIds });
+      } else {
+        directIssueQuery.where("issue.listing_id IN (:...matchingListingIds)", { matchingListingIds });
+      }
+      hasDirectIssueCondition = true;
     }
 
     if (matchingReservationIds.length > 0) {
-      directIssueQuery.orWhere("issue.reservation_id IN (:...matchingReservationIds)", {
-        matchingReservationIds,
-      });
+      if (hasDirectIssueCondition) {
+        directIssueQuery.orWhere("issue.reservation_id IN (:...matchingReservationIds)", { matchingReservationIds });
+      } else {
+        directIssueQuery.where("issue.reservation_id IN (:...matchingReservationIds)", { matchingReservationIds });
+      }
+      hasDirectIssueCondition = true;
     }
 
-    const directIssueRows = await directIssueQuery.getRawMany<{ id: number }>();
+    const directIssueRows = hasDirectIssueCondition ? await directIssueQuery.getRawMany<{ id: number }>() : [];
 
-    const updateIssueRows = await this.issueUpdatesRepo
-      .createQueryBuilder("issueUpdate")
-      .innerJoin("issueUpdate.issue", "issue")
-      .select("issue.id", "id")
-      .distinct(true)
-      .where("issueUpdate.deletedAt IS NULL")
-      .andWhere("issueUpdate.updates LIKE :keyword", { keyword: keywordParam })
-      .getRawMany<{ id: number }>();
+    const updateIssueRows = shouldSearchLatestUpdate
+      ? await this.issueUpdatesRepo
+          .createQueryBuilder("issueUpdate")
+          .innerJoin("issueUpdate.issue", "issue")
+          .select("issue.id", "id")
+          .distinct(true)
+          .where("issueUpdate.deletedAt IS NULL")
+          .andWhere("issueUpdate.updates LIKE :keyword", { keyword: keywordParam })
+          .getRawMany<{ id: number }>()
+      : [];
 
     return Array.from(
       new Set(
@@ -2035,6 +2098,7 @@ export class IssuesService {
       issueId,
       reservationId,
       keyword,
+      keywordField,
       channel,
       dateType,
       stayStatus,
@@ -2204,7 +2268,7 @@ export class IssuesService {
       managerNotesKeywordIssueIds,
       managerNotesPresenceIssueIds,
     ] = await Promise.all([
-      normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword) : Promise.resolve(undefined),
+      normalizedKeyword ? this.resolveKeywordIssueIds(normalizedKeyword, keywordField) : Promise.resolve(undefined),
       normalizedActivityKeyword ? this.resolveActivityKeywordIssueIds(normalizedActivityKeyword) : Promise.resolve(undefined),
       normalizedActivityUsers.length > 0 && !hasActivityDateRange
         ? this.resolveActivityUserIssueIds(eventActivityType, normalizedActivityUsers, normalizedUpdateSource)
@@ -3377,7 +3441,12 @@ export class IssuesService {
     if (!uid) return null;
     if (uid === "system") return "System";
     const user = await this.usersRepo.findOne({ where: { uid } });
-    return user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || uid : uid;
+    if (!user) return uid;
+    const employee = await this.employeeRepo.findOne({
+      where: { userId: user.id, deletedAt: null as any },
+      select: ["preferredName"],
+    });
+    return String(employee?.preferredName || user.firstName || "").trim() || uid;
   }
 
   private async saveResolutionAnalysisRefresh(issue: Issue, values: {
@@ -3487,6 +3556,9 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
+    const userDirectory = await this.buildIssueUserDirectory();
+    const userDirectoryByUid = new Map(userDirectory.map((user) => [user.uid, user]));
+
     const updates = (issue.issueUpdates || [])
       .filter((entry) => !entry.deletedAt && String(entry.updates || "").trim())
       .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
@@ -3494,6 +3566,7 @@ export class IssuesService {
         createdAt: entry.createdAt,
         source: entry.source || "securestay",
         createdBy: entry.createdBy || null,
+        createdByName: userDirectoryByUid.get(entry.createdBy || "")?.preferredDisplayName || entry.createdBy || null,
         text: entry.updates,
       }));
 
@@ -3518,7 +3591,7 @@ export class IssuesService {
           {
             role: "system",
             content:
-              "Analyze an internal issue ticket activity timeline. Return only valid JSON with keys issueResolution, guestSentiment, issueResolutionSummary, guestRelationSummary, managerAssessment. issueResolution must be one of Resolved, Not Resolved, or —. guestSentiment must be one of Positive, Mixed, Neutral, Negative, or —. issueResolutionSummary should focus on maintenance/issue-resolution handling. guestRelationSummary should focus on guest-relations handling. managerAssessment should assess how the involved reps handled the ticket, including strengths, misses, and follow-up quality. Mention the names of the reps involved whenever the timeline identifies them. If evidence is missing, use —. Keep each summary concise and factual.",
+              "Analyze an internal issue ticket activity timeline. Return only valid JSON with keys issueResolution, guestSentiment, issueResolutionSummary, guestRelationSummary, managerAssessment. issueResolution must be one of Resolved, Not Resolved, or —. guestSentiment must be one of Positive, Mixed, Neutral, Negative, or —. issueResolutionSummary should focus on maintenance/issue-resolution handling. guestRelationSummary should focus on guest-relations handling. managerAssessment should assess how the involved reps handled the ticket, including strengths, misses, and follow-up quality. Mention reps using the createdByName value only; this is their preferred name when available, otherwise their first name. Do not use full names unless createdByName is a full name because no preferred/first name was available. If evidence is missing, use —. Keep each summary concise and factual.",
           },
           {
             role: "user",
