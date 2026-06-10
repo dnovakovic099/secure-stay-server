@@ -2532,16 +2532,21 @@ export class IssuesService {
         createdBy: isSlack ? update.createdBy : (userMap.get(update.createdBy)?.name || update.createdBy),
         updatedBy: isSlack ? update.updatedBy : (userMap.get(update.updatedBy)?.name || update.updatedBy),
         userAvatar: isSlack || isSystem ? null : (userMap.get(update.createdBy)?.avatarUrl || null),
-        fileInfo: files.map((fi) => ({
-          id: fi.id,
-          fileName: fi.fileName,
-          originalName: fi.originalName,
-          mimeType: fi.mimetype,
-          url: fi.webContentLink || (fi.fileName ? `/getfile/issues/${fi.fileName}` : null),
-          webViewLink: fi.webViewLink,
-          webContentLink: fi.webContentLink,
-          link: fi.webContentLink || (fi.fileName ? `/getfile/issues/${fi.fileName}` : null),
-        })),
+        fileInfo: files.map((fi) => {
+          const proxyUrl = (fi.status === "uploaded" && fi.driveFileId)
+            ? `/getdriveimage/${fi.driveFileId}`
+            : (fi.fileName ? `/getfile/issues/${fi.fileName}` : null);
+          return {
+            id: fi.id,
+            fileName: fi.fileName,
+            originalName: fi.originalName,
+            mimeType: fi.mimetype,
+            url: proxyUrl,
+            webViewLink: fi.webViewLink,
+            webContentLink: fi.webContentLink,
+            link: proxyUrl,
+          };
+        }),
       };
     });
 
