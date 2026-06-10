@@ -19,7 +19,7 @@ export const appDatabase = new DataSource({
     waitForConnections: true,      // Wait for available connection instead of throwing error
     queueLimit: 50                 // Cap pending requests to prevent unbounded memory growth under burst load
   },
-  charset: "utf8mb4",
+  charset: "utf8mb4_unicode_ci",
 });
 
 

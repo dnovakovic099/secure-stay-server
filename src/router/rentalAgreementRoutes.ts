@@ -25,6 +25,7 @@ router.get("/admin/overview", verifySession, controller.getAdminOverview.bind(co
 router.get("/admin/preview-context", verifySession, controller.getPreviewContext.bind(controller));
 router.post("/admin/manual", verifySession, controller.createManualAgreement.bind(controller));
 router.get("/admin/reservation/:hostifyReservationId/document", verifySession, controller.getReservationDocument.bind(controller));
+router.get("/admin/reservation/:hostifyReservationId/id-photo/:type", verifySession, controller.getIdPhotoImage.bind(controller));
 router.put("/admin/reservation/:hostifyReservationId/document", verifySession, controller.updateReservationDocument.bind(controller));
 router.post("/admin/reservation/:hostifyReservationId/override", verifySession, controller.updateReservationOverride.bind(controller));
 router.get("/signings/reservation/:hostifyReservationId/send-preview", verifySession, controller.getSendPreview.bind(controller));
