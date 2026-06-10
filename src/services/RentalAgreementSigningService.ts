@@ -16,6 +16,7 @@ import { sendSupportEmail } from "../utils/sendSupportEmail";
 import { RentalAgreementReservationDocument } from "../entity/RentalAgreementReservationDocument";
 import { formatPhoneForDisplay } from "../utils/phoneDisplay.util";
 import { Hostify } from "../client/Hostify";
+import { drive } from "../utils/drive";
 
 const signingRepo = () => appDatabase.getRepository(RentalAgreementSigning);
 const fileInfoRepo = () => appDatabase.getRepository(FileInfo);
@@ -625,7 +626,7 @@ export class RentalAgreementSigningService {
                     AND (
                         applicabilityRule.channelId IS NULL
                         OR applicabilityRule.channelId = ${reservationAlias}.channelId
-                        OR LOWER(COALESCE(applicabilityRule.channelName, '')) = LOWER(COALESCE(${reservationAlias}.channelName, ''))
+                        OR LOWER(COALESCE(applicabilityRule.channelName, '') COLLATE utf8mb4_unicode_ci) = LOWER(COALESCE(${reservationAlias}.channelName, '') COLLATE utf8mb4_unicode_ci)
                     )
             )
         `;
@@ -1890,6 +1891,33 @@ export class RentalAgreementSigningService {
         const mimetype = fileInfo.mimetype || "image/jpeg";
         const fileContent = fs.readFileSync(fileInfo.localPath);
         return `data:${mimetype};base64,${fileContent.toString("base64")}`;
+    }
+
+    async getIdPhotoContent(hostifyReservationId: string, type: "front" | "back"): Promise<{ buffer: Buffer; mimetype: string } | null> {
+        const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
+        if (!signing) return null;
+
+        const fileInfoId = type === "front" ? signing.idFrontFileInfoId : signing.idBackFileInfoId;
+        if (!fileInfoId) return null;
+
+        const fileInfo = await fileInfoRepo().findOne({ where: { id: fileInfoId } });
+        if (!fileInfo) return null;
+
+        const mimetype = fileInfo.mimetype || "image/jpeg";
+
+        if (fileInfo.localPath && fs.existsSync(fileInfo.localPath)) {
+            return { buffer: fs.readFileSync(fileInfo.localPath), mimetype };
+        }
+
+        if (fileInfo.driveFileId) {
+            const driveRes = await drive.files.get(
+                { fileId: fileInfo.driveFileId, alt: "media" },
+                { responseType: "arraybuffer" }
+            ) as any;
+            return { buffer: Buffer.from(driveRes.data as ArrayBuffer), mimetype };
+        }
+
+        return null;
     }
 
     private async generateAndUploadPdf(signingId: number, reservationInfo: ReservationInfoEntity): Promise<void> {

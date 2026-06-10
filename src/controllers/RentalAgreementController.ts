@@ -299,6 +299,25 @@ export class RentalAgreementController {
         }
     }
 
+    async getIdPhotoImage(req: CustomRequest, res: Response) {
+        try {
+            const { hostifyReservationId } = req.params;
+            const type = req.params.type as "front" | "back";
+            if (type !== "front" && type !== "back") {
+                return res.status(400).json({ success: false, message: "type must be front or back" });
+            }
+            const result = await rentalAgreementSigningService.getIdPhotoContent(hostifyReservationId, type);
+            if (!result) {
+                return res.status(404).json({ success: false, message: "ID photo not found" });
+            }
+            res.setHeader("Content-Type", result.mimetype);
+            res.setHeader("Cache-Control", "private, max-age=3600");
+            res.send(result.buffer);
+        } catch (err: any) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
     async sendAgreement(req: CustomRequest, res: Response) {
         try {
             const { hostifyReservationId } = req.params;
