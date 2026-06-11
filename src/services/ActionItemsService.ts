@@ -37,6 +37,105 @@ interface HostBuddyActionItem {
   status: string;
 }
 
+type StayTiming = "past" | "ongoing" | "upcoming";
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+const normalizeStayTiming = (value?: string): StayTiming | null => {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized === "past" || normalized === "ongoing" || normalized === "upcoming") {
+    return normalized;
+  }
+  if (normalized === "current") return "ongoing";
+  if (normalized === "future") return "upcoming";
+  return null;
+};
+
+const normalizeDateKey = (value: any): string | null => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const match = String(value).match(/\d{4}-\d{2}-\d{2}/);
+  return match?.[0] || null;
+};
+
+const normalizeHour = (value: any, fallback: number) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+};
+
+const normalizeIdArray = (value: any) => {
+  if (Array.isArray(value)) return value.map(Number).filter((id) => Number.isFinite(id));
+  if (value === undefined || value === null || value === "") return [];
+  return [Number(value)].filter((id) => Number.isFinite(id));
+};
+
+const normalizeStringArray = (value: any) => {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (value === undefined || value === null || value === "") return [];
+  return [String(value)];
+};
+
+const isValidTimeZone = (timeZone?: string | null) => {
+  if (!timeZone) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const localUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return (localUtc - date.getTime()) / 60000;
+};
+
+const zonedLocalTimeToUtcDate = (
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string
+) => {
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const offset = getTimeZoneOffsetMinutes(utcGuess, timeZone);
+  const utcDate = new Date(utcGuess.getTime() - offset * 60000);
+  const adjustedOffset = getTimeZoneOffsetMinutes(utcDate, timeZone);
+  return new Date(utcGuess.getTime() - adjustedOffset * 60000);
+};
+
+const getStayBoundaryUtc = (dateValue: any, hourValue: any, timeZone: string, fallbackHour: number) => {
+  const dateKey = normalizeDateKey(dateValue);
+  if (!dateKey) return null;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const hour = normalizeHour(hourValue, fallbackHour);
+  const wholeHour = Math.floor(hour);
+  const minute = Math.round((hour - wholeHour) * 60);
+  return zonedLocalTimeToUtcDate(year, month, day, wholeHour, minute, 0, timeZone);
+};
+
 export class ActionItemsService {
   private actionItemsRepo = appDatabase.getRepository(ActionItems);
   private listingRepo = appDatabase.getRepository(Listing);
@@ -102,20 +201,44 @@ export class ActionItemsService {
       ids,
       reservationId,
       propertyType,
+      serviceType,
+      stayTiming,
       keyword,
       keywordField,
       dateType = 'CREATED',
     } = filter;
 
-    let listingIds = [];
-    if (propertyType && propertyType.length > 0) {
-      const listingService = new ListingService();
-      listingIds = (await listingService.getListingsByPropertyTypes(propertyType)).map(
+    const categoryFilters = normalizeStringArray(category);
+    const statusFilters = normalizeStringArray(status);
+    const propertyTypeFilters = normalizeStringArray(propertyType);
+    const serviceTypeFilters = normalizeStringArray(serviceType);
+    const reservationIdFilters = normalizeIdArray(reservationId);
+    const idFilters = normalizeIdArray(ids);
+    let listingIds = normalizeIdArray(listingId);
+    const listingService = new ListingService();
+    if (propertyTypeFilters.length > 0) {
+      const propertyListingIds = (await listingService.getListingsByPropertyTypes(propertyTypeFilters, undefined, true)).map(
         (l) => l.id
       );
-    } else {
-      listingIds = listingId;
+      listingIds = listingIds?.length
+        ? listingIds.filter((id) => propertyListingIds.includes(Number(id)))
+        : propertyListingIds;
     }
+
+    if (serviceTypeFilters.length > 0) {
+      const serviceListingIds = (await listingService.getListingsByServiceTypes(serviceTypeFilters, undefined, true)).map(
+        (l) => l.id
+      );
+      listingIds = listingIds?.length
+        ? listingIds.filter((id) => serviceListingIds.includes(Number(id)))
+        : serviceListingIds;
+    }
+
+    if ((propertyTypeFilters.length > 0 || serviceTypeFilters.length > 0) && listingIds.length === 0) {
+      return { actionItems: [], total: 0 };
+    }
+
+    const normalizedStayTiming = normalizeStayTiming(stayTiming);
 
     let dateCondition = {};
     if (fromDate && toDate) {
@@ -132,12 +255,12 @@ export class ActionItemsService {
     }
 
     const whereConditions: any = {
-      ...(ids?.length > 0 && { id: In(ids) }),
-      ...(category && { category: In(category) }),
+      ...(idFilters.length > 0 && { id: In(idFilters) }),
+      ...(categoryFilters.length > 0 && { category: In(categoryFilters) }),
       ...(listingIds && listingIds.length > 0 && { listingId: In(listingIds) }),
-      ...(reservationId?.length > 0 && { reservationId: In(reservationId) }),
+      ...(reservationIdFilters.length > 0 && { reservationId: In(reservationIdFilters) }),
       ...(guestName && { guestName }),
-      ...(status && { status: In(status) }),
+      ...(statusFilters.length > 0 && { status: In(statusFilters) }),
       ...dateCondition,
     };
 
@@ -162,20 +285,50 @@ export class ActionItemsService {
       .createQueryBuilder("actionItem")
       .leftJoinAndSelect("actionItem.actionItemsUpdates", "actionItemsUpdates")
       .leftJoin("actionItem.reservation", "reservation")
-      .addSelect(["reservation.id", "reservation.arrivalDate", "reservation.departureDate"]);
+      .addSelect([
+        "reservation.id",
+        "reservation.arrivalDate",
+        "reservation.departureDate",
+        "reservation.checkInTime",
+        "reservation.checkOutTime",
+        "reservation.guestName",
+        "reservation.listingName",
+        "reservation.guestEmail",
+        "reservation.phone",
+        "reservation.source",
+        "reservation.channelName",
+        "reservation.reservationId",
+        "reservation.channelReservationId",
+        "reservation.hostawayReservationId",
+      ]);
 
     if (keyword) {
-      const keywordFields = ["item", "guestName"];
-      const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
+      const selectedKeywordField = String(keywordField || "all");
+      const searchableFields: Record<string, string[]> = {
+        item: ["actionItem.item"],
+        guestName: ["actionItem.guestName", "reservation.guestName"],
+        guestContact: ["reservation.phone", "reservation.guestEmail"],
+        updates: ["actionItemsUpdates.updates"],
+        resolutionNotes: ["actionItem.item", "actionItemsUpdates.updates"],
+        managerNotes: ["actionItem.item", "actionItemsUpdates.updates"],
+        listingName: ["actionItem.listingName", "reservation.listingName"],
+        category: ["actionItem.category"],
+        status: ["actionItem.status"],
+        assignee: ["actionItem.assignee"],
+        reservation: ["actionItem.reservationId", "reservation.reservationId", "reservation.channelReservationId", "reservation.hostawayReservationId"],
+        channel: ["reservation.channelName", "reservation.source"],
+        createdBy: ["actionItem.createdBy"],
+        updatedBy: ["actionItem.updatedBy"],
+        mistake: ["actionItem.mistake"],
+      };
+      const defaultSearchFields = Array.from(new Set(Object.values(searchableFields).flat()));
+      const fieldsToSearch = searchableFields[selectedKeywordField] || defaultSearchFields;
       query.andWhere(new Brackets(qb => {
-        if (selectedKeywordField === "item") {
-          qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` });
-        } else if (selectedKeywordField === "guestName") {
-          qb.where("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
-        } else {
-          qb.where("actionItem.item ILike :keyword", { keyword: `%${keyword}%` })
-            .orWhere("actionItem.guestName ILike :keyword", { keyword: `%${keyword}%` });
-        }
+        fieldsToSearch.forEach((field, index) => {
+          const condition = `CAST(${field} AS TEXT) ILike :keyword`;
+          if (index === 0) qb.where(condition, { keyword: `%${keyword}%` });
+          else qb.orWhere(condition, { keyword: `%${keyword}%` });
+        });
       }));
 
       if (Object.keys(whereConditions).length > 0) {
@@ -185,12 +338,25 @@ export class ActionItemsService {
       query.andWhere(whereConditions);
     }
 
-    query
-      .skip((page - 1) * limit)
-      .take(limit)
-      .orderBy("actionItem.createdAt", "DESC");
+    query.orderBy("actionItem.createdAt", "DESC");
 
-    const [actionItems, total] = await query.getManyAndCount();
+    if (!normalizedStayTiming) {
+      query.skip((page - 1) * limit).take(limit);
+    }
+
+    const [queriedActionItems, queriedTotal] = await query.getManyAndCount();
+    let actionItems = queriedActionItems;
+    let total = queriedTotal;
+
+    if (normalizedStayTiming) {
+      const listingMap = await this.getListingTimingMap(actionItems);
+      const filteredActionItems = actionItems.filter((actionItem) => {
+        const listing = listingMap.get(Number(actionItem.listingId));
+        return this.getActionItemStayTiming(actionItem, listing) === normalizedStayTiming;
+      });
+      total = filteredActionItems.length;
+      actionItems = filteredActionItems.slice((page - 1) * limit, page * limit);
+    }
 
     const transformedActionItems = actionItems.map((actionItem) => {
       return {
@@ -208,6 +374,46 @@ export class ActionItemsService {
     });
 
     return { actionItems: transformedActionItems, total };
+  }
+
+  private async getListingTimingMap(actionItems: ActionItems[]) {
+    const listingIds = Array.from(
+      new Set(
+        actionItems
+          .map((actionItem) => Number(actionItem.listingId))
+          .filter((id) => Number.isFinite(id))
+      )
+    );
+    if (!listingIds.length) return new Map<number, Listing>();
+    const listings = await this.listingRepo.find({
+      where: { id: In(listingIds) },
+      withDeleted: true,
+    });
+    return new Map(listings.map((listing) => [Number(listing.id), listing]));
+  }
+
+  private getActionItemStayTiming(actionItem: ActionItems, listing?: Listing): StayTiming | null {
+    const reservation = (actionItem as any).reservation;
+    const timeZone = isValidTimeZone(listing?.timeZoneName) ? listing!.timeZoneName : DEFAULT_TIME_ZONE;
+    const checkInAt = getStayBoundaryUtc(
+      reservation?.arrivalDate,
+      reservation?.checkInTime ?? listing?.checkInTimeStart,
+      timeZone,
+      15
+    );
+    const checkOutAt = getStayBoundaryUtc(
+      reservation?.departureDate,
+      reservation?.checkOutTime ?? listing?.checkOutTime,
+      timeZone,
+      11
+    );
+
+    if (!checkInAt || !checkOutAt) return null;
+
+    const now = new Date();
+    if (now > checkOutAt) return "past";
+    if (now >= checkInAt && now <= checkOutAt) return "ongoing";
+    return "upcoming";
   }
 
   async createActionItem(actionItem: ActionItems, userId: string) {
