@@ -109,6 +109,7 @@ export class Hostify {
                 },
                 params: {
                     include_related_objects: 1,
+                    include_owner_data: 1,
                 },
             });
 

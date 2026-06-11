@@ -1425,9 +1425,9 @@ export class ListingService {
 
           const saved = await tx.save(Listing, listingObj);
 
-          if (info.photos?.[0]) {
-            const imageObj = this.buildImageObject(listing.id, info.photos[0]);
-            await this.handleListingImages(saved, imageObj, tx);
+          if (info.photos?.length) {
+            const imageObjs = this.buildImageObjects(listing.id, info.photos);
+            await this.handleListingImages(saved, imageObjs, tx);
           }
 
           logger.info(`Added new listing ID: ${listingId}`);
@@ -1471,9 +1471,9 @@ export class ListingService {
             logger.info(`Updated listing ID: ${listingId}`);
           }
 
-          if (info.photos?.[0]) {
-            const imageObj = this.buildImageObject(listing.id, info.photos[0]);
-            await this.handleListingImages(listingObj, imageObj, tx);
+          if (info.photos?.length) {
+            const imageObjs = this.buildImageObjects(listing.id, info.photos);
+            await this.handleListingImages(listingObj, imageObjs, tx);
           }
         }
 
@@ -1508,29 +1508,35 @@ export class ListingService {
   }
 
   private buildListingObject(listing: any, info: any) {
-    const photos = info.photos || [];
     const users = info.users || [];
     const description = info.description?.description || '';
 
     const owner = users.find((u: any) => u.roles === 'Listing Owner');
+    const ownerContract = info.owner_contract || info.ownerContract || info.listing?.owner_contract || null;
 
     return this.createHostifyListingObject({
       ...listing,
       address: info.listing.address,
-      ownerEmail: owner?.username || '',
-      ownerName: owner ? `${owner.first_name} ${owner.last_name}` : '',
-      ownerPhone: owner?.phone || '',
+      ownerEmail: ownerContract?.owner_email || owner?.username || '',
+      ownerName: ownerContract?.owner_name || (owner ? `${owner.first_name} ${owner.last_name}` : ''),
+      ownerPhone: ownerContract?.owner_phone || owner?.phone || '',
       description
     });
   }
 
-  private buildImageObject(listingId: number, photo: any) {
-    return {
-      url: photo.original_file,
-      thumbnailUrl: photo.thumbnail_file,
-      sortOrder: photo.sort_order,
-      listing: listingId
-    };
+  private buildImageObjects(listingId: number, photos: any[]) {
+    return [...photos]
+      .sort((a, b) => Number(a?.sort_order ?? 9999) - Number(b?.sort_order ?? 9999))
+      .map((photo) => ({
+        url: photo.original_file,
+        thumbnailUrl: photo.thumbnail_file,
+        caption: photo.caption || photo.description || photo.title || null,
+        airbnbCaption: photo.airbnb_caption || photo.airbnbCaption || null,
+        vrboCaption: photo.vrbo_caption || photo.vrboCaption || null,
+        sortOrder: photo.sort_order,
+        listing: listingId
+      }))
+      .filter((photo) => Boolean(photo.url));
   }
 
   private normalizeDiffValue(value: any) {
@@ -1592,7 +1598,7 @@ export class ListingService {
   }
 
 
-  async handleListingImages(listing: any, imageInfo: any, transactionalEntityManager: EntityManager) {
+  async handleListingImages(listing: any, imageInfo: any | any[], transactionalEntityManager: EntityManager) {
     //delete existing images
     await transactionalEntityManager.delete(ListingImage, { listing: { id: listing.id } });
     //add new image
