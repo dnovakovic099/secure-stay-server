@@ -91,7 +91,6 @@ export class ActionItemsBetaController {
             }
 
             const data = await this.service.analyzeReservation(reservationId, {
-                inboxId: req.body?.inboxId,
                 triggeredBy: this.getUserId(req),
             });
             res.json({ success: true, data });
