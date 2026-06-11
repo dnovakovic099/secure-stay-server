@@ -1756,7 +1756,7 @@ export const buildOnboardingSlackMessage = (
         elements: [
             {
                 type: "mrkdwn",
-                text: `cc: ${process.env.ONBOARDING_MENTIONS || '<@U07MVJYQ1EW> <@U08QJBLNG6A> <@U07B3DPM56E>'}`
+                text: `cc: ${process.env.ONBOARDING_MENTIONS || '<@U07B3DPM56E> <@U098WQ9GNM8>'}`
             }
         ]
     });
