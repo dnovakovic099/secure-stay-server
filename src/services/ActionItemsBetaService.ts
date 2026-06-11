@@ -588,16 +588,8 @@ export class ActionItemsBetaService {
         }));
     }
 
-    async analyzeReservation(reservationId: number, options: { inboxId?: string; triggeredBy?: string } = {}) {
+    async analyzeReservation(reservationId: number, options: { triggeredBy?: string } = {}) {
         await this.ensureDefaults(options.triggeredBy);
-        const settings = await this.getSettings();
-
-        if (settings.sourceToggles.openphone) {
-            await this.communicationService.fetchAndStoreFromOpenPhone(reservationId);
-        }
-        if (settings.sourceToggles.hostify) {
-            await this.communicationService.fetchAndStoreFromHostify(reservationId, options.inboxId);
-        }
 
         return this.analyzeStoredReservation(reservationId, options.triggeredBy || "manual");
     }
@@ -689,7 +681,6 @@ export class ActionItemsBetaService {
                 throw new Error("Unable to resolve the Hostify thread for this action item");
             }
             await this.messagingService.postHostifyReply(threadId, trimmedContent);
-            await this.communicationService.fetchAndStoreFromHostify(item.reservationId, threadId);
         } else {
             const reservation = await this.reservationRepo.findOne({ where: { id: item.reservationId } });
             const guestPhone = this.openPhoneService.formatPhoneNumber(undefined, reservation?.phone || undefined);
@@ -704,7 +695,6 @@ export class ActionItemsBetaService {
                 throw new Error("Unable to resolve the OpenPhone conversation for this action item");
             }
             await this.openPhoneService.sendConversationReply(latestMessage.phoneNumberId, [guestPhone], trimmedContent);
-            await this.communicationService.fetchAndStoreFromOpenPhone(item.reservationId);
         }
 
         return this.getItemById(id);
@@ -744,9 +734,10 @@ export class ActionItemsBetaService {
 
         const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
         const allCommunications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
+        const enabledCommunications = allCommunications.filter((message) => this.isSourceEnabled(message.source, settings));
         const communications = options.since
-            ? allCommunications.filter((message) => new Date(message.communicatedAt).getTime() >= options.since!.getTime())
-            : allCommunications;
+            ? enabledCommunications.filter((message) => new Date(message.communicatedAt).getTime() >= options.since!.getTime())
+            : enabledCommunications;
         const timeline = communications
             .map((message) => `[${new Date(message.communicatedAt).toISOString()}] ${message.direction.toUpperCase()} ${message.senderName || "Unknown"} (${message.source}): ${message.content || ""}`)
             .join("\n");
@@ -1297,5 +1288,16 @@ export class ActionItemsBetaService {
             !filters.assignedTo?.length &&
             !filters.priority?.length &&
             !filters.search?.trim();
+    }
+
+    private isSourceEnabled(source: string | null | undefined, settings: ActionItemsBetaSettings) {
+        const normalizedSource = String(source || "").toLowerCase();
+        if (normalizedSource.startsWith("hostify")) {
+            return settings.sourceToggles.hostify;
+        }
+        if (normalizedSource.startsWith("openphone")) {
+            return settings.sourceToggles.openphone;
+        }
+        return true;
     }
 }
