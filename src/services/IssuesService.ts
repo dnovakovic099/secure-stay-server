@@ -1486,23 +1486,6 @@ export class IssuesService {
     });
   }
 
-  private formatIssueExportTimestamp(value?: string | Date | null) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: this.getIssueExportTimeZone(),
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).formatToParts(date);
-    const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
-    return `${getPart("month")} ${getPart("day")}, ${getPart("year")} • ${getPart("hour")}:${getPart("minute")} ${getPart("dayPeriod")}`;
-  }
-
   private getIssueExportDateTimeParts(value?: string | Date | null) {
     if (!value) return { date: "", time: "" };
     const parsed = new Date(value);
@@ -1583,20 +1566,21 @@ export class IssuesService {
       "Listing ID": issue.listing_id,
       "Listing Name": issue.listing_name,
       "Reservation ID": issue.reservation_id,
-      "Check-In Date": issue.check_in_date,
-      "Reservation Amount": issue.reservation_amount,
       Channel: issue.channel,
       "Guest Name": issue.guest_name,
+      "Check-In Date": issue.check_in_date,
+      "Check-Out Date": issue.check_out_date,
+      "Reservation Amount": issue.reservation_amount,
       "Guest Contact": issue.guest_contact_number,
       "Issue Description": issue.issue_description,
       "Issue Notes": issue.owner_notes,
       Urgency: issue.urgency,
       Assignee: issue.assigneeName || issue.assignee,
       "Created By": issue.creator,
-      "Updated By": issue.updated_by,
+      "Last Updated By": issue.updated_by,
       "Created On": created.date,
       "Created At": created.time,
-      "Updated On": updated.date,
+      "Last Updated On": updated.date,
       "Last Updated At": updated.time,
       "Completed (IR) By": issue.completed_by,
       "Completed (IR) On": completedIr.date,
@@ -1604,6 +1588,12 @@ export class IssuesService {
       "Completed (GR) By": issue.gr_completed_by,
       "Completed (GR) On": completedGr.date,
       "Completed (GR) At": completedGr.time,
+      "Issue Resolution": issue.ai_resolution_status,
+      "Issue Resolution Notes": this.formatIssueExportText(issue.resolution),
+      "Guest Sentiment": issue.ai_guest_sentiment,
+      "Guest Sentiment Notes": this.formatIssueExportText(issue.guest_relations_resolution),
+      "AI Generated Manager Notes": this.formatIssueExportText(issue.manager_ai_feedback),
+      "Manager Feedback": this.formatIssueExportText(issue.manager_feedback),
     };
   }
 
@@ -1749,13 +1739,51 @@ export class IssuesService {
         this.getIssueExportEvents(issue, filters.updateSource || "all"),
         filters
       );
-      return events.map((event) => ({
-        ...baseRow,
-        "Activity Type": event.sourceLabel,
-        "Update Timestamp": this.formatIssueExportTimestamp(event.timestamp),
-        "Update User": event.user || "",
-        "Update Details": event.details,
-      }));
+      return events.map((event) => {
+        const updated = this.getIssueExportDateTimeParts(event.timestamp);
+        return {
+          ID: baseRow.ID,
+          "IR Status": baseRow["IR Status"],
+          "GR Status": baseRow["GR Status"],
+          Category: baseRow.Category,
+          "Listing ID": baseRow["Listing ID"],
+          "Listing Name": baseRow["Listing Name"],
+          "Reservation ID": baseRow["Reservation ID"],
+          Channel: baseRow.Channel,
+          "Guest Name": baseRow["Guest Name"],
+          "Check-In Date": baseRow["Check-In Date"],
+          "Check-Out Date": baseRow["Check-Out Date"],
+          "Reservation Amount": baseRow["Reservation Amount"],
+          "Guest Contact": baseRow["Guest Contact"],
+          "Issue Description": baseRow["Issue Description"],
+          "Issue Notes": baseRow["Issue Notes"],
+          Urgency: baseRow.Urgency,
+          Assignee: baseRow.Assignee,
+          "Activity Type": event.sourceLabel,
+          "Update Details": event.details,
+          "Updated By": event.user || "",
+          "Updated On": updated.date,
+          "Updated At": updated.time,
+          "Created By": baseRow["Created By"],
+          "Created On": baseRow["Created On"],
+          "Created At": baseRow["Created At"],
+          "Last Updated By": baseRow["Last Updated By"],
+          "Last Updated On": baseRow["Last Updated On"],
+          "Last Updated At": baseRow["Last Updated At"],
+          "Completed (IR) By": baseRow["Completed (IR) By"],
+          "Completed (IR) On": baseRow["Completed (IR) On"],
+          "Completed (IR) At": baseRow["Completed (IR) At"],
+          "Completed (GR) By": baseRow["Completed (GR) By"],
+          "Completed (GR) On": baseRow["Completed (GR) On"],
+          "Completed (GR) At": baseRow["Completed (GR) At"],
+          "Issue Resolution": baseRow["Issue Resolution"],
+          "Issue Resolution Notes": baseRow["Issue Resolution Notes"],
+          "Guest Sentiment": baseRow["Guest Sentiment"],
+          "Guest Sentiment Notes": baseRow["Guest Sentiment Notes"],
+          "AI Generated Manager Notes": baseRow["AI Generated Manager Notes"],
+          "Manager Feedback": baseRow["Manager Feedback"],
+        };
+      });
     });
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
