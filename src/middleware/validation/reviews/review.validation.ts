@@ -18,6 +18,23 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
             schema
         ).optional().allow(null, "");
 
+    const normalizeQueryKeys = (query: Record<string, unknown>) => {
+        return Object.entries(query).reduce((acc, [key, value]) => {
+            if (value === '' || value === null || value === undefined) return acc;
+            const normalizedKey = key.endsWith('[]') ? key.slice(0, -2) : key;
+            const existing = acc[normalizedKey];
+            if (existing === undefined) {
+                acc[normalizedKey] = value;
+            } else {
+                acc[normalizedKey] = [
+                    ...(Array.isArray(existing) ? existing : [existing]),
+                    ...(Array.isArray(value) ? value : [value]),
+                ];
+            }
+            return acc;
+        }, {} as Record<string, unknown>);
+    };
+
     const schema = Joi.object({
         dateType: Joi.string().required().valid("arrivalDate", "departureDate", "submittedAt", "updatedAt"),
         fromDate: Joi.string()
@@ -90,13 +107,12 @@ export const validateGetReviewRequest = (request: Request, response: Response, n
         return value;
     });
 
-    const cleanQuery = Object.fromEntries(
-        Object.entries(request.query as Record<string, unknown>).filter(([, v]) => v !== '' && v !== null && v !== undefined)
-    );
-    const { error } = schema.validate(cleanQuery);
+    const cleanQuery = normalizeQueryKeys(request.query as Record<string, unknown>);
+    const { error, value } = schema.validate(cleanQuery, { stripUnknown: true });
     if (error) {
         return next(error);
     }
+    (request as any).query = value;
     next();
 };
 

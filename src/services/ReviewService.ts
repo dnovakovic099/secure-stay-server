@@ -1835,6 +1835,9 @@ export class ReviewService {
                     removed: 'Removed',
                     'unable to remove': 'Unable to Remove',
                     'unable-to-remove': 'Unable to Remove',
+                    'remove failed': 'Remove Failed',
+                    'remove-failed': 'Remove Failed',
+                    archived: 'Archived',
                 };
                 const explicitVisibilityStates = Array.from(
                     new Set(
