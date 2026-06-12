@@ -3484,6 +3484,13 @@ export class ReviewService {
             );
         }
 
+        // Deep-link: when a specific reservationId is requested, restrict to that record only.
+        // This makes the initial fetch for "View in SecureStay" return immediately instead of
+        // waiting for the target to appear across multiple paginated pages.
+        if (reservationId) {
+            query.andWhere("reservationInfo.id = :deepLinkReservationId", { deepLinkReservationId: Number(reservationId) });
+        }
+
         const groupCountQuery = groupField ? query.clone() : null;
 
         query.skip((page - 1) * limit).take(limit);
