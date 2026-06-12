@@ -15,6 +15,7 @@ const REVIEW_UI_SETTINGS_PAGE_KEYS: ReviewUiSettingsPageKey[] = [
     'vendors',
     'vendor-contacts',
     'refund-requests',
+    'listings',
     'accounting-income',
     'accounting-expense',
     'accounting-extras',

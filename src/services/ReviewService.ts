@@ -223,6 +223,7 @@ export type ReviewUiSettingsPageKey =
     | 'vendors'
     | 'vendor-contacts'
     | 'refund-requests'
+    | 'listings'
     | 'accounting-income'
     | 'accounting-expense'
     | 'accounting-extras'
@@ -267,6 +268,7 @@ export class ReviewService {
         vendors: 'ui-settings:vendors',
         'vendor-contacts': 'ui-settings:vendor-contacts',
         'refund-requests': 'ui-settings:refund-requests',
+        listings: 'ui-settings:listings',
         'accounting-income': 'ui-settings:accounting-income',
         'accounting-expense': 'ui-settings:accounting-expense',
         'accounting-extras': 'ui-settings:accounting-extras',
@@ -374,6 +376,7 @@ export class ReviewService {
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
             'refund-requests': 'Shared Refund Requests UI Settings',
+            listings: 'Shared Listings UI Settings',
             'accounting-income': 'Shared Accounting Income UI Settings',
             'accounting-expense': 'Shared Accounting Expense UI Settings',
             'accounting-extras': 'Shared Accounting Extras UI Settings',

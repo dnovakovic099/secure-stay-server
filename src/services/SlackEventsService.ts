@@ -572,32 +572,51 @@ export class SlackEventsService {
 
         const redFlags = flags.filter((flag: any) => flag?.polarity !== "positive");
         const greenFlags = flags.filter((flag: any) => flag?.polarity === "positive");
+        const normalizeText = (value: unknown, fallback = "") => String(value || fallback).replace(/\s+/g, " ").trim();
+        const formatPhase = (phase: unknown) => {
+            const label = normalizeText(phase).replace(/_/g, " ");
+            if (!label) return "";
+            return `\`${label.replace(/\b\w/g, (char) => char.toUpperCase())}\``;
+        };
+        const formatPhases = (flag: any) => {
+            const phases = Array.isArray(flag?.phases) ? flag.phases.map(formatPhase).filter(Boolean) : [];
+            return phases.length ? phases.join(" ") : "`Unspecified`";
+        };
+        const formatEvidence = (evidence: string) => {
+            const cleaned = normalizeText(evidence);
+            if (!cleaned) return "";
+            return `\n  • _Evidence:_ _"${cleaned.replace(/"/g, "'")}"_`;
+        };
         const formatFlag = (flag: any, index: number) => {
-            const title = String(flag?.flag || "Operational Flag").trim();
-            const explanation = String(flag?.explanation || "No description available.").trim();
-            const evidence = String(flag?.evidence || "").trim();
-            const owner = String(flag?.owner || "").trim();
-            const phases = Array.isArray(flag?.phases) && flag.phases.length ? ` · Phases: ${flag.phases.join(", ")}` : "";
-            const ownerText = owner ? ` · Owner: ${owner}` : "";
-            const evidenceText = evidence ? `\n   Evidence: ${evidence}` : "";
-            return `${index + 1}. *${title}*${ownerText}${phases}\n   ${explanation}${evidenceText}`;
+            const title = normalizeText(flag?.flag, "Operational Flag");
+            const explanation = normalizeText(flag?.explanation, "No description available.");
+            const evidence = normalizeText(flag?.evidence);
+            const owner = normalizeText(flag?.owner);
+            const ownerText = owner ? `\n  • Owner: *${owner}*` : "";
+            return [
+                `• *${index + 1}. ${title}*`,
+                ownerText,
+                `\n  • Phases: ${formatPhases(flag)}`,
+                `\n  • Summary: ${explanation}`,
+                formatEvidence(evidence),
+            ].join("");
         };
 
         const parts = [
             "*Operational Flags*",
-            `Reservation: ${detail?.record?.guestName || "Guest"} · ${detail?.record?.listingName || "Property"}`,
+            `*Reservation:* ${detail?.record?.guestName || "Guest"} · ${detail?.record?.listingName || "Property"}`,
             "",
         ];
 
         if (redFlags.length) {
-            parts.push("*Operational Red Flags*");
-            parts.push(redFlags.map(formatFlag).join("\n"));
+            parts.push("🚩: *Operational Red Flags*");
+            parts.push(redFlags.map(formatFlag).join("\n\n"));
             parts.push("");
         }
 
         if (greenFlags.length) {
-            parts.push("*Operational Green Flags*");
-            parts.push(greenFlags.map(formatFlag).join("\n"));
+            parts.push("✅: *Operational Green Flags*");
+            parts.push(greenFlags.map(formatFlag).join("\n\n"));
         }
 
         return parts.join("\n").trim();

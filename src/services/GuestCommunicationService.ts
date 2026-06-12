@@ -3,6 +3,8 @@ import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { OpenPhoneClient, Message as OpenPhoneMessage, Call } from "../client/OpenPhoneClient";
 import { Hostify, HostifyInboxThread } from "../client/Hostify";
+import { ActionItemsBetaService } from "./ActionItemsBetaService";
+import type { HostifyMessagePayload } from "./MessagingServices";
 import logger from "../utils/logger.utils";
 import { v4 as uuidv4 } from "uuid";
 
@@ -11,6 +13,7 @@ import { v4 as uuidv4 } from "uuid";
  * Aggregates and stores communication data from OpenPhone and Hostify
  */
 export class GuestCommunicationService {
+    private static actionItemsBetaTimers = new Map<number, NodeJS.Timeout>();
     private openPhoneClient: OpenPhoneClient;
     private hostifyClient: Hostify;
     private communicationRepo = appDatabase.getRepository(GuestCommunicationEntity);
@@ -268,6 +271,39 @@ export class GuestCommunicationService {
         });
     }
 
+    async storeHostifyWebhookMessage(payload: HostifyMessagePayload): Promise<GuestCommunicationEntity | null> {
+        if (!payload?.reservation_id || !payload?.message_id) return null;
+        const reservationId = Number(payload.reservation_id);
+        if (!reservationId) return null;
+
+        const externalId = `hostify_${payload.message_id}`;
+        const existing = await this.communicationRepo.findOne({
+            where: { externalId, source: "hostify_message" },
+        });
+        if (existing) return existing;
+
+        const communicatedAt = new Date(payload.created);
+        return this.storeCommunication({
+            reservationId,
+            source: "hostify_message",
+            externalId,
+            content: payload.message || "",
+            direction: payload.is_incoming === 1 ? "inbound" : "outbound",
+            senderName: payload.is_incoming === 1 ? (payload.guest_name || "Guest") : (payload.sent_by || "Representative"),
+            senderPhone: "",
+            communicatedAt: Number.isNaN(communicatedAt.getTime()) ? new Date() : communicatedAt,
+            metadata: {
+                inboxId: payload.thread_id,
+                listingId: payload.listing_id,
+                guestId: payload.guest_id,
+                isAutomatic: payload.is_automatic,
+                isSms: payload.is_sms,
+                attachmentUrl: payload.attachment_url,
+                webhookAction: payload.action,
+            },
+        });
+    }
+
     /**
      * Build a formatted communication timeline for AI analysis
      */
@@ -319,7 +355,26 @@ export class GuestCommunicationService {
             communicatedAt: data.communicatedAt,
             metadata: data.metadata || {}
         });
-        return this.communicationRepo.save(comm);
+        const savedCommunication = await this.communicationRepo.save(comm);
+        this.scheduleActionItemsBetaAnalysis(savedCommunication.reservationId, savedCommunication.source);
+        return savedCommunication;
+    }
+
+    private scheduleActionItemsBetaAnalysis(reservationId: number, source: string): void {
+        if (!reservationId) return;
+        const existingTimer = GuestCommunicationService.actionItemsBetaTimers.get(reservationId);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        const timer = setTimeout(() => {
+            GuestCommunicationService.actionItemsBetaTimers.delete(reservationId);
+            new ActionItemsBetaService()
+                .analyzeReservation(reservationId, { triggeredBy: `guest_communication:${source}` })
+                .catch((error) => {
+                    logger.error(`[GuestCommunicationService] Action Items Beta analysis failed for reservation ${reservationId}: ${error.message}`);
+                });
+        }, 1500);
+
+        GuestCommunicationService.actionItemsBetaTimers.set(reservationId, timer);
     }
 
     private async collectGuestPhoneCandidates(
