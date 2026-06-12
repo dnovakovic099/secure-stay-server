@@ -7,11 +7,11 @@ import { ActionItemBetaItemEntity } from "../entity/ActionItemBetaItem";
 import { ActionItemBetaSettingEntity } from "../entity/ActionItemBetaSetting";
 import { GuestCommunicationEntity } from "../entity/GuestCommunication";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import { GuestCommunicationService } from "./GuestCommunicationService";
 import { MessagingService } from "./MessagingServices";
 import { OpenPhoneService } from "./OpenPhoneService";
 import { Hostify } from "../client/Hostify";
 import logger from "../utils/logger.utils";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 export interface ActionItemsBetaFilters {
     status?: string[];
@@ -101,6 +101,13 @@ const DEFAULT_CATEGORIES = [
         icon: "ellipsis",
         notificationTargets: ["Ops"],
     },
+    {
+        name: "Communication Quality",
+        description: "Coaching opportunities where a team response may be incomplete, robotic, unclear, missing empathy, or lacking ownership.",
+        color: "#ec4899",
+        icon: "message",
+        notificationTargets: ["Guest Relations"],
+    },
 ];
 
 const DEFAULT_RULES = [
@@ -176,6 +183,18 @@ const DEFAULT_RULES = [
         negativeExamples: ["No need anymore, we figured it out"],
         instructions: "Trigger when the message indicates urgency, security risk, party/noise escalation, or a question that explicitly needs approval from ops/host.",
     },
+    {
+        name: "Communication quality coaching",
+        description: "Detect responses that may need coaching or correction even if the guest received a reply.",
+        categoryName: "Communication Quality",
+        priority: "Medium",
+        sensitivity: "medium",
+        triggerPhrases: ["sorry", "apologize", "frustrated", "upset", "confused", "not answered", "no one responded", "still waiting"],
+        excludePhrases: ["all set", "resolved", "thank you", "perfect"],
+        examples: ["The reply did not answer the guest's actual concern.", "The guest sounded frustrated and the response did not acknowledge it."],
+        negativeExamples: ["The team clearly acknowledged the issue, gave ownership, and provided a next step."],
+        instructions: "Trigger when the conversation suggests weak communication quality: missing empathy, no clear next step, incomplete answer, robotic tone, possible misinformation, repeated unnecessary information, or missing ownership/follow-through.",
+    },
 ];
 
 export class ActionItemsBetaService {
@@ -185,7 +204,6 @@ export class ActionItemsBetaService {
     private readonly settingRepo = appDatabase.getRepository(ActionItemBetaSettingEntity);
     private readonly communicationRepo = appDatabase.getRepository(GuestCommunicationEntity);
     private readonly reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
-    private readonly communicationService = new GuestCommunicationService();
     private readonly messagingService = new MessagingService();
     private readonly openPhoneService = new OpenPhoneService();
     private readonly hostifyClient = new Hostify();
@@ -199,24 +217,29 @@ export class ActionItemsBetaService {
 
     async ensureDefaults(userId?: string): Promise<void> {
         if (this.defaultsEnsured) return;
-        const categoryCount = await this.categoryRepo.count();
-        if (categoryCount === 0) {
-            const categories = DEFAULT_CATEGORIES.map((category, index) => this.categoryRepo.create({
+        const existingCategories = await this.categoryRepo.find();
+        const existingCategoryNames = new Set(existingCategories.map((category) => category.name));
+        const missingCategories = DEFAULT_CATEGORIES
+            .filter((category) => !existingCategoryNames.has(category.name))
+            .map((category, index) => this.categoryRepo.create({
                 ...category,
                 isDefault: true,
                 isActive: true,
-                sortOrder: index,
+                sortOrder: existingCategories.length + index,
                 createdBy: userId || "system",
                 updatedBy: userId || "system",
             }));
-            await this.categoryRepo.save(categories);
+        if (missingCategories.length > 0) {
+            await this.categoryRepo.save(missingCategories);
         }
 
-        const ruleCount = await this.ruleRepo.count();
-        if (ruleCount === 0) {
-            const categories = await this.categoryRepo.find();
-            const categoryMap = new Map(categories.map((category) => [category.name, category]));
-            const rules = DEFAULT_RULES.map((rule) => this.ruleRepo.create({
+        const existingRules = await this.ruleRepo.find();
+        const existingRuleNames = new Set(existingRules.map((rule) => rule.name));
+        const categories = await this.categoryRepo.find();
+        const categoryMap = new Map(categories.map((category) => [category.name, category]));
+        const missingRules = DEFAULT_RULES
+            .filter((rule) => !existingRuleNames.has(rule.name))
+            .map((rule) => this.ruleRepo.create({
                 ...rule,
                 categoryId: categoryMap.get(rule.categoryName)?.id || null,
                 autoCreateThreshold: DEFAULT_SETTINGS.autoCreateThreshold,
@@ -226,7 +249,8 @@ export class ActionItemsBetaService {
                 createdBy: userId || "system",
                 updatedBy: userId || "system",
             }));
-            await this.ruleRepo.save(rules);
+        if (missingRules.length > 0) {
+            await this.ruleRepo.save(missingRules);
         }
 
         const settings = await this.settingRepo.findOne({ where: { settingKey: "global" } });
@@ -733,7 +757,10 @@ export class ActionItemsBetaService {
         const settings = await this.getSettings();
 
         const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
-        const allCommunications = await this.communicationService.getAllCommunicationsForReservation(reservationId);
+        const allCommunications = await this.communicationRepo.find({
+            where: { reservationId },
+            order: { communicatedAt: "ASC" },
+        });
         const enabledCommunications = allCommunications.filter((message) => this.isSourceEnabled(message.source, settings));
         const communications = options.since
             ? enabledCommunications.filter((message) => new Date(message.communicatedAt).getTime() >= options.since!.getTime())
@@ -806,10 +833,14 @@ export class ActionItemsBetaService {
             const nextDecision = detection.confidence >= settings.autoCreateThreshold ? "auto_created" : "review";
 
             if (existing) {
+                const existingMessageIds = existing.messageIds || [];
+                const nextMessageIds = Array.from(new Set([...existingMessageIds, ...detection.messageIds]));
+                const hasNewMessageLinks = nextMessageIds.length > existingMessageIds.length;
+
                 existing.description = detection.description;
                 existing.confidence = Math.max(existing.confidence || 0, detection.confidence);
                 existing.flagReason = detection.reason;
-                existing.messageIds = Array.from(new Set([...(existing.messageIds || []), ...detection.messageIds]));
+                existing.messageIds = nextMessageIds;
                 existing.conversationSnippet = detection.snippet || existing.conversationSnippet;
                 existing.priority = detection.priority;
                 existing.status = existing.status === "In Progress" ? existing.status : nextStatus;
@@ -827,7 +858,11 @@ export class ActionItemsBetaService {
                 if ((existing.status === "Completed" || existing.status === "Resolved") && !existing.resolvedAt) {
                     existing.resolvedAt = detection.resolvedAt || now;
                 }
-                savedItems.push(await this.itemRepo.save(existing));
+                const saved = await this.itemRepo.save(existing);
+                savedItems.push(saved);
+                if (hasNewMessageLinks) {
+                    await this.notifyAnjTestSlack(saved, "refreshed");
+                }
                 continue;
             }
 
@@ -863,10 +898,74 @@ export class ActionItemsBetaService {
                 createdBy: triggeredBy,
                 updatedBy: triggeredBy,
             });
-            savedItems.push(await this.itemRepo.save(created));
+            const saved = await this.itemRepo.save(created);
+            savedItems.push(saved);
+            await this.notifyAnjTestSlack(saved, "created");
         }
 
         return savedItems;
+    }
+
+    private async notifyAnjTestSlack(item: ActionItemBetaItemEntity, eventType: "created" | "refreshed") {
+        try {
+            const itemType = item.categoryName === "Communication Quality" ? "Quality Check" : "Action Item";
+            const confidence = `${Math.round((item.confidence || 0) * 100)}%`;
+            const eventLabel = eventType === "created" ? "Created" : "Refreshed";
+            const proposedResolution = this.getProposedResolution(item);
+            const field = (label: string, value: string | null | undefined) => ({
+                type: "mrkdwn",
+                text: `*${label}:*\n${String(value || "-").trim() || "-"}`,
+            });
+
+            const blocks: any[] = [
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Action Items Beta ${eventLabel}: ${itemType}*\n${item.title}`,
+                    },
+                },
+                {
+                    type: "section",
+                    fields: [
+                        field("Category", item.categoryName),
+                        field("Priority", item.priority),
+                        field("Status", item.status),
+                        field("Guest", item.guestName),
+                        field("Property", item.propertyName),
+                        field("Confidence", confidence),
+                    ],
+                },
+            ];
+
+            if (item.flagReason) {
+                blocks.push({
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Why flagged:*\n${item.flagReason}`,
+                    },
+                });
+            }
+
+            if (proposedResolution) {
+                blocks.push({
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Suggested next step:*\n${proposedResolution}`,
+                    },
+                });
+            }
+
+            await sendSlackMessage({
+                channel: "#anj-test",
+                text: `Action Items Beta ${eventLabel}: ${item.title}`,
+                blocks,
+            });
+        } catch (error: any) {
+            logger.error(`[ActionItemsBetaService] Failed to send #anj-test Slack notification for item ${item.id}: ${error?.message || error}`);
+        }
     }
 
     private async generateDetections(input: {
@@ -980,11 +1079,12 @@ export class ActionItemsBetaService {
 
         const systemPrompt = [
             "You are evaluating guest conversations for SecureStay Action Items (Beta).",
-            "Only flag issues or requests that clearly require team action.",
+            "Flag issues, guest requests, missed follow-ups, overdue replies, or communication-quality coaching opportunities that clearly require team attention.",
             "Be conservative. Prefer no result over false positives.",
             "Return compact JSON with a top-level key called candidates.",
             "Each candidate must include title, description, proposedResolution, categoryName, priority, confidence, reason, source, messageIds, and highlightTerms.",
             "Confidence must be a number from 0 to 1.",
+            "For quality coaching, use Communication Quality when the response is incomplete, too robotic, lacks empathy, misses the guest concern, lacks ownership, or has no clear next step.",
             "Use only these categories when possible:",
             JSON.stringify(categoryGuide),
         ].join("\n");
@@ -1149,6 +1249,8 @@ export class ActionItemsBetaService {
                 return "Review the reservation details, confirm what can be changed, and reply with the approved option or next action.";
             case "Guest Requests":
                 return "Review the request, confirm availability or approval needs, and send the guest a clear next-step response.";
+            case "Communication Quality":
+                return "Review the exchange for empathy, completeness, accuracy, ownership, and a clear next step; coach or correct the response if needed.";
             default:
                 return "Review the conversation, assign the right owner, and reply with the next operational step for the guest.";
         }

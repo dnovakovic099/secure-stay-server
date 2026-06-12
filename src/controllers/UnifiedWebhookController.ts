@@ -14,6 +14,7 @@ import { ActionItemsService } from "../services/ActionItemsService";
 import { ExpenseService } from "../services/ExpenseService";
 import { SlackEventsService } from "../services/SlackEventsService";
 import { MessagingService } from "../services/MessagingServices";
+import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import { ZapierWebhookService } from "../services/ZapierWebhookService";
 import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -637,6 +638,8 @@ export class UnifiedWebhookController {
                             if (message.message && message.type === "message" && message.reservation_id && message.is_incoming === 1 && message.is_automatic === 0) {
                                 const messagingService = new MessagingService();
                                 await messagingService.saveHostifyGuestMessage(message);
+                                const guestCommunicationService = new GuestCommunicationService();
+                                await guestCommunicationService.storeHostifyWebhookMessage(message);
                                 logger.info(`[handleHostifyWebhook] Saved guest message ${message.message_id}`);
                             } else {
                                 logger.info("[handleHostifyWebhook] Skipping outgoing/representative message");
