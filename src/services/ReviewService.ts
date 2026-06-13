@@ -709,26 +709,38 @@ export class ReviewService {
         return shouldStripSlackWrapper ? this.stripSlackActivityWrapper(decodedContent) : decodedContent;
     }
 
-    private async buildLatestUpdatePayload(message: ReviewDiscussionMessageEntity | null) {
+    private async buildLatestUpdatePayload(
+        message: ReviewDiscussionMessageEntity | null,
+        cache?: {
+            userByUidMap?: Map<string, UsersEntity>;
+            authorEmployeeByUserIdMap?: Map<number, Employee>;
+            authorFileInfoByIdMap?: Map<number, FileInfo>;
+            slackUsers?: any[];
+        }
+    ) {
         if (!message) return null;
 
         let authorName = message.authorName;
         let authorAvatar = message.authorAvatar;
         if (message.authorId && message.metadata?.source !== "slack") {
-            const user = await this.usersRepo.findOne({ where: { uid: message.authorId } });
+            const user = cache?.userByUidMap
+                ? (cache.userByUidMap.get(String(message.authorId)) ?? null)
+                : await this.usersRepo.findOne({ where: { uid: message.authorId } });
             if (user) {
-                const slackUsers = await getSlackUsers();
-                const employee = await this.employeeRepo.findOne({
-                    where: { userId: user.id, deletedAt: null as any },
-                    select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
-                });
+                const slackUsers = cache?.slackUsers ?? await getSlackUsers();
+                const employee = cache?.authorEmployeeByUserIdMap
+                    ? (cache.authorEmployeeByUserIdMap.get(user.id) ?? null)
+                    : await this.employeeRepo.findOne({
+                        where: { userId: user.id, deletedAt: null as any },
+                        select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
+                    });
                 const preferredName = String(employee?.preferredName || "").trim();
                 authorName = preferredName || String(user.firstName || "").trim() || user.email || user.uid || message.authorName;
 
                 const profilePhotoId = Number(employee?.profilePhoto);
-                const fileInfo = !Number.isNaN(profilePhotoId) && profilePhotoId > 0
-                    ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } })
-                    : null;
+                const fileInfo = cache?.authorFileInfoByIdMap
+                    ? (!Number.isNaN(profilePhotoId) && profilePhotoId > 0 ? (cache.authorFileInfoByIdMap.get(profilePhotoId) ?? null) : null)
+                    : (!Number.isNaN(profilePhotoId) && profilePhotoId > 0 ? await this.fileInfoRepo.findOne({ where: { id: profilePhotoId } }) : null);
                 const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
                 const slackAvatarUrl = slackMemberId
                     ? slackUsers.find((member: any) => member.id === slackMemberId)?.image || null
@@ -1948,13 +1960,17 @@ export class ReviewService {
             // Fetch users for name mapping
             const users = await this.usersRepo.find();
             const userMap = new Map(users.map(user => [user.uid, `${user.firstName} ${user.lastName}`]));
-
-            const reservationInfoService = new ReservationInfoService();
-            const reservationInfoList = await Promise.all(
-                reviews.map((review) => reservationInfoService.getReservationById(review.reservationId))
-            );
+            const userByUidMap = new Map(users.map(user => [String(user.uid), user]));
 
             const reservationIds = reviews.map((review) => Number(review.reservationId)).filter(Boolean);
+
+            // Single bulk query replaces N+1 individual findOne calls (was one DB query per review)
+            const reservationInfoEntities = reservationIds.length > 0
+                ? await this.reservationInfoRepo.find({ where: { id: In(reservationIds) } })
+                : [];
+            const reservationInfoByIdMap = new Map(reservationInfoEntities.map(r => [Number(r.id), r]));
+            const reservationInfoList = reviews.map(review => reservationInfoByIdMap.get(Number(review.reservationId)) ?? null);
+
             const [issues, guestAnalyses, latestNotesByReservation, latestRefundsByReservation, accountingSummariesByReservation] = await Promise.all([
                 reservationIds.length > 0
                     ? this.issueRepo.find({ where: { reservation_id: In(reservationIds) } })
@@ -1973,6 +1989,32 @@ export class ReviewService {
                 })
                 : [];
             const reviewCheckoutMap = new Map(reviewCheckouts.map((checkout) => [Number(checkout.reservationInfo?.id), checkout]));
+
+            // Pre-fetch all author data needed by buildLatestUpdatePayload — avoids 3-4 DB queries per review
+            const notesWithAuthors = Array.from(latestNotesByReservation.values()).filter(
+                msg => msg.authorId && msg.metadata?.source !== "slack"
+            );
+            const authorUids = [...new Set(notesWithAuthors.map(msg => String(msg.authorId)).filter(Boolean))];
+            const authorUsersFromMap = authorUids.map(uid => userByUidMap.get(uid)).filter(Boolean);
+            const authorUserIds = authorUsersFromMap.map(u => u.id).filter(Boolean);
+            const [authorEmployees, authorSlackUsers] = await Promise.all([
+                authorUserIds.length > 0
+                    ? this.employeeRepo.find({
+                        where: { userId: In(authorUserIds), deletedAt: null as any },
+                        select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
+                      })
+                    : Promise.resolve([]),
+                notesWithAuthors.length > 0 ? getSlackUsers() : Promise.resolve([]),
+            ]);
+            const authorEmployeeByUserIdMap = new Map(authorEmployees.map(e => [e.userId, e]));
+            const profilePhotoIds = authorEmployees
+                .map(e => Number(e.profilePhoto))
+                .filter(id => !Number.isNaN(id) && id > 0);
+            const authorFileInfoByIdMap = new Map(
+                (profilePhotoIds.length > 0 ? await this.fileInfoRepo.find({ where: { id: In(profilePhotoIds) } }) : [])
+                    .map(f => [f.id, f])
+            );
+            const latestUpdateCache = { userByUidMap, authorEmployeeByUserIdMap, authorFileInfoByIdMap, slackUsers: authorSlackUsers };
 
             const reviewListingIds = [...new Set([
                 ...reviews.map((review) => review.listingMapId),
@@ -2003,7 +2045,8 @@ export class ReviewService {
                 const arrivalDate = this.normalizeReviewDate(reservationInfo?.arrivalDate || review.arrivalDate);
                 const departureDate = this.normalizeReviewDate(reservationInfo?.departureDate || review.departureDate);
                 const latestUpdate = await this.buildLatestUpdatePayload(
-                    latestNotesByReservation.get(Number(review.reservationId)) || null
+                    latestNotesByReservation.get(Number(review.reservationId)) || null,
+                    latestUpdateCache
                 );
                 const latestRefund = latestRefundsByReservation.get(Number(review.reservationId)) || null;
                 const accountingSummary = accountingSummariesByReservation.get(Number(review.reservationId)) || null;
