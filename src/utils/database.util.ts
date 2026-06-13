@@ -13,11 +13,12 @@ export const appDatabase = new DataSource({
   subscribers: [process.env.NODE_ENV === 'production' ? "dist/out-tsc/subscriber/*.js" : "src/subscriber/*.ts"],
   migrations: [process.env.NODE_ENV === 'production' ? "dist/out-tsc/migration/*.js" : "src/migration/*.ts"],
   extra: {
-    connectionLimit: 20,           // Reduced to prevent exhausting MySQL max_connections
+    connectionLimit: 10,           // 6 processes × 10 = 60 total; keeps well under MariaDB's max_connections
     connectTimeout: 10000,         // 10 second connection timeout
-    // acquireTimeout: 10000,         // Not supported by MySQL2 — use queueLimit instead
-    waitForConnections: true,      // Wait for available connection instead of throwing error
-    queueLimit: 50                 // Cap pending requests to prevent unbounded memory growth under burst load
+    waitForConnections: true,
+    queueLimit: 100,               // Higher queue to absorb bursts now that each pool is smaller
+    enableKeepAlive: true,         // Detect stale connections (e.g. killed by MariaDB wait_timeout)
+    keepAliveInitialDelay: 10000,
   },
   charset: "utf8mb4_unicode_ci",
 });
