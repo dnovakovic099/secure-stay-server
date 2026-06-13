@@ -224,6 +224,10 @@ export type ReviewUiSettingsPageKey =
     | 'vendor-contacts'
     | 'refund-requests'
     | 'listings'
+    | 'listing-utilities-property'
+    | 'listing-utilities-provider'
+    | 'listing-utilities-providerType'
+    | 'listing-utilities-providerName'
     | 'accounting-income'
     | 'accounting-expense'
     | 'accounting-extras'
@@ -269,6 +273,10 @@ export class ReviewService {
         'vendor-contacts': 'ui-settings:vendor-contacts',
         'refund-requests': 'ui-settings:refund-requests',
         listings: 'ui-settings:listings',
+        'listing-utilities-property': 'ui-settings:listing-utilities-property',
+        'listing-utilities-provider': 'ui-settings:listing-utilities-provider',
+        'listing-utilities-providerType': 'ui-settings:listing-utilities-providerType',
+        'listing-utilities-providerName': 'ui-settings:listing-utilities-providerName',
         'accounting-income': 'ui-settings:accounting-income',
         'accounting-expense': 'ui-settings:accounting-expense',
         'accounting-extras': 'ui-settings:accounting-extras',
@@ -377,6 +385,10 @@ export class ReviewService {
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
             'refund-requests': 'Shared Refund Requests UI Settings',
             listings: 'Shared Listings UI Settings',
+            'listing-utilities-property': 'Shared Listing Utilities Property UI Settings',
+            'listing-utilities-provider': 'Shared Listing Utilities Provider UI Settings',
+            'listing-utilities-providerType': 'Shared Listing Utilities Provider Type UI Settings',
+            'listing-utilities-providerName': 'Shared Listing Utilities Provider Name UI Settings',
             'accounting-income': 'Shared Accounting Income UI Settings',
             'accounting-expense': 'Shared Accounting Expense UI Settings',
             'accounting-extras': 'Shared Accounting Extras UI Settings',
