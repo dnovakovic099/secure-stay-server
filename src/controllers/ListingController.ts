@@ -49,6 +49,30 @@ export class ListingController {
     }
   }
 
+  async getLiveHostifyListingClientInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = request.params.listingId;
+      const listingInfo = await listingService.getLiveHostifyListingClientInfo(listingId);
+
+      return response.status(200).json(successDataFetch(listingInfo));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getLiveHostifyListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = request.params.listingId;
+      const listingInfo = await listingService.getLiveHostifyListingInfo(listingId);
+
+      return response.status(200).json(successDataFetch(listingInfo));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getListingAddresses(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const listingService = new ListingService();

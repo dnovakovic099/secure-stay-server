@@ -194,12 +194,19 @@ export class ListingService {
       ownerName: data?.ownerName || "",
       ownerEmail: data?.ownerEmail || "",
       ownerPhone: data?.ownerPhone || "",
+      ownerId: data?.ownerId || null,
+      ownerListingTargetId: data?.ownerListingTargetId || null,
+      ownerContractId: data?.ownerContractId || null,
+      ownerContractName: data?.ownerContractName || "",
+      ownerCompanyId: data?.ownerCompanyId || null,
+      ownerCompanyName: data?.ownerCompanyName || "",
+      hostifyUsersJson: data?.hostifyUsersJson || null,
       propertyTypeId: data?.property_type_id || null,
       roomType: data?.room_type || "",
       bedroomsNumber: data?.bedrooms || 0,
       bathroomsNumber: data?.bathrooms || 0,
       // bathroomType: data?.bathroomType || "",
-      // guestBathroomsNumber: data?.guestBathroomsNumber || 0,
+      guestBathroomsNumber: data?.bathroom_shared ?? data?.guestBathroomsNumber ?? 0,
       cleaningFee: data?.cleaning_fee || 0,
       airbnbPetFeeAmount: data?.pets_fee || 0,
       squareMeters: data?.area || 0,
@@ -416,6 +423,81 @@ export class ListingService {
     return parts.join(", ");
   }
 
+  private normalizeIntegrationText(value: any) {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length ? normalized : null;
+  }
+
+  private getIntegrationDisplayName(integration: any) {
+    if (!integration) return null;
+    return (
+      this.normalizeIntegrationText(integration.nickname) ||
+      this.normalizeIntegrationText(integration.full_name) ||
+      this.normalizeIntegrationText(integration.user) ||
+      this.normalizeIntegrationText(
+        [integration.first_name, integration.last_name].filter(Boolean).join(" ")
+      )
+    );
+  }
+
+  private getListingIntegrationLookupIds(listing: any) {
+    return [listing?.integration_id, listing?.channel_account_id]
+      .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+      .map((value) => String(value));
+  }
+
+  private getHostifyChannelName(listing: any, integration?: any) {
+    const channelObjectName =
+      typeof listing?.channel === "object"
+        ? this.normalizeIntegrationText(listing.channel?.name || listing.channel?.channel_name)
+        : null;
+    const channelName =
+      channelObjectName ||
+      this.normalizeIntegrationText(listing?.channel_name) ||
+      this.normalizeIntegrationText(listing?.channelName) ||
+      (typeof listing?.channel === "string" ? this.normalizeIntegrationText(listing.channel) : null);
+    if (channelName) return channelName;
+
+    const hostifyChannelTypeMap: Record<string, string> = {
+      "1": "Airbnb",
+      "17": "Hostify",
+      "22": "Booking.com",
+      "26": "Vrbo",
+      "52": "HomeToGo",
+      "63": "HVMB / Marriott",
+      "79": "Google Vacation",
+    };
+
+    const channelType = this.normalizeIntegrationText(listing?.fs_integration_type);
+    if (channelType && hostifyChannelTypeMap[channelType]) {
+      return hostifyChannelTypeMap[channelType];
+    }
+
+    const searchText = [
+      integration?.user,
+      integration?.nickname,
+      integration?.full_name,
+      listing?.nickname,
+      listing?.name,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    if (searchText.includes("airbnb")) return "Airbnb";
+    if (searchText.includes("booking") || searchText.includes("bcom")) return "Booking.com";
+    if (searchText.includes("vrbo") || searchText.includes("homeaway")) return "Vrbo";
+    if (searchText.includes("hometogo")) return "HomeToGo";
+    if (searchText.includes("marriott") || searchText.includes("hvmb")) return "HVMB / Marriott";
+    if (searchText.includes("google")) return "Google Vacation";
+    if (searchText.includes("expedia")) return "Expedia";
+    if (searchText.includes("tripadvisor")) return "TripAdvisor";
+    if (searchText.includes("direct") || searchText.includes("hostify")) return "Hostify";
+
+    return "-";
+  }
+
   private normalizeListingOverview(listing: any) {
     const propertyTypeTag = ListingService.extractPropertyTypeFromTags(listing?.tags);
     const serviceTypeTag = ListingService.extractServiceTypeFromTags(listing?.tags);
@@ -460,8 +542,21 @@ export class ListingService {
         ? Math.floor(Number(bathroomsNumber))
         : listing?.fullBathrooms ?? listing?.fullBath ?? null;
     const halfBaths =
+      listing?.bathroom_shared ??
       listing?.guestBathroomsNumber ??
       (typeof bathroomsNumber === "number" && bathroomsNumber % 1 >= 0.5 ? 1 : null);
+
+    let hostifyUsers: any[] = [];
+    if (Array.isArray(listing?.hostifyUsers)) {
+      hostifyUsers = listing.hostifyUsers;
+    } else if (typeof listing?.hostifyUsersJson === "string" && listing.hostifyUsersJson.trim()) {
+      try {
+        const parsed = JSON.parse(listing.hostifyUsersJson);
+        hostifyUsers = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        hostifyUsers = [];
+      }
+    }
 
     return {
       ...listing,
@@ -500,6 +595,7 @@ export class ListingService {
         listing?.personCapacity ??
         null,
       imageUrl: listing?.imageUrl || listing?.picture || listing?.images?.[0]?.url || null,
+      hostifyUsers,
     };
   }
 
@@ -600,14 +696,12 @@ export class ListingService {
 
       const enriched = listings.map((listing: any) => {
         const integration = integrations.find((i: any) =>
-          String(i.id) === String(listing.integration_id)
+          this.getListingIntegrationLookupIds(listing).includes(String(i.id))
         );
 
         return {
           ...listing,
-          integration_name: integration
-            ? integration.nickname || integration.full_name || integration.user
-            : "-",
+          integration_name: this.getIntegrationDisplayName(integration) || "-",
           integration_picture: integration?.picture || null,
         };
       });
@@ -651,6 +745,145 @@ export class ListingService {
       .getOne();
 
     return result;
+  }
+
+  async getLiveHostifyListingClientInfo(listingId: string) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    const info = await this.hostifyClient.getListingDetails(hostifyApiKey, listingId);
+    const ownerContract = info?.owner_contract || info?.ownerContract || info?.listing?.owner_contract || null;
+    const users = Array.isArray(info?.users) ? info.users : [];
+    const tags = this.formatHostifyTags(info?.listing?.tags || info?.tags);
+    const otherProperties = ownerContract
+      ? await this.getOtherHostifyPropertiesForOwner(hostifyApiKey, listingId, ownerContract)
+      : [];
+
+    return {
+      ownerEmail: ownerContract?.owner_email || '',
+      ownerName: ownerContract?.owner_name || '',
+      ownerPhone: ownerContract?.owner_phone || '',
+      ownerId: ownerContract?.owner_id || null,
+      ownerListingTargetId: ownerContract?.listing_target_id || null,
+      ownerContractId: ownerContract?.contract_id || null,
+      ownerContractName: ownerContract?.contract_name || '',
+      ownerCompanyId: ownerContract?.company_id || null,
+      ownerCompanyName: ownerContract?.company_name || '',
+      hostifyUsers: users,
+      tags,
+      propertyTypeTag: ListingService.extractPropertyTypeFromTags(tags),
+      serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
+      pmFee: this.extractPmFeeFromTags(tags),
+      otherProperties,
+    };
+  }
+
+  async getLiveHostifyListingInfo(listingId: string) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    const info = await this.hostifyClient.getListingDetails(hostifyApiKey, listingId);
+    const listing = info?.listing || {};
+    const tags = this.formatHostifyTags(listing?.tags || info?.tags);
+
+    return {
+      ...listing,
+      description: info?.description || listing?.description || null,
+      details: info?.details || listing?.details || null,
+      rooms: info?.rooms || listing?.rooms || [],
+      amenities: info?.amenities || listing?.amenities || [],
+      rating: info?.rating || listing?.rating || null,
+      reviews: info?.reviews || listing?.reviews || [],
+      owner_contract: info?.owner_contract || info?.ownerContract || listing?.owner_contract || null,
+      users: info?.users || listing?.users || [],
+      tags,
+      propertyTypeTag: ListingService.extractPropertyTypeFromTags(tags),
+      serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
+      pmFee: this.extractPmFeeFromTags(tags),
+    };
+  }
+
+  private async getOtherHostifyPropertiesForOwner(apiKey: string, listingId: string, ownerContract: any) {
+    const listings = await this.hostifyClient.getListings(apiKey);
+    const limit = pLimit(12);
+    const currentListingId = String(listingId);
+    const matches = await Promise.all(
+      listings
+        .filter((listing) => String(listing?.id) !== currentListingId)
+        .map((listing) =>
+          limit(async () => {
+            const detail = await this.hostifyClient.getListingDetails(apiKey, String(listing.id));
+            const detailOwnerContract =
+              detail?.owner_contract || detail?.ownerContract || detail?.listing?.owner_contract || null;
+
+            if (!this.isSameHostifyOwnerContract(ownerContract, detailOwnerContract)) return null;
+
+            const tags = this.formatHostifyTags(detail?.listing?.tags || detail?.tags || listing?.tags);
+            return {
+              id: listing?.id,
+              listingId: listing?.id,
+              name: detail?.listing?.name || listing?.name || '',
+              internalListingName:
+                detail?.listing?.nickname ||
+                detail?.listing?.internalListingName ||
+                listing?.nickname ||
+                listing?.internalListingName ||
+                listing?.name ||
+                '',
+              address: detail?.listing?.address || listing?.address || '',
+              tags,
+              propertyTypeTag: ListingService.extractPropertyTypeFromTags(tags),
+              serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
+              pmFee: this.extractPmFeeFromTags(tags),
+            };
+          })
+        )
+    );
+
+    return matches.filter(Boolean);
+  }
+
+  private isSameHostifyOwnerContract(source: any, candidate: any) {
+    if (!source || !candidate) return false;
+
+    const sourceOwnerId = source?.owner_id ? String(source.owner_id) : '';
+    const candidateOwnerId = candidate?.owner_id ? String(candidate.owner_id) : '';
+    if (sourceOwnerId && candidateOwnerId && sourceOwnerId === candidateOwnerId) return true;
+
+    const sourceContractId = source?.contract_id ? String(source.contract_id) : '';
+    const candidateContractId = candidate?.contract_id ? String(candidate.contract_id) : '';
+    if (sourceContractId && candidateContractId && sourceContractId === candidateContractId) return true;
+
+    const sourceCompanyId = source?.company_id ? String(source.company_id) : '';
+    const candidateCompanyId = candidate?.company_id ? String(candidate.company_id) : '';
+    if (sourceCompanyId && candidateCompanyId && sourceCompanyId === candidateCompanyId) return true;
+
+    const sourceEmail = String(source?.owner_email || '').trim().toLowerCase();
+    const candidateEmail = String(candidate?.owner_email || '').trim().toLowerCase();
+    return Boolean(sourceEmail && candidateEmail && sourceEmail === candidateEmail);
+  }
+
+  private formatHostifyTags(tags: any) {
+    if (Array.isArray(tags)) {
+      return tags
+        .map((tag) => {
+          if (!tag) return '';
+          if (typeof tag === 'object') return tag.name || tag.tag || tag.label || tag.value || '';
+          return String(tag);
+        })
+        .map((tag) => String(tag).trim())
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    return String(tags || '').trim();
+  }
+
+  private extractPmFeeFromTags(tags: string) {
+    return String(tags || '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .find((tag) => tag.includes('%')) || '';
   }
 
   async getListingInfo(listingId: number, userId: string) {
@@ -1511,15 +1744,21 @@ export class ListingService {
     const users = info.users || [];
     const description = info.description?.description || '';
 
-    const owner = users.find((u: any) => u.roles === 'Listing Owner');
     const ownerContract = info.owner_contract || info.ownerContract || info.listing?.owner_contract || null;
 
     return this.createHostifyListingObject({
       ...listing,
       address: info.listing.address,
-      ownerEmail: ownerContract?.owner_email || owner?.username || '',
-      ownerName: ownerContract?.owner_name || (owner ? `${owner.first_name} ${owner.last_name}` : ''),
-      ownerPhone: ownerContract?.owner_phone || owner?.phone || '',
+      ownerEmail: ownerContract?.owner_email || '',
+      ownerName: ownerContract?.owner_name || '',
+      ownerPhone: ownerContract?.owner_phone || '',
+      ownerId: ownerContract?.owner_id || null,
+      ownerListingTargetId: ownerContract?.listing_target_id || null,
+      ownerContractId: ownerContract?.contract_id || null,
+      ownerContractName: ownerContract?.contract_name || '',
+      ownerCompanyId: ownerContract?.company_id || null,
+      ownerCompanyName: ownerContract?.company_name || '',
+      hostifyUsersJson: users.length > 0 ? JSON.stringify(users) : null,
       description
     });
   }
@@ -1630,19 +1869,56 @@ export class ListingService {
       this.hostifyClient.getIntegrations(hostifyApiKey)
     ]);
 
-    // Map integration names to child listings
+    const integrationsById = new Map(
+      integrations.map((integration: any) => [String(integration.id), integration])
+    );
+
+    const missingIntegrationIds: string[] = Array.from(
+      new Set(
+        childListings
+          .flatMap((listing: any) => this.getListingIntegrationLookupIds(listing))
+          .filter((integrationId: string) => !integrationsById.has(integrationId))
+      )
+    );
+
+    await Promise.all(
+      missingIntegrationIds.map(async (integrationId) => {
+        const integration = await this.hostifyClient.getIntegration(hostifyApiKey, integrationId);
+        if (integration?.id) {
+          integrationsById.set(String(integration.id), integration);
+        }
+      })
+    );
+
+    const detailLimit = pLimit(8);
+    const childListingDetails = new Map<string, any>();
+    await Promise.all(
+      childListings.map((listing: any) =>
+        detailLimit(async () => {
+          const detail = await this.hostifyClient.getListingDetails(hostifyApiKey, String(listing.id));
+          if (detail) {
+            childListingDetails.set(String(listing.id), detail);
+          }
+        })
+      )
+    );
+
     return childListings.map((listing: any) => {
-      const integration = integrations.find((i: any) =>
-        i.id === listing.integration_id ||
-        i.id === listing.fs_integration_type ||
-        i.id === listing.target_id ||
-        i.id === listing.channel_account_id
-      );
+      const integration = this.getListingIntegrationLookupIds(listing)
+        .map((integrationId) => integrationsById.get(integrationId))
+        .find(Boolean);
+      const listingDetail = childListingDetails.get(String(listing.id));
+      const detailListing = listingDetail?.listing || {};
 
       return {
         ...listing,
-        integration_name: integration ? (integration.nickname || integration.full_name || integration.user) : '-',
-        integration_picture: integration?.picture || null
+        integration_name: this.getIntegrationDisplayName(integration) || '-',
+        integration_picture: integration?.picture || null,
+        channel_name: this.getHostifyChannelName(listing, integration),
+        is_listed: listing?.is_listed ?? detailListing?.is_listed ?? null,
+        service_pms: listing?.service_pms ?? detailListing?.service_pms ?? null,
+        review_rating: listingDetail?.rating?.rating ?? null,
+        review_count: listingDetail?.rating?.reviews ?? null,
       };
     });
   }
