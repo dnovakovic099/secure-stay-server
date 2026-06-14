@@ -114,6 +114,27 @@ export class Listing {
   @Column({ nullable: true })
   ownerPhone: string;
 
+  @Column({ type: "bigint", nullable: true })
+  ownerId: number;
+
+  @Column({ type: "bigint", nullable: true })
+  ownerListingTargetId: number;
+
+  @Column({ type: "bigint", nullable: true })
+  ownerContractId: number;
+
+  @Column({ nullable: true })
+  ownerContractName: string;
+
+  @Column({ type: "bigint", nullable: true })
+  ownerCompanyId: number;
+
+  @Column({ nullable: true })
+  ownerCompanyName: string;
+
+  @Column({ type: "longtext", nullable: true })
+  hostifyUsersJson: string;
+
   @Column({ nullable: true })
   propertyTypeId: number;
 

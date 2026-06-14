@@ -144,6 +144,43 @@ export class Hostify {
     async getIntegrations(apiKey: string) {
         try {
             const url = "https://api-rms.hostify.com/integrations";
+            const per_page = 100;
+            let page = 1;
+            let hasMore = true;
+            const allIntegrations: any[] = [];
+
+            while (hasMore) {
+                const response = await axios.get(url, {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Cache-Control": "no-cache",
+                    },
+                    params: {
+                        page,
+                        per_page,
+                    },
+                });
+
+                const integrations = response.data?.integrations || [];
+                allIntegrations.push(...integrations);
+
+                if (integrations.length < per_page) {
+                    hasMore = false;
+                } else {
+                    page += 1;
+                }
+            }
+
+            return allIntegrations;
+        } catch (error) {
+            logger.error("Error fetching integrations:", error.message);
+            return [];
+        }
+    }
+
+    async getIntegration(apiKey: string, integrationId: string | number) {
+        try {
+            const url = `https://api-rms.hostify.com/integrations/${integrationId}`;
 
             const response = await axios.get(url, {
                 headers: {
@@ -152,10 +189,10 @@ export class Hostify {
                 },
             });
 
-            return response.data?.integrations || [];
+            return response.data?.integration || response.data || null;
         } catch (error) {
-            logger.error("Error fetching integrations:", error.message);
-            return [];
+            logger.error(`Error fetching integration ${integrationId}:`, error.message);
+            return null;
         }
     }
 
