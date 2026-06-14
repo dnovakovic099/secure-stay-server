@@ -753,7 +753,7 @@ export class ListingService {
 
     const info = await this.hostifyClient.getListingDetails(hostifyApiKey, listingId);
     const ownerContract = info?.owner_contract || info?.ownerContract || info?.listing?.owner_contract || null;
-    const users = Array.isArray(info?.users) ? info.users : [];
+    const users = this.extractHostifyListingUsers(info);
     const tags = this.formatHostifyTags(info?.listing?.tags || info?.tags);
     const otherProperties = ownerContract
       ? await this.getOtherHostifyPropertiesForOwner(hostifyApiKey, listingId, ownerContract)
@@ -783,7 +783,10 @@ export class ListingService {
     if (!listing) throw CustomErrorHandler.notFound('Listing not found');
 
     const tags = this.formatHostifyTags(listing.tags);
-    const hostifyUsers = this.parseCachedHostifyUsers(listing.hostifyUsersJson);
+    let hostifyUsers = this.parseCachedHostifyUsers(listing.hostifyUsersJson);
+    if (hostifyUsers.length === 0) {
+      hostifyUsers = await this.refreshCachedHostifyUsersForListing(listing);
+    }
     const otherProperties = await this.getCachedOtherPropertiesForOwner(listing);
 
     return {
@@ -809,10 +812,64 @@ export class ListingService {
     if (!hostifyUsersJson?.trim()) return [];
     try {
       const parsed = JSON.parse(hostifyUsersJson);
-      return Array.isArray(parsed) ? parsed : [];
+      return this.normalizeHostifyUsers(Array.isArray(parsed) ? parsed : []);
     } catch {
       return [];
     }
+  }
+
+  private async refreshCachedHostifyUsersForListing(listing: Listing) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) return [];
+
+    const info = await this.hostifyClient.getListingDetails(hostifyApiKey, String(listing.id));
+    const users = this.extractHostifyListingUsers(info);
+    if (users.length > 0) {
+      await this.listingRepository.update(listing.id, {
+        hostifyUsersJson: JSON.stringify(users),
+      });
+    }
+    return users;
+  }
+
+  private extractHostifyListingUsers(info: any) {
+    const possibleUsers = [
+      info?.users,
+      info?.listing?.users,
+      info?.listing_users,
+      info?.listingUsers,
+      info?.related?.users,
+    ];
+    const users = possibleUsers.find((value) => Array.isArray(value)) || [];
+    return this.normalizeHostifyUsers(users);
+  }
+
+  private normalizeHostifyUsers(users: any[]) {
+    return users
+      .map((user) => {
+        if (!user || typeof user !== "object") return null;
+        const nameParts = String(user.name || user.full_name || user.fullName || "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const firstName = user.first_name || user.firstName || nameParts[0] || "";
+        const lastName = user.last_name || user.lastName || nameParts.slice(1).join(" ") || "";
+        const email = user.username || user.email || user.user_email || user.userEmail || "";
+        const role = user.roles || user.role || user.role_name || user.roleName || user.type || "";
+        const phone = user.phone || user.phone_number || user.phoneNumber || user.mobile || "";
+
+        return {
+          ...user,
+          first_name: firstName,
+          last_name: lastName,
+          username: email,
+          email,
+          roles: role,
+          role,
+          phone: phone ? String(phone) : "",
+        };
+      })
+      .filter(Boolean);
   }
 
   private async getCachedOtherPropertiesForOwner(sourceListing: Listing) {
@@ -881,6 +938,8 @@ export class ListingService {
 
     return {
       ...listing,
+      custom_fields: info?.custom_fields || listing?.custom_fields || [],
+      customFields: info?.customFields || listing?.customFields || info?.custom_fields || listing?.custom_fields || [],
       description: info?.description || listing?.description || null,
       details: info?.details || listing?.details || null,
       rooms: info?.rooms || listing?.rooms || [],
@@ -894,6 +953,17 @@ export class ListingService {
       serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
       pmFee: this.extractPmFeeFromTags(tags),
     };
+  }
+
+  async getHostifyListingCalendar(listingId: string, startDate?: string, endDate?: string) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    const formatDate = (date: Date) => date.toISOString().slice(0, 10);
+    const start = startDate || formatDate(new Date());
+    const end = endDate || formatDate(new Date(Date.now() + 29 * 24 * 60 * 60 * 1000));
+
+    return this.hostifyClient.getCalendar(hostifyApiKey, Number(listingId), start, end);
   }
 
   private async getOtherHostifyPropertiesForOwner(apiKey: string, listingId: string, ownerContract: any) {
@@ -1836,7 +1906,7 @@ export class ListingService {
   }
 
   private buildListingObject(listing: any, info: any) {
-    const users = info.users || [];
+    const users = this.extractHostifyListingUsers(info);
     const description = info.description?.description || '';
 
     const ownerContract = info.owner_contract || info.ownerContract || info.listing?.owner_contract || null;
