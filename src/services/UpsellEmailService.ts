@@ -5,20 +5,20 @@ interface UpsellOrderEmail {
     client_name: string;
     type: string;
     cost: number;
-    order_date: string | Date;
+    order_date: string | Date | null;
     description: string;
     status: string;
 }
 
 export async function sendUpsellOrderEmail(order: UpsellOrderEmail) {
     try {
-        const orderDate = new Date(order.order_date);
+        const orderDate = order.order_date ? new Date(order.order_date) : null;
         
-        const formattedDate = orderDate.toLocaleDateString('en-US', {
+        const formattedDate = orderDate && !Number.isNaN(orderDate.getTime()) ? orderDate.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
-        });
+        }) : 'Not paid yet';
 
         const formattedAmount = new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -70,4 +70,4 @@ export async function sendUpsellOrderEmail(order: UpsellOrderEmail) {
         console.error('Error sending upsell order email:', error);
         throw new Error('Failed to send email notification');
     }
-} 
+}
