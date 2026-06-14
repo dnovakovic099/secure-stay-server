@@ -73,6 +73,20 @@ export class ListingController {
     }
   }
 
+  async getHostifyListingCalendar(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const listingId = request.params.listingId;
+      const startDate = typeof request.query.startDate === 'string' ? request.query.startDate : undefined;
+      const endDate = typeof request.query.endDate === 'string' ? request.query.endDate : undefined;
+      const calendar = await listingService.getHostifyListingCalendar(listingId, startDate, endDate);
+
+      return response.status(200).json(successDataFetch(calendar));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getListingAddresses(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const listingService = new ListingService();

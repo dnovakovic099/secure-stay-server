@@ -15,6 +15,8 @@ router.route('/hostify-client-info/:listingId').get(verifySession, listingContro
 
 router.route('/hostify-listing-info/:listingId').get(verifySession, listingController.getLiveHostifyListingInfo);
 
+router.route('/:listingId/calendar').get(verifySession, listingController.getHostifyListingCalendar);
+
 router.route('/:listingId/children').get(verifySession, listingController.getChildListings);
 
 router.route('/synchostawaylistings').get(verifySession, listingController.syncHostawayListing);
