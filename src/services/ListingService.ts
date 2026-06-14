@@ -778,6 +778,99 @@ export class ListingService {
     };
   }
 
+  async getCachedListingClientInfo(listingId: string) {
+    const listing = await this.listingRepository.findOne({ where: { id: Number(listingId) } });
+    if (!listing) throw CustomErrorHandler.notFound('Listing not found');
+
+    const tags = this.formatHostifyTags(listing.tags);
+    const hostifyUsers = this.parseCachedHostifyUsers(listing.hostifyUsersJson);
+    const otherProperties = await this.getCachedOtherPropertiesForOwner(listing);
+
+    return {
+      ownerEmail: listing.ownerEmail || '',
+      ownerName: listing.ownerName || '',
+      ownerPhone: listing.ownerPhone || '',
+      ownerId: listing.ownerId || null,
+      ownerListingTargetId: listing.ownerListingTargetId || null,
+      ownerContractId: listing.ownerContractId || null,
+      ownerContractName: listing.ownerContractName || '',
+      ownerCompanyId: listing.ownerCompanyId || null,
+      ownerCompanyName: listing.ownerCompanyName || '',
+      hostifyUsers,
+      tags,
+      propertyTypeTag: ListingService.extractPropertyTypeFromTags(tags),
+      serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
+      pmFee: this.extractPmFeeFromTags(tags),
+      otherProperties,
+    };
+  }
+
+  private parseCachedHostifyUsers(hostifyUsersJson?: string | null) {
+    if (!hostifyUsersJson?.trim()) return [];
+    try {
+      const parsed = JSON.parse(hostifyUsersJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async getCachedOtherPropertiesForOwner(sourceListing: Listing) {
+    const query = this.listingRepository
+      .createQueryBuilder("listing")
+      .where("listing.id != :listingId", { listingId: sourceListing.id })
+      .andWhere("listing.deletedAt IS NULL");
+
+    if (sourceListing.ownerContractId) {
+      query.andWhere("listing.ownerContractId = :ownerContractId", {
+        ownerContractId: sourceListing.ownerContractId,
+      });
+    } else if (sourceListing.ownerId) {
+      query.andWhere("listing.ownerId = :ownerId", { ownerId: sourceListing.ownerId });
+    } else if (sourceListing.ownerCompanyId) {
+      query.andWhere("listing.ownerCompanyId = :ownerCompanyId", {
+        ownerCompanyId: sourceListing.ownerCompanyId,
+      });
+    } else if (sourceListing.ownerEmail || sourceListing.ownerPhone || sourceListing.ownerName) {
+      query.andWhere(
+        new Brackets((qb) => {
+          if (sourceListing.ownerEmail) {
+            qb.orWhere("listing.ownerEmail = :ownerEmail", { ownerEmail: sourceListing.ownerEmail });
+          }
+          if (sourceListing.ownerPhone) {
+            qb.orWhere("listing.ownerPhone = :ownerPhone", { ownerPhone: sourceListing.ownerPhone });
+          }
+          if (sourceListing.ownerName) {
+            qb.orWhere("listing.ownerName = :ownerName", { ownerName: sourceListing.ownerName });
+          }
+        })
+      );
+    } else {
+      return [];
+    }
+
+    const listings = await query.getMany();
+
+    return listings.map((listing) => {
+      const tags = this.formatHostifyTags(listing.tags);
+      return {
+        id: listing.id,
+        listingId: listing.id,
+        name: listing.externalListingName || listing.name || '',
+        internalListingName:
+          listing.internalListingName ||
+          listing.externalListingName ||
+          listing.name ||
+          '',
+        address: listing.address || this.buildAddress(listing),
+        tags,
+        propertyTypeTag: ListingService.extractPropertyTypeFromTags(tags),
+        serviceTypeTag: ListingService.extractServiceTypeFromTags(tags),
+        pmFee: this.extractPmFeeFromTags(tags),
+      };
+    });
+  }
+
   async getLiveHostifyListingInfo(listingId: string) {
     const hostifyApiKey = process.env.HOSTIFY_API_KEY;
     if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
@@ -1315,7 +1408,7 @@ export class ListingService {
   }
 
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
-    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount } = body;
+    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount, comfortableCapacity } = body;
     const listingDetail = new ListingDetail();
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
@@ -1324,6 +1417,7 @@ export class ListingService {
     listingDetail.hidePetFee = hidePetFee;
     listingDetail.techFee = techFee;
     listingDetail.techFeeAmount = techFeeAmount;
+    listingDetail.comfortableCapacity = comfortableCapacity;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
@@ -1335,6 +1429,7 @@ export class ListingService {
     listingDetail.hidePetFee = body.hidePetFee;
     listingDetail.techFee = body.techFee;
     listingDetail.techFeeAmount = body.techFeeAmount;
+    listingDetail.comfortableCapacity = body.comfortableCapacity;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }

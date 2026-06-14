@@ -8,7 +8,7 @@ export class ListingDetail {
     @Column({ type: "int", nullable: false })
     listingId: number;
 
-    @Column({ nullable: false })
+    @Column({ nullable: true })
     propertyOwnershipType: string;
 
     @Column({ nullable: true })
@@ -25,6 +25,9 @@ export class ListingDetail {
 
     @Column({ name: 'tech_fee_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
     techFeeAmount: number;
+
+    @Column({ name: 'comfortable_capacity', type: 'int', nullable: true })
+    comfortableCapacity: number;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;

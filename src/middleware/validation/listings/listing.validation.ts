@@ -76,12 +76,13 @@ export const validateSaveListingUpdate = (request: Request, response: Response, 
 export const validateSaveListingDetail = (request: Request, response: Response, next: NextFunction) => {
   const schema = Joi.object({
     listingId: Joi.number().required(),
-    propertyOwnershipType: Joi.string().required().valid("Property Management", "Arbitrage", "Luxury Lodging Owned"),
+    propertyOwnershipType: Joi.string().valid("Property Management", "Arbitrage", "Luxury Lodging Owned").allow(null, ""),
     statementDurationType: Joi.string().required().valid("Monthly", "Weekly & Bi-weekly").allow(null, ""),
     claimProtection: Joi.boolean().required(),
     hidePetFee: Joi.boolean().required(),
     techFee: Joi.boolean().optional(),
     techFeeAmount: Joi.number().precision(2).allow(null).optional(),
+    comfortableCapacity: Joi.number().integer().min(0).allow(null).optional(),
   });
 
   const { error } = schema.validate(request.body);

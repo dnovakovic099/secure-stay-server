@@ -53,7 +53,7 @@ export class ListingController {
     try {
       const listingService = new ListingService();
       const listingId = request.params.listingId;
-      const listingInfo = await listingService.getLiveHostifyListingClientInfo(listingId);
+      const listingInfo = await listingService.getCachedListingClientInfo(listingId);
 
       return response.status(200).json(successDataFetch(listingInfo));
     } catch (error) {

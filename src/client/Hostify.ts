@@ -4,6 +4,19 @@ import logger from "../utils/logger.utils";
 export class Hostify {
     private apiKey: string = process.env.HOSTIFY_API_KEY || '';
 
+    private parseHostifyJsonPreservingIds(data: unknown): any {
+        if (typeof data !== "string") {
+            return data;
+        }
+
+        const normalized = data.replace(
+            /("channel_listing_id"\s*:\s*)(-?\d+(?:\.\d+)?)/g,
+            '$1"$2"'
+        );
+
+        return JSON.parse(normalized);
+    }
+
     private isExtraLikeRecord(value: unknown): value is Record<string, unknown> {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             return false;
@@ -111,9 +124,10 @@ export class Hostify {
                     include_related_objects: 1,
                     include_owner_data: 1,
                 },
+                transformResponse: [(data) => data],
             });
 
-            return response.data || null;
+            return this.parseHostifyJsonPreservingIds(response.data) || null;
         } catch (error) {
             logger.error(`Error fetching details for listing ${listingId}:`, error.message);
             return null;
@@ -132,9 +146,11 @@ export class Hostify {
                 params: {
                     include_related_objects: 1,
                 },
+                transformResponse: [(data) => data],
             });
 
-            return response.data?.listings || [];
+            const data = this.parseHostifyJsonPreservingIds(response.data);
+            return data?.listings || [];
         } catch (error) {
             logger.error(`Error fetching child listings for ${parentListingId}:`, error.message);
             return [];
