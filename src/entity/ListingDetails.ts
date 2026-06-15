@@ -29,6 +29,12 @@ export class ListingDetail {
     @Column({ name: 'comfortable_capacity', type: 'int', nullable: true })
     comfortableCapacity: number;
 
+    @Column({ name: 'client_turnover_requirements', type: 'text', nullable: true })
+    clientTurnoverRequirements: string;
+
+    @Column({ name: 'client_reservation_requirements', type: 'text', nullable: true })
+    clientReservationRequirements: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

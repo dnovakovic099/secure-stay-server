@@ -83,6 +83,8 @@ export const validateSaveListingDetail = (request: Request, response: Response, 
     techFee: Joi.boolean().optional(),
     techFeeAmount: Joi.number().precision(2).allow(null).optional(),
     comfortableCapacity: Joi.number().integer().min(0).allow(null).optional(),
+    clientTurnoverRequirements: Joi.string().allow(null, "").optional(),
+    clientReservationRequirements: Joi.string().allow(null, "").optional(),
   });
 
   const { error } = schema.validate(request.body);

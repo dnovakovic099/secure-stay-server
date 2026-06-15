@@ -1478,7 +1478,7 @@ export class ListingService {
   }
 
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
-    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount, comfortableCapacity } = body;
+    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount, comfortableCapacity, clientTurnoverRequirements, clientReservationRequirements } = body;
     const listingDetail = new ListingDetail();
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
@@ -1488,6 +1488,8 @@ export class ListingService {
     listingDetail.techFee = techFee;
     listingDetail.techFeeAmount = techFeeAmount;
     listingDetail.comfortableCapacity = comfortableCapacity;
+    listingDetail.clientTurnoverRequirements = clientTurnoverRequirements;
+    listingDetail.clientReservationRequirements = clientReservationRequirements;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
@@ -1500,6 +1502,8 @@ export class ListingService {
     listingDetail.techFee = body.techFee;
     listingDetail.techFeeAmount = body.techFeeAmount;
     listingDetail.comfortableCapacity = body.comfortableCapacity;
+    listingDetail.clientTurnoverRequirements = body.clientTurnoverRequirements;
+    listingDetail.clientReservationRequirements = body.clientReservationRequirements;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }
