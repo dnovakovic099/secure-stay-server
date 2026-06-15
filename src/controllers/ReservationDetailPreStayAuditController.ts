@@ -105,6 +105,16 @@ export class ReservationDetailPreStayAuditController {
         }
     }
 
+    async getAuditHistoryByReservationId(req: Request, res: Response, next: NextFunction) {
+        try {
+            const reservationId = Number(req.params.reservationId);
+            const history = await this.preStayAuditService.fetchAuditHistoryByReservationId(reservationId);
+            return res.status(200).json({ status: true, data: history });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async migrateFileToDrive(req: Request, res: Response, next: NextFunction) {
         try {
             const result = await this.preStayAuditService.migrateFilesToDrive();

@@ -1,7 +1,9 @@
-import { Repository } from "typeorm";
+import { In, Repository } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationDetailPreStayAudit, CompletionStatus, DoorCodeStatus, CleanerCheck, CleanerNotified, CleanlinessCheck, DamageCheck, InventoryCheckStatus     } from "../entity/ReservationDetailPreStayAudit";
 import { FileInfo } from "../entity/FileInfo";
+import { ReservationDetailPreStayAuditHistory } from "../entity/ReservationDetailPreStayAuditHistory";
+import { UsersEntity } from "../entity/Users";
 import logger from "../utils/logger.utils";
 
 interface ReservationDetailPreStayAuditDTO {
@@ -29,6 +31,8 @@ interface ReservationDetailPreStayAuditUpdateDTO extends ReservationDetailPreSta
 export class ReservationDetailPreStayAuditService {
     private preStayAuditRepository: Repository<ReservationDetailPreStayAudit>;
     private fileInfoRepo: Repository<FileInfo> = appDatabase.getRepository(FileInfo);
+    private historyRepo: Repository<ReservationDetailPreStayAuditHistory> = appDatabase.getRepository(ReservationDetailPreStayAuditHistory);
+    private usersRepo: Repository<UsersEntity> = appDatabase.getRepository(UsersEntity);
 
     constructor() {
         this.preStayAuditRepository = appDatabase.getRepository(ReservationDetailPreStayAudit);
@@ -38,6 +42,33 @@ export class ReservationDetailPreStayAuditService {
         const data= await this.preStayAuditRepository.findOne({ where: { reservationId: Number(reservationId) } });
         const fileInfo = await this.fileInfoRepo.find({ where: { entityType: 'pre-stay-audit', entityId: reservationId } });
         return data ? { ...data, fileInfo } : null;
+    }
+
+    async fetchAuditHistoryByReservationId(reservationId: number) {
+        const history = await this.historyRepo.find({
+            where: { reservationId: Number(reservationId) },
+            order: { changedAt: "DESC", id: "DESC" }
+        });
+
+        if (!history.length) return [];
+
+        const users = await this.usersRepo.find({
+            where: { uid: In(Array.from(new Set(history.map((row) => row.changedBy).filter(Boolean)))) }
+        });
+        const userMap = new Map(users.map((user) => [user.uid, this.getUserDisplayName(user)]));
+
+        return history.map((row) => ({
+            id: row.id,
+            reservationId: row.reservationId,
+            fieldName: row.fieldName,
+            oldValue: row.oldValue,
+            newValue: row.newValue,
+            changedBy: row.changedBy,
+            changedByName: userMap.get(row.changedBy) || row.changedBy || "System",
+            action: row.action,
+            changedAt: row.changedAt,
+            changedAtTimestamp: row.changedAt?.getTime() || 0
+        }));
     }
 
     async fetchCompletionStatusByReservationId(reservationId: number): Promise<CompletionStatus | null> {
@@ -106,6 +137,8 @@ export class ReservationDetailPreStayAuditService {
             }
         }
 
+        await this.logAuditChanges(null, savedData, userId, "CREATE");
+
         return savedData;
     }
 
@@ -116,6 +149,7 @@ export class ReservationDetailPreStayAuditService {
             throw new Error("Audit not found");
         }
       
+        const previous = this.snapshotAudit(audit);
         const deletedAttachments = dto.deletedAttachments ? JSON.parse(dto.deletedAttachments) : [];
         const updatedAttachments = audit.attachments ? JSON.parse(audit.attachments).filter(attachment => !deletedAttachments.includes(attachment)) : [];
         const finalAttachments = dto.newAttachments ? [...updatedAttachments, ...JSON.parse(dto.newAttachments)] : null;
@@ -151,7 +185,65 @@ export class ReservationDetailPreStayAuditService {
             }
         }
 
+        await this.logAuditChanges(previous, updatedData, userId, "UPDATE");
+
         return updatedData;
+    }
+
+    private getUserDisplayName(user?: UsersEntity | null) {
+        if (!user) return "";
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+        return fullName || user.email || user.uid || "";
+    }
+
+    private normalizeHistoryValue(value: any) {
+        if (value === undefined || value === null || value === "") return "";
+        if (value instanceof Date) return value.toISOString();
+        if (Array.isArray(value)) return value.join(", ");
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
+    }
+
+    private snapshotAudit(audit: Partial<ReservationDetailPreStayAudit>) {
+        return {
+            doorCode: audit.doorCode,
+            amenitiesConfirmed: audit.amenitiesConfirmed,
+            attachments: audit.attachments,
+            approvedUpsells: audit.approvedUpsells,
+            wifiConnectedAndActive: audit.wifiConnectedAndActive,
+            cleanlinessCheck: audit.cleanlinessCheck,
+            cleanerCheck: audit.cleanerCheck,
+            cleanerNotified: audit.cleanerNotified,
+            damageCheck: audit.damageCheck,
+            inventoryCheckStatus: audit.inventoryCheckStatus,
+            notificationContactId: audit.notificationContactId,
+            completionStatus: audit.completionStatus
+        };
+    }
+
+    private async logAuditChanges(
+        previous: Partial<ReservationDetailPreStayAudit> | null,
+        nextAudit: ReservationDetailPreStayAudit,
+        userId: string,
+        action: "CREATE" | "UPDATE"
+    ) {
+        const next = this.snapshotAudit(nextAudit);
+        const rows = Object.keys(next)
+            .filter((fieldName) => {
+                const oldValue = previous ? this.normalizeHistoryValue((previous as any)[fieldName]) : "";
+                const newValue = this.normalizeHistoryValue((next as any)[fieldName]);
+                return action === "CREATE" ? newValue !== "" : oldValue !== newValue;
+            })
+            .map((fieldName) => this.historyRepo.create({
+                reservationId: nextAudit.reservationId,
+                fieldName,
+                oldValue: previous ? this.normalizeHistoryValue((previous as any)[fieldName]) || null : null,
+                newValue: this.normalizeHistoryValue((next as any)[fieldName]) || null,
+                changedBy: userId || "system",
+                action
+            }));
+
+        if (rows.length) await this.historyRepo.save(rows);
     }
 
     private determineCompletionStatus(dto: ReservationDetailPreStayAuditDTO | ReservationDetailPreStayAuditUpdateDTO): CompletionStatus {
@@ -200,4 +292,4 @@ export class ReservationDetailPreStayAuditService {
             }
         }
     }
-} 
+}
