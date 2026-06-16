@@ -37,6 +37,8 @@ router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, re
 
 router.route('/getrefundrequestbyid/:id').get(verifySession, refundRequestController.getRefundRequestById);
 
+router.route('/:id').delete(verifySession, refundRequestController.deleteRefundRequest);
+
 router.route('/settings')
     .get(verifySession, refundRequestSettingsController.getSettings)
     .put(verifySession, refundRequestSettingsController.updateSettings);

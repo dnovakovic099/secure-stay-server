@@ -126,4 +126,16 @@ export class RefundRequestController {
             return next(error);
         }
     }
+
+    async deleteRefundRequest(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const refundRequestService = new RefundRequestService();
+            const userId = request.user.id;
+            const id = Number(request.params.id);
+            const refundRequest = await refundRequestService.deleteRefundRequest(id, userId);
+            return response.status(200).json({ status: true, message: 'Refund request deleted successfully.', data: refundRequest });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

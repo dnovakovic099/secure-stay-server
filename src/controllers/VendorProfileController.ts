@@ -26,6 +26,33 @@ export class VendorProfileController {
         }
     }
 
+    async getActiveCleanerAssignments(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const listingIds = Array.isArray(request.query.listingIds)
+                ? request.query.listingIds
+                : String(request.query.listingIds || "").split(",");
+            const service = new VendorProfileService();
+            const result = await service.getActiveCleanerAssignmentsByListing(listingIds as string[], request.user.id);
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async updateListingCleanerManagedBy(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const service = new VendorProfileService();
+            const result = await service.updateListingCleanerManagedBy(
+                request.params.listingId,
+                request.body?.managedBy ?? null,
+                request.user.id,
+            );
+            return response.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async createVendorProfile(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const service = new VendorProfileService();

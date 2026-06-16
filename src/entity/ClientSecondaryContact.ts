@@ -24,7 +24,7 @@ export class ClientSecondaryContact {
     @Column({ nullable: true })
     preferredName: string;
 
-    @Column({ unique: true })
+    @Column({ unique: true, nullable: true })
     email: string;
 
     @Column({ nullable: true })

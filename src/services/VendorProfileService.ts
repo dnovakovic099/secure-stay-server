@@ -252,6 +252,10 @@ export class VendorProfileService {
         await appDatabase.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
 
+    private async ensureListingDetailCleanerColumns() {
+        await this.addColumnIfMissing("listing_details", "cleaning_managed_by", "VARCHAR(100) NULL");
+    }
+
     private normalizeIdentity(value: any) {
         return String(value || "").trim().toLowerCase();
     }
@@ -653,6 +657,108 @@ export class VendorProfileService {
         });
         if (!profile) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
         return this.hydrateProfile(profile, userId);
+    }
+
+    async getActiveCleanerAssignmentsByListing(listingIds: string[] = [], userId: string) {
+        await this.ensureVendorSchema();
+        await this.ensureListingDetailCleanerColumns();
+        const uniqueListingIds = Array.from(new Set(listingIds.map(id => String(id || "").trim()).filter(Boolean)));
+        if (!uniqueListingIds.length) return {};
+
+        const [assignments, listingDetails] = await Promise.all([
+            this.vendorAssignmentRepo.find({
+                where: {
+                    listingId: In(uniqueListingIds),
+                    role: "Cleaner",
+                    status: "active",
+                    deletedAt: IsNull(),
+                },
+                relations: ["vendorProfile", "updates"],
+            }),
+            this.listingDetailRepo.find({
+                where: {
+                    listingId: In(uniqueListingIds.map(id => Number(id)).filter(Number.isFinite)),
+                },
+            }),
+        ]);
+        const listingMeta = await this.getListingMeta(userId);
+        const userMap = await this.getUserMap();
+        const fallbackByListing = new Map(listingDetails.map(detail => [String(detail.listingId), detail]));
+        const result: Record<string, any> = {};
+
+        uniqueListingIds.forEach(listingId => {
+            const activeCleaner = assignments.find(assignment => String(assignment.listingId) === listingId);
+            const fallback = fallbackByListing.get(listingId);
+            if (activeCleaner) {
+                result[listingId] = {
+                    hasActiveCleaner: true,
+                    managedBy: activeCleaner.managedBy || null,
+                    assignment: this.hydrateAssignment(activeCleaner, listingMeta, userMap),
+                    vendor: activeCleaner.vendorProfile || null,
+                    fallbackManagedBy: fallback?.cleaningManagedBy || null,
+                };
+            } else {
+                result[listingId] = {
+                    hasActiveCleaner: false,
+                    managedBy: fallback?.cleaningManagedBy || null,
+                    assignment: null,
+                    vendor: null,
+                    fallbackManagedBy: fallback?.cleaningManagedBy || null,
+                };
+            }
+        });
+
+        return result;
+    }
+
+    async updateListingCleanerManagedBy(listingId: string, managedBy: string | null, userId: string) {
+        await this.ensureVendorSchema();
+        await this.ensureListingDetailCleanerColumns();
+        const normalizedListingId = String(listingId || "").trim();
+        if (!normalizedListingId) throw CustomErrorHandler.validationError("Listing ID is required.");
+        const nextManagedBy = managedBy ? String(managedBy).trim() : null;
+
+        const activeCleaner = await this.vendorAssignmentRepo.findOne({
+            where: {
+                listingId: normalizedListingId,
+                role: "Cleaner",
+                status: "active",
+                deletedAt: IsNull(),
+            },
+            relations: ["vendorProfile", "updates"],
+        });
+
+        if (activeCleaner) {
+            await this.updateAssignment(activeCleaner.id, { managedBy: nextManagedBy }, userId);
+            const updated = await this.getActiveCleanerAssignmentsByListing([normalizedListingId], userId);
+            return {
+                ...updated[normalizedListingId],
+                source: "active-cleaner",
+            };
+        }
+
+        const numericListingId = Number(normalizedListingId);
+        if (!Number.isFinite(numericListingId)) throw CustomErrorHandler.validationError("Listing ID must be numeric.");
+        let listingDetail = await this.listingDetailRepo.findOneBy({ listingId: numericListingId });
+        if (!listingDetail) {
+            listingDetail = this.listingDetailRepo.create({
+                listingId: numericListingId,
+                createdBy: userId,
+                updatedBy: userId,
+            });
+        }
+        listingDetail.cleaningManagedBy = nextManagedBy;
+        listingDetail.updatedBy = userId;
+        await this.listingDetailRepo.save(listingDetail);
+
+        const updated = await this.getActiveCleanerAssignmentsByListing([normalizedListingId], userId);
+        return {
+            ...updated[normalizedListingId],
+            source: "listing-fallback",
+            warning: nextManagedBy === "LL"
+                ? "Luxury Lodging is set to manage cleaning, but no active cleaner is assigned to this property."
+                : null,
+        };
     }
 
     async createVendorProfile(body: VendorProfilePayload, userId: string) {

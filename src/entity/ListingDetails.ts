@@ -35,6 +35,9 @@ export class ListingDetail {
     @Column({ name: 'client_reservation_requirements', type: 'text', nullable: true })
     clientReservationRequirements: string;
 
+    @Column({ name: 'cleaning_managed_by', nullable: true })
+    cleaningManagedBy: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
