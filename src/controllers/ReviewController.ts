@@ -729,13 +729,15 @@ export class ReviewController {
     async getDashboardStats(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, propertyType, channel, dateType } = request.query;
+            const { fromDate, toDate, listingId, propertyType, portfolio, channel, dateType, trendBasis } = request.query;
             const data = await reviewService.getReviewsDashboardStats({
                 fromDate: typeof fromDate === 'string' ? fromDate : undefined,
                 toDate: typeof toDate === 'string' ? toDate : undefined,
                 dateType: typeof dateType === 'string' ? dateType : undefined,
+                trendBasis: typeof trendBasis === 'string' ? trendBasis : undefined,
                 listingId: this.normalizeNumberArrayParam(listingId),
                 propertyType: this.normalizeArrayParam(propertyType),
+                portfolio: this.normalizeArrayParam(portfolio),
                 channel: this.normalizeArrayParam(channel),
             });
             return response.status(200).json({ success: true, data });
@@ -748,13 +750,15 @@ export class ReviewController {
     async getDashboardDrilldown(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const reviewService = new ReviewService();
-            const { fromDate, toDate, listingId, propertyType, channel, dateType, dimension, value } = request.query;
+            const { fromDate, toDate, listingId, propertyType, portfolio, channel, dateType, trendBasis, dimension, value } = request.query;
             const data = await reviewService.getReviewsDashboardDrilldown({
                 fromDate: typeof fromDate === 'string' ? fromDate : undefined,
                 toDate: typeof toDate === 'string' ? toDate : undefined,
                 dateType: typeof dateType === 'string' ? dateType : undefined,
+                trendBasis: typeof trendBasis === 'string' ? trendBasis : undefined,
                 listingId: this.normalizeNumberArrayParam(listingId),
                 propertyType: this.normalizeArrayParam(propertyType),
+                portfolio: this.normalizeArrayParam(portfolio),
                 channel: this.normalizeArrayParam(channel),
                 dimension: typeof dimension === 'string' ? dimension : undefined,
                 value: typeof value === 'string' ? value : undefined,

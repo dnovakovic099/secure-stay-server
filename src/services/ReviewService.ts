@@ -161,10 +161,12 @@ interface AccountingLogSummary {
 interface DashboardFilters {
     listingId?: Array<string | number> | null | undefined;
     propertyType?: string[] | null | undefined;
+    portfolio?: string[] | null | undefined;
     channel?: Array<string | number> | null | undefined;
     fromDate?: string | undefined;
     toDate?: string | undefined;
     dateType?: string | undefined;
+    trendBasis?: 'daily' | 'weekly' | 'monthly' | string | undefined;
 }
 
 type DashboardDrilldownDimension =
@@ -1198,10 +1200,32 @@ export class ReviewService {
             .filter(Boolean);
     }
 
+    private getListingPortfolioFromTags(tags: string | null | undefined) {
+        return /\bgroup\s*1\b|group1/i.test(String(tags || '')) ? 'Group 1' : 'Group 2';
+    }
+
+    private normalizeDashboardTrendBasis(value: DashboardFilters['trendBasis']) {
+        return value === 'daily' || value === 'weekly' || value === 'monthly' ? value : 'monthly';
+    }
+
+    private getDashboardTrendExpression(alias: string, field: string, basis: DashboardFilters['trendBasis']) {
+        const column = `${alias}.${field}`;
+        switch (this.normalizeDashboardTrendBasis(basis)) {
+            case 'daily':
+                return `DATE_FORMAT(${column}, '%Y-%m-%d')`;
+            case 'weekly':
+                return `DATE_FORMAT(DATE_SUB(DATE(${column}), INTERVAL WEEKDAY(${column}) DAY), '%Y-%m-%d')`;
+            case 'monthly':
+            default:
+                return `DATE_FORMAT(${column}, '%Y-%m')`;
+        }
+    }
+
     private async resolveDashboardListingIds({
         listingId,
         propertyType,
-    }: Pick<DashboardFilters, 'listingId' | 'propertyType'>) {
+        portfolio,
+    }: Pick<DashboardFilters, 'listingId' | 'propertyType' | 'portfolio'>) {
         let listingIds: number[] | null = null;
 
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
@@ -1209,6 +1233,22 @@ export class ReviewService {
             const listingService = new ListingService();
             const propertyTypeListingIds = (await listingService.getListingsByPropertyTypes(normalizedPropertyTypes as any)).map((listing) => listing.id);
             listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
+        }
+
+        const normalizedPortfolios = Array.from(new Set((portfolio || []).map((item) => String(item || '').trim()).filter(Boolean)));
+        if (normalizedPortfolios.length > 0) {
+            const listings = await this.listingRepo.find({ select: ['id', 'tags'] });
+            const portfolioListingIds = listings
+                .filter((listing) => {
+                    const portfolio = this.getListingPortfolioFromTags(listing.tags);
+                    if (normalizedPortfolios.includes(portfolio)) return true;
+                    return normalizedPortfolios.includes('Group 2 Mitigation') &&
+                        portfolio === 'Group 2' &&
+                        this.extractServiceTypeFromTags(listing.tags) !== 'Launch';
+                })
+                .map((listing) => Number(listing.id))
+                .filter(Boolean);
+            listingIds = this.mergeListingIds(listingIds, portfolioListingIds);
         }
 
         if (listingId && listingId.length > 0) {
@@ -4702,6 +4742,8 @@ export class ReviewService {
     async getReviewsDashboardStats(filters: DashboardFilters = {}) {
         const sixMonthsAgo = subMonths(new Date(), 6);
         const listingIds = await this.resolveDashboardListingIds(filters);
+        const reviewTrendExpression = this.getDashboardTrendExpression('r', 'submittedAt', filters.trendBasis);
+        const mitigationTrendExpression = this.getDashboardTrendExpression('rc', 'createdAt', filters.trendBasis);
 
         const [ratingDistribution, channelBreakdown, reviewMonthlyTrend, visibilityStats, reviewVisibilityBreakdown, reviewSentimentBreakdown] = await Promise.all([
             this.applyDashboardReviewFilters(
@@ -4733,13 +4775,13 @@ export class ReviewService {
             this.applyDashboardReviewFilters(
                 this.reviewRepository
                 .createQueryBuilder('r')
-                .select("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'month')
+                .select(reviewTrendExpression, 'month')
                 .addSelect('COUNT(*)', 'count')
                 .addSelect('ROUND(AVG(r.rating), 2)', 'avgRating')
                 .where('r.submittedAt >= :sixMonthsAgo', { sixMonthsAgo })
                 .andWhere('r.submittedAt IS NOT NULL')
-                .groupBy("DATE_FORMAT(r.submittedAt, '%Y-%m')")
-                .orderBy("DATE_FORMAT(r.submittedAt, '%Y-%m')", 'ASC'),
+                .groupBy(reviewTrendExpression)
+                .orderBy(reviewTrendExpression, 'ASC'),
                 filters,
                 listingIds
             ).getRawMany(),
@@ -4788,12 +4830,12 @@ export class ReviewService {
             this.applyDashboardMitigationFilters(
                 this.reviewCheckoutRepo
                 .createQueryBuilder('rc')
-                .select("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'month')
+                .select(mitigationTrendExpression, 'month')
                 .addSelect('COUNT(*)', 'count')
                 .where('rc.createdAt >= :sixMonthsAgo', { sixMonthsAgo })
                 .andWhere('(rc.status != :archivedStatus OR rc.status IS NULL)', { archivedStatus: ReviewCheckoutStatus.ARCHIVED })
-                .groupBy("DATE_FORMAT(rc.createdAt, '%Y-%m')")
-                .orderBy("DATE_FORMAT(rc.createdAt, '%Y-%m')", 'ASC'),
+                .groupBy(mitigationTrendExpression)
+                .orderBy(mitigationTrendExpression, 'ASC'),
                 filters,
                 listingIds
             ).getRawMany(),
@@ -5081,7 +5123,8 @@ export class ReviewService {
                     break;
                 case 'review_month':
                     if (value !== '__all__') {
-                        reviewQuery.andWhere("DATE_FORMAT(r.submittedAt, '%Y-%m') = :month", { month: value });
+                        const trendExpression = this.getDashboardTrendExpression('r', 'submittedAt', filters.trendBasis);
+                        reviewQuery.andWhere(`${trendExpression} = :month`, { month: value });
                         title = `Reviews Submitted in ${value}`;
                     } else {
                         title = 'Review Records';
@@ -5119,39 +5162,55 @@ export class ReviewService {
             ]);
             const listingTagMap = new Map(listingRows.map((listing) => [Number(listing.id), listing.tags]));
             const reviewMap = new Map<number, any>(reviews.map((review) => [Number(review.reservationId), review]));
-            const reviewRecords = reviews.map((review) => ({
-                recordType: 'review',
-                id: String(review.id),
-                reviewerName: review.reviewerName,
-                listingMapId: review.listingMapId,
-                channelId: review.channelId,
-                channelName: review.channelName,
-                rating: review.rating,
-                externalReservationId: review.externalReservationId,
-                publicReview: review.publicReview,
-                publicReviewSentiment: review.publicReviewSentiment,
-                publicReviewSentimentReason: review.publicReviewSentimentReason,
-                privateReview: review.privateReview,
-                reviewSentiment: review.reviewSentiment,
-                reviewSentimentReason: review.reviewSentimentReason,
-                submittedAt: review.submittedAt,
-                arrivalDate: review.arrivalDate,
-                departureDate: review.departureDate,
-                listingName: review.listingName,
-                externalListingName: review.externalListingName,
-                guestName: review.guestName || review.reviewerName,
-                createdAt: review.createdAt,
-                updatedAt: review.updatedAt,
-                isHidden: review.isHidden,
-                visibility: review.visibility,
-                reviewDetail: review.reviewDetail || null,
-                bookingAmount: review.bookingAmount,
-                reservationId: review.reservationId ? String(review.reservationId) : undefined,
-                createdBy: review.createdBy,
-                updatedBy: review.updatedBy,
-                propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))) || null,
-                status: review.reviewDetail?.claimResolutionStatus || null,
-            }));
+            const mitigationByReservation = new Map<number, ReviewCheckout>();
+            mitigationRows.forEach((row) => {
+                const reservationId = Number(row.reservationInfo?.id || 0);
+                if (reservationId && !mitigationByReservation.has(reservationId)) mitigationByReservation.set(reservationId, row);
+            });
+            const reviewRecords = reviews.map((review) => {
+                const matchedMitigation = mitigationByReservation.get(Number(review.reservationId || 0));
+                const reservationInfo = matchedMitigation?.reservationInfo;
+                const listingId = Number(review.listingMapId || reservationInfo?.listingMapId || 0);
+                const listingTags = listingTagMap.get(listingId);
+                return {
+                    recordType: 'review',
+                    id: String(review.id),
+                    reviewId: Number(review.id),
+                    reviewCheckoutId: matchedMitigation ? String(matchedMitigation.id) : null,
+                    reviewerName: review.reviewerName,
+                    listingMapId: review.listingMapId,
+                    listingId,
+                    channelId: review.channelId,
+                    channelName: review.channelName || reservationInfo?.channelName || '',
+                    integration: reservationInfo?.integration_nickname || '',
+                    rating: review.rating,
+                    externalReservationId: review.externalReservationId,
+                    publicReview: review.publicReview,
+                    publicReviewSentiment: review.publicReviewSentiment,
+                    publicReviewSentimentReason: review.publicReviewSentimentReason,
+                    privateReview: review.privateReview,
+                    reviewSentiment: review.reviewSentiment,
+                    reviewSentimentReason: review.reviewSentimentReason,
+                    submittedAt: review.submittedAt,
+                    arrivalDate: review.arrivalDate || reservationInfo?.arrivalDate || null,
+                    departureDate: review.departureDate || reservationInfo?.departureDate || null,
+                    listingName: review.listingName || reservationInfo?.listingName || '',
+                    externalListingName: review.externalListingName,
+                    guestName: review.guestName || reservationInfo?.guestName || review.reviewerName,
+                    createdAt: review.createdAt,
+                    updatedAt: review.updatedAt,
+                    isHidden: review.isHidden,
+                    visibility: review.visibility,
+                    reviewDetail: review.reviewDetail || null,
+                    bookingAmount: review.bookingAmount,
+                    reservationId: review.reservationId ? String(review.reservationId) : undefined,
+                    createdBy: review.createdBy,
+                    updatedBy: review.updatedBy,
+                    propertyType: this.extractPropertyTypeFromTags(listingTags) || null,
+                    serviceType: this.extractServiceTypeFromTags(listingTags) || null,
+                    status: matchedMitigation?.status || review.reviewDetail?.claimResolutionStatus || null,
+                };
+            });
             const mitigationRecords = mitigationRows.map((row) => {
                 const reservationInfo = row.reservationInfo;
                 const matchedReview = reviewMap.get(Number(reservationInfo?.id || 0));
@@ -5163,6 +5222,7 @@ export class ReviewService {
                     status: row.status || ReviewCheckoutStatus.NEW,
                     channelName: reservationInfo?.channelName || '',
                     propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || 'Unknown',
+                    serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || null,
                     listingName: reservationInfo?.listingName || matchedReview?.listingName || '',
                     guestName: reservationInfo?.guestName || matchedReview?.guestName || matchedReview?.reviewerName || '',
                     arrivalDate: reservationInfo?.arrivalDate || matchedReview?.arrivalDate || null,
@@ -5263,7 +5323,8 @@ export class ReviewService {
                 break;
             case 'mitigation_month':
                 if (value !== '__all__') {
-                    mitigationQuery.andWhere("DATE_FORMAT(rc.createdAt, '%Y-%m') = :month", { month: value });
+                    const trendExpression = this.getDashboardTrendExpression('rc', 'createdAt', filters.trendBasis);
+                    mitigationQuery.andWhere(`${trendExpression} = :month`, { month: value });
                     title = `Mitigation Created in ${value}`;
                 } else {
                     title = 'Mitigation Records';
@@ -5349,39 +5410,55 @@ export class ReviewService {
 
         const reviewMap = new Map(matchingReviews.map((review) => [Number(review.reservationId), review]));
         const listingTagMap = new Map(listings.map((listing) => [Number(listing.id), listing.tags]));
-        const reviewRecords = matchingReviews.map((review) => ({
-            recordType: 'review',
-            id: String(review.id),
-            reviewerName: review.reviewerName,
-            listingMapId: review.listingMapId,
-            channelId: review.channelId,
-            channelName: review.channelName,
-            rating: review.rating,
-            externalReservationId: review.externalReservationId,
-            publicReview: review.publicReview,
-            publicReviewSentiment: review.publicReviewSentiment,
-            publicReviewSentimentReason: review.publicReviewSentimentReason,
-            privateReview: review.privateReview,
-            reviewSentiment: review.reviewSentiment,
-            reviewSentimentReason: review.reviewSentimentReason,
-            submittedAt: review.submittedAt,
-            arrivalDate: review.arrivalDate,
-            departureDate: review.departureDate,
-            listingName: review.listingName,
-            externalListingName: review.externalListingName,
-            guestName: review.guestName || review.reviewerName,
-            createdAt: review.createdAt,
-            updatedAt: review.updatedAt,
-            isHidden: review.isHidden,
-            visibility: review.visibility,
-            reviewDetail: review.reviewDetail || null,
-            bookingAmount: review.bookingAmount,
-            reservationId: review.reservationId ? String(review.reservationId) : undefined,
-            createdBy: review.createdBy,
-            updatedBy: review.updatedBy,
-            propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(review.listingMapId))) || null,
-            status: review.reviewDetail?.claimResolutionStatus || null,
-        }));
+        const mitigationByReservation = new Map<number, ReviewCheckout>();
+        mitigationRows.forEach((row) => {
+            const reservationId = Number(row.reservationInfo?.id || 0);
+            if (reservationId && !mitigationByReservation.has(reservationId)) mitigationByReservation.set(reservationId, row);
+        });
+        const reviewRecords = matchingReviews.map((review) => {
+            const matchedMitigation = mitigationByReservation.get(Number(review.reservationId || 0));
+            const reservationInfo = matchedMitigation?.reservationInfo;
+            const listingId = Number(review.listingMapId || reservationInfo?.listingMapId || 0);
+            const listingTags = listingTagMap.get(listingId);
+            return {
+                recordType: 'review',
+                id: String(review.id),
+                reviewId: Number(review.id),
+                reviewCheckoutId: matchedMitigation ? String(matchedMitigation.id) : null,
+                reviewerName: review.reviewerName,
+                listingMapId: review.listingMapId,
+                listingId,
+                channelId: review.channelId,
+                channelName: review.channelName || reservationInfo?.channelName || '',
+                integration: reservationInfo?.integration_nickname || '',
+                rating: review.rating,
+                externalReservationId: review.externalReservationId,
+                publicReview: review.publicReview,
+                publicReviewSentiment: review.publicReviewSentiment,
+                publicReviewSentimentReason: review.publicReviewSentimentReason,
+                privateReview: review.privateReview,
+                reviewSentiment: review.reviewSentiment,
+                reviewSentimentReason: review.reviewSentimentReason,
+                submittedAt: review.submittedAt,
+                arrivalDate: review.arrivalDate || reservationInfo?.arrivalDate || null,
+                departureDate: review.departureDate || reservationInfo?.departureDate || null,
+                listingName: review.listingName || reservationInfo?.listingName || '',
+                externalListingName: review.externalListingName,
+                guestName: review.guestName || reservationInfo?.guestName || review.reviewerName,
+                createdAt: review.createdAt,
+                updatedAt: review.updatedAt,
+                isHidden: review.isHidden,
+                visibility: review.visibility,
+                reviewDetail: review.reviewDetail || null,
+                bookingAmount: review.bookingAmount,
+                reservationId: review.reservationId ? String(review.reservationId) : undefined,
+                createdBy: review.createdBy,
+                updatedBy: review.updatedBy,
+                propertyType: this.extractPropertyTypeFromTags(listingTags) || null,
+                serviceType: this.extractServiceTypeFromTags(listingTags) || null,
+                status: matchedMitigation?.status || review.reviewDetail?.claimResolutionStatus || null,
+            };
+        });
         const mitigationRecords = mitigationRows.map((row) => {
             const reservationInfo = row.reservationInfo;
             const matchedReview = reviewMap.get(Number(reservationInfo?.id || 0));
@@ -5393,6 +5470,7 @@ export class ReviewService {
                 status: row.status || ReviewCheckoutStatus.NEW,
                 channelName: reservationInfo?.channelName || '',
                 propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || 'Unknown',
+                serviceType: this.extractServiceTypeFromTags(listingTagMap.get(Number(reservationInfo?.listingMapId || 0))) || null,
                 listingName: reservationInfo?.listingName || matchedReview?.listingName || '',
                 guestName: reservationInfo?.guestName || matchedReview?.guestName || matchedReview?.reviewerName || '',
                 arrivalDate: reservationInfo?.arrivalDate || matchedReview?.arrivalDate || null,
