@@ -262,7 +262,13 @@ export class ExpenseSubscriber
 
         await this.updateSlackMessage(entity, entity.updatedBy, eventType, diff);
 
-        if (entity.resolutionId) {
+        // Only sync to resolution when fields that the resolution actually maps to change.
+        // Syncing on every expense save causes the updateExpenseFromResolution worker to
+        // overwrite user-edited fields (concept, reservationId, guestName, etc.) with
+        // stale resolution data, silently reverting the user's changes.
+        const resolutionSyncFields = new Set(['listingMapId', 'expenseDate', 'amount', 'categories', 'isDeleted']);
+        const hasResolutionSyncChange = Object.keys(diff).some(k => resolutionSyncFields.has(k));
+        if (entity.resolutionId && hasResolutionSyncChange) {
             updateResolutionFromExpense.add('update-resolution-from-expense', { expense: entity });
         }
 
