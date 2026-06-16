@@ -32,7 +32,7 @@ export const validateCreateClient = (request: Request, response: Response, next:
             firstName: Joi.string().required(),
             lastName: Joi.string().required(),
             preferredName: Joi.string().required().allow(null, ''),
-            email: Joi.string().email().required(),
+            email: Joi.string().email().required().allow(null, ''),
             dialCode: Joi.string().required().allow(null, ''),
             phone: Joi.string().required().allow(null, ''),
             timezone: Joi.string().required().allow(null, ''),
@@ -46,7 +46,7 @@ export const validateCreateClient = (request: Request, response: Response, next:
                 firstName: Joi.string().required(),
                 lastName: Joi.string().required(),
                 preferredName: Joi.string().required().allow(null, ''),
-                email: Joi.string().email().required(),
+                email: Joi.string().email().required().allow(null, ''),
                 dialCode: Joi.string().required().allow(null, ''),
                 phone: Joi.string().required().allow(null, ''),
                 timezone: Joi.string().required().allow(null, ''),
@@ -74,7 +74,7 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
             firstName: Joi.string().required(),
             lastName: Joi.string().required(),
             preferredName: Joi.string().required().allow(null, ''),
-            email: Joi.string().email().required(),
+            email: Joi.string().email().required().allow(null, ''),
             dialCode: Joi.string().required().allow(null, ''),
             phone: Joi.string().required().allow(null, ''),
             timezone: Joi.string().required().allow(null, ''),
@@ -88,7 +88,7 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
                 firstName: Joi.string().required(),
                 lastName: Joi.string().required(),
                 preferredName: Joi.string().required().allow(null, ''),
-                email: Joi.string().email().required(),
+                email: Joi.string().email().required().allow(null, ''),
                 dialCode: Joi.string().required().allow(null, ''),
                 phone: Joi.string().required().allow(null, ''),
                 timezone: Joi.string().required().allow(null, ''),
@@ -168,7 +168,7 @@ export const validateCreateClientWithPreOnboarding = (request: Request, response
                 }).optional()
             })
         ),
-        source: Joi.string().optional().valid("listingIntakePage", "clientsPage")
+        source: Joi.string().optional().allow(null, '')
     });
 
     const { error } = schema.validate(request.body);
@@ -185,7 +185,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
             firstName: Joi.string().required(),
             lastName: Joi.string().required(),
             preferredName: Joi.string().required().allow(null, ''),
-            email: Joi.string().email().required(),
+            email: Joi.string().email().required().allow(null, ''),
             dialCode: Joi.string().required().allow(null, ''),
             phone: Joi.string().required().allow(null, ''),
             timezone: Joi.string().required().allow(null, ''),
@@ -200,7 +200,7 @@ export const validateUpdateClient = (request: Request, response: Response, next:
                 firstName: Joi.string().required(),
                 lastName: Joi.string().required(),
                 preferredName: Joi.string().required().allow(null, ''),
-                email: Joi.string().email().required(),
+                email: Joi.string().email().required().allow(null, ''),
                 dialCode: Joi.string().required().allow(null, ''),
                 phone: Joi.string().required().allow(null, ''),
                 timezone: Joi.string().required().allow(null, ''),
@@ -228,7 +228,7 @@ export const validateGetClients = (request: Request, response: Response, next: N
         listingId: Joi.array().items(Joi.string()).optional(),
         serviceType: Joi.array().items(Joi.string()).optional(),
         status: Joi.array().items(Joi.string().valid(...Object.values(PropertyStatus))).optional(),
-        source: Joi.string().valid("listingIntakePage", "clientsPage").optional()
+        source: Joi.string().optional()
     });
 
     const { error } = schema.validate(request.query);

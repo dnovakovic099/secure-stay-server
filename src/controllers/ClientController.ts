@@ -230,6 +230,44 @@ export class ClientController {
     }
   }
 
+  async getListingClientContacts(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.getListingClientContacts(request.params.listingId, request.user?.id || "system");
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingClientContacts(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingClientContacts(
+        request.params.listingId,
+        request.body?.secondaryContacts || [],
+        request.user?.id || "system",
+      );
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateListingPropertyAccess(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const clientService = new ClientService();
+      const result = await clientService.updateListingPropertyAccess(
+        request.params.listingId,
+        request.body || {},
+        request.user?.id || "system",
+      );
+      return response.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async saveListingInfo(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
@@ -500,12 +538,11 @@ export class ClientController {
    */
   async syncHostifyOwners(request: CustomRequest, response: Response, next: NextFunction) {
     try {
-      const { HostifyOwnerSyncService } = await import('../services/HostifyOwnerSyncService');
-      const syncService = new HostifyOwnerSyncService();
-      const result = await syncService.syncOwners(request.user?.id || 'system');
+      const clientService = new ClientService();
+      const result = await clientService.syncListingClientsFromOwnerContracts(request.user?.id || 'system');
       return response.status(200).json({ 
         success: true, 
-        message: 'Hostify owner sync completed',
+        message: 'Hostify owner contract sync completed',
         ...result 
       });
     } catch (error) {

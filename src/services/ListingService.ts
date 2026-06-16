@@ -40,6 +40,12 @@ export class ListingService {
   private hostifyClient = new Hostify();
   private listingChangeLogRepo = appDatabase.getRepository(ListingChangeLog);
 
+  private async ensureListingDetailCleanerColumns() {
+    const existing = await appDatabase.query("SHOW COLUMNS FROM listing_details LIKE ?", ["cleaning_managed_by"]);
+    if (Array.isArray(existing) && existing.length > 0) return;
+    await appDatabase.query("ALTER TABLE listing_details ADD COLUMN cleaning_managed_by VARCHAR(100) NULL");
+  }
+
   // Fetch listings from hostaway client and save in our database if not present
   // async syncHostawayListing(userId: string) {
   //   const hostawayCredentials = await this.connectedAccountInfoRepository.findOne({
@@ -1478,7 +1484,7 @@ export class ListingService {
   }
 
   public async createListingDetail(body: Partial<ListingDetail>, userId: string) {
-    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount, comfortableCapacity, clientTurnoverRequirements, clientReservationRequirements } = body;
+    const { propertyOwnershipType, listingId, statementDurationType, claimProtection, hidePetFee, techFee, techFeeAmount, comfortableCapacity, clientTurnoverRequirements, clientReservationRequirements, cleaningManagedBy } = body;
     const listingDetail = new ListingDetail();
     listingDetail.listingId = listingId;
     listingDetail.propertyOwnershipType = propertyOwnershipType;
@@ -1490,6 +1496,7 @@ export class ListingService {
     listingDetail.comfortableCapacity = comfortableCapacity;
     listingDetail.clientTurnoverRequirements = clientTurnoverRequirements;
     listingDetail.clientReservationRequirements = clientReservationRequirements;
+    listingDetail.cleaningManagedBy = cleaningManagedBy;
     listingDetail.createdBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   };
@@ -1504,11 +1511,13 @@ export class ListingService {
     listingDetail.comfortableCapacity = body.comfortableCapacity;
     listingDetail.clientTurnoverRequirements = body.clientTurnoverRequirements;
     listingDetail.clientReservationRequirements = body.clientReservationRequirements;
+    if (body.cleaningManagedBy !== undefined) listingDetail.cleaningManagedBy = body.cleaningManagedBy;
     listingDetail.updatedBy = userId;
     return await this.listingDetailRepo.save(listingDetail);
   }
 
   public async saveListingDetails(body: Partial<ListingDetail>, userId: string) {
+    await this.ensureListingDetailCleanerColumns();
     const listingDetail = await this.listingDetailRepo.findOne({ where: { listingId: body.listingId } });
     if (listingDetail) {
       return this.updateListingDetail(body, listingDetail, userId);
@@ -1517,6 +1526,7 @@ export class ListingService {
   }
 
   public async getListingDetail(listingId?: number) {
+    await this.ensureListingDetailCleanerColumns();
     if (listingId) {
       return await this.listingDetailRepo.findOne({ where: { listingId } });
     }

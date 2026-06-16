@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { ClientSecondaryContact } from "../entity/ClientSecondaryContact";
+import { Listing as HostifyListingEntity } from "../entity/Listing";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { In, IsNull, Not, Or, Like } from "typeorm";
 import { ListingService } from "./ListingService";
@@ -346,6 +347,7 @@ export class ClientService {
   private clientRepo = appDatabase.getRepository(ClientEntity);
   private propertyRepo = appDatabase.getRepository(ClientPropertyEntity);
   private contactRepo = appDatabase.getRepository(ClientSecondaryContact);
+  private listingRepo = appDatabase.getRepository(HostifyListingEntity);
   private clientTicketRepo = appDatabase.getRepository(ClientTicket);
 
   private propertyOnboardingRepo = appDatabase.getRepository(PropertyOnboarding);
@@ -363,6 +365,274 @@ export class ClientService {
   private slackMessageService = new SlackMessageService();
 
   private hostawayClient = new HostAwayClient();
+
+  private async ensureClientContactColumns() {
+    await Promise.all([
+      appDatabase.query("ALTER TABLE client_management MODIFY COLUMN email VARCHAR(255) NULL"),
+      appDatabase.query("ALTER TABLE client_secondary_contacts MODIFY COLUMN email VARCHAR(255) NULL"),
+    ]).catch((error) => {
+      logger.warn("Unable to ensure nullable client contact email columns", error);
+    });
+  }
+
+  private normalizeOptionalString(value: any) {
+    if (value === null || value === undefined) return null;
+    const stringValue = String(value).trim();
+    return stringValue || null;
+  }
+
+  private splitName(name?: string | null) {
+    const cleanName = this.normalizeOptionalString(name) || "Unassigned";
+    const parts = cleanName.split(/\s+/).filter(Boolean);
+    if (parts.length <= 1) return { firstName: cleanName, lastName: "" };
+    return {
+      firstName: parts.slice(0, -1).join(" "),
+      lastName: parts[parts.length - 1],
+    };
+  }
+
+  private getListingContractSource(listing: HostifyListingEntity) {
+    if (!listing.ownerContractId && !listing.ownerName && !listing.ownerEmail && !listing.ownerCompanyName) {
+      return "hostifyOwnerContract:unassigned";
+    }
+    const contractKey =
+      listing.ownerContractId ||
+      listing.ownerId ||
+      this.normalizeOptionalString(listing.ownerEmail)?.toLowerCase() ||
+      this.normalizeOptionalString(listing.ownerContractName)?.toLowerCase() ||
+      this.normalizeOptionalString(listing.ownerName)?.toLowerCase() ||
+      "unassigned";
+    return `hostifyOwnerContract:${contractKey}`;
+  }
+
+  private mapListingToClientContact(listing: HostifyListingEntity, userId: string) {
+    const ownerName = this.normalizeOptionalString(listing.ownerName || listing.ownerContractName || listing.ownerCompanyName);
+    const { firstName, lastName } = this.splitName(ownerName);
+
+    return {
+      firstName,
+      lastName,
+      preferredName: ownerName || "Unassigned",
+      email: this.normalizeOptionalString(listing.ownerEmail),
+      phone: this.normalizeOptionalString(listing.ownerPhone),
+      companyName: this.normalizeOptionalString(listing.ownerCompanyName),
+      status: PropertyStatus.ACTIVE,
+      notes: null,
+      createdBy: userId,
+      updatedBy: userId,
+      source: this.getListingContractSource(listing),
+    };
+  }
+
+  private mapListingToClientProperty(listing: HostifyListingEntity, userId: string, client: ClientEntity) {
+    return this.propertyRepo.create({
+      listingId: String(listing.id),
+      hostifyListingId: String(listing.id),
+      address: listing.address || [listing.street, listing.city, listing.state, listing.zipcode].filter(Boolean).join(", "),
+      streetAddress: listing.street || null,
+      city: listing.city || null,
+      state: listing.state || null,
+      country: listing.country || null,
+      zipCode: listing.zipcode || null,
+      latitude: listing.lat || null,
+      longitude: listing.lng || null,
+      status: PropertyStatus.ACTIVE,
+      createdBy: userId,
+      updatedBy: userId,
+      client,
+    });
+  }
+
+  async syncListingClientsFromOwnerContracts(userId: string = "system") {
+    await this.ensureClientContactColumns();
+
+    const listings = await this.listingRepo.find({ where: { deletedAt: IsNull() } });
+    const groupedListings = new Map<string, HostifyListingEntity[]>();
+    for (const listing of listings) {
+      const source = this.getListingContractSource(listing);
+      const group = groupedListings.get(source) || [];
+      group.push(listing);
+      groupedListings.set(source, group);
+    }
+
+    let clientsCreated = 0;
+    let clientsUpdated = 0;
+    let propertiesLinked = 0;
+
+    for (const [source, group] of groupedListings) {
+      const representative =
+        group.find((listing) => listing.ownerContractId || listing.ownerName || listing.ownerEmail || listing.ownerCompanyName) ||
+        group[0];
+      const contactData = source === "hostifyOwnerContract:unassigned"
+        ? {
+            firstName: "Unassigned",
+            lastName: "",
+            preferredName: "Unassigned",
+            email: null,
+            phone: null,
+            companyName: null,
+            status: PropertyStatus.ACTIVE,
+            notes: null,
+            createdBy: userId,
+            updatedBy: userId,
+            source,
+          }
+        : this.mapListingToClientContact(representative, userId);
+
+      let client = await this.clientRepo.findOne({ where: { source }, relations: ["properties", "secondaryContacts"] });
+      if (!client && contactData.email) {
+        client = await this.clientRepo.findOne({ where: { email: contactData.email }, relations: ["properties", "secondaryContacts"] });
+      }
+
+      if (!client) {
+        client = this.clientRepo.create(contactData);
+        clientsCreated += 1;
+      } else {
+        Object.assign(client, {
+          firstName: contactData.firstName,
+          lastName: contactData.lastName,
+          preferredName: contactData.preferredName,
+          email: contactData.email,
+          phone: contactData.phone,
+          companyName: contactData.companyName,
+          status: contactData.status,
+          source,
+          updatedBy: userId,
+        });
+        clientsUpdated += 1;
+      }
+      client = await this.clientRepo.save(client);
+
+      for (const listing of group) {
+        let property = await this.propertyRepo
+          .createQueryBuilder("property")
+          .withDeleted()
+          .leftJoinAndSelect("property.client", "client")
+          .where("property.listingId = :listingId", { listingId: String(listing.id) })
+          .getOne();
+
+        if (!property) {
+          property = this.mapListingToClientProperty(listing, userId, client);
+          propertiesLinked += 1;
+        } else {
+          property.client = client;
+          property.hostifyListingId = String(listing.id);
+          property.address = listing.address || property.address;
+          property.streetAddress = listing.street || property.streetAddress;
+          property.city = listing.city || property.city;
+          property.state = listing.state || property.state;
+          property.country = listing.country || property.country;
+          property.zipCode = listing.zipcode || property.zipCode;
+          property.latitude = listing.lat || property.latitude;
+          property.longitude = listing.lng || property.longitude;
+          property.status = property.status || PropertyStatus.ACTIVE;
+          property.deletedAt = null;
+          property.deletedBy = null;
+          property.updatedBy = userId;
+        }
+        await this.propertyRepo.save(property);
+      }
+    }
+
+    return {
+      clientsCreated,
+      clientsUpdated,
+      propertiesLinked,
+      listingsSynced: listings.length,
+      groupsSynced: groupedListings.size,
+    };
+  }
+
+  async getListingClientContacts(listingId: string, userId: string = "system") {
+    await this.syncListingClientsFromOwnerContracts(userId);
+    const property = await this.propertyRepo.findOne({
+      where: { listingId: String(listingId) },
+      relations: ["client", "client.secondaryContacts", "propertyInfo", "serviceInfo"],
+    });
+    if (!property?.client) throw CustomErrorHandler.notFound("Client not found for listing");
+
+    return {
+      client: property.client,
+      primaryContact: {
+        id: property.client.id,
+        firstName: property.client.firstName,
+        lastName: property.client.lastName,
+        preferredName: property.client.preferredName,
+        email: property.client.email,
+        dialCode: property.client.dialCode,
+        phone: property.client.phone,
+        companyName: property.client.companyName,
+        notes: property.client.notes,
+      },
+      secondaryContacts: (property.client.secondaryContacts || []).filter((contact) => !contact.deletedAt),
+      property,
+      propertyInfo: property.propertyInfo || null,
+      serviceInfo: property.serviceInfo || null,
+    };
+  }
+
+  async updateListingClientContacts(
+    listingId: string,
+    contacts: Partial<ClientSecondaryContact>[] = [],
+    userId: string = "system",
+  ) {
+    await this.ensureClientContactColumns();
+    const property = await this.propertyRepo.findOne({
+      where: { listingId: String(listingId) },
+      relations: ["client", "client.secondaryContacts"],
+    });
+    if (!property?.client) throw CustomErrorHandler.notFound("Client not found for listing");
+
+    const allowedTypes = new Set(["secondaryContact", "pointOfContact"]);
+    const normalizedContacts = contacts
+      .filter((contact) => allowedTypes.has(String(contact.type)))
+      .map((contact) => {
+        const name = this.splitName(
+          [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+          contact.preferredName ||
+          contact.email ||
+          ""
+        );
+        return {
+          ...contact,
+          firstName: this.normalizeOptionalString(contact.firstName) || name.firstName,
+          lastName: this.normalizeOptionalString(contact.lastName) || name.lastName,
+          preferredName: this.normalizeOptionalString(contact.preferredName),
+          email: this.normalizeOptionalString(contact.email),
+          phone: this.normalizeOptionalString(contact.phone),
+          dialCode: this.normalizeOptionalString(contact.dialCode),
+          timezone: this.normalizeOptionalString(contact.timezone),
+          companyName: this.normalizeOptionalString(contact.companyName),
+          notes: this.normalizeOptionalString(contact.notes),
+        };
+      });
+
+    await this.handleClientSecondaryContactUpdate(property.client, userId, normalizedContacts);
+    await this.clientRepo.save(property.client);
+    return this.getListingClientContacts(listingId, userId);
+  }
+
+  async updateListingPropertyAccess(listingId: string, payload: any = {}, userId: string = "system") {
+    await this.syncListingClientsFromOwnerContracts(userId);
+    const property = await this.propertyRepo.findOne({
+      where: { listingId: String(listingId) },
+      relations: ["propertyInfo", "serviceInfo"],
+    });
+    if (!property) throw CustomErrorHandler.notFound("Client property not found for listing");
+
+    let propertyInfo = property.propertyInfo;
+    if (!propertyInfo) {
+      propertyInfo = this.propertyInfoRepo.create({ clientProperty: property, createdBy: userId });
+    }
+
+    this.mapListingFieldsToPropertyInfo(propertyInfo, payload);
+    propertyInfo.updatedBy = userId;
+    const savedPropertyInfo = await this.propertyInfoRepo.save(propertyInfo);
+    property.propertyInfo = savedPropertyInfo;
+    await this.propertyRepo.save(property);
+
+    return this.getListingClientContacts(listingId, userId);
+  }
 
   async checkEmailExists(email: string) {
     const existingClient = await this.clientRepo.findOne({
@@ -987,6 +1257,8 @@ export class ClientService {
   }
 
   async getClientList(filter: ClientFilter, userId: string) {
+    await this.syncListingClientsFromOwnerContracts(userId);
+
     const { page, limit, keyword } = filter;
 
     // STEP 1: Lightweight query for filtering, counting, and pagination
