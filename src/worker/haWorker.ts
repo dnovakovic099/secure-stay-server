@@ -269,17 +269,20 @@ import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
                 return;
             }
 
-            expense.listingMapId = resolution.listingMapId;
-            expense.expenseDate = resolution.claimDate;
-            expense.concept = resolution.type ? `${resolution.type} : ${resolution.guestName}` : `${resolution.guestName}`;
-            expense.amount = resolution.amountToPayout ? resolution.amountToPayout : resolution.amount;
-            expense.categories = categories;
-            expense.findings = resolution.description ? resolution.description : null;
-            expense.reservationId = String(resolution.reservationId);
-            expense.guestName = resolution.guestName;
-            expense.isDeleted = resolution.deletedAt ? 1 : 0;
-
-            await expenseRepo.save(expense);
+            // Use update() instead of save() to bypass TypeORM subscribers.
+            // save() triggers ExpenseSubscriber.afterUpdate which sends Slack messages
+            // and re-queues updateResolutionFromExpense, creating an infinite circular chain.
+            await expenseRepo.update(expense.id, {
+                listingMapId: resolution.listingMapId,
+                expenseDate: resolution.claimDate,
+                concept: resolution.type ? `${resolution.type} : ${resolution.guestName}` : `${resolution.guestName}`,
+                amount: resolution.amountToPayout ? resolution.amountToPayout : resolution.amount,
+                categories,
+                findings: resolution.description ? resolution.description : null,
+                reservationId: String(resolution.reservationId),
+                guestName: resolution.guestName,
+                isDeleted: resolution.deletedAt ? 1 : 0,
+            });
 
             logger.info(`Expense updated successfully for resolutionId ${resolution.id}`);
         } catch (error) {
