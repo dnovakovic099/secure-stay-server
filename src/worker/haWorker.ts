@@ -16,6 +16,7 @@ import fs from "fs";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { LiveIssue, LiveIssueStatus } from "../entity/LiveIssue";
 import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
+import { updateLiveIssueFromResolution } from "../queue/liveIssueQueue";
 
 (async () => {
 
@@ -308,13 +309,22 @@ import { LiveIssueUpdates } from "../entity/LiveIssueUpdates";
                 return;
             }
             
-            resolution.listingMapId = expense.listingMapId;
-            resolution.claimDate = expense.expenseDate;
-            resolution.amountToPayout = expense.amount;
-            resolution.deletedAt = expense.isDeleted === 1 ? new Date() : null;
-            resolution.category = category;
+            // Use update() instead of save() to bypass ResolutionSubscriber.
+            // save() triggers ResolutionSubscriber.afterUpdate which queues updateExpenseFromResolution,
+            // causing a circular chain that silently overwrites user-edited expense fields.
+            // Live issue sync is handled explicitly below instead.
+            await resolutionRepo.update(resolution.id, {
+                listingMapId: expense.listingMapId,
+                claimDate: expense.expenseDate,
+                amountToPayout: expense.amount,
+                deletedAt: expense.isDeleted === 1 ? new Date() : null,
+                category,
+            });
 
-            await resolutionRepo.save(resolution);
+            const updatedResolution = await resolutionRepo.findOne({ where: { id: resolution.id } });
+            if (updatedResolution) {
+                await updateLiveIssueFromResolution.add('update-live-issue', { resolution: updatedResolution });
+            }
 
             logger.info(`Resolution updated successfully for expenseId ${expense.id}`);
         } catch (error) {
