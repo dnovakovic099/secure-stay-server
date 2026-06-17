@@ -386,9 +386,25 @@ export class ClientService {
     const parts = cleanName.split(/\s+/).filter(Boolean);
     if (parts.length <= 1) return { firstName: cleanName, lastName: "" };
     return {
-      firstName: parts.slice(0, -1).join(" "),
-      lastName: parts[parts.length - 1],
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" "),
     };
+  }
+
+  private normalizeComparableString(value?: string | null) {
+    return this.normalizeOptionalString(value)?.toLowerCase().replace(/\s+/g, " ") || "";
+  }
+
+  private getOwnerCompanyName(listing: HostifyListingEntity, ownerName?: string | null) {
+    const companyName = this.normalizeOptionalString(listing.ownerCompanyName);
+    if (!companyName) return null;
+    const normalizedCompanyName = this.normalizeComparableString(companyName);
+    const ownerNameMatches = [
+      ownerName,
+      listing.ownerName,
+      listing.ownerContractName,
+    ].some((value) => this.normalizeComparableString(value) === normalizedCompanyName);
+    return ownerNameMatches ? null : companyName;
   }
 
   private getListingContractSource(listing: HostifyListingEntity) {
@@ -412,10 +428,10 @@ export class ClientService {
     return {
       firstName,
       lastName,
-      preferredName: ownerName || "Unassigned",
+      preferredName: null,
       email: this.normalizeOptionalString(listing.ownerEmail),
       phone: this.normalizeOptionalString(listing.ownerPhone),
-      companyName: this.normalizeOptionalString(listing.ownerCompanyName),
+      companyName: this.getOwnerCompanyName(listing, ownerName),
       status: PropertyStatus.ACTIVE,
       notes: null,
       createdBy: userId,
@@ -467,7 +483,7 @@ export class ClientService {
         ? {
             firstName: "Unassigned",
             lastName: "",
-            preferredName: "Unassigned",
+            preferredName: null,
             email: null,
             phone: null,
             companyName: null,
@@ -544,7 +560,6 @@ export class ClientService {
   }
 
   async getListingClientContacts(listingId: string, userId: string = "system") {
-    await this.syncListingClientsFromOwnerContracts(userId);
     const property = await this.propertyRepo.findOne({
       where: { listingId: String(listingId) },
       relations: ["client", "client.secondaryContacts", "propertyInfo", "serviceInfo"],
@@ -569,6 +584,82 @@ export class ClientService {
       propertyInfo: property.propertyInfo || null,
       serviceInfo: property.serviceInfo || null,
     };
+  }
+
+  async syncListingClientFromCachedListing(listingId: string, userId: string = "system") {
+    await this.ensureClientContactColumns();
+    const listing = await this.listingRepo.findOne({ where: { id: Number(listingId), deletedAt: IsNull() } });
+    if (!listing) throw CustomErrorHandler.notFound("Listing not found");
+
+    const source = this.getListingContractSource(listing);
+    const contactData = source === "hostifyOwnerContract:unassigned"
+      ? {
+          firstName: "Unassigned",
+          lastName: "",
+          preferredName: null,
+          email: null,
+          phone: null,
+          companyName: null,
+          status: PropertyStatus.ACTIVE,
+          notes: null,
+          createdBy: userId,
+          updatedBy: userId,
+          source,
+        }
+      : this.mapListingToClientContact(listing, userId);
+
+    let client = await this.clientRepo.findOne({ where: { source }, relations: ["properties", "secondaryContacts"] });
+    if (!client && contactData.email) {
+      client = await this.clientRepo.findOne({ where: { email: contactData.email }, relations: ["properties", "secondaryContacts"] });
+    }
+
+    if (!client) {
+      client = this.clientRepo.create(contactData);
+    } else {
+      Object.assign(client, {
+        firstName: contactData.firstName,
+        lastName: contactData.lastName,
+        preferredName: contactData.preferredName,
+        email: contactData.email,
+        phone: contactData.phone,
+        companyName: contactData.companyName,
+        status: contactData.status,
+        source,
+        updatedBy: userId,
+      });
+    }
+    client = await this.clientRepo.save(client);
+
+    let property = await this.propertyRepo
+      .createQueryBuilder("property")
+      .withDeleted()
+      .leftJoinAndSelect("property.client", "client")
+      .where("property.listingId = :listingId", { listingId: String(listing.id) })
+      .getOne();
+
+    if (!property) {
+      property = this.mapListingToClientProperty(listing, userId, client);
+    } else {
+      Object.assign(property, {
+        client,
+        hostifyListingId: String(listing.id),
+        address: listing.address || [listing.street, listing.city, listing.state, listing.zipcode].filter(Boolean).join(", "),
+        streetAddress: listing.street || null,
+        city: listing.city || null,
+        state: listing.state || null,
+        country: listing.country || null,
+        zipCode: listing.zipcode || null,
+        latitude: listing.lat || null,
+        longitude: listing.lng || null,
+        status: PropertyStatus.ACTIVE,
+        deletedAt: null,
+        deletedBy: null,
+        updatedBy: userId,
+      });
+    }
+    await this.propertyRepo.save(property);
+
+    return this.getListingClientContacts(listingId, userId);
   }
 
   async updateListingClientContacts(

@@ -789,10 +789,7 @@ export class ListingService {
     if (!listing) throw CustomErrorHandler.notFound('Listing not found');
 
     const tags = this.formatHostifyTags(listing.tags);
-    let hostifyUsers = this.parseCachedHostifyUsers(listing.hostifyUsersJson);
-    if (hostifyUsers.length === 0) {
-      hostifyUsers = await this.refreshCachedHostifyUsersForListing(listing);
-    }
+    const hostifyUsers = this.parseCachedHostifyUsers(listing.hostifyUsersJson);
     const otherProperties = await this.getCachedOtherPropertiesForOwner(listing);
 
     return {
@@ -812,6 +809,54 @@ export class ListingService {
       pmFee: this.extractPmFeeFromTags(tags),
       otherProperties,
     };
+  }
+
+  async syncSingleHostifyListing(listingId: string, userId: string) {
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
+
+    const info = await this.hostifyClient.getListingDetails(hostifyApiKey, listingId);
+    const listing = info?.listing || info;
+    if (!listing?.id) throw CustomErrorHandler.notFound('Listing not found from Hostify');
+
+    const listingObj = this.buildListingObject(listing, info);
+    const savedListing = await appDatabase.manager.transaction(async (tx) => {
+      const existing = await tx.findOne(Listing, { where: { id: Number(listingId) }, withDeleted: true });
+      let saved: Listing;
+
+      if (existing) {
+        const diffs = this.buildListingDiff(existing, listingObj);
+        if (diffs.length > 0) {
+          await tx.insert(ListingChangeLog, {
+            listingId: existing.id,
+            hostifyListingId: existing.id,
+            changedBy: userId || "Hostify Sync",
+            diff: diffs,
+            source: "hostify_manual_listing_sync",
+          });
+        }
+        await tx.update(Listing, existing.id, {
+          ...listingObj,
+          deletedAt: null,
+          deletedBy: null,
+        });
+        saved = await tx.findOneOrFail(Listing, { where: { id: existing.id } });
+      } else {
+        saved = await tx.save(Listing, listingObj);
+      }
+
+      if (info.photos?.length) {
+        const imageObjs = this.buildImageObjects(saved.id, info.photos);
+        await this.handleListingImages(saved, imageObjs, tx);
+      }
+
+      return saved;
+    });
+
+    const { ClientService } = await import("./ClientService");
+    await new ClientService().syncListingClientFromCachedListing(String(savedListing.id), userId || "system");
+
+    return this.getCachedListingClientInfo(String(savedListing.id));
   }
 
   private parseCachedHostifyUsers(hostifyUsersJson?: string | null) {
