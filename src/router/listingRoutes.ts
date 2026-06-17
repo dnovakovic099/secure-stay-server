@@ -21,6 +21,8 @@ router.route('/:listingId/children').get(verifySession, listingController.getChi
 
 router.route('/synchostawaylistings').get(verifySession, listingController.syncHostawayListing);
 
+router.route('/:listingId/sync').post(verifySession, listingController.syncSingleHostifyListing);
+
 router.route('/getlistingaddresses').get(verifySession, listingController.getListingAddresses);
 
 router.route('/savelistingscore').post(

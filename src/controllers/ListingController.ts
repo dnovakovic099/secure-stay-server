@@ -22,6 +22,20 @@ export class ListingController {
     }
   }
 
+  async syncSingleHostifyListing(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingService = new ListingService();
+      const userId = request.user?.id || "system";
+      const listingId = request.params.listingId;
+
+      const listingInfo = await listingService.syncSingleHostifyListing(listingId, userId);
+
+      return response.status(200).json(successDataFetch(listingInfo));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getListings(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const listingService = new ListingService();

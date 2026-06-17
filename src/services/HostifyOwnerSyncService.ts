@@ -167,7 +167,7 @@ export class HostifyOwnerSyncService {
                         const newClient = this.clientRepo.create({
                             firstName: owner.firstName,
                             lastName: owner.lastName,
-                            preferredName: owner.firstName,
+                            preferredName: null,
                             email: owner.email,
                             phone: owner.phone,
                             status: 'Active',
