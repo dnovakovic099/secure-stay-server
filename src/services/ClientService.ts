@@ -1257,7 +1257,11 @@ export class ClientService {
   }
 
   async getClientList(filter: ClientFilter, userId: string) {
-    await this.syncListingClientsFromOwnerContracts(userId);
+    // NOTE: The owner-contract sync used to run on every list fetch and was
+    // the dominant cost on this endpoint (full listing scan + upserts on each
+    // request). It is now triggered out-of-band via the dedicated
+    // `syncHostifyOwners` endpoint (and can be run on a schedule), so reads
+    // here stay fast.
 
     const { page, limit, keyword } = filter;
 

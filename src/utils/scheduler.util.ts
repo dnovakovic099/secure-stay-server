@@ -29,6 +29,7 @@ import { EscalationService } from "../services/EscalationService";
 import { CheckInNotificationService } from "../services/CheckInNotificationService";
 import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 import { IssuesService } from "../services/IssuesService";
+import { ClientService } from "../services/ClientService";
 
 
 export function scheduleGetReservation() {
@@ -578,4 +579,18 @@ export function scheduleGetReservation() {
       }
     }
   );
+
+  // Hostify owner-contract -> client/property sync, hourly at minute 0.
+  // Previously ran inline on every GET /clients call (~40s per request);
+  // moved here so list reads stay fast.
+  schedule.scheduleJob("0 * * * *", async () => {
+    try {
+      logger.info('[ClientOwnerSync] Hourly sync started...');
+      const clientService = new ClientService();
+      const result = await clientService.syncListingClientsFromOwnerContracts('system');
+      logger.info('[ClientOwnerSync] Hourly sync completed.', result);
+    } catch (error) {
+      logger.error('[ClientOwnerSync] Error in hourly sync:', error);
+    }
+  });
 }
