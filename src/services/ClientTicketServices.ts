@@ -210,9 +210,8 @@ export class ClientTicketService {
         ? [Number(clientSatisfaction)].filter((value) => Number.isFinite(value))
         : [];
 
-    const baseWhere = {
+    const baseWhereWithoutStatus = {
         ...(requestedIds.length > 0 && { id: In(requestedIds) }),
-        ...(status && status.length > 0 && { status: In(status) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
         ...(normalizedClientSatisfaction.length > 0 && { clientSatisfaction: In(normalizedClientSatisfaction) }),
         ...(listingIds &&
@@ -225,6 +224,10 @@ export class ClientTicketService {
           }),
         ...dateRangeFilter,
       };
+    const baseWhere = {
+        ...baseWhereWithoutStatus,
+        ...(status && status.length > 0 && { status: In(status) }),
+      };
     const keywordFields = ["description", "resolution"];
     const selectedKeywordField = keywordFields.includes(String(keywordField || "")) ? String(keywordField) : "all";
     const latestUpdateTicketIds = keyword && (selectedKeywordField === "all" || keywordField === "latestUpdate")
@@ -235,16 +238,18 @@ export class ClientTicketService {
         .where("ticketUpdate.updates LIKE :keyword", { keyword: `%${keyword}%` })
         .getRawMany()).map((row) => Number(row.id))
       : [];
-    const where = keyword
+    const buildKeywordWhere = (base: any) => keyword
       ? keywordField === "latestUpdate"
-        ? applyTicketIds(baseWhere, latestUpdateTicketIds)
+        ? applyTicketIds(base, latestUpdateTicketIds)
         : selectedKeywordField === "all"
           ? [
-            ...keywordFields.map((field) => ({ ...baseWhere, [field]: ILike(`%${keyword}%`) })),
-            ...(latestUpdateTicketIds.length ? [applyTicketIds(baseWhere, latestUpdateTicketIds)] : []),
+            ...keywordFields.map((field) => ({ ...base, [field]: ILike(`%${keyword}%`) })),
+            ...(latestUpdateTicketIds.length ? [applyTicketIds(base, latestUpdateTicketIds)] : []),
           ]
-          : { ...baseWhere, [selectedKeywordField]: ILike(`%${keyword}%`) }
-      : baseWhere;
+          : { ...base, [selectedKeywordField]: ILike(`%${keyword}%`) }
+      : base;
+    const where = buildKeywordWhere(baseWhere);
+    const whereForCounts = buildKeywordWhere(baseWhereWithoutStatus);
     const sortColumnMap: Record<string, string> = {
       id: "id",
       status: "status",
@@ -265,14 +270,34 @@ export class ClientTicketService {
     };
     const sortColumn = sortBy ? sortColumnMap[sortBy] : null;
 
-    const [clientTickets, total] = await this.clientTicketRepo.findAndCount({
-      where,
-      relations: ["clientTicketUpdates"],
-      skip: (page - 1) * limit,
-      take: limit,
-      order: sortColumn
-        ? { [sortColumn]: sortOrder || 'DESC' }
-        : { id: 'DESC' },
+    const [[clientTickets, total], ticketsForCounts] = await Promise.all([
+      this.clientTicketRepo.findAndCount({
+        where,
+        relations: ["clientTicketUpdates"],
+        skip: (page - 1) * limit,
+        take: limit,
+        order: sortColumn
+          ? { [sortColumn]: sortOrder || 'DESC' }
+          : { id: 'DESC' },
+      }),
+      this.clientTicketRepo.find({
+        where: whereForCounts,
+        select: ["status"],
+      }),
+    ]);
+
+    const statusCounts: Record<string, number> = {
+      All: ticketsForCounts.length,
+      New: 0,
+      "In Progress": 0,
+      Completed: 0,
+      "Need Help": 0,
+      Scheduled: 0,
+    };
+    ticketsForCounts.forEach((ticket) => {
+      if (ticket.status && statusCounts[ticket.status] !== undefined) {
+        statusCounts[ticket.status] += 1;
+      }
     });
 
     const listings = await listingService.getAllListingsForLookup();
@@ -303,6 +328,7 @@ export class ClientTicketService {
     return {
       clientTickets: transformedTickets,
       total,
+      statusCounts,
     };
   }
 
