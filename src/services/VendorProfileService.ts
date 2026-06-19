@@ -33,6 +33,8 @@ export class VendorProfileService {
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
     private static schemaReady = false;
     private static schemaPromise: Promise<void> | null = null;
+    private static legacyBackfillReady = false;
+    private static legacyBackfillPromise: Promise<void> | null = null;
 
     private async assertSingleActiveCleanerAssignment(
         assignmentRepo: Repository<VendorAssignment>,
@@ -465,6 +467,23 @@ export class VendorProfileService {
     }
 
     private async ensureLegacyBackfill(userId: string) {
+        if (VendorProfileService.legacyBackfillReady) return;
+        if (VendorProfileService.legacyBackfillPromise) {
+            await VendorProfileService.legacyBackfillPromise;
+            return;
+        }
+
+        VendorProfileService.legacyBackfillPromise = this.ensureLegacyBackfillInternal(userId)
+            .then(() => {
+                VendorProfileService.legacyBackfillReady = true;
+            })
+            .finally(() => {
+                VendorProfileService.legacyBackfillPromise = null;
+            });
+        await VendorProfileService.legacyBackfillPromise;
+    }
+
+    private async ensureLegacyBackfillInternal(userId: string) {
         await this.ensureVendorSchema();
 
         let contacts: Contact[] = [];
@@ -625,7 +644,7 @@ export class VendorProfileService {
         const [[profiles, total], userMap, listingMeta] = await Promise.all([
             this.vendorProfileRepo.findAndCount({
                 where,
-                relations: ["assignments", "assignments.updates", "updates"],
+                relations: ["assignments"],
                 order: { name: "ASC" },
                 skip: (page - 1) * limit,
                 take: limit,
