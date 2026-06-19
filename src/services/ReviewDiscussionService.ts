@@ -67,6 +67,9 @@ export class ReviewDiscussionService {
     private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
     private employeeRepo = appDatabase.getRepository(Employee);
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
+    // Per-request cache: when a discussion has many messages by the same authors, this collapses
+    // the previous O(messages * 4 DB queries) behavior down to one resolution per unique user key.
+    private userDisplayCache = new Map<string, Promise<{ userName: string; mentionKeys: string[]; avatarUrl: string | null }>>();
 
     private normalizeFilter(filter?: string): DiscussionFilter {
         const value = String(filter || "all").toLowerCase();
@@ -264,6 +267,19 @@ export class ReviewDiscussionService {
 
     private async getUserDisplay(userId: string) {
         const rawUserId = String(userId || "").trim();
+        const cacheKey = rawUserId;
+        const cached = this.userDisplayCache.get(cacheKey);
+        if (cached) return cached;
+        const promise = this.resolveUserDisplay(rawUserId).catch((error) => {
+            // Drop failed lookups from the cache so a future call can retry.
+            this.userDisplayCache.delete(cacheKey);
+            throw error;
+        });
+        this.userDisplayCache.set(cacheKey, promise);
+        return promise;
+    }
+
+    private async resolveUserDisplay(rawUserId: string) {
         const slackMentionMatch = rawUserId.match(/^<@([A-Z0-9]+)>$/i);
         const normalizedUserId = slackMentionMatch?.[1] || rawUserId;
 
