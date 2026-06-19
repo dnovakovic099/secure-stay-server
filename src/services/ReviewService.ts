@@ -77,6 +77,7 @@ interface Filter {
     tab?: string | null | undefined;
     propertyType?: string[] | null | undefined;
     serviceType?: string[] | null | undefined;
+    portfolio?: string[] | null | undefined;
     tags?: string[] | null | undefined;
     integration?: string[] | null | undefined;
     fromDate?: string | undefined;
@@ -118,6 +119,15 @@ interface Filter {
     publicReviewSearch?: string | null | undefined;
     groupField?: string | null | undefined;
     includeOpeningMitigationWindow?: boolean | string | null | undefined;
+    // Cursor-by-date pagination for the mitigation view. When includeOpeningMitigationWindow is
+    // true, the API returns records whose departureDate falls within a bounded date window
+    // (currentlyStaying counts as "the latest window" since they have no past departure yet).
+    // - mitigationWindowBefore: exclusive upper bound. Omit/empty for the initial load = today.
+    //                          To load the next page back in time, pass the oldest departureDate
+    //                          already received as the cursor.
+    // - mitigationWindowDays:  size of the window in days. Defaults to 14.
+    mitigationWindowBefore?: string | null | undefined;
+    mitigationWindowDays?: number | string | null | undefined;
 }
 
 
@@ -1000,6 +1010,26 @@ export class ReviewService {
         );
     }
 
+    // Frontend sends portfolio keys: 'group1', 'group2', 'group2_mitigation'.
+    // Normalize incoming variants (e.g. "Group 1", "group_1", "Group 2 Mitigation") to
+    // the canonical FE keys so the rest of the pipeline can compare strictly.
+    private normalizePortfolioFilters(values?: string[] | string | null): Array<'group1' | 'group2' | 'group2_mitigation'> {
+        const arr = this.normalizeTagFilterValues(values);
+        return Array.from(
+            new Set(
+                arr
+                    .map((value) => String(value || '').toLowerCase().replace(/[\s_]+/g, ''))
+                    .flatMap((value): Array<'group1' | 'group2' | 'group2_mitigation'> => {
+                        if (!value) return [];
+                        if (value === 'group1') return ['group1'];
+                        if (value === 'group2mitigation') return ['group2_mitigation'];
+                        if (value === 'group2') return ['group2'];
+                        return [];
+                    })
+            )
+        );
+    }
+
     private normalizeReservationTagFilters(values?: string[] | string | null) {
         const arr = this.normalizeTagFilterValues(values);
         const seen = new Set<string>();
@@ -1200,8 +1230,43 @@ export class ReviewService {
             .filter(Boolean);
     }
 
-    private getListingPortfolioFromTags(tags: string | null | undefined) {
-        return /\bgroup\s*1\b|group1/i.test(String(tags || '')) ? 'Group 1' : 'Group 2';
+    // Returns the FE-canonical portfolio key ('group1' | 'group2') based on the listing's tags,
+    // or null when neither group tag is present. Previously this defaulted to 'Group 2' for any
+    // listing missing a 'group1' tag, which caused unrelated listings (e.g. no group tag at all)
+    // to be lumped into Group 2.
+    private getListingPortfolioFromTags(tags: string | null | undefined): 'group1' | 'group2' | null {
+        const raw = String(tags || '');
+        if (/\bgroup\s*1\b|group1/i.test(raw)) return 'group1';
+        if (/\bgroup\s*2\b|group2/i.test(raw)) return 'group2';
+        return null;
+    }
+
+    // Resolve listing IDs for the FE-canonical portfolio keys ('group1', 'group2', 'group2_mitigation').
+    // - 'group1': listings tagged Group1
+    // - 'group2': listings tagged Group2
+    // - 'group2_mitigation': listings tagged Group2 AND service type Full or Pro
+    private async getListingIdsByPortfolios(portfolios: Array<'group1' | 'group2' | 'group2_mitigation'>) {
+        if (!portfolios.length) return [] as number[];
+        const wants = new Set(portfolios);
+        const listings = await this.listingRepo.find({ select: ['id', 'tags'] });
+        const matches: number[] = [];
+        listings.forEach((listing) => {
+            const portfolio = this.getListingPortfolioFromTags(listing.tags);
+            if (!portfolio) return;
+            if (wants.has(portfolio)) {
+                const id = Number(listing.id);
+                if (id) matches.push(id);
+                return;
+            }
+            if (wants.has('group2_mitigation') && portfolio === 'group2') {
+                const serviceType = this.extractServiceTypeFromTags(listing.tags);
+                if (serviceType === 'Full' || serviceType === 'Pro') {
+                    const id = Number(listing.id);
+                    if (id) matches.push(id);
+                }
+            }
+        });
+        return Array.from(new Set(matches));
     }
 
     private normalizeDashboardTrendBasis(value: DashboardFilters['trendBasis']) {
@@ -1235,19 +1300,9 @@ export class ReviewService {
             listingIds = this.mergeListingIds(listingIds, propertyTypeListingIds);
         }
 
-        const normalizedPortfolios = Array.from(new Set((portfolio || []).map((item) => String(item || '').trim()).filter(Boolean)));
+        const normalizedPortfolios = this.normalizePortfolioFilters(portfolio as string[] | null | undefined);
         if (normalizedPortfolios.length > 0) {
-            const listings = await this.listingRepo.find({ select: ['id', 'tags'] });
-            const portfolioListingIds = listings
-                .filter((listing) => {
-                    const portfolio = this.getListingPortfolioFromTags(listing.tags);
-                    if (normalizedPortfolios.includes(portfolio)) return true;
-                    return normalizedPortfolios.includes('Group 2 Mitigation') &&
-                        portfolio === 'Group 2' &&
-                        this.extractServiceTypeFromTags(listing.tags) !== 'Launch';
-                })
-                .map((listing) => Number(listing.id))
-                .filter(Boolean);
+            const portfolioListingIds = await this.getListingIdsByPortfolios(normalizedPortfolios);
             listingIds = this.mergeListingIds(listingIds, portfolioListingIds);
         }
 
@@ -2829,6 +2884,7 @@ export class ReviewService {
             channel: rawChannel,
             todayDate, status: rawStatus, isActive, tab, keyword,
             propertyType, serviceType,
+            portfolio: rawPortfolio,
             tags: rawTags,
             integration: rawIntegration,
             assignee: rawAssignee,
@@ -2868,6 +2924,8 @@ export class ReviewService {
             aiAnalysisSearch,
             publicReviewSearch,
             groupField,
+            mitigationWindowBefore,
+            mitigationWindowDays,
         } = filters;
 
         // qs parses a single repeated query param as a string, not an array.
@@ -2908,6 +2966,7 @@ export class ReviewService {
 
         const normalizedPropertyTypes = this.normalizePropertyTypeFilters(propertyType as string[] | null | undefined);
         const normalizedServiceTypes = this.normalizeServiceTypeFilters(serviceType as string[] | null | undefined);
+        const normalizedPortfolios = this.normalizePortfolioFilters(rawPortfolio as string[] | null | undefined);
         const tagPresence = this.splitPresenceFilterValues(tags as string[] | null | undefined);
         const normalizedTags = this.normalizeReservationTagFilters(tagPresence.exactValues);
         const sentimentPresence = this.splitPresenceFilterValues(sentiment as string[] | null | undefined);
@@ -2927,22 +2986,53 @@ export class ReviewService {
         }
 
         if (includeOpeningMitigationWindow) {
-            const currentStayReservationIds = await this.getCurrentlyStayingReservationIds(
-                null,
-                listingMapId.length > 0 ? listingMapId.map((id) => Number(id)).filter(Boolean) : null,
-            );
+            // Mitigation view uses a bounded date window so the initial load is fast and predictable
+            // instead of letting offset-based pagination cascade through every page.
+            //
+            // Initial load (no mitigationWindowBefore):
+            //   include currently-staying reservations + records with departureDate in
+            //   [today - windowDays, today].
+            //
+            // "Load older" (mitigationWindowBefore = oldest departureDate from previous page):
+            //   include records with departureDate in [cursor - windowDays, cursor) — i.e. the
+            //   next windowDays-wide chunk going further back in time.
             const today = new Date();
+            const parsedWindowDays = Number(mitigationWindowDays);
+            const windowDays = Number.isFinite(parsedWindowDays) && parsedWindowDays > 0
+                ? Math.min(Math.floor(parsedWindowDays), 90)
+                : 14;
+            const rawCursor = mitigationWindowBefore != null && String(mitigationWindowBefore).trim()
+                ? new Date(String(mitigationWindowBefore))
+                : null;
+            const cursorIsValid = rawCursor && !Number.isNaN(rawCursor.getTime());
+            const isInitialWindow = !cursorIsValid;
+            const windowUpperDate = cursorIsValid ? rawCursor : today;
+            const windowLowerDate = addDays(windowUpperDate as Date, -windowDays);
+
+            const dateParams = {
+                mitigationWindowLowerDate: format(windowLowerDate, 'yyyy-MM-dd'),
+                mitigationWindowUpperDate: format(windowUpperDate as Date, 'yyyy-MM-dd'),
+            };
+            // Inclusive upper bound for the initial window (so "today" is included), exclusive
+            // upper bound for subsequent pages (so the cursor row isn't repeated).
+            const upperOperator = isInitialWindow ? '<=' : '<';
+            const dateClause = `DATE(reservationInfo.departureDate) >= :mitigationWindowLowerDate AND DATE(reservationInfo.departureDate) ${upperOperator} :mitigationWindowUpperDate`;
+
+            // Only include currently-staying records on the initial page — their departureDate
+            // is in the future, so they would not appear in any older chunk.
+            const currentStayReservationIds = isInitialWindow
+                ? await this.getCurrentlyStayingReservationIds(
+                    null,
+                    listingMapId.length > 0 ? listingMapId.map((id) => Number(id)).filter(Boolean) : null,
+                )
+                : [];
+
             query.andWhere(new Brackets((qb) => {
                 let hasPredicate = false;
                 if (currentStayReservationIds.length > 0) {
                     qb.where('reservationInfo.id IN (:...openingCurrentStayReservationIds)', { openingCurrentStayReservationIds: currentStayReservationIds });
                     hasPredicate = true;
                 }
-                const dateClause = 'DATE(reservationInfo.departureDate) BETWEEN :openingMitigationFromDate AND :openingMitigationToDate';
-                const dateParams = {
-                    openingMitigationFromDate: format(addDays(today, -14), 'yyyy-MM-dd'),
-                    openingMitigationToDate: format(today, 'yyyy-MM-dd'),
-                };
                 if (hasPredicate) qb.orWhere(dateClause, dateParams);
                 else qb.where(dateClause, dateParams);
             }));
@@ -2991,9 +3081,10 @@ export class ReviewService {
             }
         }
 
-        // Property type and service type filters are unioned (OR) — a listing matching either dimension is included.
-        // This lets users combine e.g. Own+Arb with Full+Pro and see all matching listings, not just their intersection.
-        if (normalizedPropertyTypes.length > 0 || normalizedServiceTypes.length > 0) {
+        // Property type, service type, and portfolio filters are unioned (OR) — a listing matching
+        // any dimension is included. This lets users combine e.g. Own+Arb with Full+Pro and Group 1
+        // and see all matching listings.
+        if (normalizedPropertyTypes.length > 0 || normalizedServiceTypes.length > 0 || normalizedPortfolios.length > 0) {
             const listingService = new ListingService();
             let combinedListingIds: number[] = [];
 
@@ -3005,6 +3096,11 @@ export class ReviewService {
             if (normalizedServiceTypes.length > 0) {
                 const serviceTypeListings = await listingService.getListingsByServiceTypes(normalizedServiceTypes as any);
                 combinedListingIds.push(...serviceTypeListings.map((l: any) => Number(l.id)));
+            }
+
+            if (normalizedPortfolios.length > 0) {
+                const portfolioListingIds = await this.getListingIdsByPortfolios(normalizedPortfolios);
+                combinedListingIds.push(...portfolioListingIds);
             }
 
             combinedListingIds = Array.from(new Set(combinedListingIds));
@@ -3591,8 +3687,20 @@ export class ReviewService {
 
         const groupCountQuery = groupField ? query.clone() : null;
 
-        query.skip((page - 1) * limit).take(limit);
-        query.orderBy("reviewCheckout.createdAt", "DESC");
+        if (includeOpeningMitigationWindow) {
+            // Mitigation view: the WHERE clause already bounds the result set to a single
+            // date window (currently-staying + last 14 days, or a 14-day chunk before the cursor).
+            // Skip offset pagination — return every row in the window in one shot, with a hard
+            // safety cap. Ordering: currently-staying first (their departureDate is in the future
+            // and DESC puts those at the top), then most recent past departures going back.
+            const MITIGATION_WINDOW_CAP = 1000;
+            query.take(MITIGATION_WINDOW_CAP);
+            query.orderBy("reservationInfo.departureDate", "DESC");
+            query.addOrderBy("reviewCheckout.createdAt", "DESC");
+        } else {
+            query.skip((page - 1) * limit).take(limit);
+            query.orderBy("reviewCheckout.createdAt", "DESC");
+        }
 
         // Debug logging - remove after debugging
         logger.info(`[getReviewsForCheckout] Filters received:`, JSON.stringify({

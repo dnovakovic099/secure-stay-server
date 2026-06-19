@@ -166,6 +166,10 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
             Joi.array().items(Joi.string()),
             Joi.string()
         ).optional(),
+        portfolio: Joi.alternatives().try(
+            Joi.array().items(Joi.string()),
+            Joi.string()
+        ).optional(),
         actionItems: Joi.alternatives().try(
             Joi.array().items(Joi.string()),
             Joi.string()
@@ -265,6 +269,8 @@ export const validateGetReviewForCheckout = (request: Request, response: Respons
         publicReviewSearch: Joi.string().allow('').optional(),
         groupField: Joi.string().allow('').optional(),
         includeOpeningMitigationWindow: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false')).optional(),
+        mitigationWindowBefore: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).allow('', null).optional(),
+        mitigationWindowDays: Joi.alternatives().try(Joi.number().integer().min(1).max(90), Joi.string().pattern(/^\d+$/)).optional(),
     });
 
     const { error } = schema.validate(request.query);
