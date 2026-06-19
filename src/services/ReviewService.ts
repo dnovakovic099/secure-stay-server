@@ -3723,7 +3723,11 @@ export class ReviewService {
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
         const latestReservationUpdates = await this.reservationHistoryService.getLatestUpdatesForReservations(reservationIds);
 
-        // Collect all user IDs referenced in the data to avoid fetching ALL users
+        // Collect all user IDs referenced in the data to avoid fetching ALL users.
+        // We also seed this set with the authorIds of the latest discussion notes (computed
+        // below) so the single batched users.find covers buildLatestUpdatePayload too — that
+        // helper used to do its own usersRepo/employeeRepo/fileInfoRepo lookup per row, which
+        // tripped MySQL's "Queue limit reached" once limit became 10000 in the mitigation view.
         const userIds = new Set<string>();
         reviewCheckoutList.forEach(rc => {
             if (rc.assignee) userIds.add(rc.assignee);
@@ -3779,26 +3783,79 @@ export class ReviewService {
             user.uid,
             [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid,
         ]));
-        const userDisplayNameCache = new Map<string, string>();
-        const resolveUserDisplayName = async (value?: string | null) => {
+        // Promise-cache so the dozens of resolveUserDisplayName(...) awaits per row across
+        // thousands of rows share a single Supabase round-trip per unique UID. Without this
+        // the Promise.all over reviewCheckoutList fires N x M concurrent Supabase calls and
+        // saturates the DB connection pool ("Queue limit reached").
+        const userDisplayNameCache = new Map<string, Promise<string>>();
+        const resolveUserDisplayName = (value?: string | null): Promise<string> => {
             const raw = String(value || "").trim();
-            if (!raw) return raw;
-            if (raw === "system") return "System";
-            if (userDisplayNameCache.has(raw)) return userDisplayNameCache.get(raw) || raw;
-
+            if (!raw) return Promise.resolve(raw);
+            if (raw === "system") return Promise.resolve("System");
+            const cached = userDisplayNameCache.get(raw);
+            if (cached) return cached;
             const localName = String(userMap.get(raw) || "").trim();
             if (localName) {
-                userDisplayNameCache.set(raw, localName);
-                return localName;
+                const resolved = Promise.resolve(localName);
+                userDisplayNameCache.set(raw, resolved);
+                return resolved;
             }
-
-            const authName = await this.getSupabaseUserDisplayName(raw);
-            const displayName = authName || raw;
-            userDisplayNameCache.set(raw, displayName);
-            return displayName;
+            const promise = this.getSupabaseUserDisplayName(raw)
+                .then((authName) => authName || raw)
+                .catch(() => raw);
+            userDisplayNameCache.set(raw, promise);
+            return promise;
         };
         const issues = issuesResult.issues;
         const actionItems = actionItemsResult.actionItems;
+
+        // Pre-build the cache buildLatestUpdatePayload accepts so it skips its own per-row
+        // usersRepo/employeeRepo/fileInfoRepo lookups. Same pattern used by the dashboard
+        // path (see resolveDashboardListingIds region) — this was missing here and was the
+        // primary source of the "Queue limit reached" failure on large mitigation windows.
+        const userByUidMap = new Map(users.map((user) => [user.uid, user] as const));
+        const noteAuthorUids = Array.from(new Set(
+            Array.from(latestNotesByReservation.values())
+                .filter((msg) => msg?.authorId && msg.metadata?.source !== "slack")
+                .map((msg) => String(msg.authorId))
+                .filter(Boolean)
+        ));
+        // Note authors may not be in the initial users batch (which was scoped to assignee/
+        // createdBy/updatedBy IDs). Fetch any missing ones in one extra query so the cache
+        // covers every author and buildLatestUpdatePayload never falls back to per-row work.
+        const missingAuthorUids = noteAuthorUids.filter((uid) => !userByUidMap.has(uid));
+        if (missingAuthorUids.length > 0) {
+            const extraAuthors = await this.usersRepo.find({ where: { uid: In(missingAuthorUids) } });
+            extraAuthors.forEach((u) => userByUidMap.set(u.uid, u));
+        }
+        const noteAuthorUserIds = noteAuthorUids
+            .map((uid) => userByUidMap.get(uid)?.id)
+            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id));
+        const [noteAuthorEmployees, noteAuthorSlackUsers] = await Promise.all([
+            noteAuthorUserIds.length > 0
+                ? this.employeeRepo.find({
+                    where: { userId: In(noteAuthorUserIds), deletedAt: null as any },
+                    select: ["userId", "preferredName", "profilePhoto", "slackUserId", "slackId"],
+                })
+                : Promise.resolve([]),
+            noteAuthorUids.length > 0 ? getSlackUsers() : Promise.resolve([]),
+        ]);
+        const authorEmployeeByUserIdMap = new Map(noteAuthorEmployees.map((e) => [e.userId, e] as const));
+        const noteAuthorPhotoIds = noteAuthorEmployees
+            .map((e) => Number(e.profilePhoto))
+            .filter((id) => !Number.isNaN(id) && id > 0);
+        const authorFileInfoByIdMap = new Map(
+            (noteAuthorPhotoIds.length > 0
+                ? await this.fileInfoRepo.find({ where: { id: In(noteAuthorPhotoIds) } })
+                : []
+            ).map((f) => [f.id, f] as const)
+        );
+        const latestUpdateCache = {
+            userByUidMap,
+            authorEmployeeByUserIdMap,
+            authorFileInfoByIdMap,
+            slackUsers: noteAuthorSlackUsers as any[],
+        };
 
         // Build listing tag map to resolve propertyType — include IDs from both reviews and reservations
         const uniqueListingIds = [...new Set([
@@ -3837,7 +3894,8 @@ export class ReviewService {
             const reservationId = Number(rc.reservationInfo?.id);
             const latestReservationUpdate = latestReservationUpdates.get(reservationId);
             const latestUpdate = await this.buildLatestUpdatePayload(
-                latestNotesByReservation.get(reservationId) || null
+                latestNotesByReservation.get(reservationId) || null,
+                latestUpdateCache,
             );
             const latestRefund = latestRefundsByReservation.get(reservationId) || null;
             const accountingSummary = accountingSummariesByReservation.get(reservationId) || null;
