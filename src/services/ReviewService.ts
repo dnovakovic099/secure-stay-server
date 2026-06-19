@@ -3690,11 +3690,13 @@ export class ReviewService {
         if (includeOpeningMitigationWindow) {
             // Mitigation view: the WHERE clause already bounds the result set to a single
             // date window (currently-staying + last 14 days, or a 14-day chunk before the cursor).
-            // Skip offset pagination — return every row in the window in one shot, with a hard
-            // safety cap. Ordering: currently-staying first (their departureDate is in the future
-            // and DESC puts those at the top), then most recent past departures going back.
-            const MITIGATION_WINDOW_CAP = 1000;
-            query.take(MITIGATION_WINDOW_CAP);
+            // Skip offset/limit pagination entirely — return every row in the window in one
+            // shot. The date bound is the natural ceiling on payload size; capping by row count
+            // here would silently drop rows from the oldest end of the window and corrupt the
+            // cursor advance ("oldest loaded" would no longer match the real oldest in the
+            // window, so subsequent windows would skip rows).
+            // Ordering: currently-staying first (their departureDate is in the future and DESC
+            // puts those at the top), then most recent past departures going back.
             query.orderBy("reservationInfo.departureDate", "DESC");
             query.addOrderBy("reviewCheckout.createdAt", "DESC");
         } else {
