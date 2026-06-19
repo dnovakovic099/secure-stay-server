@@ -3712,6 +3712,10 @@ export class ReviewService {
         logger.info(`[getReviewsForCheckout] Query parameters: ${JSON.stringify(query.getParameters())}`);
 
         const [reviewCheckoutList, total] = await query.getManyAndCount();
+
+        if (includeOpeningMitigationWindow) {
+            logger.info(`[getReviewsForCheckout][mitigation-window] mode=${mitigationWindowBefore ? 'load-older' : 'initial'} windowDays=${mitigationWindowDays ?? 14} returnedRows=${reviewCheckoutList.length} total=${total}`);
+        }
         const groupCounts = groupCountQuery
             ? await this.getReviewCheckoutGroupCounts(groupCountQuery, String(groupField || ''))
             : undefined;
