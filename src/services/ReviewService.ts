@@ -3723,12 +3723,27 @@ export class ReviewService {
         logger.info(`[getReviewsForCheckout] Generated SQL: ${query.getSql()}`);
         logger.info(`[getReviewsForCheckout] Query parameters: ${JSON.stringify(query.getParameters())}`);
 
-        const [reviewCheckoutList, total] = await query.getManyAndCount();
+        // In mitigation mode the full date window is returned without skip/take, so total ===
+        // reviewCheckoutList.length and the separate COUNT() that getManyAndCount runs is pure
+        // waste. Skipping it cuts the heavy join-COUNT query from every mitigation request.
+        let reviewCheckoutList: ReviewCheckout[];
+        let total: number;
+        if (includeOpeningMitigationWindow) {
+            reviewCheckoutList = await query.getMany();
+            total = reviewCheckoutList.length;
+        } else {
+            [reviewCheckoutList, total] = await query.getManyAndCount();
+        }
 
         if (includeOpeningMitigationWindow) {
             logger.info(`[getReviewsForCheckout][mitigation-window] mode=${mitigationWindowBefore ? 'load-older' : 'initial'} windowDays=${mitigationWindowDays ?? 14} returnedRows=${reviewCheckoutList.length} total=${total}`);
         }
-        const groupCounts = groupCountQuery
+        // Skip the duplicate getMany() + 4 secondary queries inside getReviewCheckoutGroupCounts
+        // when in mitigation cursor mode. The main query already returned every row in the
+        // bounded window (no skip/take), so the FE's per-group "loaded count" equals the true
+        // count — there is no benefit to running the whole pipeline a second time and it was a
+        // significant contributor to the multi-second response time on large windows.
+        const groupCounts = groupCountQuery && !includeOpeningMitigationWindow
             ? await this.getReviewCheckoutGroupCounts(groupCountQuery, String(groupField || ''))
             : undefined;
 
