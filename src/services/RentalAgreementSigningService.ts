@@ -183,7 +183,7 @@ export class RentalAgreementSigningService {
         "inquirytimedout", "inquirynotpossible",
         "denied", "no_show", "awaiting_payment",
         "declined_inq", "preapproved", "offer",
-        "withdrawn", "timedout", "not_possible", "deleted",
+        "withdrawn", "timedout", "not_possible", "deleted", "voided"
     ];
     private rentalAgreementMinArrivalDate = "2026-05-01";
     private hostifyClient = new Hostify();

@@ -60,7 +60,7 @@ export class ReservationInfoService {
     "inquiryTimedout", "inquiryNotPossible",
     "denied", "no_show", "awaiting_payment",
     "declined_inq", "preapproved", "offer",
-    "withdrawn", "timedout", "not_possible", "deleted"
+    "withdrawn", "timedout", "not_possible", "deleted", "voided"
   ];
 
   private validStatus = ["new", "accepted", "modified", "ownerStay", "moved"]
