@@ -451,18 +451,27 @@ export class ContactService {
     async getContactRoles() {
         const contactRoles = await this.contactRoleRepo.find();
         return await Promise.all(contactRoles.map(async (role) => {
-            const aliases = this.getRoleAliases(role);
-            const contactCount = aliases.length
-                ? await this.contactRepo.count({ where: { role: In(aliases) } })
-                : 0;
-            const vendorAssignmentCount = aliases.length
-                ? await this.vendorAssignmentRepo.count({ where: { role: In(aliases) } })
-                : 0;
+            const roleName = role.role || role.workCategory;
+            const assignmentUsage = roleName
+                ? await this.vendorAssignmentRepo
+                    .createQueryBuilder("assignment")
+                    .innerJoin("assignment.vendorProfile", "vendorProfile")
+                    .where("assignment.deletedAt IS NULL")
+                    .andWhere("vendorProfile.deletedAt IS NULL")
+                    .andWhere("assignment.role = :roleName", { roleName })
+                    .select("COUNT(assignment.id)", "assignmentCount")
+                    .addSelect("COUNT(DISTINCT assignment.vendorProfileId)", "vendorProfileCount")
+                    .getRawOne()
+                : { assignmentCount: 0, vendorProfileCount: 0 };
+            const vendorAssignmentCount = Number(assignmentUsage?.assignmentCount || 0);
+            const vendorProfileCount = Number(assignmentUsage?.vendorProfileCount || 0);
             return {
                 ...role,
-                contactCount,
+                contactCount: 0,
+                legacyContactCount: 0,
                 vendorAssignmentCount,
-                usageCount: contactCount + vendorAssignmentCount
+                vendorProfileCount,
+                usageCount: vendorProfileCount
             };
         }));
     }

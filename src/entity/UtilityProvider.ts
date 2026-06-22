@@ -4,8 +4,28 @@ export type UtilityProviderPropertyLink = {
     propertyId: number;
     accountNumber: string | null;
     propertyNotes: string | null;
+    source?: string | null;
+    managedBy?: string | null;
+    workSchedule?: string | null;
+    workScheduleDays?: string | null;
+    workScheduleIntervalWeeks?: number | null;
+    workScheduleDayOfMonth?: number | null;
+    workScheduleQuarter?: string | null;
+    workScheduleMonth?: string | null;
+    workScheduleCheckoutTiming?: string | null;
     autopay: boolean;
     paymentMethod: string | null;
+    paymentScheduleType?: string | null;
+    paidBy?: string | null;
+    rate?: string | null;
+    rateType?: string | null;
+    customRateDescription?: string | null;
+    payoutDetails?: string | null;
+    paymentIntervalMonth?: number | null;
+    paymentDayOfWeek?: string | null;
+    paymentWeekOfMonth?: number | null;
+    paymentDayOfMonth?: number | null;
+    nextServiceDate?: string | null;
 };
 
 @Entity("utility_provider")

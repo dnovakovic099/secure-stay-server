@@ -2,6 +2,8 @@ import { appDatabase } from "../utils/database.util";
 import { UtilityProvider, UtilityProviderPropertyLink } from "../entity/UtilityProvider";
 import { UtilityPaymentMethod } from "../entity/UtilityPaymentMethod";
 import { UtilityManagedOption, UtilityManagedOptionKind } from "../entity/UtilityManagedOption";
+import { VendorAssignment } from "../entity/VendorAssignment";
+import { VendorProfile } from "../entity/VendorProfile";
 import CustomErrorHandler from "../middleware/customError.middleware";
 
 type UtilityQuery = {
@@ -11,9 +13,14 @@ type UtilityQuery = {
 };
 
 export class UtilityProviderService {
+    private static readonly TRASH_PROVIDER_TYPE = "Trash";
+    private static readonly TRASH_VENDOR_ROLE = "Trash Haul";
+
     private utilityRepo = appDatabase.getRepository(UtilityProvider);
     private paymentMethodRepo = appDatabase.getRepository(UtilityPaymentMethod);
     private managedOptionRepo = appDatabase.getRepository(UtilityManagedOption);
+    private vendorProfileRepo = appDatabase.getRepository(VendorProfile);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
 
     private async ensureManagedOptionTable() {
         await appDatabase.query(`
@@ -120,6 +127,124 @@ export class UtilityProviderService {
         ]);
     }
 
+    private normalizeNullableString(value: unknown) {
+        return typeof value === "string" ? value.trim() || null : value == null ? null : String(value).trim() || null;
+    }
+
+    private normalizeNullableNumber(value: unknown) {
+        const normalized = Number(value);
+        return Number.isFinite(normalized) ? normalized : null;
+    }
+
+    private normalizeNullableDateString(value: unknown) {
+        const normalized = this.normalizeNullableString(value);
+        if (!normalized) return null;
+        const date = new Date(normalized);
+        return Number.isNaN(date.getTime()) ? null : normalized;
+    }
+
+    private isTrashProvider(utility: Partial<UtilityProvider>) {
+        return (utility.providerType || "").trim().toLowerCase() === UtilityProviderService.TRASH_PROVIDER_TYPE.toLowerCase();
+    }
+
+    private async findOrCreateTrashVendorProfile(utility: UtilityProvider, propertyLinks: UtilityProviderPropertyLink[], userId: string) {
+        const providerName = utility.providerName?.trim();
+        if (!providerName) return null;
+
+        const source = propertyLinks.find((link) => this.normalizeNullableString(link.source))?.source || null;
+        let profile = await this.vendorProfileRepo
+            .createQueryBuilder("profile")
+            .where("profile.deletedAt IS NULL")
+            .andWhere("LOWER(profile.name) = LOWER(:name)", { name: providerName })
+            .getOne();
+
+        const nextValues = {
+            name: providerName,
+            source: this.normalizeNullableString(source) || profile?.source || null,
+            notes: this.normalizeNullableString(utility.notes) || profile?.notes || null,
+            updatedBy: userId,
+        };
+
+        if (!profile) {
+            profile = this.vendorProfileRepo.create({
+                ...nextValues,
+                companyName: null,
+                contact: null,
+                email: null,
+                avatarUrl: null,
+                icon: null,
+                createdBy: userId,
+            });
+        } else {
+            profile = this.vendorProfileRepo.merge(profile, nextValues);
+        }
+
+        return this.vendorProfileRepo.save(profile);
+    }
+
+    private buildTrashVendorAssignmentPayload(utility: UtilityProvider, link: UtilityProviderPropertyLink, userId: string) {
+        return {
+            listingId: String(link.propertyId),
+            role: UtilityProviderService.TRASH_VENDOR_ROLE,
+            status: "active",
+            managedBy: this.normalizeNullableString(link.managedBy),
+            workSchedule: this.normalizeNullableString(link.workSchedule),
+            workScheduleDays: this.normalizeNullableString(link.workScheduleDays),
+            workScheduleIntervalWeeks: this.normalizeNullableNumber(link.workScheduleIntervalWeeks),
+            workScheduleDayOfMonth: this.normalizeNullableNumber(link.workScheduleDayOfMonth),
+            workScheduleQuarter: this.normalizeNullableString(link.workScheduleQuarter),
+            workScheduleMonth: this.normalizeNullableString(link.workScheduleMonth),
+            workScheduleCheckoutTiming: this.normalizeNullableString(link.workScheduleCheckoutTiming),
+            paymentScheduleType: this.normalizeNullableString(link.paymentScheduleType),
+            paymentMethod: this.normalizeNullableString(link.paymentMethod),
+            isAutoPay: Boolean(link.autopay),
+            paidBy: this.normalizeNullableString(link.paidBy),
+            rate: this.normalizeNullableString(link.rate),
+            rateType: this.normalizeNullableString(link.rateType),
+            customRateDescription: this.normalizeNullableString(link.customRateDescription),
+            payoutDetails: this.normalizeNullableString(link.payoutDetails),
+            paymentIntervalMonth: this.normalizeNullableNumber(link.paymentIntervalMonth),
+            paymentDayOfWeek: this.normalizeNullableString(link.paymentDayOfWeek),
+            paymentWeekOfMonth: this.normalizeNullableNumber(link.paymentWeekOfMonth),
+            paymentDayOfMonth: this.normalizeNullableNumber(link.paymentDayOfMonth),
+            nextServiceDate: this.normalizeNullableDateString(link.nextServiceDate) as any,
+            website_name: this.normalizeNullableString(utility.providerName),
+            website_link: this.normalizeNullableString(utility.website),
+            notes: this.normalizeNullableString(link.propertyNotes),
+            updatedBy: userId,
+        };
+    }
+
+    private async syncTrashUtilityVendorAssignments(utility: UtilityProvider, propertyLinks: UtilityProviderPropertyLink[], userId: string) {
+        if (!this.isTrashProvider(utility)) return;
+
+        const profile = await this.findOrCreateTrashVendorProfile(utility, propertyLinks, userId);
+        if (!profile) return;
+
+        for (const link of propertyLinks) {
+            const payload = this.buildTrashVendorAssignmentPayload(utility, link, userId);
+            const existing = await this.vendorAssignmentRepo
+                .createQueryBuilder("assignment")
+                .where("assignment.deletedAt IS NULL")
+                .andWhere("assignment.vendorProfileId = :vendorProfileId", { vendorProfileId: profile.id })
+                .andWhere("assignment.listingId = :listingId", { listingId: payload.listingId })
+                .andWhere("assignment.role = :role", { role: UtilityProviderService.TRASH_VENDOR_ROLE })
+                .orderBy("assignment.updatedAt", "DESC")
+                .getOne();
+
+            if (existing) {
+                await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(existing, payload));
+            } else {
+                await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.create({
+                    ...payload,
+                    vendorProfileId: profile.id,
+                    vendorProfile: profile,
+                    createdBy: userId,
+                }));
+            }
+        }
+    }
+
     private normalizePropertyLinks(
         propertyLinks?: Array<Partial<UtilityProviderPropertyLink> | null> | null,
         fallbackPropertyIds?: Array<number | string> | null
@@ -129,8 +254,28 @@ export class UtilityProviderService {
                 propertyId: Number(link?.propertyId),
                 accountNumber: link?.accountNumber?.toString().trim() || null,
                 propertyNotes: link?.propertyNotes?.toString().trim() || null,
+                source: this.normalizeNullableString(link?.source),
+                managedBy: this.normalizeNullableString(link?.managedBy),
+                workSchedule: this.normalizeNullableString(link?.workSchedule),
+                workScheduleDays: this.normalizeNullableString(link?.workScheduleDays),
+                workScheduleIntervalWeeks: this.normalizeNullableNumber(link?.workScheduleIntervalWeeks),
+                workScheduleDayOfMonth: this.normalizeNullableNumber(link?.workScheduleDayOfMonth),
+                workScheduleQuarter: this.normalizeNullableString(link?.workScheduleQuarter),
+                workScheduleMonth: this.normalizeNullableString(link?.workScheduleMonth),
+                workScheduleCheckoutTiming: this.normalizeNullableString(link?.workScheduleCheckoutTiming),
                 autopay: Boolean(link?.autopay),
                 paymentMethod: link?.paymentMethod?.toString().trim() || null,
+                paymentScheduleType: this.normalizeNullableString(link?.paymentScheduleType),
+                paidBy: this.normalizeNullableString(link?.paidBy),
+                rate: this.normalizeNullableString(link?.rate),
+                rateType: this.normalizeNullableString(link?.rateType),
+                customRateDescription: this.normalizeNullableString(link?.customRateDescription),
+                payoutDetails: this.normalizeNullableString(link?.payoutDetails),
+                paymentIntervalMonth: this.normalizeNullableNumber(link?.paymentIntervalMonth),
+                paymentDayOfWeek: this.normalizeNullableString(link?.paymentDayOfWeek),
+                paymentWeekOfMonth: this.normalizeNullableNumber(link?.paymentWeekOfMonth),
+                paymentDayOfMonth: this.normalizeNullableNumber(link?.paymentDayOfMonth),
+                nextServiceDate: this.normalizeNullableDateString(link?.nextServiceDate),
             }))
             .filter((link) => Number.isFinite(link.propertyId) && link.propertyId > 0);
 
@@ -144,8 +289,28 @@ export class UtilityProviderService {
             propertyId,
             accountNumber: null,
             propertyNotes: null,
+            source: null,
+            managedBy: null,
+            workSchedule: null,
+            workScheduleDays: null,
+            workScheduleIntervalWeeks: null,
+            workScheduleDayOfMonth: null,
+            workScheduleQuarter: null,
+            workScheduleMonth: null,
+            workScheduleCheckoutTiming: null,
             autopay: false,
             paymentMethod: null,
+            paymentScheduleType: null,
+            paidBy: null,
+            rate: null,
+            rateType: null,
+            customRateDescription: null,
+            payoutDetails: null,
+            paymentIntervalMonth: null,
+            paymentDayOfWeek: null,
+            paymentWeekOfMonth: null,
+            paymentDayOfMonth: null,
+            nextServiceDate: null,
         }));
     }
 
@@ -192,6 +357,7 @@ export class UtilityProviderService {
 
         const created = await this.utilityRepo.save(utility);
         await this.syncUtilityDerivedOptions(created, propertyLinks, userId);
+        await this.syncTrashUtilityVendorAssignments(created, propertyLinks, userId);
         return this.normalizeUtility(created);
     }
 
@@ -224,6 +390,7 @@ export class UtilityProviderService {
 
         const updated = await this.utilityRepo.save(existing);
         await this.syncUtilityDerivedOptions(updated, propertyLinks, userId);
+        await this.syncTrashUtilityVendorAssignments(updated, propertyLinks, userId);
         return this.normalizeUtility(updated);
     }
 
