@@ -26,6 +26,12 @@ export class UpSellPropertyConfig {
   @Column({ type: "varchar", length: 50, nullable: true })
   chargeType: string | null;
 
+  @Column({ type: "varchar", length: 50, nullable: true })
+  rateConfiguration: string | null;
+
+  @Column({ type: "text", nullable: true })
+  pricingRules: string | null;
+
   @Column({ type: "decimal", precision: 10, scale: 2, nullable: true })
   upsellFee: number | null;
 

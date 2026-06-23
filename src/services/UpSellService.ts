@@ -59,6 +59,8 @@ export class UpSellServices {
         actualFee: this.normalizeNullableNumber(item?.actualFee),
         processingFee: this.normalizeNullableNumber(item?.processingFee),
         chargeType: this.normalizeNullableString(item?.chargeType),
+        rateConfiguration: this.normalizeNullableString(item?.rateConfiguration),
+        pricingRules: this.normalizeNullableString(item?.pricingRules),
         upsellFee: this.normalizeNullableNumber(item?.upsellFee),
         internalNotes: this.normalizeNullableString(item?.internalNotes),
       }))
@@ -116,6 +118,8 @@ export class UpSellServices {
               propertyConfig.actualFee = config.actualFee;
               propertyConfig.processingFee = config.processingFee;
               propertyConfig.chargeType = config.chargeType;
+              propertyConfig.rateConfiguration = config.rateConfiguration;
+              propertyConfig.pricingRules = config.pricingRules;
               propertyConfig.upsellFee = config.upsellFee;
               propertyConfig.internalNotes = config.internalNotes;
               await transactionalEntityManager.save(propertyConfig);
@@ -213,6 +217,8 @@ export class UpSellServices {
                 propertyConfig.actualFee = config.actualFee;
                 propertyConfig.processingFee = config.processingFee;
                 propertyConfig.chargeType = config.chargeType;
+                propertyConfig.rateConfiguration = config.rateConfiguration;
+                propertyConfig.pricingRules = config.pricingRules;
                 propertyConfig.upsellFee = config.upsellFee;
                 propertyConfig.internalNotes = config.internalNotes;
                 await transactionalEntityManager.save(propertyConfig);
@@ -525,6 +531,8 @@ export class UpSellServices {
             listingInfo.actualFee = propertyConfig?.actualFee ?? null;
             listingInfo.processingFee = propertyConfig?.processingFee ?? null;
             listingInfo.chargeType = propertyConfig?.chargeType ?? null;
+            listingInfo.rateConfiguration = propertyConfig?.rateConfiguration ?? null;
+            listingInfo.pricingRules = propertyConfig?.pricingRules ?? null;
             listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
             listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
             listingInfo.createdAt = propertyConfig?.createdAt ?? null;
