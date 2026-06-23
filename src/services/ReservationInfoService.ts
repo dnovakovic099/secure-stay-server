@@ -14,7 +14,7 @@ import axios from "axios";
 import { Listing } from "../entity/Listing";
 import { runAsync } from "../utils/asyncUtils";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
-import { endOfDay, format, startOfDay } from "date-fns";
+import { addDays, endOfDay, format, startOfDay } from "date-fns";
 import { ListingDetail } from "../entity/ListingDetails";
 import { convertLocalHourToUTC, getLast7DaysDate, getPreviousMonthRange, getStartOfThreeMonthsAgo } from "../helpers/date";
 import { Resolution } from "../entity/Resolution";
@@ -1957,11 +1957,26 @@ export class ReservationInfoService {
     return deleteResult;
   }
 
-  async getCheckoutReservations() {
+  // Default lookback for the cron-driven review_checkout creator. Keeping this >1 day means
+  // we self-heal from common failure modes that the old "today only" filter missed:
+  //   - status flipping from `pending` → `accepted` after the original check-in/out day,
+  //   - reservations synced from Hostify after their stay (late webhook),
+  //   - server downtime spanning midnight Eastern,
+  //   - PMS edits to arrival/departureDate that moved the row to a different day,
+  //   - properties whose local "today" ≠ Eastern at the moment the cron runs.
+  // 14 days matches the mitigation window the FE displays by default, so a record that
+  // belongs in the mitigation view always gets a row created in time to be shown there.
+  // processReviewCheckout() already short-circuits when a review_checkout row already
+  // exists, so widening the window is idempotent — never creates duplicates.
+  static readonly REVIEW_CHECKOUT_LOOKBACK_DAYS = 14;
+
+  async getCheckoutReservations(lookbackDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS) {
     const today = getEasternDateString();
+    const safeLookback = Math.max(0, Math.floor(lookbackDays));
+    const from = format(addDays(new Date(`${today}T00:00:00`), -safeLookback), "yyyy-MM-dd");
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
-        departureDate: Raw((alias) => `DATE(${alias}) = :today`, { today }),
+        departureDate: Raw((alias) => `DATE(${alias}) BETWEEN :from AND :today`, { from, today }),
         status: In(this.validStatus),
         // channelId: In([2018, 2013, 2010, 2000, 2002]), // VRBO, Airbnb, Hostaway bookings
       },
@@ -1972,11 +1987,13 @@ export class ReservationInfoService {
     return { reservations, total };
   }
 
-  async getCheckinReservations() {
+  async getCheckinReservations(lookbackDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS) {
     const today = getEasternDateString();
+    const safeLookback = Math.max(0, Math.floor(lookbackDays));
+    const from = format(addDays(new Date(`${today}T00:00:00`), -safeLookback), "yyyy-MM-dd");
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
-        arrivalDate: Raw((alias) => `DATE(${alias}) = :today`, { today }),
+        arrivalDate: Raw((alias) => `DATE(${alias}) BETWEEN :from AND :today`, { from, today }),
         status: In(this.validStatus),
       },
       order: { arrivalDate: "ASC" },
