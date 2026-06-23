@@ -30,6 +30,8 @@ import { CheckInNotificationService } from "../services/CheckInNotificationServi
 import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 import { IssuesService } from "../services/IssuesService";
 import { ClientService } from "../services/ClientService";
+import sendSlackMessage from "./sendSlackMsg";
+import OpenAI from "openai";
 
 
 export function scheduleGetReservation() {
@@ -621,4 +623,63 @@ export function scheduleGetReservation() {
       logger.error('[ClientOwnerSync] Error in hourly sync:', error);
     }
   });
+
+  // Daily OpenAI API Health Check - 9:15 AM EST
+  // Pings OpenAI with a minimal request. If the call fails (e.g. 429 quota
+  // exceeded, auth error, network error), DMs Slack user U08END0JTBM with the
+  // error details so the team can react before downstream jobs (review
+  // sentiment, listing generation, etc.) start failing.
+  const OPENAI_HEALTHCHECK_SLACK_USER_ID = "U08END0JTBM";
+  schedule.scheduleJob(
+    { hour: 12, minute: 15, tz: "America/New_York" },
+    async () => {
+      logger.info('[OpenAIHealthCheck] Running daily OpenAI API health check...');
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        logger.error('[OpenAIHealthCheck] OPENAI_API_KEY is not set.');
+        await sendSlackMessage({
+          channel: OPENAI_HEALTHCHECK_SLACK_USER_ID,
+          text: ":rotating_light: *OpenAI API Health Check Failed*\nReason: `OPENAI_API_KEY` is not set on secure-stay-server.",
+        });
+        return;
+      }
+
+      try {
+        const openai = new OpenAI({ apiKey });
+        await openai.chat.completions.create({
+          model: "gpt-4.1",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1,
+          temperature: 0,
+        });
+        logger.info('[OpenAIHealthCheck] OpenAI API is healthy.');
+      } catch (error: any) {
+        const status = error?.status ?? error?.response?.status;
+        const errCode = error?.code ?? error?.error?.code ?? "unknown";
+        const errMessage =
+          error?.error?.message ||
+          error?.message ||
+          "Unknown error from OpenAI API";
+
+        logger.error(
+          `[OpenAIHealthCheck] OpenAI API check failed — status=${status} code=${errCode} message=${errMessage}`
+        );
+
+        const slackText = [
+          ":rotating_light: *OpenAI API Health Check Failed*",
+          `*Status:* ${status ?? "n/a"}`,
+          `*Code:* ${errCode}`,
+          `*Message:* ${errMessage}`,
+          status === 429
+            ? "This looks like a quota / rate-limit error. Please check the OpenAI plan & billing details: https://platform.openai.com/account/billing"
+            : "Please investigate before downstream AI jobs are affected.",
+        ].join("\n");
+
+        await sendSlackMessage({
+          channel: OPENAI_HEALTHCHECK_SLACK_USER_ID,
+          text: slackText,
+        });
+      }
+    }
+  );
 }
