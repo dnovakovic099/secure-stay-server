@@ -226,6 +226,32 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Daily reconciliation safety net. The hourly task above looks back 7 days, which catches
+  // most missed-row scenarios. This 03:10 Eastern job runs a wider 30-day backfill so any
+  // reservation whose departureDate fell in the last month and never got a review_checkout
+  // row gets caught here. processReviewCheckoutForDateRange is idempotent — it skips
+  // reservations that already have a row. Running it once a day keeps the load light while
+  // closing the loop on long-tail failure modes (extended downtime, edits to old
+  // reservation records, time-zone edge cases, etc).
+  schedule.scheduleJob(
+    { hour: 3, minute: 10, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('[ReviewCheckoutReconciliation] Daily 30-day reconciliation started');
+        const reviewService = new ReviewService();
+        const today = new Date();
+        const start = new Date(today);
+        start.setDate(start.getDate() - 30);
+        const startStr = start.toISOString().slice(0, 10);
+        const endStr = today.toISOString().slice(0, 10);
+        const result = await reviewService.processReviewCheckoutForDateRange(startStr, endStr);
+        logger.info(`[ReviewCheckoutReconciliation] Daily 30-day reconciliation completed — created=${result.created} skipped=${result.skipped} errors=${result.errors}`);
+      } catch (error) {
+        logger.error('[ReviewCheckoutReconciliation] Daily reconciliation failed', error);
+      }
+    }
+  );
+
   // Recurring Expense Scheduler - DISABLED
   // schedule.scheduleJob(
   //   { hour: 8, minute: 50, tz: "America/New_York" },
@@ -428,8 +454,10 @@ export function scheduleGetReservation() {
         const cleanerNotificationService = new CleanerNotificationService();
         const reservationInfoService = new ReservationInfoService();
 
-        // Get today's checkouts
-        const { reservations } = await reservationInfoService.getCheckoutReservations();
+        // Get today's checkouts ONLY. We pass 0 explicitly because the helper's default
+        // lookback was widened to 14 days to support the mitigation backfill job — using
+        // the default here would SMS cleaners for every checkout in the last two weeks.
+        const { reservations } = await reservationInfoService.getCheckoutReservations(0);
         logger.info(`[CleanerCheckoutSMS] Found ${reservations.length} checkout reservations to process`);
 
         let successCount = 0;
