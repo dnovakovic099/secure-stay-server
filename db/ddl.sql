@@ -278,9 +278,11 @@ CREATE TABLE `upsell_info` (
   `description` varchar(500) NOT NULL,
   `status` tinyint NOT NULL DEFAULT '1',
   `isActive` tinyint NOT NULL DEFAULT '1',
+  `isDefault` tinyint NOT NULL DEFAULT '0',
   `availability` varchar(50) DEFAULT 'Always',
   `image` varchar(200) DEFAULT NULL,
-  PRIMARY KEY (`upsell_id`)
+  PRIMARY KEY (`upsell_id`),
+  KEY `idx_upsell_info_is_default` (`isDefault`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 CREATE TABLE `upsell_listing` (

@@ -41,6 +41,15 @@ export class UpSellServices {
     return Number.isFinite(normalized) ? normalized : null;
   }
 
+  private normalizeBoolean(value: unknown): boolean {
+    if (value === true || value === 1) return true;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      return normalized === "true" || normalized === "1" || normalized === "yes";
+    }
+    return false;
+  }
+
   private normalizePropertyConfigs(value: unknown) {
     return this.parseArrayField<any>(value)
       .map((item) => ({
@@ -64,6 +73,10 @@ export class UpSellServices {
           ...upSellInfo,
           image: `uploads/${request.file.filename}`,
         };
+
+      if (upSellInfo.isDefault !== undefined) {
+        upSellInfo.isDefault = this.normalizeBoolean(upSellInfo.isDefault);
+      }
 
       const normalizedPropertyConfigs = this.normalizePropertyConfigs(propertyConfigs);
       const normalizedListingIds = Array.from(
@@ -128,6 +141,11 @@ export class UpSellServices {
           ...upSellInfo,
           image: `uploads/${request.file.filename}`,
         };
+
+      if (upSellInfo.isDefault !== undefined) {
+        upSellInfo.isDefault = this.normalizeBoolean(upSellInfo.isDefault);
+      }
+
       const normalizedPropertyConfigs = this.normalizePropertyConfigs(propertyConfigs);
       const normalizedListingIds = Array.from(
         new Set(
@@ -479,29 +497,41 @@ export class UpSellServices {
           propertyConfigs.map((config) => [Number(config.listingId), config])
         );
         if (Array.isArray(listingData)) {
-          await Promise.all(
-            listingData.map(async (data: any) => {
-              const listingsInfo: any = await this.listingInfoRepository.find({
-                where: { id: data.listingId },
-              });
-              const listingInfo = listingsInfo[0];
-              if (!listingInfo) {
-                return;
-              }
-              const propertyConfig = propertyConfigMap.get(Number(data.listingId));
-              listingInfo.status = 1;
-              listingInfo.serviceType = propertyConfig?.serviceType ?? null;
-              listingInfo.pmFee = propertyConfig?.pmFee ?? null;
-              listingInfo.actualFee = propertyConfig?.actualFee ?? null;
-              listingInfo.processingFee = propertyConfig?.processingFee ?? null;
-              listingInfo.chargeType = propertyConfig?.chargeType ?? null;
-              listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
-              listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
-              listingInfo.createdAt = propertyConfig?.createdAt ?? null;
-              listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;
-              upSellListing.push(listingInfo);
-            })
+          const listingIds = Array.from(
+            new Set(
+              listingData
+                .map((row: any) => Number(row.listingId))
+                .filter((id) => Number.isFinite(id) && id > 0)
+            )
           );
+
+          const listingsById = new Map<number, any>();
+          if (listingIds.length) {
+            const listings = await this.listingInfoRepository.find({
+              where: { id: In(listingIds) },
+            });
+            listings.forEach((listing: any) => {
+              listingsById.set(Number(listing.id), listing);
+            });
+          }
+
+          listingData.forEach((row: any) => {
+            const listingInfo = listingsById.get(Number(row.listingId));
+            if (!listingInfo) return;
+            const propertyConfig = propertyConfigMap.get(Number(row.listingId));
+            listingInfo.status = 1;
+            listingInfo.serviceType = propertyConfig?.serviceType ?? null;
+            listingInfo.pmFee = propertyConfig?.pmFee ?? null;
+            listingInfo.actualFee = propertyConfig?.actualFee ?? null;
+            listingInfo.processingFee = propertyConfig?.processingFee ?? null;
+            listingInfo.chargeType = propertyConfig?.chargeType ?? null;
+            listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
+            listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
+            listingInfo.createdAt = propertyConfig?.createdAt ?? null;
+            listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;
+            upSellListing.push(listingInfo);
+          });
+
           return {
             status: true,
             data: upSellListing,
