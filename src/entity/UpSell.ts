@@ -38,6 +38,9 @@ export class UpSellEntity {
     @Column({ type: "bool", default: 1, nullable: false })
     isActive: Boolean
 
+    @Column({ type: "bool", default: 0, nullable: false })
+    isDefault: Boolean
+
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false, default: 0 })
     actualFee: number
 
