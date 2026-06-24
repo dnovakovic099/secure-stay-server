@@ -423,10 +423,17 @@ export class ContactService {
             workCategory: options?.workCategory || contactRole.workCategory
         });
 
-        if (roleAliases.length > 0 && !options?.replacementRole) {
+        const roleName = options?.role || contactRole.role || contactRole.workCategory;
+        if (roleName && !options?.replacementRole) {
             // Role deletion uses current vendor assignments as the source of truth.
             // Legacy contact rows should not block deleting an unused role option.
-            const vendorAssignmentCount = await this.vendorAssignmentRepo.count({ where: { role: In(roleAliases) } });
+            const vendorAssignmentCount = await this.vendorAssignmentRepo
+                .createQueryBuilder("assignment")
+                .innerJoin("assignment.vendorProfile", "vendorProfile")
+                .where("assignment.deletedAt IS NULL")
+                .andWhere("vendorProfile.deletedAt IS NULL")
+                .andWhere("assignment.role = :roleName", { roleName })
+                .getCount();
             if (vendorAssignmentCount > 0) {
                 throw CustomErrorHandler.validationError("Choose a replacement role before deleting a role that is used by existing vendors.");
             }
