@@ -1,6 +1,34 @@
 import { NextFunction, Request, Response } from "express";
 import Joi from "joi";
 
+const propertyLinkSchema = Joi.object({
+    propertyId: Joi.number().integer().positive().required(),
+    accountNumber: Joi.string().allow(null, ""),
+    propertyNotes: Joi.string().allow(null, ""),
+    source: Joi.string().allow(null, ""),
+    managedBy: Joi.string().allow(null, ""),
+    workSchedule: Joi.string().allow(null, ""),
+    workScheduleDays: Joi.string().allow(null, ""),
+    workScheduleIntervalWeeks: Joi.number().integer().positive().allow(null),
+    workScheduleDayOfMonth: Joi.number().integer().min(1).max(31).allow(null),
+    workScheduleQuarter: Joi.string().allow(null, ""),
+    workScheduleMonth: Joi.string().allow(null, ""),
+    workScheduleCheckoutTiming: Joi.string().allow(null, ""),
+    autopay: Joi.boolean().optional(),
+    paymentMethod: Joi.string().allow(null, ""),
+    paymentScheduleType: Joi.string().allow(null, ""),
+    paidBy: Joi.string().allow(null, ""),
+    rate: Joi.string().allow(null, ""),
+    rateType: Joi.string().allow(null, ""),
+    customRateDescription: Joi.string().allow(null, ""),
+    payoutDetails: Joi.string().allow(null, ""),
+    paymentIntervalMonth: Joi.number().integer().positive().allow(null),
+    paymentDayOfWeek: Joi.string().allow(null, ""),
+    paymentWeekOfMonth: Joi.number().integer().min(1).max(5).allow(null),
+    paymentDayOfMonth: Joi.number().integer().min(1).max(31).allow(null),
+    nextServiceDate: Joi.string().allow(null, ""),
+});
+
 const baseSchema = Joi.object({
     providerType: Joi.string().required(),
     customProviderLabel: Joi.string().allow(null, ""),
@@ -12,15 +40,7 @@ const baseSchema = Joi.object({
     lastpass: Joi.boolean().optional(),
     notes: Joi.string().allow(null, ""),
     propertyIds: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
-    propertyLinks: Joi.array().items(
-        Joi.object({
-            propertyId: Joi.number().integer().positive().required(),
-            accountNumber: Joi.string().allow(null, ""),
-            propertyNotes: Joi.string().allow(null, ""),
-            autopay: Joi.boolean().optional(),
-            paymentMethod: Joi.string().allow(null, ""),
-        })
-    ).min(1).optional(),
+    propertyLinks: Joi.array().items(propertyLinkSchema).min(1).optional(),
 });
 
 const managedOptionKindSchema = Joi.string().valid("providerName", "accountName", "username").required();
@@ -38,15 +58,7 @@ export const validateUpdateUtilityProvider = (request: Request, response: Respon
     const schema = baseSchema.keys({
         providerType: Joi.string().optional(),
         propertyIds: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
-        propertyLinks: Joi.array().items(
-            Joi.object({
-                propertyId: Joi.number().integer().positive().required(),
-                accountNumber: Joi.string().allow(null, ""),
-                propertyNotes: Joi.string().allow(null, ""),
-                autopay: Joi.boolean().optional(),
-                paymentMethod: Joi.string().allow(null, ""),
-            })
-        ).min(1).optional(),
+        propertyLinks: Joi.array().items(propertyLinkSchema).min(1).optional(),
     });
 
     const { error } = schema.validate(request.body);
