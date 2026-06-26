@@ -289,7 +289,7 @@ router.get(
  */
 router.post("/property-devices", async (req: Request, res: Response) => {
   try {
-    const { deviceId, propertyId, locationLabel, createDefaultSettings, settings } = req.body;
+    const { deviceId, propertyId, locationLabel, createDefaultSettings, settings, isActive } = req.body;
 
     if (!deviceId || !propertyId) {
       return res.status(400).json({
@@ -298,10 +298,13 @@ router.post("/property-devices", async (req: Request, res: Response) => {
       });
     }
 
+    const requestedIsActive = isActive === undefined ? true : !(isActive === false || isActive === "false");
+
     const mapping = await deviceService.mapDeviceToProperty(
       deviceId,
       propertyId,
-      locationLabel
+      locationLabel,
+      requestedIsActive
     );
 
     // If createDefaultSettings is true, create/update property lock settings

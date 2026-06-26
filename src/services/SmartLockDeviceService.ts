@@ -112,7 +112,8 @@ export class SmartLockDeviceService {
   async mapDeviceToProperty(
     deviceId: number,
     propertyId: number,
-    locationLabel?: string
+    locationLabel?: string,
+    isActive = true
   ): Promise<PropertyDevice> {
     // Check if mapping already exists
     let mapping = await this.propertyDeviceRepository.findOne({
@@ -122,14 +123,14 @@ export class SmartLockDeviceService {
     if (mapping) {
       // Update existing mapping
       mapping.locationLabel = locationLabel || mapping.locationLabel;
-      mapping.isActive = true;
+      mapping.isActive = isActive;
     } else {
       // Create new mapping
       mapping = this.propertyDeviceRepository.create({
         deviceId,
         propertyId,
         locationLabel,
-        isActive: true,
+        isActive,
       });
     }
 
@@ -173,7 +174,6 @@ export class SmartLockDeviceService {
    */
   async getAllMappings(): Promise<PropertyDevice[]> {
     return await this.propertyDeviceRepository.find({
-      where: { isActive: true },
       relations: ["device", "property"],
     });
   }
