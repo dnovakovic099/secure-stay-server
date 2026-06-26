@@ -233,6 +233,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         dateType: Joi.string().valid('created', 'updated', 'last_updated', 'activity_updated', 'completed', 'gr_completed', 'due', 'check_in', 'check_out').optional(),
         stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'co-today', 'past', 'upcoming')).min(1).optional(),
         assignee: Joi.array().items(Joi.string()).min(1).optional(),
+        vendor: Joi.array().items(Joi.string()).min(1).optional(),
         urgency: Joi.array().items(Joi.number()).min(1).optional(),
         activityType: Joi.string().valid('all', 'created', 'updated', 'last_updated', 'completed', 'gr_completed').optional(),
         activityUser: Joi.alternatives().try(
