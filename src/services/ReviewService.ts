@@ -2988,10 +2988,16 @@ export class ReviewService {
         const accountingPresence = this.splitPresenceFilterValues(accountingLogs as string[] | null | undefined);
 
         //fetch reviewCheckoutList
+        // We deliberately do NOT leftJoinAndSelect("reviewCheckout.reviewCheckoutUpdates")
+        // here. That was producing an N×M row set (1 reviewCheckout × many updates) which
+        // forced TypeORM to deduplicate hundreds of thousands of raw rows in memory on
+        // large mitigation responses. The updates are loaded in a single batched IN(...)
+        // query after the main fetch and merged onto each row — the same data, but the
+        // query planner gets to use the new idx_review_checkout_updates_review_checkout
+        // index and the main query stays cardinality-bounded.
         const query = this.reviewCheckoutRepo
             .createQueryBuilder("reviewCheckout")
-            .leftJoinAndSelect("reviewCheckout.reservationInfo", "reservationInfo")
-            .leftJoinAndSelect("reviewCheckout.reviewCheckoutUpdates", "reviewCheckoutUpdates");
+            .leftJoinAndSelect("reviewCheckout.reservationInfo", "reservationInfo");
 
         if (requestedReservationId && Number.isFinite(requestedReservationId)) {
             query.andWhere("reservationInfo.id = :requestedReservationId", { requestedReservationId });
@@ -3761,10 +3767,10 @@ export class ReviewService {
             if (rc.createdBy) userIds.add(rc.createdBy);
             if (rc.updatedBy) userIds.add(rc.updatedBy);
             if (rc.deletedBy) userIds.add(rc.deletedBy);
-            rc.reviewCheckoutUpdates?.forEach(update => {
-                if (update.createdBy) userIds.add(update.createdBy);
-                if (update.updatedBy) userIds.add(update.updatedBy);
-            });
+            // Note: rc.reviewCheckoutUpdates is no longer loaded by the main query — it's
+            // fetched in the Promise.all below in a single batched query and the author
+            // UIDs are added to the lookup set in a follow-up batched users.find. See
+            // `missingUpdateAuthorUids` further down.
             const latestReservationUpdate = latestReservationUpdates.get(Number(rc.reservationInfo?.id));
             if (latestReservationUpdate?.changedBy && latestReservationUpdate.changedBy !== 'system') {
                 userIds.add(latestReservationUpdate.changedBy);
@@ -3774,8 +3780,13 @@ export class ReviewService {
         const issueServices = new IssuesService();
         const actionItemServices = new ActionItemsService();
 
+        // Pre-compute the reviewCheckout IDs we need updates for. Fetching them in this same
+        // parallel batch (instead of via the original leftJoinAndSelect) eliminates the N×M
+        // row expansion in the main query without adding a sequential round-trip.
+        const reviewCheckoutIds = reviewCheckoutList.map((rc) => rc.id).filter((id): id is number => typeof id === 'number');
+
         // Run all secondary queries in parallel for better performance
-        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses, latestNotesByReservation, latestRefundsByReservation, accountingSummariesByReservation] = await Promise.all([
+        const [reviews, users, issuesResult, actionItemsResult, guestAnalyses, latestNotesByReservation, latestRefundsByReservation, accountingSummariesByReservation, reviewCheckoutUpdates] = await Promise.all([
             // Fetch reviews
             this.reviewRepository.find({
                 where: {
@@ -3804,7 +3815,42 @@ export class ReviewService {
             this.getLatestReservationNotes(reservationIds),
             this.getLatestRefundRequests(reservationIds),
             this.getAccountingLogSummaries(reservationIds),
+            // Replaces the previous leftJoinAndSelect — single batched IN(...) lookup keyed
+            // on the new idx_review_checkout_updates_review_checkout index.
+            reviewCheckoutIds.length > 0
+                ? this.reviewCheckoutUpdatesRepo.find({
+                    where: { reviewCheckout: { id: In(reviewCheckoutIds) } },
+                    relations: ['reviewCheckout'],
+                    order: { createdAt: 'DESC' },
+                })
+                : Promise.resolve([] as ReviewCheckoutUpdates[]),
         ]);
+
+        // Group updates per reviewCheckout for O(1) lookup during the row transform below.
+        const updatesByCheckoutId = new Map<number, ReviewCheckoutUpdates[]>();
+        for (const update of reviewCheckoutUpdates) {
+            const checkoutId = Number(update.reviewCheckout?.id);
+            if (!checkoutId) continue;
+            const bucket = updatesByCheckoutId.get(checkoutId);
+            if (bucket) bucket.push(update);
+            else updatesByCheckoutId.set(checkoutId, [update]);
+        }
+
+        // Any author UIDs referenced only by reviewCheckoutUpdates won't be in the initial
+        // userMap (since we no longer collect them before the first users.find). Fetch the
+        // missing ones in one extra query so userMap covers every name the response needs.
+        const missingUpdateAuthorUids = new Set<string>();
+        for (const update of reviewCheckoutUpdates) {
+            if (update.createdBy && !userIds.has(update.createdBy)) missingUpdateAuthorUids.add(update.createdBy);
+            if (update.updatedBy && !userIds.has(update.updatedBy)) missingUpdateAuthorUids.add(update.updatedBy);
+        }
+        if (missingUpdateAuthorUids.size > 0) {
+            const extraUsers = await this.usersRepo.find({ where: { uid: In([...missingUpdateAuthorUids]) } });
+            for (const extra of extraUsers) {
+                users.push(extra);
+                userIds.add(extra.uid);
+            }
+        }
 
         const userMap = new Map(users.map(user => [
             user.uid,
@@ -3973,7 +4019,7 @@ export class ReviewService {
                     isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
                     cancelledAt: lateCancellationInfo?.cancelledAt || null,
                 },
-                reviewCheckoutUpdates: rc.reviewCheckoutUpdates.map(update => {
+                reviewCheckoutUpdates: (updatesByCheckoutId.get(Number(rc.id)) || []).map((update) => {
                     return {
                         ...update,
                         createdBy: userMap.get(update.createdBy) || update.createdBy,
