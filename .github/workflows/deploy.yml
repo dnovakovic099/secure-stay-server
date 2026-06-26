@@ -42,6 +42,9 @@ jobs:
             echo ">>> Running database migrations..."
             npm run migrate || { echo "❌ Migration failed"; exit 1; }
 
+            echo ">>> Pruning dev dependencies to reclaim disk..."
+            npm prune --omit=dev || { echo "❌ npm prune failed"; exit 1; }
+
             echo ">>> Zero-downtime reload using ecosystem.config.js..."
             pm2 reload ecosystem.config.js || { echo "❌ PM2 reload failed"; exit 1; }
 
