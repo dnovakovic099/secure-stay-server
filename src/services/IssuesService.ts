@@ -2131,6 +2131,7 @@ export class IssuesService {
       dateType,
       stayStatus,
       assignee,
+      vendor,
       urgency,
       activityType,
       activityUser,
@@ -2258,6 +2259,11 @@ export class IssuesService {
       : assignee
       ? [assignee]
       : [];
+    const normalizedVendor = Array.isArray(vendor)
+      ? vendor.map((value: any) => String(value || "").trim()).filter(Boolean)
+      : vendor
+      ? [String(vendor).trim()].filter(Boolean)
+      : [];
     const normalizedUrgency = Array.isArray(urgency)
       ? urgency.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
       : urgency
@@ -2382,6 +2388,7 @@ export class IssuesService {
           effectiveReservationIds.length > 0 && { reservation_id: In(effectiveReservationIds) }),
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
+        ...(normalizedVendor.length > 0 && { final_contractor_name: In(normalizedVendor) }),
         ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
         ...(eventActivityType === "completed" && { completed_at: Not(IsNull()) }),
         ...(eventActivityType === "gr_completed" && { gr_completed_at: Not(IsNull()) }),
