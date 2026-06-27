@@ -62,9 +62,93 @@ export class UpSellServices {
         rateConfiguration: this.normalizeNullableString(item?.rateConfiguration),
         pricingRules: this.normalizeNullableString(item?.pricingRules),
         upsellFee: this.normalizeNullableNumber(item?.upsellFee),
+        pairSyncStatus: this.normalizePairSyncStatus(item?.pairSyncStatus),
         internalNotes: this.normalizeNullableString(item?.internalNotes),
       }))
       .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
+  }
+
+  private normalizePairSyncStatus(value: unknown): string | null {
+    const normalized = this.normalizeNullableString(value)?.toLowerCase();
+    if (normalized === "synced" || normalized === "unsynced") return normalized;
+    return null;
+  }
+
+  private getPairedUpsellTitle(title: unknown): string | null {
+    const normalized = String(title || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ");
+
+    if (normalized.includes("early") && normalized.includes("check")) return "Late Check-Out";
+    if (normalized.includes("late") && normalized.includes("check")) return "Early Check-In";
+    return null;
+  }
+
+  private applyPropertyConfigValues(propertyConfig: UpSellPropertyConfig, config: ReturnType<UpSellServices["normalizePropertyConfigs"]>[number]) {
+    propertyConfig.serviceType = config.serviceType;
+    propertyConfig.pmFee = config.pmFee;
+    propertyConfig.actualFee = config.actualFee;
+    propertyConfig.processingFee = config.processingFee;
+    propertyConfig.chargeType = config.chargeType;
+    propertyConfig.rateConfiguration = config.rateConfiguration;
+    propertyConfig.pricingRules = config.pricingRules;
+    propertyConfig.upsellFee = config.upsellFee;
+    propertyConfig.pairSyncStatus = config.pairSyncStatus;
+    propertyConfig.internalNotes = config.internalNotes;
+  }
+
+  private async syncPairedPropertyConfigs(
+    transactionalEntityManager: EntityManager,
+    sourceTitle: unknown,
+    sourceUpSellId: number,
+    propertyConfigs: ReturnType<UpSellServices["normalizePropertyConfigs"]>
+  ) {
+    const pairedTitle = this.getPairedUpsellTitle(sourceTitle);
+    if (!pairedTitle || !propertyConfigs.length) return;
+
+    const pairedUpSell = await transactionalEntityManager
+      .getRepository(UpSellEntity)
+      .createQueryBuilder("upsell")
+      .where("LOWER(upsell.title) = LOWER(:title)", { title: pairedTitle })
+      .andWhere("upsell.isActive = :isActive", { isActive: true })
+      .getOne();
+
+    if (!pairedUpSell || Number(pairedUpSell.upSellId) === Number(sourceUpSellId)) return;
+
+    await Promise.all(
+      propertyConfigs.map(async (config) => {
+        if (config.pairSyncStatus === "unsynced") return;
+
+        const listingId = Number(config.listingId);
+        const pairedUpSellId = Number(pairedUpSell.upSellId);
+        const existingListing = await transactionalEntityManager.findOne(UpSellListing, {
+          where: { upSellId: pairedUpSellId, listingId },
+        });
+
+        if (existingListing) {
+          existingListing.status = 1;
+          await transactionalEntityManager.save(existingListing);
+        } else {
+          const upSellListing = new UpSellListing();
+          upSellListing.upSellId = pairedUpSellId;
+          upSellListing.listingId = listingId;
+          upSellListing.status = 1;
+          await transactionalEntityManager.save(upSellListing);
+        }
+
+        const existingConfig = await transactionalEntityManager.findOne(UpSellPropertyConfig, {
+          where: { upSellId: pairedUpSellId, listingId },
+        });
+        const propertyConfig = existingConfig || new UpSellPropertyConfig();
+        propertyConfig.upSellId = pairedUpSellId;
+        propertyConfig.listingId = listingId;
+        this.applyPropertyConfigValues(propertyConfig, {
+          ...config,
+          pairSyncStatus: "synced",
+        });
+        await transactionalEntityManager.save(propertyConfig);
+      })
+    );
   }
 
   async saveUpSellInfo(request: Request, response: Response) {
@@ -121,11 +205,19 @@ export class UpSellServices {
               propertyConfig.rateConfiguration = config.rateConfiguration;
               propertyConfig.pricingRules = config.pricingRules;
               propertyConfig.upsellFee = config.upsellFee;
+              propertyConfig.pairSyncStatus = config.pairSyncStatus;
               propertyConfig.internalNotes = config.internalNotes;
               await transactionalEntityManager.save(propertyConfig);
             })
           );
         }
+
+        await this.syncPairedPropertyConfigs(
+          transactionalEntityManager,
+          savedUpSell.title,
+          Number(savedUpSell.upSellId),
+          normalizedPropertyConfigs
+        );
       });
 
       return {
@@ -220,11 +312,19 @@ export class UpSellServices {
                 propertyConfig.rateConfiguration = config.rateConfiguration;
                 propertyConfig.pricingRules = config.pricingRules;
                 propertyConfig.upsellFee = config.upsellFee;
+                propertyConfig.pairSyncStatus = config.pairSyncStatus;
                 propertyConfig.internalNotes = config.internalNotes;
                 await transactionalEntityManager.save(propertyConfig);
               })
             );
           }
+
+          await this.syncPairedPropertyConfigs(
+            transactionalEntityManager,
+            upSellInfo.title || data.title,
+            Number(upSellInfo.upSellId),
+            normalizedPropertyConfigs
+          );
         });
 
         return {
@@ -534,6 +634,7 @@ export class UpSellServices {
             listingInfo.rateConfiguration = propertyConfig?.rateConfiguration ?? null;
             listingInfo.pricingRules = propertyConfig?.pricingRules ?? null;
             listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
+            listingInfo.pairSyncStatus = propertyConfig?.pairSyncStatus ?? null;
             listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
             listingInfo.createdAt = propertyConfig?.createdAt ?? null;
             listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;
