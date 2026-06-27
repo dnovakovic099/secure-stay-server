@@ -3209,33 +3209,33 @@ export class ReviewService {
             }
         }
 
-        // "Updated By" filter — matches what the table actually displays in the UPDATED BY/ON
-        // column, which is `latestReservationUpdate.changedBy || reviewCheckout.updatedBy`.
-        // So a row matches if EITHER the mitigation row's own updatedBy is in the selected set
-        // OR the latest reservation_info_logs row for that reservation has changedBy in the set.
+        // "Updated By" filter — matches the displayed Updated By column. That column is
+        // computed from mitigation-specific signals only:
+        //   - reviewCheckout.updatedBy (the user who last edited the row), OR
+        //   - the author of any review_checkout_updates entry attached to this row
+        // We don't consider reservation_info_logs here for the same reason we don't show it
+        // in the column: those are PMS-side edits, not mitigation work.
         if (updatedBy && updatedBy.length > 0) {
             const updatedByList = updatedBy.map((value) => String(value || '').trim()).filter(Boolean);
             if (updatedByList.length > 0) {
-                // Find reservations whose latest UPDATE log was authored by one of the selected
-                // users. We can't easily express "latest" in a single SQL with TypeORM here, so
-                // approximate with "has any UPDATE log by one of these users" — the FE column
-                // shows the most recent one, and this matches anything where the user touched
-                // the reservation. Pre-fetching matching reservation IDs lets us union them with
-                // the reviewCheckout.updatedBy match below in one WHERE clause.
-                const logRows = await this.reservationInfoLogsRepo
-                    .createQueryBuilder('log')
-                    .select('DISTINCT log.reservationInfoId', 'reservationInfoId')
-                    .where('log.action = :action', { action: 'UPDATE' })
-                    .andWhere('log.changedBy IN (:...updatedByList)', { updatedByList })
+                const updateRows = await this.reviewCheckoutUpdatesRepo
+                    .createQueryBuilder('update')
+                    .leftJoin('update.reviewCheckout', 'rc')
+                    .select('DISTINCT rc.id', 'reviewCheckoutId')
+                    .where('update.deletedAt IS NULL')
+                    .andWhere(new Brackets((qb) => {
+                        qb.where('update.createdBy IN (:...updatedByList)', { updatedByList })
+                          .orWhere('update.updatedBy IN (:...updatedByList)', { updatedByList });
+                    }))
                     .getRawMany();
-                const logReservationIds = logRows
-                    .map((row: { reservationInfoId: string | number | null }) => Number(row.reservationInfoId))
+                const updateCheckoutIds = updateRows
+                    .map((row: { reviewCheckoutId: string | number | null }) => Number(row.reviewCheckoutId))
                     .filter((id) => !Number.isNaN(id) && id > 0);
 
                 query.andWhere(new Brackets((qb) => {
                     qb.where('reviewCheckout.updatedBy IN (:...updatedByList)', { updatedByList });
-                    if (logReservationIds.length > 0) {
-                        qb.orWhere('reservationInfo.id IN (:...updatedByLogReservationIds)', { updatedByLogReservationIds: logReservationIds });
+                    if (updateCheckoutIds.length > 0) {
+                        qb.orWhere('reviewCheckout.id IN (:...updatedByCheckoutIds)', { updatedByCheckoutIds: updateCheckoutIds });
                     }
                 }));
             }
@@ -3310,27 +3310,31 @@ export class ReviewService {
                 query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
             }
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && String(dateType) === 'updatedAt') {
-            // The "Updated On" column in the mitigation table displays
-            //   latestReservationUpdate.changedAt || reviewCheckout.updatedAt
-            // The previous version matched only review.updatedAt, which is a different
-            // (much rarer to change) field — the filter would silently let rows through
-            // whose "Updated On" cell sits outside the requested range. Match the same
-            // two columns the FE actually displays: either the mitigation row's own
-            // updatedAt, or the latest reservation_info_logs.changedAt for the reservation.
-            const logRows = await this.reservationInfoLogsRepo
-                .createQueryBuilder('log')
-                .select('DISTINCT log.reservationInfoId', 'reservationInfoId')
-                .where('log.action = :action', { action: 'UPDATE' })
-                .andWhere('DATE(log.changedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+            // "Updated On" matches the column the FE displays, which is now computed purely
+            // from mitigation-specific signals:
+            //   - reviewCheckout.updatedAt (the row was edited), OR
+            //   - the latest review_checkout_updates entry for this row (a comment was added)
+            // reservation_info_logs (PMS edit history) is intentionally NOT considered — those
+            // events are unrelated to the mitigation row and produced the "Updated < Created"
+            // anomaly we just fixed.
+            const updateRows = await this.reviewCheckoutUpdatesRepo
+                .createQueryBuilder('update')
+                .leftJoin('update.reviewCheckout', 'rc')
+                .select('DISTINCT rc.id', 'reviewCheckoutId')
+                .where('update.deletedAt IS NULL')
+                .andWhere(new Brackets((qb) => {
+                    qb.where('DATE(update.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+                      .orWhere('DATE(update.createdAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
+                }))
                 .getRawMany();
-            const logReservationIds = logRows
-                .map((row: { reservationInfoId: string | number | null }) => Number(row.reservationInfoId))
+            const updateCheckoutIds = updateRows
+                .map((row: { reviewCheckoutId: string | number | null }) => Number(row.reviewCheckoutId))
                 .filter((id) => !Number.isNaN(id) && id > 0);
 
             query.andWhere(new Brackets((qb) => {
                 qb.where('DATE(reviewCheckout.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
-                if (logReservationIds.length > 0) {
-                    qb.orWhere('reservationInfo.id IN (:...updatedAtLogReservationIds)', { updatedAtLogReservationIds: logReservationIds });
+                if (updateCheckoutIds.length > 0) {
+                    qb.orWhere('reviewCheckout.id IN (:...updatedAtCheckoutIds)', { updatedAtCheckoutIds: updateCheckoutIds });
                 }
             }));
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
@@ -3814,7 +3818,9 @@ export class ReviewService {
             : undefined;
 
         const reservationIds = reviewCheckoutList.map(rc => rc.reservationInfo.id);
-        const latestReservationUpdates = await this.reservationHistoryService.getLatestUpdatesForReservations(reservationIds);
+        // (The previous code fetched reservation_info_logs here to populate the displayed
+        // Updated By/On column. That source has been removed — the column is now driven
+        // exclusively by mitigation tables — so the extra query is no longer needed.)
 
         // Collect all user IDs referenced in the data to avoid fetching ALL users.
         // We also seed this set with the authorIds of the latest discussion notes (computed
@@ -3831,10 +3837,8 @@ export class ReviewService {
             // fetched in the Promise.all below in a single batched query and the author
             // UIDs are added to the lookup set in a follow-up batched users.find. See
             // `missingUpdateAuthorUids` further down.
-            const latestReservationUpdate = latestReservationUpdates.get(Number(rc.reservationInfo?.id));
-            if (latestReservationUpdate?.changedBy && latestReservationUpdate.changedBy !== 'system') {
-                userIds.add(latestReservationUpdate.changedBy);
-            }
+            // (reservation_info_logs is intentionally NOT consulted for the displayed
+            // Updated By/On column — those changes belong to the PMS, not the mitigation row.)
         });
 
         const issueServices = new IssuesService();
@@ -4025,7 +4029,27 @@ export class ReviewService {
                     timeZoneName: listingTagMap.get(Number(r.listingMapId))?.timeZoneName ?? 'America/New_York',
                 }));
             const reservationId = Number(rc.reservationInfo?.id);
-            const latestReservationUpdate = latestReservationUpdates.get(reservationId);
+            // "Updated By/On" is computed entirely from mitigation-specific signals:
+            //   - rc.updatedAt / rc.updatedBy           — the mitigation row was edited
+            //   - review_checkout_updates row(s)        — a comment/update was added to it
+            // Previously this cell also considered reservation_info_logs, but that table tracks
+            // PMS-side edits to the underlying reservation — events that often predate the
+            // mitigation row's own createdAt and have nothing to do with mitigation work.
+            // Drawing exclusively from the mitigation tables guarantees Updated >= Created
+            // and means the column always reflects work done on this row.
+            const mitigationUpdatesForRow = updatesByCheckoutId.get(Number(rc.id)) || [];
+            let latestMitigationActor: string | null = rc.updatedBy || null;
+            let latestMitigationAt: Date | string | null = rc.updatedAt || null;
+            let latestMitigationAtMs = latestMitigationAt ? new Date(latestMitigationAt).getTime() : 0;
+            for (const update of mitigationUpdatesForRow) {
+                const candidateAt = update.updatedAt || update.createdAt || null;
+                const candidateAtMs = candidateAt ? new Date(candidateAt).getTime() : 0;
+                if (candidateAtMs > latestMitigationAtMs) {
+                    latestMitigationAtMs = candidateAtMs;
+                    latestMitigationAt = candidateAt;
+                    latestMitigationActor = update.updatedBy || update.createdBy || latestMitigationActor;
+                }
+            }
             const latestUpdate = await this.buildLatestUpdatePayload(
                 latestNotesByReservation.get(reservationId) || null,
                 latestUpdateCache,
@@ -4046,11 +4070,11 @@ export class ReviewService {
                 urgency: rc.urgency || null,
                 mitigationUrgency: rc.mitigationUrgency || null,
                 createdBy: await resolveUserDisplayName(rc.createdBy),
-                updatedBy: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
+                updatedBy: await resolveUserDisplayName(latestMitigationActor || rc.updatedBy),
                 deletedBy: await resolveUserDisplayName(rc.deletedBy),
                 createdByName: await resolveUserDisplayName(rc.createdBy),
-                updatedByName: await resolveUserDisplayName(latestReservationUpdate?.changedBy || rc.updatedBy),
-                updatedAt: latestReservationUpdate?.changedAt || rc.updatedAt,
+                updatedByName: await resolveUserDisplayName(latestMitigationActor || rc.updatedBy),
+                updatedAt: latestMitigationAt || rc.updatedAt,
                 reservationInfo: {
                     ...rc.reservationInfo,
                     propertyType: this.extractPropertyTypeFromTags(listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.tags),
