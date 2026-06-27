@@ -89,6 +89,7 @@ interface Filter {
     operationalFlags?: string[] | null | undefined;
     owner?: string[] | null | undefined;
     assignee?: string[] | null | undefined;
+    updatedBy?: string[] | null | undefined;
     isClaimOnly?: boolean | string | null | undefined;
     refundStatus?: string[] | null | undefined;
     rating?: number[] | null | undefined;
@@ -2900,6 +2901,7 @@ export class ReviewService {
             tags: rawTags,
             integration: rawIntegration,
             assignee: rawAssignee,
+            updatedBy: rawUpdatedBy,
             fromDate, toDate, dateType,
             sentiment: rawSentiment,
             latestUpdate: rawLatestUpdate,
@@ -2949,6 +2951,7 @@ export class ReviewService {
         const channel = toArr(rawChannel);
         const integration = toArr(rawIntegration);
         const assignee = toArr(rawAssignee);
+        const updatedBy = toArr(rawUpdatedBy);
         const status = toArr(rawStatus);
         const sentiment = toArr(rawSentiment);
         const latestUpdate = toArr(rawLatestUpdate);
@@ -3206,6 +3209,38 @@ export class ReviewService {
             }
         }
 
+        // "Updated By" filter — matches what the table actually displays in the UPDATED BY/ON
+        // column, which is `latestReservationUpdate.changedBy || reviewCheckout.updatedBy`.
+        // So a row matches if EITHER the mitigation row's own updatedBy is in the selected set
+        // OR the latest reservation_info_logs row for that reservation has changedBy in the set.
+        if (updatedBy && updatedBy.length > 0) {
+            const updatedByList = updatedBy.map((value) => String(value || '').trim()).filter(Boolean);
+            if (updatedByList.length > 0) {
+                // Find reservations whose latest UPDATE log was authored by one of the selected
+                // users. We can't easily express "latest" in a single SQL with TypeORM here, so
+                // approximate with "has any UPDATE log by one of these users" — the FE column
+                // shows the most recent one, and this matches anything where the user touched
+                // the reservation. Pre-fetching matching reservation IDs lets us union them with
+                // the reviewCheckout.updatedBy match below in one WHERE clause.
+                const logRows = await this.reservationInfoLogsRepo
+                    .createQueryBuilder('log')
+                    .select('DISTINCT log.reservationInfoId', 'reservationInfoId')
+                    .where('log.action = :action', { action: 'UPDATE' })
+                    .andWhere('log.changedBy IN (:...updatedByList)', { updatedByList })
+                    .getRawMany();
+                const logReservationIds = logRows
+                    .map((row: { reservationInfoId: string | number | null }) => Number(row.reservationInfoId))
+                    .filter((id) => !Number.isNaN(id) && id > 0);
+
+                query.andWhere(new Brackets((qb) => {
+                    qb.where('reviewCheckout.updatedBy IN (:...updatedByList)', { updatedByList });
+                    if (logReservationIds.length > 0) {
+                        qb.orWhere('reservationInfo.id IN (:...updatedByLogReservationIds)', { updatedByLogReservationIds: logReservationIds });
+                    }
+                }));
+            }
+        }
+
         if (latestUpdate && latestUpdate.length > 0) {
             const normalizedLatestUpdate = Array.from(new Set(latestUpdate.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)));
             const hasWithUpdates = normalizedLatestUpdate.includes('with-updates');
@@ -3256,12 +3291,13 @@ export class ReviewService {
             query.andWhere("reviewCheckout.comments LIKE :resolutionNotesSearch", { resolutionNotesSearch: `%${resolutionNotesSearch}%` });
         }
 
-        if (!includeOpeningMitigationWindow && fromDate && toDate && ['submittedAt', 'updatedAt'].includes(String(dateType))) {
+        if (!includeOpeningMitigationWindow && fromDate && toDate && String(dateType) === 'submittedAt') {
+            // submittedAt is a review-specific column — match against review.submittedAt.
             const matchingReviewRows = await this.reviewRepository
                 .createQueryBuilder('review')
                 .select('DISTINCT review.reservationId', 'reservationId')
                 .where('review.isHidden = :isHidden', { isHidden: 0 })
-                .andWhere(`DATE(review.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate })
+                .andWhere('DATE(review.submittedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
                 .getRawMany();
 
             const matchingReservationIds = matchingReviewRows
@@ -3273,6 +3309,30 @@ export class ReviewService {
             } else {
                 query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
             }
+        } else if (!includeOpeningMitigationWindow && fromDate && toDate && String(dateType) === 'updatedAt') {
+            // The "Updated On" column in the mitigation table displays
+            //   latestReservationUpdate.changedAt || reviewCheckout.updatedAt
+            // The previous version matched only review.updatedAt, which is a different
+            // (much rarer to change) field — the filter would silently let rows through
+            // whose "Updated On" cell sits outside the requested range. Match the same
+            // two columns the FE actually displays: either the mitigation row's own
+            // updatedAt, or the latest reservation_info_logs.changedAt for the reservation.
+            const logRows = await this.reservationInfoLogsRepo
+                .createQueryBuilder('log')
+                .select('DISTINCT log.reservationInfoId', 'reservationInfoId')
+                .where('log.action = :action', { action: 'UPDATE' })
+                .andWhere('DATE(log.changedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+                .getRawMany();
+            const logReservationIds = logRows
+                .map((row: { reservationInfoId: string | number | null }) => Number(row.reservationInfoId))
+                .filter((id) => !Number.isNaN(id) && id > 0);
+
+            query.andWhere(new Brackets((qb) => {
+                qb.where('DATE(reviewCheckout.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
+                if (logReservationIds.length > 0) {
+                    qb.orWhere('reservationInfo.id IN (:...updatedAtLogReservationIds)', { updatedAtLogReservationIds: logReservationIds });
+                }
+            }));
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
             query.andWhere(`DATE(reservationInfo.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && dateType === 'refundedAt') {
