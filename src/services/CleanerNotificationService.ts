@@ -1,4 +1,4 @@
-import { appDatabase } from "../utils/database.util";
+import { appDatabase, ensureTurnoverSettingsColumns } from "../utils/database.util";
 import { Contact } from "../entity/Contact";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
@@ -6,10 +6,15 @@ import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ClientEntity } from "../entity/Client";
+import { VendorAssignment } from "../entity/VendorAssignment";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
-import { Between, In } from "typeorm";
+import { Between, In, IsNull } from "typeorm";
 import { renderTurnoverTemplate, summarizeTemplateErrors } from "../utils/turnoverTemplate.util";
+
+type ScheduleRelation = "at" | "before" | "after";
+type ScheduleAnchor = "check-in" | "check-out";
+type NotificationRecipient = { id?: number; name: string; contact?: string | null; role?: string | null };
 
 export class CleanerNotificationService {
     private contactRepo = appDatabase.getRepository(Contact);
@@ -19,7 +24,98 @@ export class CleanerNotificationService {
     private listingRepo = appDatabase.getRepository(Listing);
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private clientRepo = appDatabase.getRepository(ClientEntity);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private openPhoneService = new OpenPhoneService();
+
+    private async ensureSettingsSchema() {
+        await ensureTurnoverSettingsColumns();
+    }
+
+    private normalizeScheduleMode(mode: string | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        if (mode === "auto") return `at-${fallbackAnchor}`;
+        if (mode === "arrival-day") return "at-check-in";
+        if (mode === "checkout-day" || mode === "post-stay") return "at-check-out";
+        if (["at-check-in", "before-check-in", "after-check-in", "at-check-out", "before-check-out", "after-check-out"].includes(String(mode))) {
+            return String(mode);
+        }
+        return `at-${fallbackAnchor}`;
+    }
+
+    private parseScheduleMode(mode: string | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        const normalized = this.normalizeScheduleMode(mode, fallbackAnchor);
+        const [relation, anchorSuffix] = normalized.split("-check-");
+        return {
+            relation: relation as ScheduleRelation,
+            anchor: `check-${anchorSuffix}` as ScheduleAnchor
+        };
+    }
+
+    private getZoneOffsetMinutes(date: Date, timeZone: string): number {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            timeZoneName: "shortOffset",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const tz = parts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+        const match = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tz);
+        if (!match) return 0;
+        const sign = match[1].startsWith("-") ? -1 : 1;
+        const hours = Math.abs(parseInt(match[1], 10));
+        const minutes = match[2] ? parseInt(match[2], 10) : 0;
+        return sign * (hours * 60 + minutes);
+    }
+
+    private zoneLocalToUtcDate(year: number, month: number, day: number, hour: number, minute: number, second: number, millisecond: number, timeZone: string) {
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+        const offsetMinutes = this.getZoneOffsetMinutes(utcDate, timeZone);
+        return new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
+    }
+
+    private getDateParts(value?: Date | string | null) {
+        if (!value) return null;
+        if (typeof value === "string") {
+            const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+            if (match) {
+                return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+            }
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+    }
+
+    private parseTime(value: string | number | null | undefined, fallbackHour: number) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return { hour: Math.floor(value), minute: Math.round((value % 1) * 60) };
+        }
+        if (typeof value === "string") {
+            const match = /^(\d{1,2})(?::(\d{2}))?/.exec(value);
+            if (match) return { hour: Number(match[1]), minute: Number(match[2] || 0) };
+        }
+        return { hour: fallbackHour, minute: 0 };
+    }
+
+    private getScheduledAt(reservation: ReservationInfoEntity, listing: Listing, mode: string | null | undefined, offsetMinutes: number | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        const schedule = this.parseScheduleMode(mode, fallbackAnchor);
+        const anchorDate = schedule.anchor === "check-in" ? reservation.arrivalDate : reservation.departureDate;
+        const dateParts = this.getDateParts(anchorDate);
+        if (!dateParts) return null;
+        const timeZone = listing.timeZoneName || "America/New_York";
+        const time = schedule.anchor === "check-in"
+            ? this.parseTime(reservation.checkInTime ?? listing.checkInTimeStart, 15)
+            : this.parseTime(reservation.checkOutTime ?? listing.checkOutTime, 11);
+        const anchorUtc = this.zoneLocalToUtcDate(dateParts.year, dateParts.month, dateParts.day, time.hour, time.minute, 0, 0, timeZone);
+        const offsetMs = Math.max(0, Number(offsetMinutes || 0)) * 60 * 1000;
+        if (schedule.relation === "before") return new Date(anchorUtc.getTime() - offsetMs);
+        if (schedule.relation === "after") return new Date(anchorUtc.getTime() + offsetMs);
+        return anchorUtc;
+    }
 
     /**
      * Send checkout notification SMS to cleaner
@@ -50,6 +146,10 @@ export class CleanerNotificationService {
                     cleanerNotificationStatus: 'pending'
                 });
                 await this.postStayRepo.save(postStay);
+            }
+            if (postStay.cleanerNotificationStatus === 'sent') {
+                logger.info(`[CleanerNotification] Checkout notification already sent for reservation ${reservationId}`);
+                return;
             }
 
             // Fetch listing for address
@@ -140,13 +240,12 @@ export class CleanerNotificationService {
                 return;
             }
 
-            // Use dedicated cleaner sender number (required)
-            const senderNumber = process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+            const senderNumber = this.getSenderNumberForRecipient(cleaner, listing, settings);
             if (!senderNumber) {
                 await this.updateNotificationStatus(
                     reservationId,
                     'failed',
-                    'CLEANER_CHECKOUT_SMS_SENDER_NUMBER not configured, cannot send SMS'
+                    'SMS sender number not configured, cannot send SMS'
                 );
                 return;
             }
@@ -176,7 +275,7 @@ export class CleanerNotificationService {
         reservation: ReservationInfoEntity,
         postStay: ReservationDetailPostStayAudit,
         recipientIds?: string[]
-    ): Promise<{ id?: number; name: string; contact?: string | null; role?: string | null } | null> {
+    ): Promise<NotificationRecipient | null> {
         // Check if there's a per-reservation override
         if (postStay.cleanerNotificationContactId) {
             const overrideCleaner = await this.contactRepo.findOne({
@@ -207,13 +306,36 @@ export class CleanerNotificationService {
                     return configuredContacts[0];
                 }
             }
+            const vendorId = (recipientIds || []).find((id) => id.startsWith('vendor:'));
+            if (vendorId) {
+                const vendorProfileId = Number(vendorId.split(':')[1]);
+                if (Number.isFinite(vendorProfileId)) {
+                    const assignment = await this.vendorAssignmentRepo.findOne({
+                        where: {
+                            vendorProfileId,
+                            listingId: String(reservation.listingMapId),
+                            status: 'active',
+                            deletedAt: IsNull()
+                        },
+                        relations: ['vendorProfile']
+                    });
+                    if (assignment?.vendorProfile?.contact) {
+                        return {
+                            id: assignment.vendorProfile.id,
+                            name: assignment.vendorProfile.name,
+                            contact: assignment.vendorProfile.contact,
+                            role: assignment.role || 'Vendor'
+                        };
+                    }
+                }
+            }
             const ownerId = (recipientIds || []).find((id) => id.startsWith('owner:'));
             if (ownerId) {
-                const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
-                if (listing?.ownerPhone) {
+                const client = await this.clientRepo.findOne({ where: { id: ownerId.split(':')[1] } });
+                if (client?.phone) {
                     return {
-                        name: listing.ownerName || 'Owner',
-                        contact: listing.ownerPhone,
+                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Owner',
+                        contact: client.phone,
                         role: 'Owner'
                     };
                 }
@@ -233,36 +355,62 @@ export class CleanerNotificationService {
             return null;
         }
 
-        // Query for active cleaners
-        const activeCleaners = await this.contactRepo.find({
+        const activeVendorAssignments = await this.vendorAssignmentRepo.find({
             where: {
                 listingId: String(reservation.listingMapId),
-                role: 'Cleaner',
                 status: 'active',
-                deletedAt: null as any
-            }
+                deletedAt: IsNull()
+            },
+            relations: ['vendorProfile'],
+            order: { role: 'ASC' as any, id: 'ASC' as any }
         });
+        const activeCleaners = activeVendorAssignments
+            .filter((assignment) => assignment.vendorProfile?.contact)
+            .sort((a, b) => Number(String(b.role || '').toLowerCase() === 'cleaner') - Number(String(a.role || '').toLowerCase() === 'cleaner'));
 
         if (activeCleaners.length === 0) {
-            logger.warn(`[CleanerNotification] No active cleaners found for listing ${reservation.listingMapId}`);
+            logger.warn(`[CleanerNotification] No active vendor contacts found for listing ${reservation.listingMapId}`);
             return null;
         }
 
-        if (activeCleaners.length > 1) {
-            logger.warn(`[CleanerNotification] Multiple active cleaners found for listing ${reservation.listingMapId}`);
-            await this.updateNotificationStatus(
-                reservation.id,
-                'skipped',
-                'Multiple active cleaners found for this listing. Please ensure only one cleaner has status \'active\'.'
-            );
-            return null;
-        }
+        const assignment = activeCleaners[0];
+        logger.info(`[CleanerNotification] Using active vendor contact: ${assignment.vendorProfile.name}`);
+        return {
+            id: assignment.vendorProfile.id,
+            name: assignment.vendorProfile.name,
+            contact: assignment.vendorProfile.contact,
+            role: assignment.role || 'Vendor'
+        };
+    }
 
-        logger.info(`[CleanerNotification] Using active cleaner: ${activeCleaners[0].name}`);
-        return activeCleaners[0];
+    private getListingPortfolioGroup(listing: Listing) {
+        const tags = String(listing.tags || "").toLowerCase();
+        if (tags.includes("group1")) return "group1";
+        if (tags.includes("group2")) return "group2";
+        return null;
+    }
+
+    private getSenderNumberForRecipient(
+        contact: NotificationRecipient,
+        listing: Listing,
+        settings: Awaited<ReturnType<CleanerNotificationService["getEffectiveSettings"]>>
+    ) {
+        const role = String(contact.role || "").toLowerCase();
+        if (role === "owner" || role === "client") {
+            return settings.ownerSenderNumber || process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        const group = this.getListingPortfolioGroup(listing);
+        if (group === "group1") {
+            return settings.cleanerSenderNumberGroup1 || settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        if (group === "group2") {
+            return settings.cleanerSenderNumberGroup2 || settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        return settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
     }
 
     private async getEffectiveSettings(listingId: number) {
+        await this.ensureSettingsSchema();
         const [settings, globalSettings] = await Promise.all([
             this.settingsRepo.findOne({ where: { listingId } }),
             this.settingsRepo.findOne({ where: { listingId: 0 } })
@@ -277,6 +425,14 @@ export class CleanerNotificationService {
             postStayRecipientIds: resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [],
             postStayMessageTemplate: resolve(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, this.composeCheckoutMessageTemplate()),
             sameDayCombinedMessageTemplate: resolve(settings?.sameDayCombinedMessageTemplate, globalSettings?.sameDayCombinedMessageTemplate, this.composeSameDayMessageTemplate()),
+            preStayScheduleMode: resolve(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, "at-check-in"),
+            preStayOffsetMinutes: resolve(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, 0),
+            postStayScheduleMode: resolve(settings?.postStayScheduleMode, globalSettings?.postStayScheduleMode, "at-check-out"),
+            postStayOffsetMinutes: resolve(settings?.postStayOffsetMinutes, globalSettings?.postStayOffsetMinutes, 0),
+            cleanerSenderNumber: resolve(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null),
+            cleanerSenderNumberGroup1: resolve(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || null),
+            cleanerSenderNumberGroup2: resolve(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || null),
+            ownerSenderNumber: resolve(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || null),
             ownerName: settings?.ownerName || globalSettings?.ownerName || null,
             ownerEmail: settings?.ownerEmail || globalSettings?.ownerEmail || null,
             ownerPhone: settings?.ownerPhone || globalSettings?.ownerPhone || null,
@@ -327,6 +483,97 @@ Check-In Date: {checkInDate}
             }
         });
         return reservations.find((candidate) => candidate.id !== reservation.id && this.sameDate(candidate.arrivalDate, reservation.departureDate)) || null;
+    }
+
+    private getAutomationScheduledAt(
+        checkoutReservation: ReservationInfoEntity,
+        listing: Listing,
+        settings: Awaited<ReturnType<CleanerNotificationService["getEffectiveSettings"]>>,
+        sameDayCheckIn: ReservationInfoEntity | null
+    ) {
+        const postStayScheduledAt = this.getScheduledAt(
+            checkoutReservation,
+            listing,
+            settings.postStayScheduleMode,
+            settings.postStayOffsetMinutes,
+            "check-out"
+        );
+        if (!sameDayCheckIn || !settings.sameDayCombinedEnabled) return postStayScheduledAt;
+        const preStayScheduledAt = this.getScheduledAt(
+            sameDayCheckIn,
+            listing,
+            settings.preStayScheduleMode,
+            settings.preStayOffsetMinutes,
+            "check-in"
+        );
+        if (!preStayScheduledAt) return postStayScheduledAt;
+        if (!postStayScheduledAt) return preStayScheduledAt;
+        return preStayScheduledAt < postStayScheduledAt ? preStayScheduledAt : postStayScheduledAt;
+    }
+
+    async getPendingCheckouts(): Promise<ReservationInfoEntity[]> {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        start.setDate(start.getDate() - 14);
+
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        end.setDate(end.getDate() + 30);
+
+        return this.reservationRepo.find({
+            where: {
+                departureDate: Between(start, end),
+                status: In(["new", "accepted", "modified", "ownerStay", "moved"])
+            }
+        });
+    }
+
+    async processAutomatedCheckoutSMS(): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
+        const reservations = await this.getPendingCheckouts();
+        let sent = 0;
+        let failed = 0;
+        let skipped = 0;
+        const total = reservations.length;
+
+        logger.info(`[CleanerNotification] Found ${total} candidate checkouts for automated post-stay scheduling.`);
+
+        for (const reservation of reservations) {
+            try {
+                const existingAudit = await this.postStayRepo.findOne({ where: { reservationId: reservation.id } });
+                if (existingAudit?.cleanerNotificationStatus === "sent") {
+                    skipped++;
+                    continue;
+                }
+
+                const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+                if (!listing) {
+                    logger.warn(`[CleanerNotification] No listing found for reservation ${reservation.id}. Skipping.`);
+                    skipped++;
+                    continue;
+                }
+
+                const settings = await this.getEffectiveSettings(listing.id);
+                const sameDayCheckIn = await this.getSameDayCheckIn(reservation, listing);
+                const scheduledAt = this.getAutomationScheduledAt(reservation, listing, settings, sameDayCheckIn);
+                if (!scheduledAt || new Date() < scheduledAt) {
+                    skipped++;
+                    continue;
+                }
+
+                logger.info(`[CleanerNotification] Triggering scheduled checkout SMS for reservation ${reservation.id}. Scheduled at ${scheduledAt.toISOString()}`);
+                await this.sendCheckoutNotification(reservation.id);
+                const statusAudit = await this.postStayRepo.findOne({ where: { reservationId: reservation.id } });
+                if (statusAudit?.cleanerNotificationStatus === "sent") sent++;
+                else if (statusAudit?.cleanerNotificationStatus === "failed") failed++;
+                else skipped++;
+            } catch (error) {
+                logger.error(`[CleanerNotification] Failed automated processing for reservation ${reservation.id}:`, error);
+                failed++;
+            }
+        }
+
+        logger.info(`[CleanerNotification] Automated job finished processing checkouts: ${sent} sent, ${failed} failed, ${skipped} skipped`);
+        return { sent, failed, skipped, total };
     }
 
     /**

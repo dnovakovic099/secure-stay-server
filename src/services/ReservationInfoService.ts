@@ -32,6 +32,7 @@ import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { getEasternDateString } from "../utils/easternTime.util";
+import { TurnoverReservationChangeService } from "./TurnoverReservationChangeService";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -49,6 +50,7 @@ export class ReservationInfoService {
   private hostifyClient = new Hostify();
   private velocityAlertService = new VelocityAlertService();
   private reservationHistoryService = new ReservationHistoryService();
+  private turnoverReservationChangeService = new TurnoverReservationChangeService();
 
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -122,6 +124,7 @@ export class ReservationInfoService {
     if (!reservation) {
       return null;
     }
+    const previousReservation = { ...reservation };
 
     const validReservationStatuses = this.validStatus;
 
@@ -202,6 +205,10 @@ export class ReservationInfoService {
 
     const savedReservation = await this.reservationInfoRepository.save(reservation);
     runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
+    runAsync(
+      this.turnoverReservationChangeService.handleReservationUpdated(previousReservation, savedReservation),
+      "TurnoverReservationChangeService.handleReservationUpdated"
+    );
     return savedReservation;
   }
 

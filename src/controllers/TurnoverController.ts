@@ -168,6 +168,22 @@ export class TurnoverController {
     }
 
     /**
+     * Sync recipient sources from Vendors and All Listings client information
+     */
+    async syncRecipients(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const result = await this.turnoverService.syncRecipients(req.user?.id || 'system');
+            return res.status(200).json({
+                success: true,
+                message: 'Synced recipients from Vendors and All Listings',
+                ...result
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Sync owners from Hostify
      */
     async syncOwners(req: CustomRequest, res: Response, next: NextFunction) {

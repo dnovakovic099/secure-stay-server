@@ -26,6 +26,9 @@ router.route('/settings/:listingId').put(verifySession, turnoverController.updat
 router.route('/contacts/:listingId').get(verifySession, turnoverController.getContactsForListing.bind(turnoverController));
 router.route('/contacts/global').get(verifySession, turnoverController.getGlobalContacts.bind(turnoverController));
 
+// Recipient sync
+router.route('/sync-recipients').post(verifySession, turnoverController.syncRecipients.bind(turnoverController));
+
 // Owner sync
 router.route('/sync-owners').post(verifySession, turnoverController.syncOwners.bind(turnoverController));
 

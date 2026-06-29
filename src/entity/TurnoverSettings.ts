@@ -68,6 +68,18 @@ export class TurnoverSettings {
     @Column({ name: 'owner_phone', nullable: true })
     ownerPhone: string;
 
+    @Column({ name: 'cleaner_sender_number', nullable: true })
+    cleanerSenderNumber: string;
+
+    @Column({ name: 'cleaner_sender_number_group1', nullable: true })
+    cleanerSenderNumberGroup1: string;
+
+    @Column({ name: 'cleaner_sender_number_group2', nullable: true })
+    cleanerSenderNumberGroup2: string;
+
+    @Column({ name: 'owner_sender_number', nullable: true })
+    ownerSenderNumber: string;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
