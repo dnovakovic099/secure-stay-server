@@ -445,12 +445,6 @@ export function scheduleGetReservation() {
     { hour: 5, minute: 0, tz: "America/New_York" },
     async () => {
       try {
-        // Check if feature is enabled
-        if (process.env.ENABLE_CLEANER_CHECKOUT_SMS !== 'true') {
-          logger.info('[CleanerCheckoutSMS] Feature disabled via environment variable');
-          return;
-        }
-
         logger.info('[CleanerCheckoutSMS] Scheduled task started - processing checkout notifications...');
 
         const cleanerNotificationService = new CleanerNotificationService();
@@ -595,11 +589,6 @@ export function scheduleGetReservation() {
     "*/20 * * * *", // Top of every hour
     async () => {
       try {
-        // Check if feature is enabled
-        if (process.env.ENABLE_CHECKIN_NOTIFICATION_SMS !== 'true') {
-          return; // Silently skip if disabled
-        }
-
         logger.info('[CheckInSMS] Hourly task started - processing 10 AM local time notifications...');
         const checkInNotificationService = new CheckInNotificationService();
         await checkInNotificationService.processAutomatedCheckInSMS();

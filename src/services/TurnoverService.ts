@@ -14,10 +14,11 @@ import axios from "axios";
 import { Hostify } from "../client/Hostify";
 import { format } from "date-fns";
 import { CleanerNotified } from "../entity/ReservationDetailPreStayAudit";
+import { renderTurnoverTemplate } from "../utils/turnoverTemplate.util";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
-const CURRENT_BACKEND_PRE_STAY_TEMPLATE = `{propertyName} Check-In Notification
+const DEFAULT_PRE_STAY_TEMPLATE = `{propertyName} Check-In Notification
 
 Address: {address}
 
@@ -27,7 +28,7 @@ Check-In Date: {checkInDate}
 
 {upsellInfo}`;
 
-const CURRENT_BACKEND_POST_STAY_TEMPLATE = `{propertyName} Checkout Notification
+const DEFAULT_POST_STAY_TEMPLATE = `{propertyName} Checkout Notification
 
 Address: {address}
 
@@ -39,7 +40,20 @@ Checkout Date: {checkOutDate}
 
 Please ensure property is cleaned and restocked.`;
 
-const CURRENT_BACKEND_SAME_DAY_TEMPLATE = `Same-day combined SMS is not active in the current scheduled backend jobs.`;
+const DEFAULT_SAME_DAY_TEMPLATE = `{propertyName} Same-Day Turnover Notification
+
+Address: {address}
+
+Checkout Reservation #{postStayReservationId}
+Arriving Reservation #{preStayReservationId}
+
+Outgoing Guest: {postStayGuestName}
+Incoming Guest: {preStayGuestName}
+
+Checkout Date: {checkOutDate}
+Check-In Date: {checkInDate}
+
+{turnoverNotes}`;
 const TURNOVER_RESERVATION_STATUSES = ["new", "accepted", "modified", "ownerStay", "moved"];
 
 interface TurnoverNotification {
@@ -74,6 +88,7 @@ interface TurnoverNotification {
     status: 'pending' | 'sent' | 'failed' | 'skipped' | 'paused';
     sentAt?: string;
     error?: string;
+    templateErrorVariables?: string[];
     isSameDayTurnover?: boolean;
     preStayAuditStatus?: string | null;
     postStayAuditStatus?: string | null;
@@ -351,8 +366,8 @@ export class TurnoverService {
 
     private getCurrentBackendSnapshot(): BackendSettingSnapshot {
         return {
-            preStayEnabled: this.isEnabledEnv('ENABLE_CHECKIN_NOTIFICATION_SMS'),
-            postStayEnabled: this.isEnabledEnv('ENABLE_CLEANER_CHECKOUT_SMS'),
+            preStayEnabled: true,
+            postStayEnabled: true,
             sameDayCombinedEnabled: false,
             preStayScheduleMode: 'auto',
             postStayScheduleMode: 'auto',
@@ -360,14 +375,25 @@ export class TurnoverService {
             preStayOffsetMinutes: 0,
             postStayOffsetMinutes: 0,
             sameDayOffsetMinutes: 0,
-            preStayMessageTemplate: CURRENT_BACKEND_PRE_STAY_TEMPLATE,
-            postStayMessageTemplate: CURRENT_BACKEND_POST_STAY_TEMPLATE,
-            sameDayCombinedMessageTemplate: CURRENT_BACKEND_SAME_DAY_TEMPLATE,
+            preStayMessageTemplate: DEFAULT_PRE_STAY_TEMPLATE,
+            postStayMessageTemplate: DEFAULT_POST_STAY_TEMPLATE,
+            sameDayCombinedMessageTemplate: DEFAULT_SAME_DAY_TEMPLATE,
             smsSenderNumber: this.getCheckInSenderNumber() || this.getCheckoutSenderNumber(),
-            preStayScheduleDescription: 'Every 20 minutes; sends check-in SMS for today or tomorrow check-ins once it is 10 AM or later in the listing timezone.',
-            postStayScheduleDescription: 'Daily at 5:00 AM America/New_York for checkout reservations on that day.',
-            sameDayScheduleDescription: 'Not active in the current scheduled backend jobs.'
+            preStayScheduleDescription: 'Default pre-stay timing. Property settings override this value.',
+            postStayScheduleDescription: 'Default post-stay timing. Property settings override this value.',
+            sameDayScheduleDescription: 'When enabled, same-day turnover suppresses separate pre-stay/post-stay sends and uses the earlier configured pre/post schedule.'
         };
+    }
+
+    private resolveValue<T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T {
+        return propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+    }
+
+    private resolveSource(settings: TurnoverSettings | null, fields: (keyof TurnoverSettings)[]) {
+        if (!settings) return 'global';
+        return fields.some((field) => (settings as any)[field] !== undefined && (settings as any)[field] !== null)
+            ? 'property'
+            : 'global';
     }
 
     private normalizeRecipientIds(values?: unknown, fallbackId?: number | null): string[] {
@@ -917,8 +943,17 @@ export class TurnoverService {
                     const listingTimezone = this.resolveTimeZone(listing);
                     const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
                     const upsells = await this.getApprovedUpsellsForReservation(res);
-                    const messagePreview = this.buildCheckInMessage(res, listing, upsells);
                     const cleaningNotes = await this.getReservationCleaningNotes(res, cleaningNoteCache);
+                    const template = this.resolveValue(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, DEFAULT_PRE_STAY_TEMPLATE);
+                    const renderedTemplate = renderTurnoverTemplate(template, {
+                        reservation: res,
+                        listing,
+                        upsells,
+                        turnoverNotes: cleaningNotes,
+                        ownerName: settings?.ownerName,
+                        ownerEmail: settings?.ownerEmail,
+                        ownerPhone: settings?.ownerPhone
+                    });
 
                     const notification: TurnoverNotification = {
                         id: res.id,
@@ -945,13 +980,14 @@ export class TurnoverService {
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         contactRole: contact?.role || undefined,
-                        messagePreview,
+                        messagePreview: renderedTemplate.message,
                         sentMessage: preStayAudit?.notificationMessage || undefined,
                         turnoverNotes: cleaningNotes,
                         
                         status: (preStayAudit?.notificationStatus as any) || (preStayAudit?.cleanerNotified === 'yes' ? 'sent' : 'pending'),
                         sentAt: preStayAudit?.notificationSentAt ? preStayAudit.notificationSentAt.toISOString() : undefined,
-                        error: undefined,
+                        error: preStayAudit?.notificationError || undefined,
+                        templateErrorVariables: [...renderedTemplate.unknownVariables, ...renderedTemplate.missingVariables],
                         preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
                         postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
                         
@@ -1021,8 +1057,17 @@ export class TurnoverService {
                     const listingTimezone = this.resolveTimeZone(listing);
                     const listingTimezoneLabel = this.getReadableTimeZone(listingTimezone);
                     const upsells = await this.getApprovedUpsellsForReservation(res);
-                    const messagePreview = this.buildCheckoutMessage(res, listing, upsells);
                     const cleaningNotes = await this.getReservationCleaningNotes(res, cleaningNoteCache);
+                    const template = this.resolveValue(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, DEFAULT_POST_STAY_TEMPLATE);
+                    const renderedTemplate = renderTurnoverTemplate(template, {
+                        reservation: res,
+                        listing,
+                        upsells,
+                        turnoverNotes: cleaningNotes,
+                        ownerName: settings?.ownerName,
+                        ownerEmail: settings?.ownerEmail,
+                        ownerPhone: settings?.ownerPhone
+                    });
 
                     const notification: TurnoverNotification = {
                         id: res.id + 1000000, // Offset to avoid ID collision
@@ -1049,13 +1094,14 @@ export class TurnoverService {
                         contactName: contact?.name,
                         contactPhone: contact?.contact, // Contact entity uses 'contact' field for phone
                         contactRole: contact?.role || undefined,
-                        messagePreview,
+                        messagePreview: renderedTemplate.message,
                         sentMessage: postStayAudit?.cleanerNotificationMessage || undefined,
                         turnoverNotes: cleaningNotes,
                         
                         status: postStayAudit?.cleanerNotificationStatus as any || 'pending',
                         sentAt: postStayAudit?.cleanerNotificationSentAt?.toISOString(),
                         error: postStayAudit?.cleanerNotificationError || undefined,
+                        templateErrorVariables: [...renderedTemplate.unknownVariables, ...renderedTemplate.missingVariables],
                         preStayAuditStatus: preStayAudit?.completionStatus || 'Not Started',
                         postStayAuditStatus: postStayAudit?.completionStatus || 'Not Started',
                         
@@ -1303,31 +1349,33 @@ export class TurnoverService {
                     if (!listingName.includes(searchLower) && !address.includes(searchLower)) continue;
                 }
 
-                let settings = await this.settingsRepo.findOne({ where: { listingId: listing.id } });
-                settings = await this.ensureCurrentBackendDefaults(settings, listing.id);
+                const settings = await this.settingsRepo.findOne({ where: { listingId: listing.id } });
                 const backendSnapshot = this.getCurrentBackendSnapshot();
-                const backendCleaners = await this.getCurrentBackendCleanerContacts(listing.id);
-                const currentPreStayRecipientIds = backendSnapshot.preStayEnabled
-                    ? this.normalizeRecipientIds([this.getContactRecipientId(backendCleaners[0])].filter(Boolean))
-                    : [];
-                const currentPostStayRecipientIds = backendSnapshot.postStayEnabled && backendCleaners.length === 1
-                    ? this.normalizeRecipientIds([this.getContactRecipientId(backendCleaners[0])].filter(Boolean))
-                    : [];
                 
                 // Get contacts
                 const recipientOptions = await this.getRecipientOptionsForListing(listing);
                 const preStayRecipientIds = this.normalizeRecipientIds(
-                    currentPreStayRecipientIds.length ? currentPreStayRecipientIds : (settings?.preStayRecipientIds || globalSettings?.preStayRecipientIds),
+                    settings?.preStayRecipientIds !== undefined && settings?.preStayRecipientIds !== null
+                        ? settings.preStayRecipientIds
+                        : globalSettings?.preStayRecipientIds,
                     settings?.preStayContactId || globalSettings?.preStayContactId
                 );
                 const postStayRecipientIds = this.normalizeRecipientIds(
-                    currentPostStayRecipientIds.length ? currentPostStayRecipientIds : (settings?.postStayRecipientIds || globalSettings?.postStayRecipientIds),
+                    settings?.postStayRecipientIds !== undefined && settings?.postStayRecipientIds !== null
+                        ? settings.postStayRecipientIds
+                        : globalSettings?.postStayRecipientIds,
                     settings?.postStayContactId || globalSettings?.postStayContactId
                 );
                 const sameDayCombinedRecipientIds = this.normalizeRecipientIds(
-                    settings?.sameDayCombinedRecipientIds || globalSettings?.sameDayCombinedRecipientIds,
+                    [
+                        ...preStayRecipientIds,
+                        ...postStayRecipientIds
+                    ].filter((value, index, arr) => arr.indexOf(value) === index),
                     null
                 );
+                const preStayEnabled = this.resolveValue(settings?.preStayEnabled, globalSettings?.preStayEnabled, backendSnapshot.preStayEnabled);
+                const postStayEnabled = this.resolveValue(settings?.postStayEnabled, globalSettings?.postStayEnabled, backendSnapshot.postStayEnabled);
+                const sameDayCombinedEnabled = this.resolveValue(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, backendSnapshot.sameDayCombinedEnabled);
 
                 const preStayContactId = preStayRecipientIds[0]?.startsWith('contact:')
                     ? Number(preStayRecipientIds[0].split(':')[1])
@@ -1349,34 +1397,35 @@ export class TurnoverService {
                     preStayContactName: this.getRecipientNames(preStayRecipientIds, recipientOptions).join(', '),
                     preStayRecipientIds,
                     preStayRecipientNames: this.getRecipientNames(preStayRecipientIds, recipientOptions),
-                    preStayEnabled: backendSnapshot.preStayEnabled && preStayRecipientIds.length > 0,
-                    preStayMessageTemplate: settings?.preStayMessageTemplate || globalSettings?.preStayMessageTemplate || backendSnapshot.preStayMessageTemplate,
-                    preStayScheduleMode: settings?.preStayScheduleMode || globalSettings?.preStayScheduleMode || backendSnapshot.preStayScheduleMode,
-                    preStayOffsetMinutes: settings?.preStayOffsetMinutes ?? globalSettings?.preStayOffsetMinutes ?? backendSnapshot.preStayOffsetMinutes,
+                    preStayEnabled,
+                    preStayMessageTemplate: this.resolveValue(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, backendSnapshot.preStayMessageTemplate),
+                    preStayScheduleMode: this.resolveValue(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, backendSnapshot.preStayScheduleMode),
+                    preStayOffsetMinutes: this.resolveValue(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, backendSnapshot.preStayOffsetMinutes),
+                    preStaySettingsSource: this.resolveSource(settings, ['preStayEnabled', 'preStayRecipientIds', 'preStayScheduleMode', 'preStayOffsetMinutes', 'preStayMessageTemplate']),
                     
                     postStayContactId: postStayContactId,
                     postStayContactName: this.getRecipientNames(postStayRecipientIds, recipientOptions).join(', '),
                     postStayRecipientIds,
                     postStayRecipientNames: this.getRecipientNames(postStayRecipientIds, recipientOptions),
-                    postStayEnabled: backendSnapshot.postStayEnabled && backendCleaners.length === 1 && postStayRecipientIds.length > 0,
-                    postStayMessageTemplate: settings?.postStayMessageTemplate || globalSettings?.postStayMessageTemplate || backendSnapshot.postStayMessageTemplate,
-                    postStayScheduleMode: settings?.postStayScheduleMode || globalSettings?.postStayScheduleMode || backendSnapshot.postStayScheduleMode,
-                    postStayOffsetMinutes: settings?.postStayOffsetMinutes ?? globalSettings?.postStayOffsetMinutes ?? backendSnapshot.postStayOffsetMinutes,
+                    postStayEnabled,
+                    postStayMessageTemplate: this.resolveValue(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, backendSnapshot.postStayMessageTemplate),
+                    postStayScheduleMode: this.resolveValue(settings?.postStayScheduleMode, globalSettings?.postStayScheduleMode, backendSnapshot.postStayScheduleMode),
+                    postStayOffsetMinutes: this.resolveValue(settings?.postStayOffsetMinutes, globalSettings?.postStayOffsetMinutes, backendSnapshot.postStayOffsetMinutes),
+                    postStaySettingsSource: this.resolveSource(settings, ['postStayEnabled', 'postStayRecipientIds', 'postStayScheduleMode', 'postStayOffsetMinutes', 'postStayMessageTemplate']),
 
-                    sameDayCombinedEnabled: backendSnapshot.sameDayCombinedEnabled,
+                    sameDayCombinedEnabled,
                     sameDayCombinedRecipientIds,
                     sameDayCombinedRecipientNames: this.getRecipientNames(sameDayCombinedRecipientIds, recipientOptions),
-                    sameDayCombinedMessageTemplate: settings?.sameDayCombinedMessageTemplate || globalSettings?.sameDayCombinedMessageTemplate || backendSnapshot.sameDayCombinedMessageTemplate,
-                    sameDayScheduleMode: settings?.sameDayScheduleMode || globalSettings?.sameDayScheduleMode || backendSnapshot.sameDayScheduleMode,
-                    sameDayOffsetMinutes: settings?.sameDayOffsetMinutes ?? globalSettings?.sameDayOffsetMinutes ?? backendSnapshot.sameDayOffsetMinutes,
+                    sameDayCombinedMessageTemplate: this.resolveValue(settings?.sameDayCombinedMessageTemplate, globalSettings?.sameDayCombinedMessageTemplate, backendSnapshot.sameDayCombinedMessageTemplate),
+                    sameDayScheduleMode: this.resolveValue(settings?.sameDayScheduleMode, globalSettings?.sameDayScheduleMode, backendSnapshot.sameDayScheduleMode),
+                    sameDayOffsetMinutes: this.resolveValue(settings?.sameDayOffsetMinutes, globalSettings?.sameDayOffsetMinutes, backendSnapshot.sameDayOffsetMinutes),
+                    sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabled', 'sameDayCombinedMessageTemplate']),
                     recipientOptions,
                     smsSenderNumber: backendSnapshot.smsSenderNumber,
-                    preStayScheduleDescription: backendSnapshot.preStayScheduleDescription,
-                    postStayScheduleDescription: backendSnapshot.postStayScheduleDescription,
-                    sameDayScheduleDescription: backendSnapshot.sameDayScheduleDescription,
-                    backendRecipientNote: backendCleaners.length > 1
-                        ? 'Current checkout SMS job skips properties with more than one active cleaner.'
-                        : 'Current scheduled backend resolves the active cleaner on this property.',
+                    preStayScheduleDescription: 'Property value is used when present; otherwise the global pre-stay default is applied.',
+                    postStayScheduleDescription: 'Property value is used when present; otherwise the global post-stay default is applied.',
+                    sameDayScheduleDescription: 'Same-day uses the enabled pre-stay/post-stay settings and the earlier configured schedule.',
+                    backendRecipientNote: 'Scheduled turnover messages use the effective settings shown in this row.',
                     
                     ownerName: settings?.ownerName,
                     ownerEmail: settings?.ownerEmail,
@@ -1403,23 +1452,23 @@ export class TurnoverService {
         settings = await this.ensureCurrentBackendDefaults(settings, 0);
         return {
             ...settings,
-            preStayEnabled: snapshot.preStayEnabled,
-            postStayEnabled: snapshot.postStayEnabled,
-            sameDayCombinedEnabled: snapshot.sameDayCombinedEnabled,
-            preStayScheduleMode: snapshot.preStayScheduleMode,
-            postStayScheduleMode: snapshot.postStayScheduleMode,
-            sameDayScheduleMode: snapshot.sameDayScheduleMode,
-            preStayOffsetMinutes: snapshot.preStayOffsetMinutes,
-            postStayOffsetMinutes: snapshot.postStayOffsetMinutes,
-            sameDayOffsetMinutes: snapshot.sameDayOffsetMinutes,
-            preStayMessageTemplate: settings.preStayMessageTemplate || snapshot.preStayMessageTemplate,
-            postStayMessageTemplate: settings.postStayMessageTemplate || snapshot.postStayMessageTemplate,
-            sameDayCombinedMessageTemplate: settings.sameDayCombinedMessageTemplate || snapshot.sameDayCombinedMessageTemplate,
+            preStayEnabled: this.resolveValue(settings.preStayEnabled, null, snapshot.preStayEnabled),
+            postStayEnabled: this.resolveValue(settings.postStayEnabled, null, snapshot.postStayEnabled),
+            sameDayCombinedEnabled: this.resolveValue(settings.sameDayCombinedEnabled, null, snapshot.sameDayCombinedEnabled),
+            preStayScheduleMode: this.resolveValue(settings.preStayScheduleMode, null, snapshot.preStayScheduleMode),
+            postStayScheduleMode: this.resolveValue(settings.postStayScheduleMode, null, snapshot.postStayScheduleMode),
+            sameDayScheduleMode: this.resolveValue(settings.sameDayScheduleMode, null, snapshot.sameDayScheduleMode),
+            preStayOffsetMinutes: this.resolveValue(settings.preStayOffsetMinutes, null, snapshot.preStayOffsetMinutes),
+            postStayOffsetMinutes: this.resolveValue(settings.postStayOffsetMinutes, null, snapshot.postStayOffsetMinutes),
+            sameDayOffsetMinutes: this.resolveValue(settings.sameDayOffsetMinutes, null, snapshot.sameDayOffsetMinutes),
+            preStayMessageTemplate: this.resolveValue(settings.preStayMessageTemplate, null, snapshot.preStayMessageTemplate),
+            postStayMessageTemplate: this.resolveValue(settings.postStayMessageTemplate, null, snapshot.postStayMessageTemplate),
+            sameDayCombinedMessageTemplate: this.resolveValue(settings.sameDayCombinedMessageTemplate, null, snapshot.sameDayCombinedMessageTemplate),
             smsSenderNumber: snapshot.smsSenderNumber,
             preStayScheduleDescription: snapshot.preStayScheduleDescription,
             postStayScheduleDescription: snapshot.postStayScheduleDescription,
             sameDayScheduleDescription: snapshot.sameDayScheduleDescription,
-            backendRecipientNote: 'Current scheduled backend resolves recipients from each property active cleaner, not a single global recipient list.'
+            backendRecipientNote: 'Property-level settings override these global defaults.'
         };
     }
 
