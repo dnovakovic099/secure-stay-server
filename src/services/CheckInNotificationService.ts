@@ -3,9 +3,12 @@ import { Contact } from "../entity/Contact";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
+import { TurnoverSettings } from "../entity/TurnoverSettings";
+import { ClientEntity } from "../entity/Client";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
 import { Between, LessThanOrEqual, MoreThanOrEqual, In } from "typeorm";
+import { renderTurnoverTemplate, summarizeTemplateErrors } from "../utils/turnoverTemplate.util";
 
 import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreStayAudit";
 import { DoorCodeStatus, CompletionStatus, InventoryCheckStatus, CleanlinessCheck, CleanerCheck, CleanerNotified, DamageCheck } from "../entity/ReservationDetailPreStayAudit";
@@ -16,6 +19,8 @@ export class CheckInNotificationService {
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
     private listingRepo = appDatabase.getRepository(Listing);
+    private settingsRepo = appDatabase.getRepository(TurnoverSettings);
+    private clientRepo = appDatabase.getRepository(ClientEntity);
     private preStayAuditRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private openPhoneService = new OpenPhoneService();
 
@@ -26,12 +31,7 @@ export class CheckInNotificationService {
      */
     async sendCheckInNotification(reservationId: number, forceManual: boolean = false): Promise<void> {
         try {
-            // Check if feature is enabled (skip check for manual sends)
-            if (!forceManual && process.env.ENABLE_CHECKIN_NOTIFICATION_SMS !== 'true') {
-                logger.info(`[CheckInNotification] Feature disabled for reservation ${reservationId}`);
-                throw new Error('Check-in notification feature is disabled. Set ENABLE_CHECKIN_NOTIFICATION_SMS=true to enable.');
-            }
-
+            void forceManual;
             logger.info(`[CheckInNotification] Processing check-in notification for reservation ${reservationId}`);
 
             // Fetch reservation details
@@ -51,14 +51,6 @@ export class CheckInNotificationService {
                 return;
             }
 
-            // Determine which contact to notify
-            const contact = await this.getNotificationContact(reservation, existingAudit?.notificationContactId ?? undefined);
-
-            if (!contact) {
-                await this.updateStatus(reservationId, 'skipped', 'No active contact found for this listing');
-                throw new Error('No active contact found for this listing. Please add a cleaner contact first.');
-            }
-
             // Fetch listing for address
             const listing = await this.listingRepo.findOne({
                 where: { id: reservation.listingMapId }
@@ -69,11 +61,42 @@ export class CheckInNotificationService {
                 throw new Error('Listing information not found for this reservation');
             }
 
+            const settings = await this.getEffectiveSettings(listing.id);
+            if (!settings.preStayEnabled) {
+                await this.updateStatus(reservationId, 'skipped', 'Pre-stay turnover messages are disabled for this property');
+                return;
+            }
+            if (settings.sameDayCombinedEnabled && await this.hasSameDayCheckout(reservation, listing)) {
+                await this.updateStatus(reservationId, 'skipped', 'Same-day turnover is enabled; pre-stay message is suppressed by the combined same-day rule');
+                return;
+            }
+
+            // Determine which contact to notify
+            const contact = await this.getNotificationContact(reservation, existingAudit?.notificationContactId ?? undefined, settings.preStayRecipientIds);
+
+            if (!contact) {
+                await this.updateStatus(reservationId, 'skipped', 'No enabled pre-stay recipient found for this listing');
+                throw new Error('No enabled pre-stay recipient found for this listing.');
+            }
+
             // Fetch early check-in upsells
             const upsells = await this.getEarlyCheckInUpsells(reservation);
 
             // Compose SMS message
-            const message = this.composeCheckInMessage(reservation, listing, upsells);
+            const rendered = renderTurnoverTemplate(settings.preStayMessageTemplate, {
+                reservation,
+                listing,
+                upsells,
+                ownerName: settings.ownerName,
+                ownerEmail: settings.ownerEmail,
+                ownerPhone: settings.ownerPhone
+            });
+            const templateError = summarizeTemplateErrors(rendered);
+            if (rendered.blocked) {
+                await this.updateStatus(reservationId, 'skipped', templateError || 'Template variables could not be populated');
+                return;
+            }
+            const message = rendered.message;
 
             // Format contact phone number
             const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', contact.contact);
@@ -102,7 +125,7 @@ export class CheckInNotificationService {
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
-            await this.updateStatus(reservationId, 'sent', undefined, contact.id, message);
+            await this.updateStatus(reservationId, 'sent', templateError || undefined, contact.id, message);
 
             logger.info(`[CheckInNotification] SMS sent successfully to ${contact.name} for reservation ${reservationId}`);
 
@@ -117,8 +140,9 @@ export class CheckInNotificationService {
      */
     private async getNotificationContact(
         reservation: ReservationInfoEntity,
-        overrideContactId?: number
-    ): Promise<Contact | null> {
+        overrideContactId?: number,
+        recipientIds?: string[]
+    ): Promise<{ id?: number; name: string; contact?: string | null; role?: string | null } | null> {
         // Check if there's a per-reservation override
         if (overrideContactId) {
             const overrideContact = await this.contactRepo.findOne({
@@ -129,6 +153,50 @@ export class CheckInNotificationService {
                 logger.info(`[CheckInNotification] Using override contact: ${overrideContact.name}`);
                 return overrideContact;
             }
+        }
+
+        const contactIds = (recipientIds || [])
+            .filter((id) => id.startsWith('contact:'))
+            .map((id) => Number(id.split(':')[1]))
+            .filter((id) => Number.isFinite(id));
+        if ((recipientIds || []).length > 0) {
+            if (contactIds.length > 0) {
+                const configuredContacts = await this.contactRepo.find({
+                    where: {
+                        id: In(contactIds),
+                        status: In(['active', 'active-backup'] as any),
+                        deletedAt: null as any
+                    }
+                });
+                if (configuredContacts.length > 0) {
+                    logger.info(`[CheckInNotification] Using configured pre-stay contact: ${configuredContacts[0].name}`);
+                    return configuredContacts[0];
+                }
+            }
+            const ownerId = (recipientIds || []).find((id) => id.startsWith('owner:'));
+            if (ownerId) {
+                const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+                if (listing?.ownerPhone) {
+                    return {
+                        name: listing.ownerName || 'Owner',
+                        contact: listing.ownerPhone,
+                        role: 'Owner'
+                    };
+                }
+            }
+            const clientId = (recipientIds || []).find((id) => id.startsWith('client:'));
+            if (clientId) {
+                const client = await this.clientRepo.findOne({ where: { id: clientId.split(':')[1] } });
+                if (client?.phone) {
+                    return {
+                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Client',
+                        contact: client.phone,
+                        role: 'Client'
+                    };
+                }
+            }
+            logger.warn(`[CheckInNotification] Configured pre-stay recipients do not include an active contact for listing ${reservation.listingMapId}`);
+            return null;
         }
 
         // Query for active cleaners or property managers
@@ -153,6 +221,51 @@ export class CheckInNotificationService {
 
         logger.info(`[CheckInNotification] Using contact: ${activeContacts[0].name}`);
         return activeContacts[0];
+    }
+
+    private async getEffectiveSettings(listingId: number) {
+        const [settings, globalSettings] = await Promise.all([
+            this.settingsRepo.findOne({ where: { listingId } }),
+            this.settingsRepo.findOne({ where: { listingId: 0 } })
+        ]);
+        const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
+            propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        return {
+            preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
+            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
+            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
+            preStayMessageTemplate: resolve(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, this.composeCheckInMessageTemplate()),
+            ownerName: settings?.ownerName || globalSettings?.ownerName || null,
+            ownerEmail: settings?.ownerEmail || globalSettings?.ownerEmail || null,
+            ownerPhone: settings?.ownerPhone || globalSettings?.ownerPhone || null,
+        };
+    }
+
+    private composeCheckInMessageTemplate() {
+        return `{propertyName} Check-In Notification
+
+Address: {address}
+
+Reservation #{reservationId}
+Guest: {guestName}
+Check-In Date: {checkInDate}
+
+{upsellInfo}`;
+    }
+
+    private sameDate(a?: Date | string | null, b?: Date | string | null) {
+        if (!a || !b) return false;
+        return new Date(a).toISOString().slice(0, 10) === new Date(b).toISOString().slice(0, 10);
+    }
+
+    private async hasSameDayCheckout(reservation: ReservationInfoEntity, listing: Listing) {
+        const reservations = await this.reservationRepo.find({
+            where: {
+                listingMapId: listing.id,
+                status: In(["new", "accepted", "modified", "ownerStay", "moved"])
+            }
+        });
+        return reservations.some((candidate) => candidate.id !== reservation.id && this.sameDate(candidate.departureDate, reservation.arrivalDate));
     }
 
     /**

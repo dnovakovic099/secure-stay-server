@@ -4,9 +4,12 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
+import { TurnoverSettings } from "../entity/TurnoverSettings";
+import { ClientEntity } from "../entity/Client";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
-import { Between } from "typeorm";
+import { Between, In } from "typeorm";
+import { renderTurnoverTemplate, summarizeTemplateErrors } from "../utils/turnoverTemplate.util";
 
 export class CleanerNotificationService {
     private contactRepo = appDatabase.getRepository(Contact);
@@ -14,6 +17,8 @@ export class CleanerNotificationService {
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
     private listingRepo = appDatabase.getRepository(Listing);
+    private settingsRepo = appDatabase.getRepository(TurnoverSettings);
+    private clientRepo = appDatabase.getRepository(ClientEntity);
     private openPhoneService = new OpenPhoneService();
 
     /**
@@ -21,12 +26,6 @@ export class CleanerNotificationService {
      */
     async sendCheckoutNotification(reservationId: number): Promise<void> {
         try {
-            // Check if feature is enabled
-            if (process.env.ENABLE_CLEANER_CHECKOUT_SMS !== 'true') {
-                logger.info(`[CleanerNotification] Feature disabled for reservation ${reservationId}`);
-                return;
-            }
-
             logger.info(`[CleanerNotification] Processing checkout notification for reservation ${reservationId}`);
 
             // Fetch reservation details
@@ -53,26 +52,6 @@ export class CleanerNotificationService {
                 await this.postStayRepo.save(postStay);
             }
 
-            // Determine which cleaner to notify
-            const cleaner = await this.getNotificationCleaner(reservation, postStay);
-
-            if (!cleaner) {
-                // Check if error was already set by getNotificationCleaner (e.g., multiple cleaners)
-                const currentPostStay = await this.postStayRepo.findOne({
-                    where: { reservationId }
-                });
-
-                // Only update if no error has been set yet
-                if (!currentPostStay?.cleanerNotificationError) {
-                    await this.updateNotificationStatus(
-                        reservationId,
-                        'skipped',
-                        'No active cleaner found for this listing'
-                    );
-                }
-                return;
-            }
-
             // Fetch listing for address
             const listing = await this.listingRepo.findOne({
                 where: { id: reservation.listingMapId }
@@ -87,11 +66,57 @@ export class CleanerNotificationService {
                 return;
             }
 
+            const settings = await this.getEffectiveSettings(listing.id);
+            const sameDayCheckIn = await this.getSameDayCheckIn(reservation, listing);
+            const useSameDay = !!sameDayCheckIn && settings.sameDayCombinedEnabled && (settings.preStayEnabled || settings.postStayEnabled);
+            if (!settings.postStayEnabled && !useSameDay) {
+                await this.updateNotificationStatus(reservationId, 'skipped', 'Post-stay turnover messages are disabled for this property');
+                return;
+            }
+
+            // Determine which cleaner to notify
+            const cleaner = await this.getNotificationCleaner(
+                reservation,
+                postStay,
+                useSameDay ? [...settings.preStayRecipientIds, ...settings.postStayRecipientIds] : settings.postStayRecipientIds
+            );
+
+            if (!cleaner) {
+                const currentPostStay = await this.postStayRepo.findOne({
+                    where: { reservationId }
+                });
+
+                if (!currentPostStay?.cleanerNotificationError) {
+                    await this.updateNotificationStatus(
+                        reservationId,
+                        'skipped',
+                        'No enabled post-stay recipient found for this listing'
+                    );
+                }
+                return;
+            }
+
             // Fetch approved upsells
             const upsells = await this.getApprovedUpsells(reservation);
 
             // Compose SMS message
-            const message = this.composeCheckoutMessage(reservation, listing, upsells);
+            const template = useSameDay ? settings.sameDayCombinedMessageTemplate : settings.postStayMessageTemplate;
+            const rendered = renderTurnoverTemplate(template, {
+                reservation,
+                listing,
+                upsells,
+                preStayReservation: sameDayCheckIn,
+                postStayReservation: reservation,
+                ownerName: settings.ownerName,
+                ownerEmail: settings.ownerEmail,
+                ownerPhone: settings.ownerPhone
+            });
+            const templateError = summarizeTemplateErrors(rendered);
+            if (rendered.blocked) {
+                await this.updateNotificationStatus(reservationId, 'skipped', templateError || 'Template variables could not be populated');
+                return;
+            }
+            const message = rendered.message;
 
             // Format cleaner phone number
             const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', cleaner.contact);
@@ -130,7 +155,7 @@ export class CleanerNotificationService {
             await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
 
             // Update status to sent
-            await this.updateNotificationStatus(reservationId, 'sent', undefined, message);
+            await this.updateNotificationStatus(reservationId, 'sent', templateError || undefined, message);
 
             logger.info(`[CleanerNotification] SMS sent successfully to ${cleaner.name} for reservation ${reservationId}`);
 
@@ -149,8 +174,9 @@ export class CleanerNotificationService {
      */
     private async getNotificationCleaner(
         reservation: ReservationInfoEntity,
-        postStay: ReservationDetailPostStayAudit
-    ): Promise<Contact | null> {
+        postStay: ReservationDetailPostStayAudit,
+        recipientIds?: string[]
+    ): Promise<{ id?: number; name: string; contact?: string | null; role?: string | null } | null> {
         // Check if there's a per-reservation override
         if (postStay.cleanerNotificationContactId) {
             const overrideCleaner = await this.contactRepo.findOne({
@@ -161,6 +187,50 @@ export class CleanerNotificationService {
                 logger.info(`[CleanerNotification] Using override cleaner: ${overrideCleaner.name}`);
                 return overrideCleaner;
             }
+        }
+
+        const contactIds = Array.from(new Set((recipientIds || [])
+            .filter((id) => id.startsWith('contact:'))
+            .map((id) => Number(id.split(':')[1]))
+            .filter((id) => Number.isFinite(id))));
+        if ((recipientIds || []).length > 0) {
+            if (contactIds.length > 0) {
+                const configuredContacts = await this.contactRepo.find({
+                    where: {
+                        id: In(contactIds),
+                        status: In(['active', 'active-backup'] as any),
+                        deletedAt: null as any
+                    }
+                });
+                if (configuredContacts.length > 0) {
+                    logger.info(`[CleanerNotification] Using configured post-stay contact: ${configuredContacts[0].name}`);
+                    return configuredContacts[0];
+                }
+            }
+            const ownerId = (recipientIds || []).find((id) => id.startsWith('owner:'));
+            if (ownerId) {
+                const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
+                if (listing?.ownerPhone) {
+                    return {
+                        name: listing.ownerName || 'Owner',
+                        contact: listing.ownerPhone,
+                        role: 'Owner'
+                    };
+                }
+            }
+            const clientId = (recipientIds || []).find((id) => id.startsWith('client:'));
+            if (clientId) {
+                const client = await this.clientRepo.findOne({ where: { id: clientId.split(':')[1] } });
+                if (client?.phone) {
+                    return {
+                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Client',
+                        contact: client.phone,
+                        role: 'Client'
+                    };
+                }
+            }
+            logger.warn(`[CleanerNotification] Configured post-stay recipients do not include an active contact for listing ${reservation.listingMapId}`);
+            return null;
         }
 
         // Query for active cleaners
@@ -190,6 +260,73 @@ export class CleanerNotificationService {
 
         logger.info(`[CleanerNotification] Using active cleaner: ${activeCleaners[0].name}`);
         return activeCleaners[0];
+    }
+
+    private async getEffectiveSettings(listingId: number) {
+        const [settings, globalSettings] = await Promise.all([
+            this.settingsRepo.findOne({ where: { listingId } }),
+            this.settingsRepo.findOne({ where: { listingId: 0 } })
+        ]);
+        const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
+            propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        return {
+            preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
+            postStayEnabled: resolve(settings?.postStayEnabled, globalSettings?.postStayEnabled, true),
+            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
+            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
+            postStayRecipientIds: resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [],
+            postStayMessageTemplate: resolve(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, this.composeCheckoutMessageTemplate()),
+            sameDayCombinedMessageTemplate: resolve(settings?.sameDayCombinedMessageTemplate, globalSettings?.sameDayCombinedMessageTemplate, this.composeSameDayMessageTemplate()),
+            ownerName: settings?.ownerName || globalSettings?.ownerName || null,
+            ownerEmail: settings?.ownerEmail || globalSettings?.ownerEmail || null,
+            ownerPhone: settings?.ownerPhone || globalSettings?.ownerPhone || null,
+        };
+    }
+
+    private composeCheckoutMessageTemplate() {
+        return `{propertyName} Checkout Notification
+
+Address: {address}
+
+Reservation #{reservationId}
+Guest: {guestName}
+Checkout Date: {checkOutDate}
+
+{upsellInfo}
+
+Please ensure property is cleaned and restocked.`;
+    }
+
+    private composeSameDayMessageTemplate() {
+        return `{propertyName} Same-Day Turnover Notification
+
+Address: {address}
+
+Checkout Reservation #{postStayReservationId}
+Arriving Reservation #{preStayReservationId}
+
+Outgoing Guest: {postStayGuestName}
+Incoming Guest: {preStayGuestName}
+
+Checkout Date: {checkOutDate}
+Check-In Date: {checkInDate}
+
+{turnoverNotes}`;
+    }
+
+    private sameDate(a?: Date | string | null, b?: Date | string | null) {
+        if (!a || !b) return false;
+        return new Date(a).toISOString().slice(0, 10) === new Date(b).toISOString().slice(0, 10);
+    }
+
+    private async getSameDayCheckIn(reservation: ReservationInfoEntity, listing: Listing) {
+        const reservations = await this.reservationRepo.find({
+            where: {
+                listingMapId: listing.id,
+                status: In(["new", "accepted", "modified", "ownerStay", "moved"])
+            }
+        });
+        return reservations.find((candidate) => candidate.id !== reservation.id && this.sameDate(candidate.arrivalDate, reservation.departureDate)) || null;
     }
 
     /**
