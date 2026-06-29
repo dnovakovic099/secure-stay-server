@@ -496,14 +496,25 @@ export class CleanerNotificationService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const resolveEnabled = (
+            propertyValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
+            globalValue: boolean | null | undefined,
+            fallback: boolean
+        ) => {
+            const hasPropertyOverride = overrideValue === true || propertyValue === false;
+            return hasPropertyOverride
+                ? Boolean(propertyValue)
+                : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+        };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
         const postStayDefaultRecipientType = resolve(settings?.postStayDefaultRecipientType, globalSettings?.postStayDefaultRecipientType, "cleaner");
         const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
         const explicitPostStayRecipientIds = resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [];
         return {
-            preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
-            postStayEnabled: resolve(settings?.postStayEnabled, globalSettings?.postStayEnabled, true),
-            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
+            preStayEnabled: resolveEnabled(settings?.preStayEnabled, settings?.preStayEnabledOverride, globalSettings?.preStayEnabled, true),
+            postStayEnabled: resolveEnabled(settings?.postStayEnabled, settings?.postStayEnabledOverride, globalSettings?.postStayEnabled, true),
+            sameDayCombinedEnabled: resolveEnabled(settings?.sameDayCombinedEnabled, settings?.sameDayCombinedEnabledOverride, globalSettings?.sameDayCombinedEnabled, false),
             preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
             postStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, postStayDefaultRecipientType, explicitPostStayRecipientIds),
             preStayDefaultRecipientType,

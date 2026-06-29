@@ -131,6 +131,17 @@ export class TurnoverReservationChangeService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const resolveEnabled = (
+            propertyValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
+            globalValue: boolean | null | undefined,
+            fallback: boolean
+        ) => {
+            const hasPropertyOverride = overrideValue === true || propertyValue === false;
+            return hasPropertyOverride
+                ? Boolean(propertyValue)
+                : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+        };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
         const postStayDefaultRecipientType = resolve(settings?.postStayDefaultRecipientType, globalSettings?.postStayDefaultRecipientType, "cleaner");
         const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
@@ -138,7 +149,7 @@ export class TurnoverReservationChangeService {
         return {
             preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
             postStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, postStayDefaultRecipientType, explicitPostStayRecipientIds),
-            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
+            sameDayCombinedEnabled: resolveEnabled(settings?.sameDayCombinedEnabled, settings?.sameDayCombinedEnabledOverride, globalSettings?.sameDayCombinedEnabled, false),
             cleanerSenderNumber: resolve(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null),
             cleanerSenderNumberGroup1: resolve(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || null),
             cleanerSenderNumberGroup2: resolve(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || null),
