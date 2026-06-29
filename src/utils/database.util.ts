@@ -77,3 +77,103 @@ export async function ensureReviewCheckoutMetadataColumns() {
     throw error;
   }
 }
+
+let turnoverSettingsSchemaEnsured = false;
+
+export async function ensureTurnoverSettingsColumns() {
+  if (!appDatabase.isInitialized || turnoverSettingsSchemaEnsured) return;
+
+  const addColumnIfMissing = async (column: string, definition: string) => {
+    const existing = await appDatabase.query("SHOW COLUMNS FROM turnover_settings LIKE ?", [column]);
+    if (Array.isArray(existing) && existing.length > 0) return;
+    try {
+      await appDatabase.query(`ALTER TABLE turnover_settings ADD COLUMN ${column} ${definition}`);
+      logger.info(`Added missing turnover_settings.${column} column`);
+    } catch (error: any) {
+      if (error?.code === "ER_DUP_FIELDNAME") return;
+      throw error;
+    }
+  };
+
+  try {
+    await appDatabase.query(`
+      CREATE TABLE IF NOT EXISTS turnover_settings (
+        listing_id INT NOT NULL PRIMARY KEY,
+        pre_stay_contact_id INT NULL,
+        pre_stay_recipient_ids LONGTEXT NULL,
+        pre_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
+        pre_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        pre_stay_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
+        pre_stay_message_template TEXT NULL,
+        pre_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
+        pre_stay_offset_minutes INT NULL DEFAULT 0,
+        post_stay_contact_id INT NULL,
+        post_stay_recipient_ids LONGTEXT NULL,
+        post_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
+        post_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        post_stay_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
+        post_stay_message_template TEXT NULL,
+        post_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
+        post_stay_offset_minutes INT NULL DEFAULT 0,
+        same_day_combined_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        same_day_combined_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
+        same_day_combined_recipient_ids LONGTEXT NULL,
+        same_day_combined_message_template TEXT NULL,
+        same_day_schedule_mode VARCHAR(50) NULL DEFAULT 'post-stay',
+        same_day_offset_minutes INT NULL DEFAULT 0,
+        owner_name VARCHAR(255) NULL,
+        owner_email VARCHAR(255) NULL,
+        owner_phone VARCHAR(255) NULL,
+        cleaner_sender_number VARCHAR(100) NULL,
+        cleaner_sender_number_group1 VARCHAR(100) NULL,
+        cleaner_sender_number_group2 VARCHAR(100) NULL,
+        owner_sender_number VARCHAR(100) NULL,
+        reservation_change_updates_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        reservation_change_message_template TEXT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        updated_by VARCHAR(255) NULL
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    await addColumnIfMissing("pre_stay_contact_id", "INT NULL");
+    await addColumnIfMissing("pre_stay_recipient_ids", "LONGTEXT NULL");
+    await addColumnIfMissing("pre_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
+    await addColumnIfMissing("pre_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("pre_stay_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
+    await addColumnIfMissing("pre_stay_message_template", "TEXT NULL");
+    await addColumnIfMissing("pre_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
+    await addColumnIfMissing("pre_stay_offset_minutes", "INT NULL DEFAULT 0");
+    await addColumnIfMissing("post_stay_contact_id", "INT NULL");
+    await addColumnIfMissing("post_stay_recipient_ids", "LONGTEXT NULL");
+    await addColumnIfMissing("post_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
+    await addColumnIfMissing("post_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("post_stay_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
+    await addColumnIfMissing("post_stay_message_template", "TEXT NULL");
+    await addColumnIfMissing("post_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
+    await addColumnIfMissing("post_stay_offset_minutes", "INT NULL DEFAULT 0");
+    await addColumnIfMissing("same_day_combined_enabled", "TINYINT(1) NOT NULL DEFAULT 0");
+    await addColumnIfMissing("same_day_combined_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
+    await addColumnIfMissing("same_day_combined_recipient_ids", "LONGTEXT NULL");
+    await addColumnIfMissing("same_day_combined_message_template", "TEXT NULL");
+    await addColumnIfMissing("same_day_schedule_mode", "VARCHAR(50) NULL DEFAULT 'post-stay'");
+    await addColumnIfMissing("same_day_offset_minutes", "INT NULL DEFAULT 0");
+    await addColumnIfMissing("owner_name", "VARCHAR(255) NULL");
+    await addColumnIfMissing("owner_email", "VARCHAR(255) NULL");
+    await addColumnIfMissing("owner_phone", "VARCHAR(255) NULL");
+    await addColumnIfMissing("cleaner_sender_number", "VARCHAR(100) NULL");
+    await addColumnIfMissing("cleaner_sender_number_group1", "VARCHAR(100) NULL");
+    await addColumnIfMissing("cleaner_sender_number_group2", "VARCHAR(100) NULL");
+    await addColumnIfMissing("owner_sender_number", "VARCHAR(100) NULL");
+    await addColumnIfMissing("reservation_change_updates_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("reservation_change_message_template", "TEXT NULL");
+    await addColumnIfMissing("created_at", "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)");
+    await addColumnIfMissing("updated_at", "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)");
+    await addColumnIfMissing("updated_by", "VARCHAR(255) NULL");
+
+    turnoverSettingsSchemaEnsured = true;
+  } catch (error) {
+    logger.error("Failed to ensure turnover_settings columns:", error);
+    throw error;
+  }
+}

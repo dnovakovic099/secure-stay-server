@@ -12,8 +12,14 @@ export class TurnoverSettings {
     @Column({ name: 'pre_stay_recipient_ids', type: 'simple-json', nullable: true })
     preStayRecipientIds: string[] | null;
 
+    @Column({ name: 'pre_stay_default_recipient_type', type: 'varchar', length: 20, nullable: true, default: 'cleaner' })
+    preStayDefaultRecipientType: string | null;
+
     @Column({ name: 'pre_stay_enabled', default: true })
     preStayEnabled: boolean;
+
+    @Column({ name: 'pre_stay_enabled_override', default: false })
+    preStayEnabledOverride: boolean;
 
     @Column({ name: 'pre_stay_message_template', type: 'text', nullable: true })
     preStayMessageTemplate: string;
@@ -31,8 +37,14 @@ export class TurnoverSettings {
     @Column({ name: 'post_stay_recipient_ids', type: 'simple-json', nullable: true })
     postStayRecipientIds: string[] | null;
 
+    @Column({ name: 'post_stay_default_recipient_type', type: 'varchar', length: 20, nullable: true, default: 'cleaner' })
+    postStayDefaultRecipientType: string | null;
+
     @Column({ name: 'post_stay_enabled', default: true })
     postStayEnabled: boolean;
+
+    @Column({ name: 'post_stay_enabled_override', default: false })
+    postStayEnabledOverride: boolean;
 
     @Column({ name: 'post_stay_message_template', type: 'text', nullable: true })
     postStayMessageTemplate: string;
@@ -45,6 +57,9 @@ export class TurnoverSettings {
 
     @Column({ name: 'same_day_combined_enabled', default: false })
     sameDayCombinedEnabled: boolean;
+
+    @Column({ name: 'same_day_combined_enabled_override', default: false })
+    sameDayCombinedEnabledOverride: boolean;
 
     @Column({ name: 'same_day_combined_recipient_ids', type: 'simple-json', nullable: true })
     sameDayCombinedRecipientIds: string[] | null;
@@ -67,6 +82,24 @@ export class TurnoverSettings {
 
     @Column({ name: 'owner_phone', nullable: true })
     ownerPhone: string;
+
+    @Column({ name: 'cleaner_sender_number', nullable: true })
+    cleanerSenderNumber: string;
+
+    @Column({ name: 'cleaner_sender_number_group1', nullable: true })
+    cleanerSenderNumberGroup1: string;
+
+    @Column({ name: 'cleaner_sender_number_group2', nullable: true })
+    cleanerSenderNumberGroup2: string;
+
+    @Column({ name: 'owner_sender_number', nullable: true })
+    ownerSenderNumber: string;
+
+    @Column({ name: 'reservation_change_updates_enabled', default: true })
+    reservationChangeUpdatesEnabled: boolean;
+
+    @Column({ name: 'reservation_change_message_template', type: 'text', nullable: true })
+    reservationChangeMessageTemplate: string | null;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

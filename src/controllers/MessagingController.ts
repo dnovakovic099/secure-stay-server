@@ -371,4 +371,16 @@ export class MessagingController {
         }
     }
 
+    async updateReservationCustomField(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { reservationId, customFieldId } = request.params;
+            const { value } = request.body;
+            const messagingService = new MessagingService();
+            const details = await messagingService.updateReservationCustomField(Number(reservationId), customFieldId, value);
+            return response.status(200).json({ status: true, data: details });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
 }

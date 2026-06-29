@@ -290,6 +290,26 @@ export class Hostify {
         }
     }
 
+    async updateReservationCustomField(apiKey: string, reservationId: number, customFieldId: number | string, value: any) {
+        try {
+            const url = "https://api-rms.hostify.com/reservations/custom_field_update";
+            const response = await axios.post(url, {
+                reservation_id: reservationId,
+                custom_field_id: customFieldId,
+                value,
+            }, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+            return response.data || null;
+        } catch (error) {
+            logger.error(`Error updating custom field ${customFieldId} for reservation ${reservationId}:`, error.message);
+            throw error;
+        }
+    }
+
     async getTransactions(apiKey: string, filter: Record<string, any> = {}) {
         try {
             const url = "https://api-rms.hostify.com/transactions";

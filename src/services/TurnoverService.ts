@@ -1,4 +1,4 @@
-import { appDatabase } from "../utils/database.util";
+import { appDatabase, ensureTurnoverSettingsColumns } from "../utils/database.util";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreStayAudit";
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
@@ -6,15 +6,19 @@ import { Listing } from "../entity/Listing";
 import { Contact } from "../entity/Contact";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { VendorAssignment } from "../entity/VendorAssignment";
+import { MessagingPhoneNoInfo } from "../entity/MessagingPhoneNo";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import logger from "../utils/logger.utils";
-import { Between, In, Like, MoreThan, MoreThanOrEqual, LessThan, LessThanOrEqual, Raw } from "typeorm";
+import { Between, In, IsNull, Like, MoreThan, MoreThanOrEqual, LessThan, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
 import { Hostify } from "../client/Hostify";
 import { format } from "date-fns";
 import { CleanerNotified } from "../entity/ReservationDetailPreStayAudit";
 import { renderTurnoverTemplate } from "../utils/turnoverTemplate.util";
+import { ClientService } from "./ClientService";
+import { VendorProfileService } from "./VendorProfileService";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
@@ -54,6 +58,19 @@ Checkout Date: {checkOutDate}
 Check-In Date: {checkInDate}
 
 {turnoverNotes}`;
+
+const DEFAULT_RESERVATION_CHANGE_TEMPLATE = `{propertyName} Turnover Update
+
+Reservation #{reservationId}
+Guest: {guestName}
+Status: {reservationStatus}
+
+Previous stay: {previousStay}
+Current stay: {currentStay}
+Check-in time: {checkInTime}
+Check-out time: {checkOutTime}
+
+{changeSummary}`;
 const TURNOVER_RESERVATION_STATUSES = ["new", "accepted", "modified", "ownerStay", "moved"];
 
 interface TurnoverNotification {
@@ -138,10 +155,20 @@ type BackendSettingSnapshot = {
     postStayMessageTemplate: string;
     sameDayCombinedMessageTemplate: string;
     smsSenderNumber: string | null;
+    cleanerSenderNumber: string | null;
+    cleanerSenderNumberGroup1: string | null;
+    cleanerSenderNumberGroup2: string | null;
+    ownerSenderNumber: string | null;
+    reservationChangeUpdatesEnabled: boolean;
+    reservationChangeMessageTemplate: string;
+    preStayDefaultRecipientType: TurnoverDefaultRecipientType;
+    postStayDefaultRecipientType: TurnoverDefaultRecipientType;
     preStayScheduleDescription: string;
     postStayScheduleDescription: string;
     sameDayScheduleDescription: string;
 };
+
+type TurnoverDefaultRecipientType = "cleaner" | "owner" | "custom";
 
 export class TurnoverService {
     private clientRepo = appDatabase.getRepository(ClientEntity);
@@ -230,8 +257,14 @@ export class TurnoverService {
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
     private listingRepo = appDatabase.getRepository(Listing);
     private contactRepo = appDatabase.getRepository(Contact);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
+    private messagingPhoneNoRepo = appDatabase.getRepository(MessagingPhoneNoInfo);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
+
+    private async ensureSettingsSchema() {
+        await ensureTurnoverSettingsColumns();
+    }
 
     private normalizeTimeZoneCandidate(candidate?: string) {
         if (!candidate) return "";
@@ -364,6 +397,10 @@ export class TurnoverService {
         return process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null;
     }
 
+    private getOwnerSenderNumber() {
+        return process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null;
+    }
+
     private getCurrentBackendSnapshot(): BackendSettingSnapshot {
         return {
             preStayEnabled: true,
@@ -379,6 +416,14 @@ export class TurnoverService {
             postStayMessageTemplate: DEFAULT_POST_STAY_TEMPLATE,
             sameDayCombinedMessageTemplate: DEFAULT_SAME_DAY_TEMPLATE,
             smsSenderNumber: this.getCheckInSenderNumber() || this.getCheckoutSenderNumber(),
+            cleanerSenderNumber: this.getCheckoutSenderNumber(),
+            cleanerSenderNumberGroup1: process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || this.getCheckoutSenderNumber(),
+            cleanerSenderNumberGroup2: process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || this.getCheckoutSenderNumber(),
+            ownerSenderNumber: this.getOwnerSenderNumber(),
+            reservationChangeUpdatesEnabled: true,
+            reservationChangeMessageTemplate: DEFAULT_RESERVATION_CHANGE_TEMPLATE,
+            preStayDefaultRecipientType: "cleaner",
+            postStayDefaultRecipientType: "cleaner",
             preStayScheduleDescription: 'Default pre-stay timing. Property settings override this value.',
             postStayScheduleDescription: 'Default post-stay timing. Property settings override this value.',
             sameDayScheduleDescription: 'When enabled, same-day turnover suppresses separate pre-stay/post-stay sends and uses the earlier configured pre/post schedule.'
@@ -387,6 +432,20 @@ export class TurnoverService {
 
     private resolveValue<T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T {
         return propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+    }
+
+    private resolveEnabledValue(
+        settings: TurnoverSettings | null,
+        field: 'preStayEnabled' | 'postStayEnabled' | 'sameDayCombinedEnabled',
+        overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
+        globalValue: boolean | null | undefined,
+        fallback: boolean
+    ) {
+        const propertyValue = settings?.[field];
+        const hasPropertyOverride = settings?.[overrideField] === true || propertyValue === false;
+        return hasPropertyOverride
+            ? Boolean(propertyValue)
+            : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
     }
 
     private resolveSource(settings: TurnoverSettings | null, fields: (keyof TurnoverSettings)[]) {
@@ -407,6 +466,62 @@ export class TurnoverService {
         return [];
     }
 
+    private normalizeSenderNumbers(data: any) {
+        ['cleanerSenderNumber', 'cleanerSenderNumberGroup1', 'cleanerSenderNumberGroup2', 'ownerSenderNumber'].forEach((field) => {
+            if (field in data) {
+                const value = String(data[field] || '').trim();
+                data[field] = value || null;
+            }
+        });
+    }
+
+    private normalizeDefaultRecipientType(value: any): TurnoverDefaultRecipientType | null {
+        if (value === undefined || value === null || value === "") return null;
+        const normalized = String(value).trim().toLowerCase();
+        if (normalized === "owner") return "owner";
+        if (normalized === "custom") return "custom";
+        return "cleaner";
+    }
+
+    private normalizeRecipientDefaults(data: any) {
+        (["preStayDefaultRecipientType", "postStayDefaultRecipientType"] as const).forEach((field) => {
+            if (field in data) {
+                data[field] = this.normalizeDefaultRecipientType(data[field]);
+            }
+        });
+    }
+
+    private getDefaultRecipientType(settingsValue: any, globalValue: any, ids: string[]): TurnoverDefaultRecipientType {
+        return this.normalizeDefaultRecipientType(settingsValue) ||
+            this.normalizeDefaultRecipientType(globalValue) ||
+            (ids.length > 0 ? "custom" : "cleaner");
+    }
+
+    private getDynamicRecipientIds(type: TurnoverDefaultRecipientType, options: TurnoverRecipientOption[]) {
+        if (type === "cleaner") {
+            const cleaner = options.find((option) => option.kind === "contact" && String(option.role || "").toLowerCase() === "cleaner") ||
+                options.find((option) => option.kind === "contact");
+            return cleaner ? [cleaner.value] : [];
+        }
+        if (type === "owner") {
+            const owner = options.find((option) => option.kind === "owner" || String(option.role || "").toLowerCase() === "owner");
+            return owner ? [owner.value] : [];
+        }
+        return [];
+    }
+
+    private resolveRecipientIdsForMode(
+        type: TurnoverDefaultRecipientType,
+        explicitIds: string[],
+        options: TurnoverRecipientOption[]
+    ) {
+        return type === "custom" ? explicitIds : this.getDynamicRecipientIds(type, options);
+    }
+
+    private messageSource(settings: TurnoverSettings | null, field: keyof TurnoverSettings): "property" | "global" {
+        return settings && settings[field] !== undefined && settings[field] !== null && String(settings[field] || "").trim() !== "" ? "property" : "global";
+    }
+
     private getRecipientNames(recipientIds: string[], options: TurnoverRecipientOption[]) {
         if (!recipientIds.length) return [];
         const optionMap = new Map(options.map((option) => [option.value, option.label]));
@@ -423,34 +538,27 @@ export class TurnoverService {
             options.push(option);
         };
 
-        const contacts = await this.contactRepo.find({
+        const vendorAssignments = await this.vendorAssignmentRepo.find({
             where: {
                 listingId: String(listing.id),
-                status: In(['active', 'active-backup']),
-                deletedAt: null as any
+                status: "active",
+                deletedAt: IsNull()
             },
-            order: { isPrimary: 'DESC', name: 'ASC' as any }
+            relations: ["vendorProfile"],
+            order: { role: "ASC" as any, id: "ASC" as any }
         });
 
-        contacts.forEach((contact) => {
+        vendorAssignments.forEach((assignment) => {
+            const vendor = assignment.vendorProfile;
+            if (!vendor || vendor.deletedAt || !vendor.contact) return;
             addOption({
-                value: `contact:${contact.id}`,
-                label: `${contact.name} (${contact.role || 'Contact'})`,
-                role: contact.role || 'Contact',
-                phone: contact.contact || undefined,
+                value: `vendor:${vendor.id}`,
+                label: `${vendor.name} (${assignment.role || 'Vendor'})`,
+                role: assignment.role || 'Vendor',
+                phone: vendor.contact || undefined,
                 kind: 'contact'
             });
         });
-
-        if (listing.ownerName || listing.ownerPhone || listing.ownerEmail) {
-            addOption({
-                value: `owner:${listing.id}`,
-                label: `${listing.ownerName || 'Owner'} (Owner)`,
-                role: 'Owner',
-                phone: listing.ownerPhone || undefined,
-                kind: 'owner'
-            });
-        }
 
         const clientProperties = await this.clientPropertyRepo.find({
             where: [
@@ -467,15 +575,35 @@ export class TurnoverService {
                 .map((value) => value.trim())
                 .filter(Boolean)[0] || 'Client';
             addOption({
-                value: `client:${client.id}`,
-                label: `${displayName} (Client)`,
-                role: 'Client',
+                value: `owner:${client.id}`,
+                label: `${displayName} (Owner)`,
+                role: 'Owner',
                 phone: client.phone || undefined,
-                kind: 'client'
+                kind: 'owner'
             });
         });
 
         return options;
+    }
+
+    async getSenderNumberOptions() {
+        const rows = await this.messagingPhoneNoRepo.find({
+            select: ["id", "country_code", "phone", "supportsSMS", "status"],
+            order: { phone: "ASC" as any }
+        });
+        return rows
+            .filter((row) => row.phone)
+            .map((row) => {
+                const countryCode = String(row.country_code || "").trim();
+                const normalizedCountryCode = countryCode ? (countryCode.startsWith("+") ? countryCode : `+${countryCode}`) : "";
+                const phone = String(row.phone || "").trim();
+                const value = phone.startsWith("+") ? phone : `${normalizedCountryCode}${phone}`.trim();
+                return {
+                    id: row.id,
+                    value,
+                    label: `${normalizedCountryCode} ${phone}`.trim()
+                };
+            });
     }
 
     private async getCurrentBackendCleanerContacts(listingId: number): Promise<Contact[]> {
@@ -567,6 +695,7 @@ export class TurnoverService {
     }
 
     async getNextCheckInNotification(listingId: number, afterDate: string): Promise<TurnoverNotification | null> {
+        await this.ensureSettingsSchema();
         const reservation = await this.reservationRepo.findOne({
             where: {
                 listingMapId: listingId,
@@ -633,6 +762,7 @@ export class TurnoverService {
     }
 
     async getLastCheckoutNotification(listingId: number, beforeDate: string): Promise<TurnoverNotification | null> {
+        await this.ensureSettingsSchema();
         const reservation = await this.reservationRepo.findOne({
             where: {
                 listingMapId: listingId,
@@ -718,6 +848,9 @@ export class TurnoverService {
         assignDefault('preStayEnabled', snapshot.preStayEnabled as any);
         assignDefault('postStayEnabled', snapshot.postStayEnabled as any);
         assignDefault('sameDayCombinedEnabled', snapshot.sameDayCombinedEnabled as any);
+        assignDefault('preStayEnabledOverride', false as any);
+        assignDefault('postStayEnabledOverride', false as any);
+        assignDefault('sameDayCombinedEnabledOverride', false as any);
         assignDefault('preStayScheduleMode', snapshot.preStayScheduleMode as any);
         assignDefault('postStayScheduleMode', snapshot.postStayScheduleMode as any);
         assignDefault('sameDayScheduleMode', snapshot.sameDayScheduleMode as any);
@@ -727,6 +860,8 @@ export class TurnoverService {
         assignDefault('preStayMessageTemplate', snapshot.preStayMessageTemplate as any);
         assignDefault('postStayMessageTemplate', snapshot.postStayMessageTemplate as any);
         assignDefault('sameDayCombinedMessageTemplate', snapshot.sameDayCombinedMessageTemplate as any);
+        assignDefault('reservationChangeUpdatesEnabled', snapshot.reservationChangeUpdatesEnabled as any);
+        assignDefault('reservationChangeMessageTemplate', snapshot.reservationChangeMessageTemplate as any);
 
         return changed ? this.settingsRepo.save(row) : row;
     }
@@ -853,6 +988,7 @@ export class TurnoverService {
      */
     async getNotifications(filters: TurnoverFilters = {}): Promise<TurnoverNotification[]> {
         try {
+            await this.ensureSettingsSchema();
             // Calculate date range from scopes or filters (Eastern date keys)
             let fromDateStr: string;
             let toDateStr: string;
@@ -862,9 +998,13 @@ export class TurnoverService {
             const hasScopes = scopes.length > 0;
             const includesToday = scopes.includes('today');
             const includesTomorrow = scopes.includes('tomorrow');
+            const includesSentHistory = scopes.includes('sent-history');
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
 
-            if (includesToday || includesTomorrow) {
+            if (includesSentHistory && !filters.fromDate && !filters.toDate) {
+                fromDateStr = '1970-01-01';
+                toDateStr = '2999-12-31';
+            } else if (includesToday || includesTomorrow) {
                 if (includesToday && includesTomorrow) {
                     fromDateStr = todayKey;
                     toDateStr = tomorrowKey;
@@ -891,10 +1031,10 @@ export class TurnoverService {
             const seenKeys = new Set<string>();
             const cleaningNoteCache = new Map<number, string | undefined>();
             const includePreStay = hasScopes
-                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow)
+                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow || includesSentHistory)
                 : (!filters.notificationType || filters.notificationType.includes('pre-stay'));
             const includePostStay = hasScopes
-                ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
+                ? (scopes.includes('post-stay') || includesToday || includesTomorrow || includesSentHistory)
                 : (!filters.notificationType || filters.notificationType.includes('post-stay'));
             const includesSameDay = hasScopes && scopes.includes('sameday');
             const useDateFieldFilter = !includesToday && !includesTomorrow && !!(filters.fromDate && filters.toDate && filters.dateField);
@@ -1330,6 +1470,7 @@ export class TurnoverService {
      */
     async getSettings(filters?: { propertyType?: string[]; search?: string }): Promise<any[]> {
         try {
+            await this.ensureSettingsSchema();
             const listings = await this.listingRepo.find();
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
 
@@ -1354,18 +1495,30 @@ export class TurnoverService {
                 
                 // Get contacts
                 const recipientOptions = await this.getRecipientOptionsForListing(listing);
-                const preStayRecipientIds = this.normalizeRecipientIds(
+                const explicitPreStayRecipientIds = this.normalizeRecipientIds(
                     settings?.preStayRecipientIds !== undefined && settings?.preStayRecipientIds !== null
                         ? settings.preStayRecipientIds
                         : globalSettings?.preStayRecipientIds,
                     settings?.preStayContactId || globalSettings?.preStayContactId
                 );
-                const postStayRecipientIds = this.normalizeRecipientIds(
+                const explicitPostStayRecipientIds = this.normalizeRecipientIds(
                     settings?.postStayRecipientIds !== undefined && settings?.postStayRecipientIds !== null
                         ? settings.postStayRecipientIds
                         : globalSettings?.postStayRecipientIds,
                     settings?.postStayContactId || globalSettings?.postStayContactId
                 );
+                const preStayDefaultRecipientType = this.getDefaultRecipientType(
+                    settings?.preStayDefaultRecipientType,
+                    globalSettings?.preStayDefaultRecipientType,
+                    explicitPreStayRecipientIds
+                );
+                const postStayDefaultRecipientType = this.getDefaultRecipientType(
+                    settings?.postStayDefaultRecipientType,
+                    globalSettings?.postStayDefaultRecipientType,
+                    explicitPostStayRecipientIds
+                );
+                const preStayRecipientIds = this.resolveRecipientIdsForMode(preStayDefaultRecipientType, explicitPreStayRecipientIds, recipientOptions);
+                const postStayRecipientIds = this.resolveRecipientIdsForMode(postStayDefaultRecipientType, explicitPostStayRecipientIds, recipientOptions);
                 const sameDayCombinedRecipientIds = this.normalizeRecipientIds(
                     [
                         ...preStayRecipientIds,
@@ -1373,9 +1526,9 @@ export class TurnoverService {
                     ].filter((value, index, arr) => arr.indexOf(value) === index),
                     null
                 );
-                const preStayEnabled = this.resolveValue(settings?.preStayEnabled, globalSettings?.preStayEnabled, backendSnapshot.preStayEnabled);
-                const postStayEnabled = this.resolveValue(settings?.postStayEnabled, globalSettings?.postStayEnabled, backendSnapshot.postStayEnabled);
-                const sameDayCombinedEnabled = this.resolveValue(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, backendSnapshot.sameDayCombinedEnabled);
+                const preStayEnabled = this.resolveEnabledValue(settings, 'preStayEnabled', 'preStayEnabledOverride', globalSettings?.preStayEnabled, backendSnapshot.preStayEnabled);
+                const postStayEnabled = this.resolveEnabledValue(settings, 'postStayEnabled', 'postStayEnabledOverride', globalSettings?.postStayEnabled, backendSnapshot.postStayEnabled);
+                const sameDayCombinedEnabled = this.resolveEnabledValue(settings, 'sameDayCombinedEnabled', 'sameDayCombinedEnabledOverride', globalSettings?.sameDayCombinedEnabled, backendSnapshot.sameDayCombinedEnabled);
 
                 const preStayContactId = preStayRecipientIds[0]?.startsWith('contact:')
                     ? Number(preStayRecipientIds[0].split(':')[1])
@@ -1397,33 +1550,42 @@ export class TurnoverService {
                     preStayContactName: this.getRecipientNames(preStayRecipientIds, recipientOptions).join(', '),
                     preStayRecipientIds,
                     preStayRecipientNames: this.getRecipientNames(preStayRecipientIds, recipientOptions),
+                    preStayDefaultRecipientType,
                     preStayEnabled,
                     preStayMessageTemplate: this.resolveValue(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, backendSnapshot.preStayMessageTemplate),
+                    preStayMessageSource: this.messageSource(settings, "preStayMessageTemplate"),
                     preStayScheduleMode: this.resolveValue(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, backendSnapshot.preStayScheduleMode),
                     preStayOffsetMinutes: this.resolveValue(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, backendSnapshot.preStayOffsetMinutes),
-                    preStaySettingsSource: this.resolveSource(settings, ['preStayEnabled', 'preStayRecipientIds', 'preStayScheduleMode', 'preStayOffsetMinutes', 'preStayMessageTemplate']),
+                    preStaySettingsSource: this.resolveSource(settings, ['preStayEnabledOverride', 'preStayDefaultRecipientType', 'preStayRecipientIds', 'preStayScheduleMode', 'preStayOffsetMinutes', 'preStayMessageTemplate']),
                     
                     postStayContactId: postStayContactId,
                     postStayContactName: this.getRecipientNames(postStayRecipientIds, recipientOptions).join(', '),
                     postStayRecipientIds,
                     postStayRecipientNames: this.getRecipientNames(postStayRecipientIds, recipientOptions),
+                    postStayDefaultRecipientType,
                     postStayEnabled,
                     postStayMessageTemplate: this.resolveValue(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, backendSnapshot.postStayMessageTemplate),
+                    postStayMessageSource: this.messageSource(settings, "postStayMessageTemplate"),
                     postStayScheduleMode: this.resolveValue(settings?.postStayScheduleMode, globalSettings?.postStayScheduleMode, backendSnapshot.postStayScheduleMode),
                     postStayOffsetMinutes: this.resolveValue(settings?.postStayOffsetMinutes, globalSettings?.postStayOffsetMinutes, backendSnapshot.postStayOffsetMinutes),
-                    postStaySettingsSource: this.resolveSource(settings, ['postStayEnabled', 'postStayRecipientIds', 'postStayScheduleMode', 'postStayOffsetMinutes', 'postStayMessageTemplate']),
+                    postStaySettingsSource: this.resolveSource(settings, ['postStayEnabledOverride', 'postStayDefaultRecipientType', 'postStayRecipientIds', 'postStayScheduleMode', 'postStayOffsetMinutes', 'postStayMessageTemplate']),
 
                     sameDayCombinedEnabled,
                     sameDayCombinedRecipientIds,
                     sameDayCombinedRecipientNames: this.getRecipientNames(sameDayCombinedRecipientIds, recipientOptions),
                     sameDayCombinedMessageTemplate: this.resolveValue(settings?.sameDayCombinedMessageTemplate, globalSettings?.sameDayCombinedMessageTemplate, backendSnapshot.sameDayCombinedMessageTemplate),
+                    sameDayMessageSource: this.messageSource(settings, "sameDayCombinedMessageTemplate"),
                     sameDayScheduleMode: this.resolveValue(settings?.sameDayScheduleMode, globalSettings?.sameDayScheduleMode, backendSnapshot.sameDayScheduleMode),
                     sameDayOffsetMinutes: this.resolveValue(settings?.sameDayOffsetMinutes, globalSettings?.sameDayOffsetMinutes, backendSnapshot.sameDayOffsetMinutes),
-                    sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabled', 'sameDayCombinedMessageTemplate']),
+                    sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabledOverride', 'sameDayCombinedMessageTemplate']),
                     recipientOptions,
-                    smsSenderNumber: backendSnapshot.smsSenderNumber,
-                    preStayScheduleDescription: 'Property value is used when present; otherwise the global pre-stay default is applied.',
-                    postStayScheduleDescription: 'Property value is used when present; otherwise the global post-stay default is applied.',
+                    smsSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
+                    cleanerSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
+                    cleanerSenderNumberGroup1: this.resolveValue(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, backendSnapshot.cleanerSenderNumberGroup1),
+                    cleanerSenderNumberGroup2: this.resolveValue(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, backendSnapshot.cleanerSenderNumberGroup2),
+                    ownerSenderNumber: this.resolveValue(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, backendSnapshot.ownerSenderNumber),
+                    preStayScheduleDescription: '',
+                    postStayScheduleDescription: '',
                     sameDayScheduleDescription: 'Same-day uses the enabled pre-stay/post-stay settings and the earlier configured schedule.',
                     backendRecipientNote: 'Scheduled turnover messages use the effective settings shown in this row.',
                     
@@ -1447,6 +1609,7 @@ export class TurnoverService {
      * Get global turnover settings (listingId = 0)
      */
     async getGlobalSettings(): Promise<any> {
+        await this.ensureSettingsSchema();
         const snapshot = this.getCurrentBackendSnapshot();
         let settings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
         settings = await this.ensureCurrentBackendDefaults(settings, 0);
@@ -1464,7 +1627,15 @@ export class TurnoverService {
             preStayMessageTemplate: this.resolveValue(settings.preStayMessageTemplate, null, snapshot.preStayMessageTemplate),
             postStayMessageTemplate: this.resolveValue(settings.postStayMessageTemplate, null, snapshot.postStayMessageTemplate),
             sameDayCombinedMessageTemplate: this.resolveValue(settings.sameDayCombinedMessageTemplate, null, snapshot.sameDayCombinedMessageTemplate),
-            smsSenderNumber: snapshot.smsSenderNumber,
+            reservationChangeUpdatesEnabled: this.resolveValue(settings.reservationChangeUpdatesEnabled, null, snapshot.reservationChangeUpdatesEnabled),
+            reservationChangeMessageTemplate: this.resolveValue(settings.reservationChangeMessageTemplate, null, snapshot.reservationChangeMessageTemplate),
+            preStayDefaultRecipientType: this.normalizeDefaultRecipientType(settings.preStayDefaultRecipientType) || snapshot.preStayDefaultRecipientType,
+            postStayDefaultRecipientType: this.normalizeDefaultRecipientType(settings.postStayDefaultRecipientType) || snapshot.postStayDefaultRecipientType,
+            smsSenderNumber: this.resolveValue(settings.cleanerSenderNumber, null, snapshot.cleanerSenderNumber),
+            cleanerSenderNumber: this.resolveValue(settings.cleanerSenderNumber, null, snapshot.cleanerSenderNumber),
+            cleanerSenderNumberGroup1: this.resolveValue(settings.cleanerSenderNumberGroup1, null, snapshot.cleanerSenderNumberGroup1),
+            cleanerSenderNumberGroup2: this.resolveValue(settings.cleanerSenderNumberGroup2, null, snapshot.cleanerSenderNumberGroup2),
+            ownerSenderNumber: this.resolveValue(settings.ownerSenderNumber, null, snapshot.ownerSenderNumber),
             preStayScheduleDescription: snapshot.preStayScheduleDescription,
             postStayScheduleDescription: snapshot.postStayScheduleDescription,
             sameDayScheduleDescription: snapshot.sameDayScheduleDescription,
@@ -1476,6 +1647,7 @@ export class TurnoverService {
      * Update global turnover settings (listingId = 0)
      */
     async updateGlobalSettings(data: Partial<TurnoverSettings>, userId?: string): Promise<TurnoverSettings> {
+        await this.ensureSettingsSchema();
         let settings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
         if (!settings) {
             settings = this.settingsRepo.create({ listingId: 0 } as TurnoverSettings);
@@ -1486,31 +1658,46 @@ export class TurnoverService {
         normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
         normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
         normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
-        normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
-        normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+        this.normalizeRecipientDefaults(normalized);
+        if (normalized.preStayDefaultRecipientType && normalized.preStayDefaultRecipientType !== "custom") normalized.preStayRecipientIds = [];
+        if (normalized.postStayDefaultRecipientType && normalized.postStayDefaultRecipientType !== "custom") normalized.postStayRecipientIds = [];
+        normalized.preStayContactId = normalized.preStayDefaultRecipientType === "custom" && prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
+        normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+        this.normalizeSenderNumbers(normalized);
+        delete normalized.preStayEnabledOverride;
+        delete normalized.postStayEnabledOverride;
+        delete normalized.sameDayCombinedEnabledOverride;
         Object.assign(settings, { ...normalized, updatedBy: userId });
         return await this.settingsRepo.save(settings);
     }
 
     /**
-     * Get global contacts list (active cleaners)
+     * Get global recipient list for default turnover settings.
      */
     async getGlobalContacts(): Promise<TurnoverRecipientOption[]> {
+        const seen = new Set<string>();
         const contacts = await this.contactRepo.find({
             where: {
-                role: 'Cleaner',
-                status: 'active',
+                status: In(['active', 'active-backup']),
                 deletedAt: null as any
             },
-            order: { isPrimary: 'DESC', name: 'ASC' as any }
+            order: { role: 'ASC' as any, isPrimary: 'DESC', name: 'ASC' as any }
         });
-        return contacts.map((contact) => ({
-            value: `contact:${contact.id}`,
-            label: `${contact.name} (${contact.role || 'Cleaner'})`,
-            role: contact.role || 'Cleaner',
-            phone: contact.contact || undefined,
-            kind: 'contact' as const
-        }));
+        return contacts
+            .filter((contact) => {
+                if (!contact.contact) return false;
+                const key = `contact:${contact.id}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .map((contact) => ({
+                value: `contact:${contact.id}`,
+                label: `${contact.name} (${contact.role || 'Contact'})`,
+                role: contact.role || 'Contact',
+                phone: contact.contact || undefined,
+                kind: 'contact' as const
+            }));
     }
 
     /**
@@ -1518,6 +1705,7 @@ export class TurnoverService {
      */
     async updateSettings(listingId: number, data: Partial<TurnoverSettings>, userId?: string): Promise<TurnoverSettings> {
         try {
+            await this.ensureSettingsSchema();
             let settings = await this.settingsRepo.findOne({ where: { listingId } });
             
             if (!settings) {
@@ -1525,13 +1713,37 @@ export class TurnoverService {
             }
 
             const normalized = { ...data } as any;
-            const prePrimary = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0];
-            const postPrimary = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0];
-            normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
-            normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
-            normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
-            normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
-            normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+            const hasPreRecipientUpdate = 'preStayRecipientIds' in normalized || 'preStayContactId' in normalized;
+            const hasPostRecipientUpdate = 'postStayRecipientIds' in normalized || 'postStayContactId' in normalized;
+            const hasSameDayRecipientUpdate = 'sameDayCombinedRecipientIds' in normalized;
+            const prePrimary = hasPreRecipientUpdate
+                ? this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0]
+                : undefined;
+            const postPrimary = hasPostRecipientUpdate
+                ? this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0]
+                : undefined;
+            if (hasPreRecipientUpdate) {
+                normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
+            }
+            if (hasPostRecipientUpdate) {
+                normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
+            }
+            if (hasSameDayRecipientUpdate) {
+                normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
+            }
+            this.normalizeRecipientDefaults(normalized);
+            if (normalized.preStayDefaultRecipientType && normalized.preStayDefaultRecipientType !== "custom") normalized.preStayRecipientIds = [];
+            if (normalized.postStayDefaultRecipientType && normalized.postStayDefaultRecipientType !== "custom") normalized.postStayRecipientIds = [];
+            if (hasPreRecipientUpdate || 'preStayDefaultRecipientType' in normalized) {
+                normalized.preStayContactId = normalized.preStayDefaultRecipientType === "custom" && prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
+            }
+            if (hasPostRecipientUpdate || 'postStayDefaultRecipientType' in normalized) {
+                normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+            }
+            this.normalizeSenderNumbers(normalized);
+            if ('preStayEnabled' in normalized && !('preStayEnabledOverride' in normalized)) normalized.preStayEnabledOverride = true;
+            if ('postStayEnabled' in normalized && !('postStayEnabledOverride' in normalized)) normalized.postStayEnabledOverride = true;
+            if ('sameDayCombinedEnabled' in normalized && !('sameDayCombinedEnabledOverride' in normalized)) normalized.sameDayCombinedEnabledOverride = true;
 
             Object.assign(settings, {
                 ...normalized,
@@ -1560,10 +1772,48 @@ export class TurnoverService {
     }
 
     /**
+     * Sync recipient sources from Vendors and All Listings client information.
+     */
+    async syncRecipients(userId: string = "system"): Promise<{
+        vendorProfilesSynced: number;
+        clientsCreated: number;
+        clientsUpdated: number;
+        propertiesLinked: number;
+        listingsSynced: number;
+        groupsSynced: number;
+    }> {
+        try {
+            await this.ensureSettingsSchema();
+            logger.info(`[TurnoverService] Syncing turnover recipient sources...`);
+
+            const [clientSyncResult, vendorSyncResult] = await Promise.all([
+                new ClientService().syncListingClientsFromOwnerContracts(userId),
+                new VendorProfileService().getVendorProfiles({ limit: 10000 }, userId),
+            ]);
+
+            const result = {
+                vendorProfilesSynced: vendorSyncResult.total || vendorSyncResult.vendors?.length || 0,
+                clientsCreated: clientSyncResult.clientsCreated,
+                clientsUpdated: clientSyncResult.clientsUpdated,
+                propertiesLinked: clientSyncResult.propertiesLinked,
+                listingsSynced: clientSyncResult.listingsSynced,
+                groupsSynced: clientSyncResult.groupsSynced,
+            };
+
+            logger.info(`[TurnoverService] Synced turnover recipient sources`, result);
+            return result;
+        } catch (error: any) {
+            logger.error(`[TurnoverService] Error syncing turnover recipient sources:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Sync owner data from Hostify to settings
      */
     async syncOwnersFromHostify(): Promise<{ synced: number }> {
         try {
+            await this.ensureSettingsSchema();
             logger.info(`[TurnoverService] Syncing owners from Hostify...`);
             
             // Fetch all listings from Hostify using the central API client

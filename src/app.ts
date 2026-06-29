@@ -6,7 +6,7 @@ import "reflect-metadata";
 import express from "express";
 import qs from "qs";
 import { createRouting } from "./utils/router.util";
-import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, initDatabase } from "./utils/database.util";
+import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, ensureTurnoverSettingsColumns, initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
@@ -28,6 +28,7 @@ const main = async () => {
   await initDatabase();
   await ensureIssueMetadataColumns();
   await ensureReviewCheckoutMetadataColumns();
+  await ensureTurnoverSettingsColumns();
 
   const app = express();
   // Trust one layer of reverse proxy (Nginx) so req.ip reflects the real client IP

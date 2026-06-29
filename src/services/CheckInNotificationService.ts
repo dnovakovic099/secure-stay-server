@@ -1,17 +1,23 @@
-import { appDatabase } from "../utils/database.util";
+import { appDatabase, ensureTurnoverSettingsColumns } from "../utils/database.util";
 import { Contact } from "../entity/Contact";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { VendorAssignment } from "../entity/VendorAssignment";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
-import { Between, LessThanOrEqual, MoreThanOrEqual, In } from "typeorm";
+import { Between, In, IsNull } from "typeorm";
 import { renderTurnoverTemplate, summarizeTemplateErrors } from "../utils/turnoverTemplate.util";
 
 import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreStayAudit";
 import { DoorCodeStatus, CompletionStatus, InventoryCheckStatus, CleanlinessCheck, CleanerCheck, CleanerNotified, DamageCheck } from "../entity/ReservationDetailPreStayAudit";
+
+type ScheduleRelation = "at" | "before" | "after";
+type ScheduleAnchor = "check-in" | "check-out";
+type NotificationRecipient = { id?: number; name: string; contact?: string | null; role?: string | null };
 
 
 export class CheckInNotificationService {
@@ -21,8 +27,100 @@ export class CheckInNotificationService {
     private listingRepo = appDatabase.getRepository(Listing);
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private clientRepo = appDatabase.getRepository(ClientEntity);
+    private clientPropertyRepo = appDatabase.getRepository(ClientPropertyEntity);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private preStayAuditRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private openPhoneService = new OpenPhoneService();
+
+    private async ensureSettingsSchema() {
+        await ensureTurnoverSettingsColumns();
+    }
+
+    private normalizeScheduleMode(mode: string | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        if (mode === "auto") return `at-${fallbackAnchor}`;
+        if (mode === "arrival-day") return "at-check-in";
+        if (mode === "checkout-day" || mode === "post-stay") return "at-check-out";
+        if (["at-check-in", "before-check-in", "after-check-in", "at-check-out", "before-check-out", "after-check-out"].includes(String(mode))) {
+            return String(mode);
+        }
+        return `at-${fallbackAnchor}`;
+    }
+
+    private parseScheduleMode(mode: string | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        const normalized = this.normalizeScheduleMode(mode, fallbackAnchor);
+        const [relation, anchorSuffix] = normalized.split("-check-");
+        return {
+            relation: relation as ScheduleRelation,
+            anchor: `check-${anchorSuffix}` as ScheduleAnchor
+        };
+    }
+
+    private getZoneOffsetMinutes(date: Date, timeZone: string): number {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            timeZoneName: "shortOffset",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const tz = parts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+        const match = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tz);
+        if (!match) return 0;
+        const sign = match[1].startsWith("-") ? -1 : 1;
+        const hours = Math.abs(parseInt(match[1], 10));
+        const minutes = match[2] ? parseInt(match[2], 10) : 0;
+        return sign * (hours * 60 + minutes);
+    }
+
+    private zoneLocalToUtcDate(year: number, month: number, day: number, hour: number, minute: number, second: number, millisecond: number, timeZone: string) {
+        const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+        const offsetMinutes = this.getZoneOffsetMinutes(utcDate, timeZone);
+        return new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
+    }
+
+    private getDateParts(value?: Date | string | null) {
+        if (!value) return null;
+        if (typeof value === "string") {
+            const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+            if (match) {
+                return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+            }
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+    }
+
+    private parseTime(value: string | number | null | undefined, fallbackHour: number) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return { hour: Math.floor(value), minute: Math.round((value % 1) * 60) };
+        }
+        if (typeof value === "string") {
+            const match = /^(\d{1,2})(?::(\d{2}))?/.exec(value);
+            if (match) return { hour: Number(match[1]), minute: Number(match[2] || 0) };
+        }
+        return { hour: fallbackHour, minute: 0 };
+    }
+
+    private getScheduledAt(reservation: ReservationInfoEntity, listing: Listing, mode: string | null | undefined, offsetMinutes: number | null | undefined, fallbackAnchor: ScheduleAnchor) {
+        const schedule = this.parseScheduleMode(mode, fallbackAnchor);
+        const anchorDate = schedule.anchor === "check-in" ? reservation.arrivalDate : reservation.departureDate;
+        const dateParts = this.getDateParts(anchorDate);
+        if (!dateParts) return null;
+        const timeZone = listing.timeZoneName || "America/New_York";
+        const time = schedule.anchor === "check-in"
+            ? this.parseTime(reservation.checkInTime ?? listing.checkInTimeStart, 15)
+            : this.parseTime(reservation.checkOutTime ?? listing.checkOutTime, 11);
+        const anchorUtc = this.zoneLocalToUtcDate(dateParts.year, dateParts.month, dateParts.day, time.hour, time.minute, 0, 0, timeZone);
+        const offsetMs = Math.max(0, Number(offsetMinutes || 0)) * 60 * 1000;
+        if (schedule.relation === "before") return new Date(anchorUtc.getTime() - offsetMs);
+        if (schedule.relation === "after") return new Date(anchorUtc.getTime() + offsetMs);
+        return anchorUtc;
+    }
 
     /**
      * Send check-in notification SMS to cleaner/property contact
@@ -112,8 +210,7 @@ export class CheckInNotificationService {
                 throw new Error('OpenPhone API is not configured. Please set OPEN_PHONE_API_KEY environment variable.');
             }
 
-            // Use dedicated sender number (reuse checkout sender or create new env var)
-            const senderNumber = process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+            const senderNumber = this.getSenderNumberForRecipient(contact, listing, settings);
             if (!senderNumber) {
                 await this.updateStatus(reservationId, 'failed', 'SMS sender number not configured');
                 throw new Error('SMS sender number not configured. Please set CHECKIN_SMS_SENDER_NUMBER or CLEANER_CHECKOUT_SMS_SENDER_NUMBER environment variable.');
@@ -142,7 +239,7 @@ export class CheckInNotificationService {
         reservation: ReservationInfoEntity,
         overrideContactId?: number,
         recipientIds?: string[]
-    ): Promise<{ id?: number; name: string; contact?: string | null; role?: string | null } | null> {
+    ): Promise<NotificationRecipient | null> {
         // Check if there's a per-reservation override
         if (overrideContactId) {
             const overrideContact = await this.contactRepo.findOne({
@@ -173,13 +270,36 @@ export class CheckInNotificationService {
                     return configuredContacts[0];
                 }
             }
+            const vendorId = (recipientIds || []).find((id) => id.startsWith('vendor:'));
+            if (vendorId) {
+                const vendorProfileId = Number(vendorId.split(':')[1]);
+                if (Number.isFinite(vendorProfileId)) {
+                    const assignment = await this.vendorAssignmentRepo.findOne({
+                        where: {
+                            vendorProfileId,
+                            listingId: String(reservation.listingMapId),
+                            status: 'active',
+                            deletedAt: IsNull()
+                        },
+                        relations: ['vendorProfile']
+                    });
+                    if (assignment?.vendorProfile?.contact) {
+                        return {
+                            id: assignment.vendorProfile.id,
+                            name: assignment.vendorProfile.name,
+                            contact: assignment.vendorProfile.contact,
+                            role: assignment.role || 'Vendor'
+                        };
+                    }
+                }
+            }
             const ownerId = (recipientIds || []).find((id) => id.startsWith('owner:'));
             if (ownerId) {
-                const listing = await this.listingRepo.findOne({ where: { id: reservation.listingMapId } });
-                if (listing?.ownerPhone) {
+                const client = await this.clientRepo.findOne({ where: { id: ownerId.split(':')[1] } });
+                if (client?.phone) {
                     return {
-                        name: listing.ownerName || 'Owner',
-                        contact: listing.ownerPhone,
+                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Owner',
+                        contact: client.phone,
                         role: 'Owner'
                     };
                 }
@@ -199,42 +319,118 @@ export class CheckInNotificationService {
             return null;
         }
 
-        // Query for active cleaners or property managers
-        const activeContacts = await this.contactRepo.find({
+        const activeVendorAssignments = await this.vendorAssignmentRepo.find({
             where: {
                 listingId: String(reservation.listingMapId),
-                role: 'Cleaner', // Could also include 'Property Manager'
                 status: 'active',
-                deletedAt: null as any
-            }
+                deletedAt: IsNull()
+            },
+            relations: ['vendorProfile'],
+            order: { role: 'ASC' as any, id: 'ASC' as any }
         });
+        const activeVendors = activeVendorAssignments
+            .filter((assignment) => assignment.vendorProfile?.contact)
+            .sort((a, b) => Number(String(b.role || '').toLowerCase() === 'cleaner') - Number(String(a.role || '').toLowerCase() === 'cleaner'));
 
-        if (activeContacts.length === 0) {
-            logger.warn(`[CheckInNotification] No active contacts found for listing ${reservation.listingMapId}`);
+        if (activeVendors.length === 0) {
+            logger.warn(`[CheckInNotification] No active vendor contacts found for listing ${reservation.listingMapId}`);
             return null;
         }
 
-        if (activeContacts.length > 1) {
-            logger.warn(`[CheckInNotification] Multiple active contacts found for listing ${reservation.listingMapId}`);
-            // Return the first one, or implement selection logic
-        }
+        const assignment = activeVendors[0];
+        logger.info(`[CheckInNotification] Using active vendor contact: ${assignment.vendorProfile.name}`);
+        return {
+            id: assignment.vendorProfile.id,
+            name: assignment.vendorProfile.name,
+            contact: assignment.vendorProfile.contact,
+            role: assignment.role || 'Vendor'
+        };
+    }
 
-        logger.info(`[CheckInNotification] Using contact: ${activeContacts[0].name}`);
-        return activeContacts[0];
+    private getListingPortfolioGroup(listing: Listing) {
+        const tags = String(listing.tags || "").toLowerCase();
+        if (tags.includes("group1")) return "group1";
+        if (tags.includes("group2")) return "group2";
+        return null;
+    }
+
+    private getSenderNumberForRecipient(
+        contact: NotificationRecipient,
+        listing: Listing,
+        settings: Awaited<ReturnType<CheckInNotificationService["getEffectiveSettings"]>>
+    ) {
+        const role = String(contact.role || "").toLowerCase();
+        if (role === "owner" || role === "client") {
+            return settings.ownerSenderNumber || process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        const group = this.getListingPortfolioGroup(listing);
+        if (group === "group1") {
+            return settings.cleanerSenderNumberGroup1 || settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        if (group === "group2") {
+            return settings.cleanerSenderNumberGroup2 || settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+        }
+        return settings.cleanerSenderNumber || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
+    }
+
+    private normalizeDefaultRecipientType(value: any): "cleaner" | "owner" | "custom" {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "owner") return "owner";
+        if (normalized === "custom") return "custom";
+        return "cleaner";
+    }
+
+    private async getOwnerRecipientIds(listingId: number) {
+        const property = await this.clientPropertyRepo.findOne({
+            where: [
+                { listingId: String(listingId) },
+                { hostifyListingId: String(listingId) }
+            ],
+            relations: ["client"]
+        });
+        return property?.client?.phone ? [`owner:${property.client.id}`] : [];
+    }
+
+    private async resolveRecipientIdsForMode(listingId: number, mode: any, explicitIds: string[] = []) {
+        const type = this.normalizeDefaultRecipientType(mode);
+        if (type === "custom") return explicitIds || [];
+        if (type === "owner") return this.getOwnerRecipientIds(listingId);
+        return [];
     }
 
     private async getEffectiveSettings(listingId: number) {
+        await this.ensureSettingsSchema();
         const [settings, globalSettings] = await Promise.all([
             this.settingsRepo.findOne({ where: { listingId } }),
             this.settingsRepo.findOne({ where: { listingId: 0 } })
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const resolveEnabled = (
+            propertyValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
+            globalValue: boolean | null | undefined,
+            fallback: boolean
+        ) => {
+            const hasPropertyOverride = overrideValue === true || propertyValue === false;
+            return hasPropertyOverride
+                ? Boolean(propertyValue)
+                : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+        };
+        const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
+        const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
         return {
-            preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
-            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
-            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
+            preStayEnabled: resolveEnabled(settings?.preStayEnabled, settings?.preStayEnabledOverride, globalSettings?.preStayEnabled, true),
+            sameDayCombinedEnabled: resolveEnabled(settings?.sameDayCombinedEnabled, settings?.sameDayCombinedEnabledOverride, globalSettings?.sameDayCombinedEnabled, false),
+            preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
+            preStayDefaultRecipientType,
             preStayMessageTemplate: resolve(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, this.composeCheckInMessageTemplate()),
+            preStayScheduleMode: resolve(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, "at-check-in"),
+            preStayOffsetMinutes: resolve(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, 0),
+            cleanerSenderNumber: resolve(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null),
+            cleanerSenderNumberGroup1: resolve(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || null),
+            cleanerSenderNumberGroup2: resolve(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || null),
+            ownerSenderNumber: resolve(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || null),
             ownerName: settings?.ownerName || globalSettings?.ownerName || null,
             ownerEmail: settings?.ownerEmail || globalSettings?.ownerEmail || null,
             ownerPhone: settings?.ownerPhone || globalSettings?.ownerPhone || null,
@@ -403,19 +599,18 @@ Check-In Date: {checkInDate}
         logger.info(`[CheckInNotification] Updated status to '${status}' for reservation ${reservationId}`);
     }
 
-    /**
-     * Get reservations expiring in the next 2 days (today and tomorrow)
-     */
     async getPendingCheckIns(): Promise<ReservationInfoEntity[]> {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const dayAfterTomorrow = new Date(today);
-        dayAfterTomorrow.setDate(today.getDate() + 2);
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        start.setDate(start.getDate() - 14);
+
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        end.setDate(end.getDate() + 30);
 
         const reservations = await this.reservationRepo.find({
             where: {
-                arrivalDate: Between(today, dayAfterTomorrow),
+                arrivalDate: Between(start, end),
                 status: In(["new", "accepted", "modified", "ownerStay", "moved"]) // valid bookings
             }
         });
@@ -423,10 +618,6 @@ Check-In Date: {checkInDate}
         return reservations;
     }
 
-    /**
-     * Process automated Check-in notifications for 1 day before at exactly 10 AM local timezone,
-     * or ASAP for last-minute bookings.
-     */
     async processAutomatedCheckInSMS(): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
         const reservations = await this.getPendingCheckIns();
         
@@ -435,7 +626,7 @@ Check-In Date: {checkInDate}
         let skipped = 0;
         let total = reservations.length;
 
-        logger.info(`[CheckInNotification] Found ${total} check-ins for today/tomorrow.`);
+        logger.info(`[CheckInNotification] Found ${total} candidate check-ins for automated pre-stay scheduling.`);
 
         for (const reservation of reservations) {
             try {
@@ -455,39 +646,12 @@ Check-In Date: {checkInDate}
                     continue;
                 }
 
-                const timezone = listing.timeZoneName || 'America/New_York';
-                const now = new Date();
-
-                // Evaluate the current hour in local time
-                const hourOptions = { timeZone: timezone, hour: 'numeric', hour12: false } as Intl.DateTimeFormatOptions;
-                const currentHourStr = new Intl.DateTimeFormat('en-US', hourOptions).format(now);
-                const currentHour = parseInt(currentHourStr, 10) % 24;
-
-                // Get local date strings (YYYY-MM-DD)
-                const dateOptions = { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' } as Intl.DateTimeFormatOptions;
-                
-                // Using 'en-CA' guarantees standard YYYY-MM-DD string representation
-                const currentDateStr = now.toLocaleDateString('en-CA', dateOptions);
-                const arrivalDateStr = new Date(reservation.arrivalDate).toLocaleDateString('en-CA', dateOptions);
-                
-                const tomorrow = new Date(now);
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                const tomorrowDateStr = tomorrow.toLocaleDateString('en-CA', dateOptions);
-
-                let shouldSend = false;
-
-                if (currentDateStr >= arrivalDateStr) {
-                    // Check-in is today (or in the past). Send ASAP.
-                    shouldSend = true;
-                } else if (arrivalDateStr === tomorrowDateStr) {
-                    // Check-in is tomorrow. Send if 10 AM or later (catches late bookings).
-                    if (currentHour >= 10) {
-                        shouldSend = true;
-                    }
-                }
+                const settings = await this.getEffectiveSettings(listing.id);
+                const scheduledAt = this.getScheduledAt(reservation, listing, settings.preStayScheduleMode, settings.preStayOffsetMinutes, "check-in");
+                const shouldSend = !!scheduledAt && new Date() >= scheduledAt;
 
                 if (shouldSend) {
-                     logger.info(`[CheckInNotification] Triggering scheduled Check-In SMS for reserve: ${reservation.id} in TZ: ${timezone}`);
+                     logger.info(`[CheckInNotification] Triggering scheduled Check-In SMS for reservation ${reservation.id}. Scheduled at ${scheduledAt?.toISOString()}`);
                      await this.sendCheckInNotification(reservation.id, true); // True to force logic run instead of manual skip
 
                      const statusAudit = await this.preStayAuditRepo.findOne({ where: { reservationId: reservation.id } });

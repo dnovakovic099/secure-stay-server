@@ -40,6 +40,6 @@ router.get('/openphone/calls/:callId/recordings', verifySession, messagingContro
 
 router.get('/reservation/:reservationId/details', verifySession, messagingController.getGuestReservationDetails);
 router.put('/reservation/:reservationId/notes', verifySession, messagingController.updateGuestReservationNotes);
+router.put('/reservation/:reservationId/custom-fields/:customFieldId', verifySession, messagingController.updateReservationCustomField);
 
 export default router
-
