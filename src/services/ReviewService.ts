@@ -3096,8 +3096,10 @@ export class ReviewService {
             if (status && status.length > 0) {
                 const expandedStatuses = this.expandMitigationStatuses(status as string[]);
                 query.andWhere("reviewCheckout.status IN (:...status)", { status: expandedStatuses });
-            } else {
-                // By default, exclude Archived records unless explicitly requested
+            } else if (!requestedReservationId) {
+                // By default, exclude Archived records unless explicitly requested.
+                // Skip this clause for deep-link (?reservationId=X) requests so that the
+                // popup can always open for the requested reservation regardless of status.
                 query.andWhere("(reviewCheckout.status != :archivedStatus OR reviewCheckout.status IS NULL)", { archivedStatus: 'Archived' });
             }
         }
