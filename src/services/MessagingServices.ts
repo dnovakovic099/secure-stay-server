@@ -124,14 +124,45 @@ export class MessagingService {
         return null;
     }
 
-    private getStayTiming(arrivalDate?: any, departureDate?: any, timeZone?: string | null) {
+    private getStayTiming(arrivalDate?: any, departureDate?: any, timeZone?: string | null, checkInTime?: any, checkOutTime?: any) {
         const arrival = this.normalizeDateKey(arrivalDate);
         const departure = this.normalizeDateKey(departureDate);
         if (!arrival || !departure) return null;
-        const today = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
-        if (today < arrival) return "Future";
-        if (today > departure) return "Past";
+
+        // Past/Ongoing/Future are evaluated in the reservation's local timezone
+        // using check-in / check-out times to determine boundaries.
+        const tz = this.isValidTimeZone(timeZone) ? String(timeZone) : "America/New_York";
+        const nowParts = this.getTimeZoneParts(new Date(), tz);
+        const currentHour = nowParts.hour + (nowParts.minute / 60);
+        const checkInHour = this.parseHourValue(checkInTime, 15) ?? 15;
+        const checkOutHour = this.parseHourValue(checkOutTime, 11) ?? 11;
+
+        if (nowParts.dateKey < arrival) return "Future";
+        if (nowParts.dateKey === arrival) {
+            return currentHour < checkInHour ? "Future" : "Ongoing";
+        }
+        if (nowParts.dateKey > departure) return "Past";
+        if (nowParts.dateKey === departure) {
+            return currentHour < checkOutHour ? "Ongoing" : "Past";
+        }
         return "Ongoing";
+    }
+
+    // CI Today / CO Today are intentionally evaluated in New York time, regardless of
+    // the property's local timezone. This gives a single, consistent "today" reference
+    // for the operations team.
+    private isCheckInToday(arrivalDate?: any) {
+        const arrival = this.normalizeDateKey(arrivalDate);
+        if (!arrival) return false;
+        const todayNy = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
+        return todayNy === arrival;
+    }
+
+    private isCheckOutToday(departureDate?: any) {
+        const departure = this.normalizeDateKey(departureDate);
+        if (!departure) return false;
+        const todayNy = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
+        return todayNy === departure;
     }
 
     private getLastMessageFrom(thread: any) {
@@ -301,7 +332,15 @@ export class MessagingService {
                 timezone_name: normalizedListing?.timezoneName || timeZoneIdentifier,
                 check_in_time_local: checkInTimeLocal,
                 check_out_time_local: checkOutTimeLocal,
-                stay_timing: this.getStayTiming(arrivalDate, departureDate, timeZoneIdentifier),
+                stay_timing: this.getStayTiming(
+                    arrivalDate,
+                    departureDate,
+                    timeZoneIdentifier,
+                    reservation?.checkInTime ?? listing?.checkInTimeStart ?? checkInTimeLocal,
+                    reservation?.checkOutTime ?? listing?.checkOutTime ?? checkOutTimeLocal,
+                ),
+                ci_today: this.isCheckInToday(arrivalDate),
+                co_today: this.isCheckOutToday(departureDate),
                 last_message_from: this.getLastMessageFrom(thread),
                 currently_hosting: this.isCurrentlyHosting({
                     arrivalDate,
@@ -356,8 +395,17 @@ export class MessagingService {
                 return false;
             }
 
-            if (stayTiming.length && !stayTiming.includes(this.normalizeText(thread.stay_timing))) {
-                return false;
+            if (stayTiming.length) {
+                const threadTiming = this.normalizeText(thread.stay_timing);
+                const wantsCiToday = stayTiming.includes("ci today");
+                const wantsCoToday = stayTiming.includes("co today");
+                const explicitTimings = stayTiming.filter((value) => value !== "ci today" && value !== "co today");
+                const timingMatch = explicitTimings.length ? explicitTimings.includes(threadTiming) : false;
+                const ciMatch = wantsCiToday && Boolean(thread.ci_today);
+                const coMatch = wantsCoToday && Boolean(thread.co_today);
+                if (!timingMatch && !ciMatch && !coMatch) {
+                    return false;
+                }
             }
 
             if (unrespondedOnly && !(Number(thread.answered) === 0 || Number(thread.channel_unread) === 1)) {
