@@ -71,16 +71,23 @@ export class MessagingService {
         return Number.isNaN(parsed.getTime()) ? null : parsed;
     }
 
+    private getEasternDateKey(value: any): string | null {
+        const parsed = value instanceof Date ? value : this.parseDate(value);
+        if (!parsed) return null;
+        return new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(parsed);
+    }
+
     private isDateInRange(date: Date | null, from?: string, to?: string) {
         if (!date) return false;
-        const start = from ? this.parseDate(from) : null;
-        const end = to ? this.parseDate(to) : null;
-        if (start && date < start) return false;
-        if (end) {
-            const inclusiveEnd = new Date(end);
-            inclusiveEnd.setHours(23, 59, 59, 999);
-            if (date > inclusiveEnd) return false;
-        }
+        const dateKey = this.getEasternDateKey(date);
+        if (!dateKey) return false;
+        if (from && dateKey < from) return false;
+        if (to && dateKey > to) return false;
         return true;
     }
 
@@ -99,6 +106,40 @@ export class MessagingService {
         if (raw.includes("own")) return "Own";
         if (raw.includes("arb")) return "Arb";
         if (raw.includes("pm")) return "PM";
+        return null;
+    }
+
+    private normalizeServiceTypeValue(listing: Listing | null | undefined, normalizedListing?: any) {
+        const raw = `${listing?.tags || ""} ${normalizedListing?.serviceType || ""}`.toLowerCase();
+        if (raw.includes("full")) return "Full";
+        if (raw.includes("pro")) return "Pro";
+        if (raw.includes("launch")) return "Launch";
+        return null;
+    }
+
+    private normalizePortfolioValue(listing: any) {
+        const raw = `${listing?.portfolio || ""} ${listing?.tags || ""}`.toLowerCase();
+        if (raw.includes("group 1") || raw.includes("group1")) return "Group 1";
+        if (raw.includes("group 2") || raw.includes("group2")) return "Group 2";
+        return null;
+    }
+
+    private getStayTiming(arrivalDate?: any, departureDate?: any, timeZone?: string | null) {
+        const arrival = this.normalizeDateKey(arrivalDate);
+        const departure = this.normalizeDateKey(departureDate);
+        if (!arrival || !departure) return null;
+        const today = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
+        if (today < arrival) return "Future";
+        if (today > departure) return "Past";
+        return "Ongoing";
+    }
+
+    private getLastMessageFrom(thread: any) {
+        const raw = thread?.last_message_from || thread?.last_message_sender || thread?.lastMessageFrom || thread?.from;
+        const value = this.normalizeText(raw);
+        if (value.includes("guest") || value === "incoming") return "Guest";
+        if (value.includes("host") || value.includes("user") || value.includes("rep") || value === "outgoing") return "Us";
+        if (Number(thread?.answered) === 0 || Number(thread?.channel_unread) === 1) return "Guest";
         return null;
     }
 
@@ -246,6 +287,8 @@ export class MessagingService {
                 reservation_status: reservation?.status || null,
                 listing_name: listing?.internalListingName || reservation?.listingName || listing?.name || null,
                 property_type: this.normalizePropertyTypeValue(listing),
+                service_type: this.normalizeServiceTypeValue(listing, normalizedListing),
+                portfolio: this.normalizePortfolioValue(listing),
                 confirmation_code: reservation?.confirmation_code || null,
                 reservation_note: reservation?.hostNote || null,
                 guest_picture: reservation?.guestPicture || thread?.guest_thumb || null,
@@ -258,6 +301,8 @@ export class MessagingService {
                 timezone_name: normalizedListing?.timezoneName || timeZoneIdentifier,
                 check_in_time_local: checkInTimeLocal,
                 check_out_time_local: checkOutTimeLocal,
+                stay_timing: this.getStayTiming(arrivalDate, departureDate, timeZoneIdentifier),
+                last_message_from: this.getLastMessageFrom(thread),
                 currently_hosting: this.isCurrentlyHosting({
                     arrivalDate,
                     departureDate,
@@ -278,7 +323,12 @@ export class MessagingService {
         const searchFields = requestedFields.length ? requestedFields : ["guest", "confirmation"];
         const properties = this.parseMultiValueFilter(query.property);
         const propertyTypes = this.parseMultiValueFilter(query.propertyType);
+        const serviceTypes = this.parseMultiValueFilter(query.serviceType);
+        const portfolios = this.parseMultiValueFilter(query.portfolio);
         const reservationStatuses = this.parseMultiValueFilter(query.reservationStatus);
+        const lastMessageFrom = this.parseMultiValueFilter(query.lastMessageFrom);
+        const stayTiming = this.parseMultiValueFilter(query.stayTiming);
+        const unrespondedOnly = String(query.unresponded || "").toLowerCase() === "true";
         const dateType = this.normalizeText(query.dateType || "updated");
         const dateFrom = typeof query.dateFrom === "string" ? query.dateFrom : undefined;
         const dateTo = typeof query.dateTo === "string" ? query.dateTo : undefined;
@@ -291,6 +341,26 @@ export class MessagingService {
             }
 
             if (propertyTypes.length && !propertyTypes.includes(this.normalizeText(thread.property_type))) {
+                return false;
+            }
+
+            if (serviceTypes.length && !serviceTypes.includes(this.normalizeText(thread.service_type))) {
+                return false;
+            }
+
+            if (portfolios.length && !portfolios.includes(this.normalizeText(thread.portfolio))) {
+                return false;
+            }
+
+            if (lastMessageFrom.length && !lastMessageFrom.includes(this.normalizeText(thread.last_message_from))) {
+                return false;
+            }
+
+            if (stayTiming.length && !stayTiming.includes(this.normalizeText(thread.stay_timing))) {
+                return false;
+            }
+
+            if (unrespondedOnly && !(Number(thread.answered) === 0 || Number(thread.channel_unread) === 1)) {
                 return false;
             }
 
@@ -326,9 +396,9 @@ export class MessagingService {
                 message: `${thread.preview || ""}`,
                 confirmation: `${thread.confirmation_code || ""}`,
                 notes: `${thread.reservation_note || ""}`,
-                property: `${thread.listing_name || ""} ${thread.property_type || ""}`,
+                property: `${thread.listing_name || ""} ${thread.property_type || ""} ${thread.service_type || ""} ${thread.portfolio || ""}`,
                 status: `${thread.reservation_status || ""}`,
-                all: `${thread.guest_name || ""} ${thread.preview || ""} ${thread.confirmation_code || ""} ${thread.reservation_note || ""} ${thread.listing_name || ""} ${thread.property_type || ""} ${thread.reservation_status || ""} ${thread.guest_phone || ""}`,
+                all: `${thread.guest_name || ""} ${thread.preview || ""} ${thread.confirmation_code || ""} ${thread.reservation_note || ""} ${thread.listing_name || ""} ${thread.property_type || ""} ${thread.service_type || ""} ${thread.portfolio || ""} ${thread.reservation_status || ""} ${thread.guest_phone || ""}`,
             };
 
             return searchFields.some((field) => this.normalizeText(field in candidates ? candidates[field] : candidates.all).includes(keyword));
@@ -832,7 +902,12 @@ export class MessagingService {
                 query?.keyword ||
                 query?.property ||
                 query?.propertyType ||
+                query?.serviceType ||
+                query?.portfolio ||
                 query?.reservationStatus ||
+                query?.lastMessageFrom ||
+                query?.stayTiming ||
+                query?.unresponded ||
                 query?.dateFrom ||
                 query?.dateTo
             );
@@ -915,8 +990,14 @@ export class MessagingService {
             : null;
 
         let hostifyReservation: any = null;
+        let customFields: any[] = [];
         try {
-            hostifyReservation = await this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY, reservationId);
+            const [reservationResponse, customFieldResponse] = await Promise.all([
+                this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY, reservationId),
+                this.hostifyClient.getReservationCustomFields(process.env.HOSTIFY_API_KEY, reservationId),
+            ]);
+            hostifyReservation = reservationResponse;
+            customFields = Array.isArray(customFieldResponse) ? customFieldResponse : [];
         } catch (error: any) {
             logger.warn(`[Hostify] Unable to enrich reservation details for ${reservationId}: ${error.message}`);
         }
@@ -962,13 +1043,45 @@ export class MessagingService {
                 ? `${String(reservation.checkOutTime).padStart(2, "0")}:00`
                 : null);
 
+        const phones = [
+            reservation.phone,
+            liveReservation?.phone,
+            liveReservation?.guest?.phone,
+            hostifyReservation?.guest?.phone,
+        ]
+            .filter((phone) => phone !== undefined && phone !== null && String(phone).trim() !== "")
+            .map((phone) => String(phone).trim())
+            .filter((phone, index, array) => array.indexOf(phone) === index)
+            .map((phone, index) => ({ value: phone, isDefault: index === 0, source: index === 0 ? "Reservation" : "Hostify" }));
+
         return {
             ...reservation,
             listingName: listing?.internalListingName || reservation.listingName || listing?.name || null,
             propertyType: this.normalizePropertyTypeValue(listing),
+            serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
+            portfolio: this.normalizePortfolioValue(listing),
+            status: liveReservation?.status_description || liveReservation?.status || reservation.status || null,
+            stayTiming: this.getStayTiming(reservation.arrivalDate || liveReservation?.checkIn, reservation.departureDate || liveReservation?.checkOut, timeZoneIdentifier),
             guestPicture: reservation.guestPicture || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
+            phones,
             hostNote,
             cleaningNote: cleaningNote ?? null,
+            guests: liveReservation?.guests ?? reservation.numberOfGuests ?? null,
+            adults: liveReservation?.adults ?? reservation.adults ?? null,
+            children: liveReservation?.children ?? reservation.children ?? null,
+            infants: liveReservation?.infants ?? reservation.infants ?? null,
+            pets: liveReservation?.pets ?? reservation.pets ?? null,
+            revenue: liveReservation?.revenue ?? reservation.totalPrice ?? null,
+            netRevenue: liveReservation?.net_revenue ?? liveReservation?.payout_price ?? reservation.owner_revenue ?? null,
+            nightRate: liveReservation?.price_per_night ?? liveReservation?.base_price ?? null,
+            cleaningFee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
+            channelCommission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
+            confirmedAt: liveReservation?.confirmed_at ?? reservation.reservationDate ?? null,
+            plannedArrival: liveReservation?.planned_arrival ?? null,
+            plannedDeparture: liveReservation?.planned_departure ?? null,
+            hostifyCheckinFormLink: liveReservation?.hostify_checkin_form_link ?? null,
+            hostifyCheckinFormCompleted: liveReservation?.hostify_checkin_form_completed ?? null,
+            customFields,
             timezoneIdentifier: timeZoneIdentifier,
             timezoneName: normalizedListing?.timezoneName || timeZoneIdentifier,
             checkInTimeLocal: checkInLocal,
