@@ -1129,4 +1129,19 @@ export class MessagingService {
             syncMessage,
         };
     }
+
+    async updateReservationCustomField(reservationId: number, customFieldId: number | string, value: any) {
+        const reservation = await this.reservationRepository.findOne({ where: { id: reservationId } });
+        if (!reservation) {
+            throw CustomErrorHandler.notFound("Reservation not found");
+        }
+
+        await this.hostifyClient.updateReservationCustomField(process.env.HOSTIFY_API_KEY, reservationId, customFieldId, value ?? "");
+
+        return {
+            ...(await this.getGuestReservationDetails(reservationId)),
+            syncStatus: "synced",
+            syncMessage: null,
+        };
+    }
 }
