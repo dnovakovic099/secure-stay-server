@@ -274,6 +274,22 @@ export class Hostify {
         }
     }
 
+    async getReservationCustomFields(apiKey: string, reservationId: number) {
+        try {
+            const url = `https://api-rms.hostify.com/reservations/custom_fields/${reservationId}`;
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+            return response.data?.custom_fields || [];
+        } catch (error) {
+            logger.error(`Error fetching custom fields for reservation ${reservationId}:`, error.message);
+            return [];
+        }
+    }
+
     async getTransactions(apiKey: string, filter: Record<string, any> = {}) {
         try {
             const url = "https://api-rms.hostify.com/transactions";
