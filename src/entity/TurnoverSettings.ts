@@ -12,6 +12,9 @@ export class TurnoverSettings {
     @Column({ name: 'pre_stay_recipient_ids', type: 'simple-json', nullable: true })
     preStayRecipientIds: string[] | null;
 
+    @Column({ name: 'pre_stay_default_recipient_type', type: 'varchar', length: 20, nullable: true, default: 'cleaner' })
+    preStayDefaultRecipientType: string | null;
+
     @Column({ name: 'pre_stay_enabled', default: true })
     preStayEnabled: boolean;
 
@@ -30,6 +33,9 @@ export class TurnoverSettings {
 
     @Column({ name: 'post_stay_recipient_ids', type: 'simple-json', nullable: true })
     postStayRecipientIds: string[] | null;
+
+    @Column({ name: 'post_stay_default_recipient_type', type: 'varchar', length: 20, nullable: true, default: 'cleaner' })
+    postStayDefaultRecipientType: string | null;
 
     @Column({ name: 'post_stay_enabled', default: true })
     postStayEnabled: boolean;
@@ -79,6 +85,12 @@ export class TurnoverSettings {
 
     @Column({ name: 'owner_sender_number', nullable: true })
     ownerSenderNumber: string;
+
+    @Column({ name: 'reservation_change_updates_enabled', default: true })
+    reservationChangeUpdatesEnabled: boolean;
+
+    @Column({ name: 'reservation_change_message_template', type: 'text', nullable: true })
+    reservationChangeMessageTemplate: string | null;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

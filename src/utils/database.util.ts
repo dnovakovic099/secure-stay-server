@@ -101,12 +101,14 @@ export async function ensureTurnoverSettingsColumns() {
         listing_id INT NOT NULL PRIMARY KEY,
         pre_stay_contact_id INT NULL,
         pre_stay_recipient_ids LONGTEXT NULL,
+        pre_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
         pre_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
         pre_stay_message_template TEXT NULL,
         pre_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
         pre_stay_offset_minutes INT NULL DEFAULT 0,
         post_stay_contact_id INT NULL,
         post_stay_recipient_ids LONGTEXT NULL,
+        post_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
         post_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
         post_stay_message_template TEXT NULL,
         post_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
@@ -123,6 +125,8 @@ export async function ensureTurnoverSettingsColumns() {
         cleaner_sender_number_group1 VARCHAR(100) NULL,
         cleaner_sender_number_group2 VARCHAR(100) NULL,
         owner_sender_number VARCHAR(100) NULL,
+        reservation_change_updates_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        reservation_change_message_template TEXT NULL,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         updated_by VARCHAR(255) NULL
@@ -131,12 +135,14 @@ export async function ensureTurnoverSettingsColumns() {
 
     await addColumnIfMissing("pre_stay_contact_id", "INT NULL");
     await addColumnIfMissing("pre_stay_recipient_ids", "LONGTEXT NULL");
+    await addColumnIfMissing("pre_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
     await addColumnIfMissing("pre_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
     await addColumnIfMissing("pre_stay_message_template", "TEXT NULL");
     await addColumnIfMissing("pre_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
     await addColumnIfMissing("pre_stay_offset_minutes", "INT NULL DEFAULT 0");
     await addColumnIfMissing("post_stay_contact_id", "INT NULL");
     await addColumnIfMissing("post_stay_recipient_ids", "LONGTEXT NULL");
+    await addColumnIfMissing("post_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
     await addColumnIfMissing("post_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
     await addColumnIfMissing("post_stay_message_template", "TEXT NULL");
     await addColumnIfMissing("post_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
@@ -153,6 +159,8 @@ export async function ensureTurnoverSettingsColumns() {
     await addColumnIfMissing("cleaner_sender_number_group1", "VARCHAR(100) NULL");
     await addColumnIfMissing("cleaner_sender_number_group2", "VARCHAR(100) NULL");
     await addColumnIfMissing("owner_sender_number", "VARCHAR(100) NULL");
+    await addColumnIfMissing("reservation_change_updates_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("reservation_change_message_template", "TEXT NULL");
     await addColumnIfMissing("created_at", "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)");
     await addColumnIfMissing("updated_at", "DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)");
     await addColumnIfMissing("updated_by", "VARCHAR(255) NULL");

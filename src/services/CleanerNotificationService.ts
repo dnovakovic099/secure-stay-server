@@ -6,6 +6,7 @@ import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { VendorAssignment } from "../entity/VendorAssignment";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
@@ -24,6 +25,7 @@ export class CleanerNotificationService {
     private listingRepo = appDatabase.getRepository(Listing);
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private clientRepo = appDatabase.getRepository(ClientEntity);
+    private clientPropertyRepo = appDatabase.getRepository(ClientPropertyEntity);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private openPhoneService = new OpenPhoneService();
 
@@ -174,14 +176,24 @@ export class CleanerNotificationService {
                 return;
             }
 
-            // Determine which cleaner to notify
-            const cleaner = await this.getNotificationCleaner(
-                reservation,
-                postStay,
-                useSameDay ? [...settings.preStayRecipientIds, ...settings.postStayRecipientIds] : settings.postStayRecipientIds
-            );
+            const recipients = useSameDay
+                ? await this.getNotificationRecipients(
+                    reservation,
+                    postStay,
+                    [
+                        ...settings.preStayRecipientIds,
+                        ...settings.postStayRecipientIds,
+                        ...(
+                            settings.preStayDefaultRecipientType === "cleaner" ||
+                            settings.postStayDefaultRecipientType === "cleaner"
+                                ? ["default:cleaner"]
+                                : []
+                        )
+                    ]
+                )
+                : [await this.getNotificationCleaner(reservation, postStay, settings.postStayRecipientIds)].filter(Boolean) as NotificationRecipient[];
 
-            if (!cleaner) {
+            if (!recipients.length) {
                 const currentPostStay = await this.postStayRepo.findOne({
                     where: { reservationId }
                 });
@@ -218,18 +230,6 @@ export class CleanerNotificationService {
             }
             const message = rendered.message;
 
-            // Format cleaner phone number
-            const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', cleaner.contact);
-
-            if (!phoneNumber) {
-                await this.updateNotificationStatus(
-                    reservationId,
-                    'failed',
-                    `Invalid phone number for cleaner: ${cleaner.contact || 'not provided'}`
-                );
-                return;
-            }
-
             // Check if OpenPhone is configured before attempting to send
             if (!process.env.OPEN_PHONE_API_KEY) {
                 await this.updateNotificationStatus(
@@ -240,23 +240,37 @@ export class CleanerNotificationService {
                 return;
             }
 
-            const senderNumber = this.getSenderNumberForRecipient(cleaner, listing, settings);
-            if (!senderNumber) {
+            const sendErrors: string[] = [];
+            let sentCount = 0;
+            for (const recipient of recipients) {
+                const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', recipient.contact);
+                if (!phoneNumber) {
+                    sendErrors.push(`Invalid phone number for ${recipient.name}: ${recipient.contact || 'not provided'}`);
+                    continue;
+                }
+
+                const senderNumber = this.getSenderNumberForRecipient(recipient, listing, settings);
+                if (!senderNumber) {
+                    sendErrors.push(`SMS sender number not configured for ${recipient.name}`);
+                    continue;
+                }
+
+                await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
+                sentCount++;
+                logger.info(`[CleanerNotification] SMS sent successfully to ${recipient.name} for reservation ${reservationId}`);
+            }
+
+            if (sentCount === 0) {
                 await this.updateNotificationStatus(
                     reservationId,
                     'failed',
-                    'SMS sender number not configured, cannot send SMS'
+                    sendErrors.join('; ') || 'No valid same-day recipients found'
                 );
                 return;
             }
 
-            // Send SMS via OpenPhone with dedicated sender number
-            await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
-
             // Update status to sent
-            await this.updateNotificationStatus(reservationId, 'sent', templateError || undefined, message);
-
-            logger.info(`[CleanerNotification] SMS sent successfully to ${cleaner.name} for reservation ${reservationId}`);
+            await this.updateNotificationStatus(reservationId, 'sent', [templateError, ...sendErrors].filter(Boolean).join('; ') || undefined, message);
 
         } catch (error: any) {
             logger.error(`[CleanerNotification] Error sending checkout notification for reservation ${reservationId}:`, error.message);
@@ -276,6 +290,25 @@ export class CleanerNotificationService {
         postStay: ReservationDetailPostStayAudit,
         recipientIds?: string[]
     ): Promise<NotificationRecipient | null> {
+        const recipients = await this.getNotificationRecipients(reservation, postStay, recipientIds);
+        return recipients[0] || null;
+    }
+
+    private async getNotificationRecipients(
+        reservation: ReservationInfoEntity,
+        postStay: ReservationDetailPostStayAudit,
+        recipientIds?: string[]
+    ): Promise<NotificationRecipient[]> {
+        const uniqueRecipients = (recipients: NotificationRecipient[]) => {
+            const seen = new Set<string>();
+            return recipients.filter((recipient) => {
+                const key = `${String(recipient.role || '').toLowerCase()}:${this.openPhoneService.formatPhoneNumber('+1', recipient.contact) || recipient.contact || recipient.id || recipient.name}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+
         // Check if there's a per-reservation override
         if (postStay.cleanerNotificationContactId) {
             const overrideCleaner = await this.contactRepo.findOne({
@@ -284,7 +317,7 @@ export class CleanerNotificationService {
 
             if (overrideCleaner) {
                 logger.info(`[CleanerNotification] Using override cleaner: ${overrideCleaner.name}`);
-                return overrideCleaner;
+                return [overrideCleaner];
             }
         }
 
@@ -293,8 +326,9 @@ export class CleanerNotificationService {
             .map((id) => Number(id.split(':')[1]))
             .filter((id) => Number.isFinite(id))));
         if ((recipientIds || []).length > 0) {
+            let configuredContacts: Contact[] = [];
             if (contactIds.length > 0) {
-                const configuredContacts = await this.contactRepo.find({
+                configuredContacts = await this.contactRepo.find({
                     where: {
                         id: In(contactIds),
                         status: In(['active', 'active-backup'] as any),
@@ -302,57 +336,77 @@ export class CleanerNotificationService {
                     }
                 });
                 if (configuredContacts.length > 0) {
-                    logger.info(`[CleanerNotification] Using configured post-stay contact: ${configuredContacts[0].name}`);
-                    return configuredContacts[0];
+                    logger.info(`[CleanerNotification] Using ${configuredContacts.length} configured post-stay contact(s)`);
                 }
             }
-            const vendorId = (recipientIds || []).find((id) => id.startsWith('vendor:'));
-            if (vendorId) {
-                const vendorProfileId = Number(vendorId.split(':')[1]);
-                if (Number.isFinite(vendorProfileId)) {
-                    const assignment = await this.vendorAssignmentRepo.findOne({
-                        where: {
-                            vendorProfileId,
-                            listingId: String(reservation.listingMapId),
-                            status: 'active',
-                            deletedAt: IsNull()
-                        },
-                        relations: ['vendorProfile']
+            const recipients: NotificationRecipient[] = [...configuredContacts];
+            const vendorIds = Array.from(new Set((recipientIds || [])
+                .filter((id) => id.startsWith('vendor:'))
+                .map((id) => Number(id.split(':')[1]))
+                .filter((id) => Number.isFinite(id))));
+            for (const vendorProfileId of vendorIds) {
+                const assignment = await this.vendorAssignmentRepo.findOne({
+                    where: {
+                        vendorProfileId,
+                        listingId: String(reservation.listingMapId),
+                        status: 'active',
+                        deletedAt: IsNull()
+                    },
+                    relations: ['vendorProfile']
+                });
+                if (assignment?.vendorProfile?.contact) {
+                    recipients.push({
+                        id: assignment.vendorProfile.id,
+                        name: assignment.vendorProfile.name,
+                        contact: assignment.vendorProfile.contact,
+                        role: assignment.role || 'Vendor'
                     });
-                    if (assignment?.vendorProfile?.contact) {
-                        return {
-                            id: assignment.vendorProfile.id,
-                            name: assignment.vendorProfile.name,
-                            contact: assignment.vendorProfile.contact,
-                            role: assignment.role || 'Vendor'
-                        };
-                    }
                 }
             }
-            const ownerId = (recipientIds || []).find((id) => id.startsWith('owner:'));
-            if (ownerId) {
-                const client = await this.clientRepo.findOne({ where: { id: ownerId.split(':')[1] } });
-                if (client?.phone) {
-                    return {
+
+            const ownerIds = Array.from(new Set((recipientIds || [])
+                .filter((id) => id.startsWith('owner:') || id.startsWith('client:'))
+                .map((id) => id.split(':')[1])
+                .filter(Boolean)));
+            if (ownerIds.length) {
+                const clients = await this.clientRepo.find({ where: { id: In(ownerIds) } });
+                clients.forEach((client) => {
+                    if (!client.phone) return;
+                    recipients.push({
                         name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Owner',
                         contact: client.phone,
                         role: 'Owner'
-                    };
+                    });
+                });
+            }
+
+            if ((recipientIds || []).includes("default:cleaner")) {
+                const activeCleanerAssignments = await this.vendorAssignmentRepo.find({
+                    where: {
+                        listingId: String(reservation.listingMapId),
+                        role: "Cleaner",
+                        status: 'active',
+                        deletedAt: IsNull()
+                    },
+                    relations: ['vendorProfile'],
+                    order: { id: 'ASC' as any }
+                });
+                const assignment = activeCleanerAssignments.find((item) => item.vendorProfile?.contact);
+                if (assignment?.vendorProfile?.contact) {
+                    recipients.push({
+                        id: assignment.vendorProfile.id,
+                        name: assignment.vendorProfile.name,
+                        contact: assignment.vendorProfile.contact,
+                        role: assignment.role || 'Cleaner'
+                    });
                 }
             }
-            const clientId = (recipientIds || []).find((id) => id.startsWith('client:'));
-            if (clientId) {
-                const client = await this.clientRepo.findOne({ where: { id: clientId.split(':')[1] } });
-                if (client?.phone) {
-                    return {
-                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Client',
-                        contact: client.phone,
-                        role: 'Client'
-                    };
-                }
-            }
+
+            const unique = uniqueRecipients(recipients);
+            if (unique.length > 0) return unique;
+
             logger.warn(`[CleanerNotification] Configured post-stay recipients do not include an active contact for listing ${reservation.listingMapId}`);
-            return null;
+            return [];
         }
 
         const activeVendorAssignments = await this.vendorAssignmentRepo.find({
@@ -370,17 +424,17 @@ export class CleanerNotificationService {
 
         if (activeCleaners.length === 0) {
             logger.warn(`[CleanerNotification] No active vendor contacts found for listing ${reservation.listingMapId}`);
-            return null;
+            return [];
         }
 
         const assignment = activeCleaners[0];
         logger.info(`[CleanerNotification] Using active vendor contact: ${assignment.vendorProfile.name}`);
-        return {
+        return [{
             id: assignment.vendorProfile.id,
             name: assignment.vendorProfile.name,
             contact: assignment.vendorProfile.contact,
             role: assignment.role || 'Vendor'
-        };
+        }];
     }
 
     private getListingPortfolioGroup(listing: Listing) {
@@ -409,6 +463,31 @@ export class CleanerNotificationService {
         return settings.cleanerSenderNumber || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
     }
 
+    private normalizeDefaultRecipientType(value: any): "cleaner" | "owner" | "custom" {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "owner") return "owner";
+        if (normalized === "custom") return "custom";
+        return "cleaner";
+    }
+
+    private async getOwnerRecipientIds(listingId: number) {
+        const property = await this.clientPropertyRepo.findOne({
+            where: [
+                { listingId: String(listingId) },
+                { hostifyListingId: String(listingId) }
+            ],
+            relations: ["client"]
+        });
+        return property?.client?.phone ? [`owner:${property.client.id}`] : [];
+    }
+
+    private async resolveRecipientIdsForMode(listingId: number, mode: any, explicitIds: string[] = []) {
+        const type = this.normalizeDefaultRecipientType(mode);
+        if (type === "custom") return explicitIds || [];
+        if (type === "owner") return this.getOwnerRecipientIds(listingId);
+        return [];
+    }
+
     private async getEffectiveSettings(listingId: number) {
         await this.ensureSettingsSchema();
         const [settings, globalSettings] = await Promise.all([
@@ -417,12 +496,18 @@ export class CleanerNotificationService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
+        const postStayDefaultRecipientType = resolve(settings?.postStayDefaultRecipientType, globalSettings?.postStayDefaultRecipientType, "cleaner");
+        const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
+        const explicitPostStayRecipientIds = resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [];
         return {
             preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
             postStayEnabled: resolve(settings?.postStayEnabled, globalSettings?.postStayEnabled, true),
             sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
-            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
-            postStayRecipientIds: resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [],
+            preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
+            postStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, postStayDefaultRecipientType, explicitPostStayRecipientIds),
+            preStayDefaultRecipientType,
+            postStayDefaultRecipientType,
             postStayMessageTemplate: resolve(settings?.postStayMessageTemplate, globalSettings?.postStayMessageTemplate, this.composeCheckoutMessageTemplate()),
             sameDayCombinedMessageTemplate: resolve(settings?.sameDayCombinedMessageTemplate, globalSettings?.sameDayCombinedMessageTemplate, this.composeSameDayMessageTemplate()),
             preStayScheduleMode: resolve(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, "at-check-in"),

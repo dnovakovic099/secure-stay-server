@@ -5,6 +5,7 @@ import { UpsellOrder } from "../entity/UpsellOrder";
 import { Listing } from "../entity/Listing";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { VendorAssignment } from "../entity/VendorAssignment";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
@@ -26,6 +27,7 @@ export class CheckInNotificationService {
     private listingRepo = appDatabase.getRepository(Listing);
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private clientRepo = appDatabase.getRepository(ClientEntity);
+    private clientPropertyRepo = appDatabase.getRepository(ClientPropertyEntity);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private preStayAuditRepo = appDatabase.getRepository(ReservationDetailPreStayAudit);
     private openPhoneService = new OpenPhoneService();
@@ -371,6 +373,31 @@ export class CheckInNotificationService {
         return settings.cleanerSenderNumber || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER;
     }
 
+    private normalizeDefaultRecipientType(value: any): "cleaner" | "owner" | "custom" {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "owner") return "owner";
+        if (normalized === "custom") return "custom";
+        return "cleaner";
+    }
+
+    private async getOwnerRecipientIds(listingId: number) {
+        const property = await this.clientPropertyRepo.findOne({
+            where: [
+                { listingId: String(listingId) },
+                { hostifyListingId: String(listingId) }
+            ],
+            relations: ["client"]
+        });
+        return property?.client?.phone ? [`owner:${property.client.id}`] : [];
+    }
+
+    private async resolveRecipientIdsForMode(listingId: number, mode: any, explicitIds: string[] = []) {
+        const type = this.normalizeDefaultRecipientType(mode);
+        if (type === "custom") return explicitIds || [];
+        if (type === "owner") return this.getOwnerRecipientIds(listingId);
+        return [];
+    }
+
     private async getEffectiveSettings(listingId: number) {
         await this.ensureSettingsSchema();
         const [settings, globalSettings] = await Promise.all([
@@ -379,10 +406,13 @@ export class CheckInNotificationService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
+        const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
         return {
             preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
             sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
-            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
+            preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
+            preStayDefaultRecipientType,
             preStayMessageTemplate: resolve(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, this.composeCheckInMessageTemplate()),
             preStayScheduleMode: resolve(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, "at-check-in"),
             preStayOffsetMinutes: resolve(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, 0),

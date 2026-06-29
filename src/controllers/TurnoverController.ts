@@ -168,6 +168,18 @@ export class TurnoverController {
     }
 
     /**
+     * Get sender number options from configured Quo/OpenPhone numbers
+     */
+    async getSenderNumberOptions(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const senderNumbers = await this.turnoverService.getSenderNumberOptions();
+            return res.status(200).json({ data: senderNumbers });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Sync recipient sources from Vendors and All Listings client information
      */
     async syncRecipients(req: CustomRequest, res: Response, next: NextFunction) {
