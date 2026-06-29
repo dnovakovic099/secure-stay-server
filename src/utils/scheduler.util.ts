@@ -30,6 +30,7 @@ import { CheckInNotificationService } from "../services/CheckInNotificationServi
 import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 import { IssuesService } from "../services/IssuesService";
 import { ClientService } from "../services/ClientService";
+import { TurnoverService } from "../services/TurnoverService";
 import sendSlackMessage from "./sendSlackMsg";
 import OpenAI from "openai";
 
@@ -440,37 +441,17 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Cleaner Checkout SMS Notifications - Daily at 5 AM EST
+  // Cleaner Checkout SMS Notifications - every 20 minutes, using each listing's local schedule settings
   schedule.scheduleJob(
-    { hour: 5, minute: 0, tz: "America/New_York" },
+    "*/20 * * * *",
     async () => {
       try {
-        logger.info('[CleanerCheckoutSMS] Scheduled task started - processing checkout notifications...');
+        logger.info('[CleanerCheckoutSMS] Scheduled task started - processing checkout notification schedules...');
 
         const cleanerNotificationService = new CleanerNotificationService();
-        const reservationInfoService = new ReservationInfoService();
+        const result = await cleanerNotificationService.processAutomatedCheckoutSMS();
 
-        // Get today's checkouts ONLY. We pass 0 explicitly because the helper's default
-        // lookback was widened to 14 days to support the mitigation backfill job — using
-        // the default here would SMS cleaners for every checkout in the last two weeks.
-        const { reservations } = await reservationInfoService.getCheckoutReservations(0);
-        logger.info(`[CleanerCheckoutSMS] Found ${reservations.length} checkout reservations to process`);
-
-        let successCount = 0;
-        let failureCount = 0;
-        let skippedCount = 0;
-
-        for (const reservation of reservations) {
-          try {
-            await cleanerNotificationService.sendCheckoutNotification(reservation.id);
-            successCount++;
-          } catch (error: any) {
-            logger.error(`[CleanerCheckoutSMS] Failed for reservation ${reservation.id}:`, error.message);
-            failureCount++;
-          }
-        }
-
-        logger.info(`[CleanerCheckoutSMS] Scheduled task completed - Success: ${successCount}, Failed: ${failureCount}`);
+        logger.info(`[CleanerCheckoutSMS] Scheduled task completed - Sent: ${result.sent}, Failed: ${result.failed}, Skipped: ${result.skipped}`);
       } catch (error) {
         logger.error("[CleanerCheckoutSMS] Error in scheduled task:", error);
       }
@@ -584,17 +565,17 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Check-In Notification SMS - Hourly check for 10 AM local timezone
+  // Check-In Notification SMS - every 20 minutes, using each listing's local schedule settings
   schedule.scheduleJob(
-    "*/20 * * * *", // Top of every hour
+    "*/20 * * * *",
     async () => {
       try {
-        logger.info('[CheckInSMS] Hourly task started - processing 10 AM local time notifications...');
+        logger.info('[CheckInSMS] Scheduled task started - processing check-in notification schedules...');
         const checkInNotificationService = new CheckInNotificationService();
         await checkInNotificationService.processAutomatedCheckInSMS();
-        logger.info('[CheckInSMS] Hourly task completed.');
+        logger.info('[CheckInSMS] Scheduled task completed.');
       } catch (error) {
-        logger.error("[CheckInSMS] Error in hourly scheduled task:", error);
+        logger.error("[CheckInSMS] Error in scheduled task:", error);
       }
     }
   );
@@ -610,6 +591,18 @@ export function scheduleGetReservation() {
       logger.info('[ClientOwnerSync] Hourly sync completed.', result);
     } catch (error) {
       logger.error('[ClientOwnerSync] Error in hourly sync:', error);
+    }
+  });
+
+  // Turnover recipient sync from Vendors and All Listings, daily at 8 AM EST.
+  schedule.scheduleJob({ hour: 8, minute: 0, tz: "America/New_York" }, async () => {
+    try {
+      logger.info('[TurnoverRecipientSync] Daily sync started...');
+      const turnoverService = new TurnoverService();
+      const result = await turnoverService.syncRecipients('system');
+      logger.info('[TurnoverRecipientSync] Daily sync completed.', result);
+    } catch (error) {
+      logger.error('[TurnoverRecipientSync] Error in daily sync:', error);
     }
   });
 

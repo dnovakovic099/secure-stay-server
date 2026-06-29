@@ -1,4 +1,4 @@
-import { appDatabase } from "../utils/database.util";
+import { appDatabase, ensureTurnoverSettingsColumns } from "../utils/database.util";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { ReservationDetailPreStayAudit } from "../entity/ReservationDetailPreStayAudit";
 import { ReservationDetailPostStayAudit } from "../entity/ReservationDetailPostStayAudit";
@@ -6,15 +6,18 @@ import { Listing } from "../entity/Listing";
 import { Contact } from "../entity/Contact";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
+import { VendorAssignment } from "../entity/VendorAssignment";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import logger from "../utils/logger.utils";
-import { Between, In, Like, MoreThan, MoreThanOrEqual, LessThan, LessThanOrEqual, Raw } from "typeorm";
+import { Between, In, IsNull, Like, MoreThan, MoreThanOrEqual, LessThan, LessThanOrEqual, Raw } from "typeorm";
 import axios from "axios";
 import { Hostify } from "../client/Hostify";
 import { format } from "date-fns";
 import { CleanerNotified } from "../entity/ReservationDetailPreStayAudit";
 import { renderTurnoverTemplate } from "../utils/turnoverTemplate.util";
+import { ClientService } from "./ClientService";
+import { VendorProfileService } from "./VendorProfileService";
 
 const HOSTIFY_API_KEY = process.env.HOSTIFY_API_KEY || 'aOGSVrcPGOvvSsGD4idPKvxKaD0HGaAW';
 const HOSTIFY_BASE_URL = 'https://api-rms.hostify.com';
@@ -138,6 +141,10 @@ type BackendSettingSnapshot = {
     postStayMessageTemplate: string;
     sameDayCombinedMessageTemplate: string;
     smsSenderNumber: string | null;
+    cleanerSenderNumber: string | null;
+    cleanerSenderNumberGroup1: string | null;
+    cleanerSenderNumberGroup2: string | null;
+    ownerSenderNumber: string | null;
     preStayScheduleDescription: string;
     postStayScheduleDescription: string;
     sameDayScheduleDescription: string;
@@ -230,8 +237,13 @@ export class TurnoverService {
     private postStayRepo = appDatabase.getRepository(ReservationDetailPostStayAudit);
     private listingRepo = appDatabase.getRepository(Listing);
     private contactRepo = appDatabase.getRepository(Contact);
+    private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
+
+    private async ensureSettingsSchema() {
+        await ensureTurnoverSettingsColumns();
+    }
 
     private normalizeTimeZoneCandidate(candidate?: string) {
         if (!candidate) return "";
@@ -364,6 +376,10 @@ export class TurnoverService {
         return process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null;
     }
 
+    private getOwnerSenderNumber() {
+        return process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || process.env.CHECKIN_SMS_SENDER_NUMBER || process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null;
+    }
+
     private getCurrentBackendSnapshot(): BackendSettingSnapshot {
         return {
             preStayEnabled: true,
@@ -379,6 +395,10 @@ export class TurnoverService {
             postStayMessageTemplate: DEFAULT_POST_STAY_TEMPLATE,
             sameDayCombinedMessageTemplate: DEFAULT_SAME_DAY_TEMPLATE,
             smsSenderNumber: this.getCheckInSenderNumber() || this.getCheckoutSenderNumber(),
+            cleanerSenderNumber: this.getCheckoutSenderNumber(),
+            cleanerSenderNumberGroup1: process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || this.getCheckoutSenderNumber(),
+            cleanerSenderNumberGroup2: process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || this.getCheckoutSenderNumber(),
+            ownerSenderNumber: this.getOwnerSenderNumber(),
             preStayScheduleDescription: 'Default pre-stay timing. Property settings override this value.',
             postStayScheduleDescription: 'Default post-stay timing. Property settings override this value.',
             sameDayScheduleDescription: 'When enabled, same-day turnover suppresses separate pre-stay/post-stay sends and uses the earlier configured pre/post schedule.'
@@ -407,6 +427,15 @@ export class TurnoverService {
         return [];
     }
 
+    private normalizeSenderNumbers(data: any) {
+        ['cleanerSenderNumber', 'cleanerSenderNumberGroup1', 'cleanerSenderNumberGroup2', 'ownerSenderNumber'].forEach((field) => {
+            if (field in data) {
+                const value = String(data[field] || '').trim();
+                data[field] = value || null;
+            }
+        });
+    }
+
     private getRecipientNames(recipientIds: string[], options: TurnoverRecipientOption[]) {
         if (!recipientIds.length) return [];
         const optionMap = new Map(options.map((option) => [option.value, option.label]));
@@ -423,34 +452,27 @@ export class TurnoverService {
             options.push(option);
         };
 
-        const contacts = await this.contactRepo.find({
+        const vendorAssignments = await this.vendorAssignmentRepo.find({
             where: {
                 listingId: String(listing.id),
-                status: In(['active', 'active-backup']),
-                deletedAt: null as any
+                status: "active",
+                deletedAt: IsNull()
             },
-            order: { isPrimary: 'DESC', name: 'ASC' as any }
+            relations: ["vendorProfile"],
+            order: { role: "ASC" as any, id: "ASC" as any }
         });
 
-        contacts.forEach((contact) => {
+        vendorAssignments.forEach((assignment) => {
+            const vendor = assignment.vendorProfile;
+            if (!vendor || vendor.deletedAt || !vendor.contact) return;
             addOption({
-                value: `contact:${contact.id}`,
-                label: `${contact.name} (${contact.role || 'Contact'})`,
-                role: contact.role || 'Contact',
-                phone: contact.contact || undefined,
+                value: `vendor:${vendor.id}`,
+                label: `${vendor.name} (${assignment.role || 'Vendor'})`,
+                role: assignment.role || 'Vendor',
+                phone: vendor.contact || undefined,
                 kind: 'contact'
             });
         });
-
-        if (listing.ownerName || listing.ownerPhone || listing.ownerEmail) {
-            addOption({
-                value: `owner:${listing.id}`,
-                label: `${listing.ownerName || 'Owner'} (Owner)`,
-                role: 'Owner',
-                phone: listing.ownerPhone || undefined,
-                kind: 'owner'
-            });
-        }
 
         const clientProperties = await this.clientPropertyRepo.find({
             where: [
@@ -467,11 +489,11 @@ export class TurnoverService {
                 .map((value) => value.trim())
                 .filter(Boolean)[0] || 'Client';
             addOption({
-                value: `client:${client.id}`,
-                label: `${displayName} (Client)`,
-                role: 'Client',
+                value: `owner:${client.id}`,
+                label: `${displayName} (Owner)`,
+                role: 'Owner',
                 phone: client.phone || undefined,
-                kind: 'client'
+                kind: 'owner'
             });
         });
 
@@ -567,6 +589,7 @@ export class TurnoverService {
     }
 
     async getNextCheckInNotification(listingId: number, afterDate: string): Promise<TurnoverNotification | null> {
+        await this.ensureSettingsSchema();
         const reservation = await this.reservationRepo.findOne({
             where: {
                 listingMapId: listingId,
@@ -633,6 +656,7 @@ export class TurnoverService {
     }
 
     async getLastCheckoutNotification(listingId: number, beforeDate: string): Promise<TurnoverNotification | null> {
+        await this.ensureSettingsSchema();
         const reservation = await this.reservationRepo.findOne({
             where: {
                 listingMapId: listingId,
@@ -853,6 +877,7 @@ export class TurnoverService {
      */
     async getNotifications(filters: TurnoverFilters = {}): Promise<TurnoverNotification[]> {
         try {
+            await this.ensureSettingsSchema();
             // Calculate date range from scopes or filters (Eastern date keys)
             let fromDateStr: string;
             let toDateStr: string;
@@ -1330,6 +1355,7 @@ export class TurnoverService {
      */
     async getSettings(filters?: { propertyType?: string[]; search?: string }): Promise<any[]> {
         try {
+            await this.ensureSettingsSchema();
             const listings = await this.listingRepo.find();
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
 
@@ -1421,9 +1447,13 @@ export class TurnoverService {
                     sameDayOffsetMinutes: this.resolveValue(settings?.sameDayOffsetMinutes, globalSettings?.sameDayOffsetMinutes, backendSnapshot.sameDayOffsetMinutes),
                     sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabled', 'sameDayCombinedMessageTemplate']),
                     recipientOptions,
-                    smsSenderNumber: backendSnapshot.smsSenderNumber,
-                    preStayScheduleDescription: 'Property value is used when present; otherwise the global pre-stay default is applied.',
-                    postStayScheduleDescription: 'Property value is used when present; otherwise the global post-stay default is applied.',
+                    smsSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
+                    cleanerSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
+                    cleanerSenderNumberGroup1: this.resolveValue(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, backendSnapshot.cleanerSenderNumberGroup1),
+                    cleanerSenderNumberGroup2: this.resolveValue(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, backendSnapshot.cleanerSenderNumberGroup2),
+                    ownerSenderNumber: this.resolveValue(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, backendSnapshot.ownerSenderNumber),
+                    preStayScheduleDescription: '',
+                    postStayScheduleDescription: '',
                     sameDayScheduleDescription: 'Same-day uses the enabled pre-stay/post-stay settings and the earlier configured schedule.',
                     backendRecipientNote: 'Scheduled turnover messages use the effective settings shown in this row.',
                     
@@ -1447,6 +1477,7 @@ export class TurnoverService {
      * Get global turnover settings (listingId = 0)
      */
     async getGlobalSettings(): Promise<any> {
+        await this.ensureSettingsSchema();
         const snapshot = this.getCurrentBackendSnapshot();
         let settings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
         settings = await this.ensureCurrentBackendDefaults(settings, 0);
@@ -1464,7 +1495,11 @@ export class TurnoverService {
             preStayMessageTemplate: this.resolveValue(settings.preStayMessageTemplate, null, snapshot.preStayMessageTemplate),
             postStayMessageTemplate: this.resolveValue(settings.postStayMessageTemplate, null, snapshot.postStayMessageTemplate),
             sameDayCombinedMessageTemplate: this.resolveValue(settings.sameDayCombinedMessageTemplate, null, snapshot.sameDayCombinedMessageTemplate),
-            smsSenderNumber: snapshot.smsSenderNumber,
+            smsSenderNumber: this.resolveValue(settings.cleanerSenderNumber, null, snapshot.cleanerSenderNumber),
+            cleanerSenderNumber: this.resolveValue(settings.cleanerSenderNumber, null, snapshot.cleanerSenderNumber),
+            cleanerSenderNumberGroup1: this.resolveValue(settings.cleanerSenderNumberGroup1, null, snapshot.cleanerSenderNumberGroup1),
+            cleanerSenderNumberGroup2: this.resolveValue(settings.cleanerSenderNumberGroup2, null, snapshot.cleanerSenderNumberGroup2),
+            ownerSenderNumber: this.resolveValue(settings.ownerSenderNumber, null, snapshot.ownerSenderNumber),
             preStayScheduleDescription: snapshot.preStayScheduleDescription,
             postStayScheduleDescription: snapshot.postStayScheduleDescription,
             sameDayScheduleDescription: snapshot.sameDayScheduleDescription,
@@ -1476,6 +1511,7 @@ export class TurnoverService {
      * Update global turnover settings (listingId = 0)
      */
     async updateGlobalSettings(data: Partial<TurnoverSettings>, userId?: string): Promise<TurnoverSettings> {
+        await this.ensureSettingsSchema();
         let settings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
         if (!settings) {
             settings = this.settingsRepo.create({ listingId: 0 } as TurnoverSettings);
@@ -1488,29 +1524,38 @@ export class TurnoverService {
         normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
         normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
         normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+        this.normalizeSenderNumbers(normalized);
         Object.assign(settings, { ...normalized, updatedBy: userId });
         return await this.settingsRepo.save(settings);
     }
 
     /**
-     * Get global contacts list (active cleaners)
+     * Get global recipient list for default turnover settings.
      */
     async getGlobalContacts(): Promise<TurnoverRecipientOption[]> {
+        const seen = new Set<string>();
         const contacts = await this.contactRepo.find({
             where: {
-                role: 'Cleaner',
-                status: 'active',
+                status: In(['active', 'active-backup']),
                 deletedAt: null as any
             },
-            order: { isPrimary: 'DESC', name: 'ASC' as any }
+            order: { role: 'ASC' as any, isPrimary: 'DESC', name: 'ASC' as any }
         });
-        return contacts.map((contact) => ({
-            value: `contact:${contact.id}`,
-            label: `${contact.name} (${contact.role || 'Cleaner'})`,
-            role: contact.role || 'Cleaner',
-            phone: contact.contact || undefined,
-            kind: 'contact' as const
-        }));
+        return contacts
+            .filter((contact) => {
+                if (!contact.contact) return false;
+                const key = `contact:${contact.id}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .map((contact) => ({
+                value: `contact:${contact.id}`,
+                label: `${contact.name} (${contact.role || 'Contact'})`,
+                role: contact.role || 'Contact',
+                phone: contact.contact || undefined,
+                kind: 'contact' as const
+            }));
     }
 
     /**
@@ -1518,6 +1563,7 @@ export class TurnoverService {
      */
     async updateSettings(listingId: number, data: Partial<TurnoverSettings>, userId?: string): Promise<TurnoverSettings> {
         try {
+            await this.ensureSettingsSchema();
             let settings = await this.settingsRepo.findOne({ where: { listingId } });
             
             if (!settings) {
@@ -1532,6 +1578,7 @@ export class TurnoverService {
             normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
             normalized.preStayContactId = prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
             normalized.postStayContactId = postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+            this.normalizeSenderNumbers(normalized);
 
             Object.assign(settings, {
                 ...normalized,
@@ -1560,10 +1607,48 @@ export class TurnoverService {
     }
 
     /**
+     * Sync recipient sources from Vendors and All Listings client information.
+     */
+    async syncRecipients(userId: string = "system"): Promise<{
+        vendorProfilesSynced: number;
+        clientsCreated: number;
+        clientsUpdated: number;
+        propertiesLinked: number;
+        listingsSynced: number;
+        groupsSynced: number;
+    }> {
+        try {
+            await this.ensureSettingsSchema();
+            logger.info(`[TurnoverService] Syncing turnover recipient sources...`);
+
+            const [clientSyncResult, vendorSyncResult] = await Promise.all([
+                new ClientService().syncListingClientsFromOwnerContracts(userId),
+                new VendorProfileService().getVendorProfiles({ limit: 10000 }, userId),
+            ]);
+
+            const result = {
+                vendorProfilesSynced: vendorSyncResult.total || vendorSyncResult.vendors?.length || 0,
+                clientsCreated: clientSyncResult.clientsCreated,
+                clientsUpdated: clientSyncResult.clientsUpdated,
+                propertiesLinked: clientSyncResult.propertiesLinked,
+                listingsSynced: clientSyncResult.listingsSynced,
+                groupsSynced: clientSyncResult.groupsSynced,
+            };
+
+            logger.info(`[TurnoverService] Synced turnover recipient sources`, result);
+            return result;
+        } catch (error: any) {
+            logger.error(`[TurnoverService] Error syncing turnover recipient sources:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Sync owner data from Hostify to settings
      */
     async syncOwnersFromHostify(): Promise<{ synced: number }> {
         try {
+            await this.ensureSettingsSchema();
             logger.info(`[TurnoverService] Syncing owners from Hostify...`);
             
             // Fetch all listings from Hostify using the central API client

@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import "reflect-metadata";
-import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, initDatabase } from "../utils/database.util";
+import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, ensureTurnoverSettingsColumns, initDatabase } from "../utils/database.util";
 import { scheduleGetReservation } from "../utils/scheduler.util";
 import logger from "../utils/logger.utils";
 
@@ -18,6 +18,7 @@ const main = async () => {
     await initDatabase();
     await ensureIssueMetadataColumns();
     await ensureReviewCheckoutMetadataColumns();
+    await ensureTurnoverSettingsColumns();
     scheduleGetReservation();
     logger.info("Scheduler worker started");
 };
