@@ -7,6 +7,7 @@ import { Listing } from "../entity/Listing";
 import { TurnoverSettings } from "../entity/TurnoverSettings";
 import { Contact } from "../entity/Contact";
 import { ClientEntity } from "../entity/Client";
+import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { VendorAssignment } from "../entity/VendorAssignment";
 import { OpenPhoneService } from "./OpenPhoneService";
 import logger from "../utils/logger.utils";
@@ -16,6 +17,18 @@ type ReservationSnapshot = Partial<ReservationInfoEntity>;
 
 const ACTIVE_RESERVATION_STATUSES = ["new", "accepted", "modified", "ownerStay", "moved"];
 const CHANGE_FIELDS: Array<keyof ReservationInfoEntity> = ["arrivalDate", "departureDate", "checkInTime", "checkOutTime", "listingMapId", "status"];
+const DEFAULT_RESERVATION_CHANGE_TEMPLATE = `{propertyName} Turnover Update
+
+Reservation #{reservationId}
+Guest: {guestName}
+Status: {reservationStatus}
+
+Previous stay: {previousStay}
+Current stay: {currentStay}
+Check-in time: {checkInTime}
+Check-out time: {checkOutTime}
+
+{changeSummary}`;
 
 export class TurnoverReservationChangeService {
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
@@ -25,6 +38,7 @@ export class TurnoverReservationChangeService {
     private settingsRepo = appDatabase.getRepository(TurnoverSettings);
     private contactRepo = appDatabase.getRepository(Contact);
     private clientRepo = appDatabase.getRepository(ClientEntity);
+    private clientPropertyRepo = appDatabase.getRepository(ClientPropertyEntity);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private openPhoneService = new OpenPhoneService();
 
@@ -44,6 +58,7 @@ export class TurnoverReservationChangeService {
         if (!listing) return;
 
         const settings = await this.getEffectiveSettings(listing.id);
+        if (!settings.reservationChangeUpdatesEnabled) return;
         const wasSameDay = await this.hasSameDayPair(previous);
         const isSameDay = await this.hasSameDayPair(current);
         const becameSameDay = !wasSameDay && isSameDay && settings.sameDayCombinedEnabled;
@@ -58,7 +73,8 @@ export class TurnoverReservationChangeService {
             listing,
             becameCancelled,
             scheduleChanged,
-            becameSameDay
+            becameSameDay,
+            template: settings.reservationChangeMessageTemplate
         });
         const recipientIds = this.getRecipientIds(settings, preSent, postSent, becameSameDay);
         const recipients = await this.resolveRecipients(current, recipientIds);
@@ -115,15 +131,46 @@ export class TurnoverReservationChangeService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
+        const postStayDefaultRecipientType = resolve(settings?.postStayDefaultRecipientType, globalSettings?.postStayDefaultRecipientType, "cleaner");
+        const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
+        const explicitPostStayRecipientIds = resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [];
         return {
-            preStayRecipientIds: resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [],
-            postStayRecipientIds: resolve(settings?.postStayRecipientIds, globalSettings?.postStayRecipientIds, [] as string[]) || [],
+            preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
+            postStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, postStayDefaultRecipientType, explicitPostStayRecipientIds),
             sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
             cleanerSenderNumber: resolve(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER || null),
             cleanerSenderNumberGroup1: resolve(settings?.cleanerSenderNumberGroup1, globalSettings?.cleanerSenderNumberGroup1, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP1 || null),
             cleanerSenderNumberGroup2: resolve(settings?.cleanerSenderNumberGroup2, globalSettings?.cleanerSenderNumberGroup2, process.env.CLEANER_CHECKOUT_SMS_SENDER_NUMBER_GROUP2 || null),
-            ownerSenderNumber: resolve(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || null)
+            ownerSenderNumber: resolve(settings?.ownerSenderNumber, globalSettings?.ownerSenderNumber, process.env.OWNER_TURNOVER_SMS_SENDER_NUMBER || null),
+            reservationChangeUpdatesEnabled: resolve(settings?.reservationChangeUpdatesEnabled, globalSettings?.reservationChangeUpdatesEnabled, true),
+            reservationChangeMessageTemplate: resolve(settings?.reservationChangeMessageTemplate, globalSettings?.reservationChangeMessageTemplate, DEFAULT_RESERVATION_CHANGE_TEMPLATE)
         };
+    }
+
+    private normalizeDefaultRecipientType(value: any): "cleaner" | "owner" | "custom" {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "owner") return "owner";
+        if (normalized === "custom") return "custom";
+        return "cleaner";
+    }
+
+    private async getOwnerRecipientIds(listingId: number) {
+        const property = await this.clientPropertyRepo.findOne({
+            where: [
+                { listingId: String(listingId) },
+                { hostifyListingId: String(listingId) }
+            ],
+            relations: ["client"]
+        });
+        return property?.client?.phone ? [`owner:${property.client.id}`] : [];
+    }
+
+    private async resolveRecipientIdsForMode(listingId: number, mode: any, explicitIds: string[] = []) {
+        const type = this.normalizeDefaultRecipientType(mode);
+        if (type === "custom") return explicitIds || [];
+        if (type === "owner") return this.getOwnerRecipientIds(listingId);
+        return [];
     }
 
     private getRecipientIds(
@@ -216,29 +263,43 @@ export class TurnoverReservationChangeService {
         becameCancelled: boolean;
         scheduleChanged: boolean;
         becameSameDay: boolean;
+        template: string;
     }) {
         const { previous, current, listing, becameCancelled, becameSameDay } = params;
         const propertyName = listing.internalListingName || listing.name || `Listing ${listing.id}`;
         const previousDates = `${this.formatDate(previous.arrivalDate)} to ${this.formatDate(previous.departureDate)}`;
         const currentDates = `${this.formatDate(current.arrivalDate)} to ${this.formatDate(current.departureDate)}`;
-        const lines = [
-            `${propertyName} Turnover Update`,
-            "",
-            `Reservation #${current.reservationId || current.hostawayReservationId || current.id}`,
-            `Guest: ${current.guestName || "Guest"}`,
-            `Previous stay: ${previousDates}`,
-            `Current stay: ${currentDates}`,
-            `Check-in time: ${this.formatTime(current.checkInTime ?? listing.checkInTimeStart)}`,
-            `Check-out time: ${this.formatTime(current.checkOutTime ?? listing.checkOutTime)}`
-        ];
+        const summaryLines: string[] = [];
         if (becameCancelled) {
-            lines.push("", "This reservation has been cancelled. Please do not follow the previously sent turnover message for this reservation.");
+            summaryLines.push("This reservation has been cancelled. Please do not follow the previously sent turnover message for this reservation.");
         } else if (becameSameDay) {
-            lines.push("", "This reservation is now part of a same-day turnover. Please follow this updated same-day turnover information instead of the earlier separate message.");
+            summaryLines.push("This reservation is now part of a same-day turnover. Please follow this updated same-day turnover information instead of the earlier separate message.");
         } else {
-            lines.push("", "The reservation dates or times changed after the turnover message was sent. Please follow this updated information.");
+            summaryLines.push("The reservation dates or times changed after the turnover message was sent. Please follow this updated information.");
         }
-        return lines.join("\n");
+        const values: Record<string, string> = {
+            propertyName,
+            listingName: listing.name || propertyName,
+            listingNickname: listing.internalListingName || propertyName,
+            address: listing.address || "",
+            reservationId: String(current.reservationId || current.hostawayReservationId || current.id || ""),
+            reservationCode: current.confirmation_code || "",
+            guestName: current.guestName || "Guest",
+            reservationStatus: current.status || "",
+            previousStay: previousDates,
+            currentStay: currentDates,
+            previousCheckInDate: this.formatDate(previous.arrivalDate),
+            previousCheckOutDate: this.formatDate(previous.departureDate),
+            currentCheckInDate: this.formatDate(current.arrivalDate),
+            currentCheckOutDate: this.formatDate(current.departureDate),
+            checkInTime: this.formatTime(current.checkInTime ?? listing.checkInTimeStart),
+            checkOutTime: this.formatTime(current.checkOutTime ?? listing.checkOutTime),
+            changeSummary: summaryLines.join("\n"),
+            changeType: becameCancelled ? "Cancelled" : becameSameDay ? "Same-day turnover" : "Schedule changed"
+        };
+        return (params.template || DEFAULT_RESERVATION_CHANGE_TEMPLATE)
+            .replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key: string) => values[key] ?? "")
+            .trim();
     }
 
     private formatDate(value?: Date | string | null) {
