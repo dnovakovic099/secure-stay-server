@@ -13,7 +13,8 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import { buildUnansweredMessageAlert } from "../utils/slackMessageBuilder";
 import { Listing } from "../entity/Listing";
 import { ListingService } from "./ListingService";
-import { In } from "typeorm";
+import { In, Like } from "typeorm";
+import { OpenPhoneService } from "./OpenPhoneService";
 
 // Hostify message webhook payload interface
 export interface HostifyMessagePayload {
@@ -60,6 +61,7 @@ export class MessagingService {
     private listingRepository = appDatabase.getRepository(Listing);
     private reservationRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingService = new ListingService();
+    private openPhoneService = new OpenPhoneService();
 
     private normalizeText(value: any) {
         return String(value || "").trim().toLowerCase();
@@ -237,6 +239,129 @@ export class MessagingService {
             .split(",")
             .map((item) => this.normalizeText(item))
             .filter(Boolean);
+    }
+
+    private normalizePhoneDigits(value: any) {
+        return String(value || "").replace(/\D/g, "");
+    }
+
+    private getThreadUpdatedAt(thread: any) {
+        return thread?.updated_at || thread?.last_message || thread?.lastActivityAt || thread?.createdAt || null;
+    }
+
+    private sortThreadsByRecent(threads: any[]) {
+        return [...threads].sort((a, b) => {
+            const aTime = new Date(this.getThreadUpdatedAt(a) || 0).getTime();
+            const bTime = new Date(this.getThreadUpdatedAt(b) || 0).getTime();
+            return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+        });
+    }
+
+    private async findReservationForPhone(phone: string) {
+        const digits = this.normalizePhoneDigits(phone);
+        const candidates = Array.from(new Set([
+            digits,
+            digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : "",
+            digits.length >= 10 ? digits.slice(-10) : "",
+            digits.length >= 7 ? digits.slice(-7) : "",
+        ].filter(Boolean)));
+
+        for (const candidate of candidates) {
+            const reservation = await this.reservationRepository.findOne({
+                where: { phone: Like(`%${candidate}%`) },
+                order: { arrivalDate: "DESC" as any },
+            });
+            if (reservation) return reservation;
+        }
+
+        return null;
+    }
+
+    private async mapOpenPhoneConversationsToThreads(conversations: any[]) {
+        return Promise.all((conversations || []).map(async (conversation) => {
+            const participant = Array.isArray(conversation.participants)
+                ? conversation.participants.find((phone: string) => this.normalizePhoneDigits(phone).length >= 7) || conversation.participants[0]
+                : null;
+            const reservation = participant ? await this.findReservationForPhone(participant) : null;
+            const listingId = Number((reservation as any)?.listingMapId || 0);
+            const listing = listingId
+                ? await this.listingRepository.findOne({ where: { id: listingId }, withDeleted: true })
+                : null;
+            const normalizedListing = listing
+                ? (this.listingService as any).normalizeListingOverview?.(listing) || null
+                : null;
+            const lastMessage = conversation.lastMessage || null;
+            const updatedAt = lastMessage?.createdAt || conversation.lastActivityAt || conversation.updatedAt || conversation.createdAt || null;
+            const direction = lastMessage?.direction === "incoming" ? "Guest" : lastMessage?.direction === "outgoing" ? "Us" : null;
+            const arrivalDate = reservation?.arrivalDate || null;
+            const departureDate = reservation?.departureDate || null;
+            const timeZoneIdentifier =
+                normalizedListing?.timezoneIdentifier ||
+                listing?.timeZoneName ||
+                "America/New_York";
+
+            return {
+                id: `quo-${conversation.id}`,
+                source: "quo",
+                reservation_id: reservation?.id || 0,
+                guest_id: 0,
+                listing_id: listingId || 0,
+                integration_id: 0,
+                integration_type_id: 0,
+                integration_type_name: "Quo",
+                preview: lastMessage?.text || "No recent SMS message",
+                last_message: updatedAt,
+                nights: 0,
+                guests: Number((reservation as any)?.guests || (reservation as any)?.numberOfGuests || 0),
+                start_date: arrivalDate,
+                is_archived: 0,
+                answered: direction === "Guest" ? 0 : 1,
+                channel_unread: direction === "Guest" ? 1 : 0,
+                guest_name: reservation?.guestName || participant || "Quo conversation",
+                listing_name: listing?.internalListingName || reservation?.listingName || listing?.name || null,
+                property_type: this.normalizePropertyTypeValue(listing),
+                service_type: this.normalizeServiceTypeValue(listing, normalizedListing),
+                portfolio: this.normalizePortfolioValue(listing),
+                reservation_status: reservation?.status || null,
+                confirmation_code: reservation?.confirmation_code || null,
+                reservation_note: reservation?.hostNote || null,
+                guest_picture: reservation?.guestPicture || null,
+                guest_thumb: reservation?.guestPicture || null,
+                guest_phone: participant || reservation?.phone || null,
+                arrival_date: arrivalDate,
+                departure_date: departureDate,
+                updated_at: updatedAt,
+                timezone_identifier: timeZoneIdentifier,
+                timezone_name: normalizedListing?.timezoneName || timeZoneIdentifier,
+                check_in_time_local: normalizedListing?.checkInLocal || null,
+                check_out_time_local: normalizedListing?.checkOutLocal || null,
+                stay_timing: this.getStayTiming(arrivalDate, departureDate, timeZoneIdentifier),
+                last_message_from: direction,
+                currently_hosting: this.isCurrentlyHosting({
+                    arrivalDate,
+                    departureDate,
+                    timeZone: timeZoneIdentifier,
+                    checkInTime: reservation?.checkInTime ?? listing?.checkInTimeStart ?? normalizedListing?.checkInLocal,
+                    checkOutTime: reservation?.checkOutTime ?? listing?.checkOutTime ?? normalizedListing?.checkOutLocal,
+                }),
+                openphone_conversation_id: conversation.id,
+                openphone_phone_number_id: conversation.phoneNumberId,
+                openphone_participants: conversation.participants || [],
+                assignee_id: null,
+                assignee: null,
+            };
+        }));
+    }
+
+    private async listOpenPhoneThreads(per_page = 20, query: any = {}) {
+        const maxResults = Math.min(Math.max(Number(query?.maxResults || per_page * 5 || 100), per_page), 100);
+        const result = await this.openPhoneService.listInboxConversations(maxResults);
+        const mapped = await this.mapOpenPhoneConversationsToThreads(result.data || []);
+        return {
+            threads: mapped,
+            total: result.totalItems || mapped.length,
+            nextPageToken: result.nextPageToken || null,
+        };
     }
 
     private async enrichHostifyThreads(threads: any[]) {
@@ -898,6 +1023,9 @@ export class MessagingService {
 
     async listHostifyThreads(page = 1, per_page = 20, query: any = {}) {
         try {
+            const source = this.normalizeText(query?.source || "hostify");
+            const wantsQuo = source === "quo";
+            const wantsAll = source === "all";
             const requiresExtendedSearch = Boolean(
                 query?.keyword ||
                 query?.property ||
@@ -909,7 +1037,9 @@ export class MessagingService {
                 query?.stayTiming ||
                 query?.unresponded ||
                 query?.dateFrom ||
-                query?.dateTo
+                query?.dateTo ||
+                wantsQuo ||
+                wantsAll
             );
 
             if (!requiresExtendedSearch) {
@@ -925,28 +1055,32 @@ export class MessagingService {
             const maxPages = 10;
             const collected: any[] = [];
 
-            // Fetch first page to check if more exist
-            const firstResult = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, 1, per_page);
-            const firstBatch = firstResult.threads || [];
-            collected.push(...firstBatch);
+            if (!wantsQuo) {
+                // Fetch first page to check if more exist
+                const firstResult = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, 1, per_page);
+                const firstBatch = firstResult.threads || [];
+                collected.push(...firstBatch);
 
-            // Fetch remaining pages in parallel for speed
-            if (firstBatch.length >= per_page && maxPages > 1) {
-                const remaining = await Promise.all(
-                    Array.from({ length: maxPages - 1 }, (_, i) =>
-                        this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, i + 2, per_page)
-                    )
-                );
-                for (const result of remaining) {
-                    const batch = result.threads || [];
-                    if (!batch.length) break;
-                    collected.push(...batch);
-                    if (batch.length < per_page) break;
+                // Fetch remaining pages in parallel for speed
+                if (firstBatch.length >= per_page && maxPages > 1) {
+                    const remaining = await Promise.all(
+                        Array.from({ length: maxPages - 1 }, (_, i) =>
+                            this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, i + 2, per_page)
+                        )
+                    );
+                    for (const result of remaining) {
+                        const batch = result.threads || [];
+                        if (!batch.length) break;
+                        collected.push(...batch);
+                        if (batch.length < per_page) break;
+                    }
                 }
             }
 
-            const enriched = await this.enrichHostifyThreads(collected);
-            const filtered = this.filterEnrichedThreads(enriched, query);
+            const hostifyThreads = wantsQuo ? [] : await this.enrichHostifyThreads(collected);
+            const quoThreads = wantsQuo || wantsAll ? (await this.listOpenPhoneThreads(per_page, query)).threads : [];
+            const combined = wantsQuo ? quoThreads : wantsAll ? this.sortThreadsByRecent([...hostifyThreads, ...quoThreads]) : hostifyThreads;
+            const filtered = this.filterEnrichedThreads(combined, query);
             const startIndex = Math.max(page - 1, 0) * per_page;
             const paged = filtered.slice(startIndex, startIndex + per_page);
 
