@@ -103,6 +103,7 @@ export async function ensureTurnoverSettingsColumns() {
         pre_stay_recipient_ids LONGTEXT NULL,
         pre_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
         pre_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        pre_stay_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
         pre_stay_message_template TEXT NULL,
         pre_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
         pre_stay_offset_minutes INT NULL DEFAULT 0,
@@ -110,10 +111,12 @@ export async function ensureTurnoverSettingsColumns() {
         post_stay_recipient_ids LONGTEXT NULL,
         post_stay_default_recipient_type VARCHAR(20) NULL DEFAULT 'cleaner',
         post_stay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        post_stay_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
         post_stay_message_template TEXT NULL,
         post_stay_schedule_mode VARCHAR(50) NULL DEFAULT 'auto',
         post_stay_offset_minutes INT NULL DEFAULT 0,
         same_day_combined_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        same_day_combined_enabled_override TINYINT(1) NOT NULL DEFAULT 0,
         same_day_combined_recipient_ids LONGTEXT NULL,
         same_day_combined_message_template TEXT NULL,
         same_day_schedule_mode VARCHAR(50) NULL DEFAULT 'post-stay',
@@ -137,6 +140,7 @@ export async function ensureTurnoverSettingsColumns() {
     await addColumnIfMissing("pre_stay_recipient_ids", "LONGTEXT NULL");
     await addColumnIfMissing("pre_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
     await addColumnIfMissing("pre_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("pre_stay_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
     await addColumnIfMissing("pre_stay_message_template", "TEXT NULL");
     await addColumnIfMissing("pre_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
     await addColumnIfMissing("pre_stay_offset_minutes", "INT NULL DEFAULT 0");
@@ -144,10 +148,12 @@ export async function ensureTurnoverSettingsColumns() {
     await addColumnIfMissing("post_stay_recipient_ids", "LONGTEXT NULL");
     await addColumnIfMissing("post_stay_default_recipient_type", "VARCHAR(20) NULL DEFAULT 'cleaner'");
     await addColumnIfMissing("post_stay_enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+    await addColumnIfMissing("post_stay_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
     await addColumnIfMissing("post_stay_message_template", "TEXT NULL");
     await addColumnIfMissing("post_stay_schedule_mode", "VARCHAR(50) NULL DEFAULT 'auto'");
     await addColumnIfMissing("post_stay_offset_minutes", "INT NULL DEFAULT 0");
     await addColumnIfMissing("same_day_combined_enabled", "TINYINT(1) NOT NULL DEFAULT 0");
+    await addColumnIfMissing("same_day_combined_enabled_override", "TINYINT(1) NOT NULL DEFAULT 0");
     await addColumnIfMissing("same_day_combined_recipient_ids", "LONGTEXT NULL");
     await addColumnIfMissing("same_day_combined_message_template", "TEXT NULL");
     await addColumnIfMissing("same_day_schedule_mode", "VARCHAR(50) NULL DEFAULT 'post-stay'");

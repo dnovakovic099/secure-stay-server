@@ -18,6 +18,9 @@ export class TurnoverSettings {
     @Column({ name: 'pre_stay_enabled', default: true })
     preStayEnabled: boolean;
 
+    @Column({ name: 'pre_stay_enabled_override', default: false })
+    preStayEnabledOverride: boolean;
+
     @Column({ name: 'pre_stay_message_template', type: 'text', nullable: true })
     preStayMessageTemplate: string;
 
@@ -40,6 +43,9 @@ export class TurnoverSettings {
     @Column({ name: 'post_stay_enabled', default: true })
     postStayEnabled: boolean;
 
+    @Column({ name: 'post_stay_enabled_override', default: false })
+    postStayEnabledOverride: boolean;
+
     @Column({ name: 'post_stay_message_template', type: 'text', nullable: true })
     postStayMessageTemplate: string;
 
@@ -51,6 +57,9 @@ export class TurnoverSettings {
 
     @Column({ name: 'same_day_combined_enabled', default: false })
     sameDayCombinedEnabled: boolean;
+
+    @Column({ name: 'same_day_combined_enabled_override', default: false })
+    sameDayCombinedEnabledOverride: boolean;
 
     @Column({ name: 'same_day_combined_recipient_ids', type: 'simple-json', nullable: true })
     sameDayCombinedRecipientIds: string[] | null;

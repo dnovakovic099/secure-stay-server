@@ -434,6 +434,20 @@ export class TurnoverService {
         return propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
     }
 
+    private resolveEnabledValue(
+        settings: TurnoverSettings | null,
+        field: 'preStayEnabled' | 'postStayEnabled' | 'sameDayCombinedEnabled',
+        overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
+        globalValue: boolean | null | undefined,
+        fallback: boolean
+    ) {
+        const propertyValue = settings?.[field];
+        const hasPropertyOverride = settings?.[overrideField] === true || propertyValue === false;
+        return hasPropertyOverride
+            ? Boolean(propertyValue)
+            : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+    }
+
     private resolveSource(settings: TurnoverSettings | null, fields: (keyof TurnoverSettings)[]) {
         if (!settings) return 'global';
         return fields.some((field) => (settings as any)[field] !== undefined && (settings as any)[field] !== null)
@@ -574,12 +588,11 @@ export class TurnoverService {
 
     async getSenderNumberOptions() {
         const rows = await this.messagingPhoneNoRepo.find({
-            where: { status: true },
-            select: ["id", "country_code", "phone", "supportsSMS"],
+            select: ["id", "country_code", "phone", "supportsSMS", "status"],
             order: { phone: "ASC" as any }
         });
         return rows
-            .filter((row) => row.supportsSMS !== false && row.phone)
+            .filter((row) => row.phone)
             .map((row) => {
                 const countryCode = String(row.country_code || "").trim();
                 const normalizedCountryCode = countryCode ? (countryCode.startsWith("+") ? countryCode : `+${countryCode}`) : "";
@@ -835,6 +848,9 @@ export class TurnoverService {
         assignDefault('preStayEnabled', snapshot.preStayEnabled as any);
         assignDefault('postStayEnabled', snapshot.postStayEnabled as any);
         assignDefault('sameDayCombinedEnabled', snapshot.sameDayCombinedEnabled as any);
+        assignDefault('preStayEnabledOverride', false as any);
+        assignDefault('postStayEnabledOverride', false as any);
+        assignDefault('sameDayCombinedEnabledOverride', false as any);
         assignDefault('preStayScheduleMode', snapshot.preStayScheduleMode as any);
         assignDefault('postStayScheduleMode', snapshot.postStayScheduleMode as any);
         assignDefault('sameDayScheduleMode', snapshot.sameDayScheduleMode as any);
@@ -982,9 +998,13 @@ export class TurnoverService {
             const hasScopes = scopes.length > 0;
             const includesToday = scopes.includes('today');
             const includesTomorrow = scopes.includes('tomorrow');
+            const includesSentHistory = scopes.includes('sent-history');
             const globalSettings = await this.settingsRepo.findOne({ where: { listingId: 0 } });
 
-            if (includesToday || includesTomorrow) {
+            if (includesSentHistory && !filters.fromDate && !filters.toDate) {
+                fromDateStr = '1970-01-01';
+                toDateStr = '2999-12-31';
+            } else if (includesToday || includesTomorrow) {
                 if (includesToday && includesTomorrow) {
                     fromDateStr = todayKey;
                     toDateStr = tomorrowKey;
@@ -1011,10 +1031,10 @@ export class TurnoverService {
             const seenKeys = new Set<string>();
             const cleaningNoteCache = new Map<number, string | undefined>();
             const includePreStay = hasScopes
-                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow)
+                ? (scopes.includes('pre-stay') || includesToday || includesTomorrow || includesSentHistory)
                 : (!filters.notificationType || filters.notificationType.includes('pre-stay'));
             const includePostStay = hasScopes
-                ? (scopes.includes('post-stay') || includesToday || includesTomorrow)
+                ? (scopes.includes('post-stay') || includesToday || includesTomorrow || includesSentHistory)
                 : (!filters.notificationType || filters.notificationType.includes('post-stay'));
             const includesSameDay = hasScopes && scopes.includes('sameday');
             const useDateFieldFilter = !includesToday && !includesTomorrow && !!(filters.fromDate && filters.toDate && filters.dateField);
@@ -1506,9 +1526,9 @@ export class TurnoverService {
                     ].filter((value, index, arr) => arr.indexOf(value) === index),
                     null
                 );
-                const preStayEnabled = this.resolveValue(settings?.preStayEnabled, globalSettings?.preStayEnabled, backendSnapshot.preStayEnabled);
-                const postStayEnabled = this.resolveValue(settings?.postStayEnabled, globalSettings?.postStayEnabled, backendSnapshot.postStayEnabled);
-                const sameDayCombinedEnabled = this.resolveValue(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, backendSnapshot.sameDayCombinedEnabled);
+                const preStayEnabled = this.resolveEnabledValue(settings, 'preStayEnabled', 'preStayEnabledOverride', globalSettings?.preStayEnabled, backendSnapshot.preStayEnabled);
+                const postStayEnabled = this.resolveEnabledValue(settings, 'postStayEnabled', 'postStayEnabledOverride', globalSettings?.postStayEnabled, backendSnapshot.postStayEnabled);
+                const sameDayCombinedEnabled = this.resolveEnabledValue(settings, 'sameDayCombinedEnabled', 'sameDayCombinedEnabledOverride', globalSettings?.sameDayCombinedEnabled, backendSnapshot.sameDayCombinedEnabled);
 
                 const preStayContactId = preStayRecipientIds[0]?.startsWith('contact:')
                     ? Number(preStayRecipientIds[0].split(':')[1])
@@ -1536,7 +1556,7 @@ export class TurnoverService {
                     preStayMessageSource: this.messageSource(settings, "preStayMessageTemplate"),
                     preStayScheduleMode: this.resolveValue(settings?.preStayScheduleMode, globalSettings?.preStayScheduleMode, backendSnapshot.preStayScheduleMode),
                     preStayOffsetMinutes: this.resolveValue(settings?.preStayOffsetMinutes, globalSettings?.preStayOffsetMinutes, backendSnapshot.preStayOffsetMinutes),
-                    preStaySettingsSource: this.resolveSource(settings, ['preStayEnabled', 'preStayDefaultRecipientType', 'preStayRecipientIds', 'preStayScheduleMode', 'preStayOffsetMinutes', 'preStayMessageTemplate']),
+                    preStaySettingsSource: this.resolveSource(settings, ['preStayEnabledOverride', 'preStayDefaultRecipientType', 'preStayRecipientIds', 'preStayScheduleMode', 'preStayOffsetMinutes', 'preStayMessageTemplate']),
                     
                     postStayContactId: postStayContactId,
                     postStayContactName: this.getRecipientNames(postStayRecipientIds, recipientOptions).join(', '),
@@ -1548,7 +1568,7 @@ export class TurnoverService {
                     postStayMessageSource: this.messageSource(settings, "postStayMessageTemplate"),
                     postStayScheduleMode: this.resolveValue(settings?.postStayScheduleMode, globalSettings?.postStayScheduleMode, backendSnapshot.postStayScheduleMode),
                     postStayOffsetMinutes: this.resolveValue(settings?.postStayOffsetMinutes, globalSettings?.postStayOffsetMinutes, backendSnapshot.postStayOffsetMinutes),
-                    postStaySettingsSource: this.resolveSource(settings, ['postStayEnabled', 'postStayDefaultRecipientType', 'postStayRecipientIds', 'postStayScheduleMode', 'postStayOffsetMinutes', 'postStayMessageTemplate']),
+                    postStaySettingsSource: this.resolveSource(settings, ['postStayEnabledOverride', 'postStayDefaultRecipientType', 'postStayRecipientIds', 'postStayScheduleMode', 'postStayOffsetMinutes', 'postStayMessageTemplate']),
 
                     sameDayCombinedEnabled,
                     sameDayCombinedRecipientIds,
@@ -1557,7 +1577,7 @@ export class TurnoverService {
                     sameDayMessageSource: this.messageSource(settings, "sameDayCombinedMessageTemplate"),
                     sameDayScheduleMode: this.resolveValue(settings?.sameDayScheduleMode, globalSettings?.sameDayScheduleMode, backendSnapshot.sameDayScheduleMode),
                     sameDayOffsetMinutes: this.resolveValue(settings?.sameDayOffsetMinutes, globalSettings?.sameDayOffsetMinutes, backendSnapshot.sameDayOffsetMinutes),
-                    sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabled', 'sameDayCombinedMessageTemplate']),
+                    sameDaySettingsSource: this.resolveSource(settings, ['sameDayCombinedEnabledOverride', 'sameDayCombinedMessageTemplate']),
                     recipientOptions,
                     smsSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
                     cleanerSenderNumber: this.resolveValue(settings?.cleanerSenderNumber, globalSettings?.cleanerSenderNumber, backendSnapshot.cleanerSenderNumber),
@@ -1644,6 +1664,9 @@ export class TurnoverService {
         normalized.preStayContactId = normalized.preStayDefaultRecipientType === "custom" && prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
         normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
         this.normalizeSenderNumbers(normalized);
+        delete normalized.preStayEnabledOverride;
+        delete normalized.postStayEnabledOverride;
+        delete normalized.sameDayCombinedEnabledOverride;
         Object.assign(settings, { ...normalized, updatedBy: userId });
         return await this.settingsRepo.save(settings);
     }
@@ -1690,17 +1713,37 @@ export class TurnoverService {
             }
 
             const normalized = { ...data } as any;
-            const prePrimary = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0];
-            const postPrimary = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0];
-            normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
-            normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
-            normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
+            const hasPreRecipientUpdate = 'preStayRecipientIds' in normalized || 'preStayContactId' in normalized;
+            const hasPostRecipientUpdate = 'postStayRecipientIds' in normalized || 'postStayContactId' in normalized;
+            const hasSameDayRecipientUpdate = 'sameDayCombinedRecipientIds' in normalized;
+            const prePrimary = hasPreRecipientUpdate
+                ? this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId)[0]
+                : undefined;
+            const postPrimary = hasPostRecipientUpdate
+                ? this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId)[0]
+                : undefined;
+            if (hasPreRecipientUpdate) {
+                normalized.preStayRecipientIds = this.normalizeRecipientIds(normalized.preStayRecipientIds, normalized.preStayContactId);
+            }
+            if (hasPostRecipientUpdate) {
+                normalized.postStayRecipientIds = this.normalizeRecipientIds(normalized.postStayRecipientIds, normalized.postStayContactId);
+            }
+            if (hasSameDayRecipientUpdate) {
+                normalized.sameDayCombinedRecipientIds = this.normalizeRecipientIds(normalized.sameDayCombinedRecipientIds, null);
+            }
             this.normalizeRecipientDefaults(normalized);
             if (normalized.preStayDefaultRecipientType && normalized.preStayDefaultRecipientType !== "custom") normalized.preStayRecipientIds = [];
             if (normalized.postStayDefaultRecipientType && normalized.postStayDefaultRecipientType !== "custom") normalized.postStayRecipientIds = [];
-            normalized.preStayContactId = normalized.preStayDefaultRecipientType === "custom" && prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
-            normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+            if (hasPreRecipientUpdate || 'preStayDefaultRecipientType' in normalized) {
+                normalized.preStayContactId = normalized.preStayDefaultRecipientType === "custom" && prePrimary?.startsWith('contact:') ? Number(prePrimary.split(':')[1]) : null;
+            }
+            if (hasPostRecipientUpdate || 'postStayDefaultRecipientType' in normalized) {
+                normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
+            }
             this.normalizeSenderNumbers(normalized);
+            if ('preStayEnabled' in normalized && !('preStayEnabledOverride' in normalized)) normalized.preStayEnabledOverride = true;
+            if ('postStayEnabled' in normalized && !('postStayEnabledOverride' in normalized)) normalized.postStayEnabledOverride = true;
+            if ('sameDayCombinedEnabled' in normalized && !('sameDayCombinedEnabledOverride' in normalized)) normalized.sameDayCombinedEnabledOverride = true;
 
             Object.assign(settings, {
                 ...normalized,

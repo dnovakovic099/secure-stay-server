@@ -406,11 +406,22 @@ export class CheckInNotificationService {
         ]);
         const resolve = <T>(propertyValue: T | null | undefined, globalValue: T | null | undefined, fallback: T): T =>
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
+        const resolveEnabled = (
+            propertyValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
+            globalValue: boolean | null | undefined,
+            fallback: boolean
+        ) => {
+            const hasPropertyOverride = overrideValue === true || propertyValue === false;
+            return hasPropertyOverride
+                ? Boolean(propertyValue)
+                : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+        };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
         const explicitPreStayRecipientIds = resolve(settings?.preStayRecipientIds, globalSettings?.preStayRecipientIds, [] as string[]) || [];
         return {
-            preStayEnabled: resolve(settings?.preStayEnabled, globalSettings?.preStayEnabled, true),
-            sameDayCombinedEnabled: resolve(settings?.sameDayCombinedEnabled, globalSettings?.sameDayCombinedEnabled, false),
+            preStayEnabled: resolveEnabled(settings?.preStayEnabled, settings?.preStayEnabledOverride, globalSettings?.preStayEnabled, true),
+            sameDayCombinedEnabled: resolveEnabled(settings?.sameDayCombinedEnabled, settings?.sameDayCombinedEnabledOverride, globalSettings?.sameDayCombinedEnabled, false),
             preStayRecipientIds: await this.resolveRecipientIdsForMode(listingId, preStayDefaultRecipientType, explicitPreStayRecipientIds),
             preStayDefaultRecipientType,
             preStayMessageTemplate: resolve(settings?.preStayMessageTemplate, globalSettings?.preStayMessageTemplate, this.composeCheckInMessageTemplate()),
