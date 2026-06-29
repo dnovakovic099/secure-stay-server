@@ -30,6 +30,7 @@ import { CheckInNotificationService } from "../services/CheckInNotificationServi
 import { ResolutionsTeamSlackService } from "../services/ResolutionsTeamSlackService";
 import { IssuesService } from "../services/IssuesService";
 import { ClientService } from "../services/ClientService";
+import { LLBuddyService } from "../services/LLBuddyService";
 import sendSlackMessage from "./sendSlackMsg";
 import OpenAI from "openai";
 
@@ -586,6 +587,22 @@ export function scheduleGetReservation() {
         logger.info('[GRTasksEscalation] Daily reminder processing completed.');
       } catch (error) {
         logger.error("[GRTasksEscalation] Error processing daily reminders:", error);
+      }
+    }
+  );
+
+  // LL Buddy Learning Review - prepares staff feedback and evidence for approval.
+  // This does not auto-promote knowledge or send guest replies.
+  schedule.scheduleJob(
+    { hour: 22, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("[LLBuddy] Nightly learning review preparation started...");
+        const llBuddyService = new LLBuddyService();
+        const result = await llBuddyService.processNightlyLearning("scheduler");
+        logger.info(`[LLBuddy] Nightly learning review prepared. Scanned: ${result.scannedFeedback}, Created: ${result.created}`);
+      } catch (error) {
+        logger.error("[LLBuddy] Error preparing nightly learning review:", error);
       }
     }
   );

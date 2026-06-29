@@ -4,6 +4,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { OpenPhoneClient, Message as OpenPhoneMessage, Call } from "../client/OpenPhoneClient";
 import { Hostify, HostifyInboxThread } from "../client/Hostify";
 import { ActionItemsBetaService } from "./ActionItemsBetaService";
+import { LLBuddyService } from "./LLBuddyService";
 import type { HostifyMessagePayload } from "./MessagingServices";
 import logger from "../utils/logger.utils";
 import { v4 as uuidv4 } from "uuid";
@@ -14,6 +15,7 @@ import { v4 as uuidv4 } from "uuid";
  */
 export class GuestCommunicationService {
     private static actionItemsBetaTimers = new Map<number, NodeJS.Timeout>();
+    private static llBuddyTimers = new Map<number, NodeJS.Timeout>();
     private openPhoneClient: OpenPhoneClient;
     private hostifyClient: Hostify;
     private communicationRepo = appDatabase.getRepository(GuestCommunicationEntity);
@@ -357,7 +359,25 @@ export class GuestCommunicationService {
         });
         const savedCommunication = await this.communicationRepo.save(comm);
         this.scheduleActionItemsBetaAnalysis(savedCommunication.reservationId, savedCommunication.source);
+        this.scheduleLLBuddyAnalysis(savedCommunication);
         return savedCommunication;
+    }
+
+    private scheduleLLBuddyAnalysis(communication: GuestCommunicationEntity): void {
+        if (!communication?.reservationId || communication.direction !== "inbound") return;
+        const existingTimer = GuestCommunicationService.llBuddyTimers.get(communication.reservationId);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        const timer = setTimeout(() => {
+            GuestCommunicationService.llBuddyTimers.delete(communication.reservationId);
+            new LLBuddyService()
+                .analyzeCommunication(communication, `guest_communication:${communication.source}`)
+                .catch((error) => {
+                    logger.error(`[GuestCommunicationService] LL Buddy analysis failed for communication ${communication.id}: ${error.message}`);
+                });
+        }, 1200);
+
+        GuestCommunicationService.llBuddyTimers.set(communication.reservationId, timer);
     }
 
     private scheduleActionItemsBetaAnalysis(reservationId: number, source: string): void {

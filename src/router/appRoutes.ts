@@ -55,6 +55,7 @@ import aiRoutes from "./aiRoutes";
 import turnoverRoutes from "./turnoverRoutes";
 import hostifyRoutes from "./hostifyRoutes";
 import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
+import llBuddyRoutes from "./llBuddyRoutes";
 import utilityProviderRoutes from "./utilityProviderRoutes";
 import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
@@ -96,6 +97,7 @@ router.use('/owner-portal', ownerPortalRoutes)
 router.use('/client-ticket', clientTicketRoutes);
 router.use('/action-items', actionItemsRoutes);
 router.use('/action-items-beta', actionItemsBetaRoutes);
+router.use('/ll-buddy', llBuddyRoutes);
 router.use('/contact', contactRoutes);
 router.use('/vendors', vendorProfileRoutes);
 router.use('/schedule', listingScheduleRoutes);
