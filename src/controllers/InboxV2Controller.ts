@@ -1,10 +1,17 @@
 import { NextFunction, Request, Response } from "express";
 import { InboxService } from "../services/InboxService";
+import { InboxAIService } from "../services/InboxAIService";
 import { MessagingService } from "../services/MessagingServices";
 
 interface CustomRequest extends Request {
     user?: any;
 }
+
+const toNum = (v: any): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+};
 
 /**
  * Controller for the v2 Inbox. Reads come from the local DB (inbox_conversations
@@ -48,7 +55,7 @@ export class InboxV2Controller {
     async reply(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const threadId = Number(request.params.threadId);
-            const { message } = request.body;
+            const { message, suggestionId, aiStatus } = request.body;
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
@@ -57,7 +64,129 @@ export class InboxV2Controller {
             }
             const inboxService = new InboxService();
             const saved = await inboxService.sendReply(threadId, message.trim(), request.user);
+
+            // If this reply came from an AI suggestion, record what the human did
+            // with it (accepted/edited) and link the sent message for learning.
+            const suggId = toNum(suggestionId);
+            if (suggId && InboxAIService.isEnabled()) {
+                try {
+                    const status = aiStatus === "edited" ? "edited" : "accepted";
+                    await new InboxAIService().updateSuggestionStatus(suggId, status, {
+                        acceptedByUserId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+                        finalSentMessageId: toNum((saved as any)?.externalId),
+                    });
+                } catch (linkErr: any) {
+                    // Non-fatal: never fail a successful send because of suggestion bookkeeping.
+                    return response.status(201).json({ status: true, data: saved });
+                }
+            }
             return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // AI suggested replies (suggestion-only; never auto-sends)
+    // -------------------------------------------------------------------------
+
+    /** Whether the AI messaging assistant is enabled for this deployment. */
+    async aiConfig(_request: Request, response: Response) {
+        return response.status(200).json({ status: true, data: { enabled: InboxAIService.isEnabled() } });
+    }
+
+    /** Generate (or return cached) AI suggestion for the latest guest message. */
+    async aiSuggest(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(503).json({ status: false, disabled: true, message: "AI messaging is disabled" });
+            }
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const service = new InboxAIService();
+            const suggestion = await service.generateSuggestion(threadId, {
+                messageId: toNum(request.body?.messageId),
+                force: request.body?.force === true || request.body?.force === "true",
+            });
+            return response.status(200).json({ status: true, data: suggestion });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Latest persisted suggestion for a thread (optionally a specific message). */
+    async aiGetSuggestion(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(200).json({ status: true, data: null, disabled: true });
+            }
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const service = new InboxAIService();
+            const data = await service.getLatestSuggestion(threadId, toNum(request.query.messageId));
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** All suggestions for a thread (for the compare/history view). */
+    async aiListSuggestions(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(200).json({ status: true, data: [], disabled: true });
+            }
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const service = new InboxAIService();
+            const data = await service.listSuggestionsForThread(threadId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Record human feedback on a suggestion / sent reply. */
+    async aiFeedback(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const service = new InboxAIService();
+            const saved = await service.recordFeedback({
+                suggestionId: toNum(b.suggestionId),
+                threadId: toNum(b.threadId),
+                messageId: toNum(b.messageId),
+                listingId: toNum(b.listingId),
+                reservationId: toNum(b.reservationId),
+                userId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+                rating: typeof b.rating === "string" ? b.rating : null,
+                categories: Array.isArray(b.categories) ? b.categories.map(String) : null,
+                feedbackText: typeof b.feedbackText === "string" ? b.feedbackText : null,
+                correctedResponse: typeof b.correctedResponse === "string" ? b.correctedResponse : null,
+            });
+            return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Update a suggestion's lifecycle status (ignored/rejected from the UI). */
+    async aiUpdateSuggestionStatus(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid suggestion id" });
+            }
+            const service = new InboxAIService();
+            const saved = await service.updateSuggestionStatus(id, String(request.body?.status || ""), {
+                acceptedByUserId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+            });
+            return response.status(200).json({ status: true, data: saved });
         } catch (error) {
             return next(error);
         }

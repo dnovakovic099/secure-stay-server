@@ -18,4 +18,15 @@ router.get("/reservation/:reservationId/details", verifySession, inboxV2Controll
 // Backfill / sync from Hostify into local tables
 router.post("/sync", verifySession, inboxV2Controller.sync);
 
+// -------------------------------------------------------------------------
+// AI suggested replies (suggestion-only; never auto-sends). Flag-gated by
+// AI_MESSAGING_ENABLED inside the controller.
+// -------------------------------------------------------------------------
+router.get("/ai/config", verifySession, inboxV2Controller.aiConfig);
+router.post("/conversations/:threadId/ai/suggest", verifySession, inboxV2Controller.aiSuggest);
+router.get("/conversations/:threadId/ai/suggestion", verifySession, inboxV2Controller.aiGetSuggestion);
+router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Controller.aiListSuggestions);
+router.post("/ai/feedback", verifySession, inboxV2Controller.aiFeedback);
+router.patch("/ai/suggestions/:id/status", verifySession, inboxV2Controller.aiUpdateSuggestionStatus);
+
 export default router;

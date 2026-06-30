@@ -120,7 +120,7 @@ export class InboxService {
         conversation.price = toNumberOrNull(summary?.price);
         conversation.currency = summary?.currency ?? conversation.currency ?? null;
         conversation.reservationStatus = summary?.reservation_status ?? conversation.reservationStatus ?? null;
-        conversation.guestThumb = summary?.listing_thumb ? conversation.guestThumb ?? null : conversation.guestThumb ?? null;
+        conversation.guestThumb = summary?.guest_picture ?? summary?.guest_thumb ?? conversation.guestThumb ?? null;
         conversation.listingThumb = summary?.listing_thumb ?? conversation.listingThumb ?? null;
         conversation.source = "hostify";
         conversation.syncedAt = syncedAt;
