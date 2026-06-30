@@ -15,6 +15,7 @@ import { ExpenseService } from "../services/ExpenseService";
 import { SlackEventsService } from "../services/SlackEventsService";
 import { MessagingService } from "../services/MessagingServices";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
+import { InboxService } from "../services/InboxService";
 import { ZapierWebhookService } from "../services/ZapierWebhookService";
 import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -590,9 +591,10 @@ export class UnifiedWebhookController {
             // logger.info("[handleHostifyWebhook] Received SNS message:", message);
             logger.info(`[handleHostifyWebhook] Received SNS message: ${JSON.stringify(message)}`);
 
-            // Optional auth verification (Hostify 'auth' query parameter)
+            // Optional auth verification (Hostify 'auth' query parameter).
+            // Accept either env var name — prod currently sets HOSTIFY_WEBHOOK_AUTH_KEY.
             const incomingAuth = request.query.auth as string;
-            const expectedAuth = process.env.HOSTIFY_WEBHOOK_SECRET;
+            const expectedAuth = process.env.HOSTIFY_WEBHOOK_SECRET || process.env.HOSTIFY_WEBHOOK_AUTH_KEY;
             if (expectedAuth && incomingAuth !== expectedAuth) {
                 logger.warn("🚫 Invalid Hostify webhook auth");
                 return response.sendStatus(401);
@@ -634,7 +636,21 @@ export class UnifiedWebhookController {
                     case "message_new":
                         {
                             logger.info("[handleHostifyWebhook] Processing message_new action");
-                            // Only save incoming guest messages (is_incoming === 1)
+
+                            // v2 inbox: persist EVERY message (incoming + outgoing +
+                            // automatic + system) into the local inbox store so it stays
+                            // complete and we can drop polling once the webhook is live.
+                            if (message.message_id && message.thread_id) {
+                                try {
+                                    const inboxService = new InboxService();
+                                    await inboxService.ingestWebhookMessage(message);
+                                } catch (inboxErr: any) {
+                                    logger.error(`[handleHostifyWebhook] inbox v2 ingest failed: ${inboxErr.message}`);
+                                }
+                            }
+
+                            // Legacy `messages` table + guest_communication: keep incoming-only
+                            // behaviour so the unanswered-message alert job is unaffected.
                             if (message.message && message.type === "message" && message.reservation_id && message.is_incoming === 1 && message.is_automatic === 0) {
                                 const messagingService = new MessagingService();
                                 await messagingService.saveHostifyGuestMessage(message);
@@ -642,7 +658,7 @@ export class UnifiedWebhookController {
                                 await guestCommunicationService.storeHostifyWebhookMessage(message);
                                 logger.info(`[handleHostifyWebhook] Saved guest message ${message.message_id}`);
                             } else {
-                                logger.info("[handleHostifyWebhook] Skipping outgoing/representative message");
+                                logger.info("[handleHostifyWebhook] Skipping legacy incoming-only save (kept v2 ingest)");
                             }
                             break;
                         }
