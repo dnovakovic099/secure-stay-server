@@ -16,6 +16,7 @@ import { SlackEventsService } from "../services/SlackEventsService";
 import { MessagingService } from "../services/MessagingServices";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import { InboxService } from "../services/InboxService";
+import { InboxAIService } from "../services/InboxAIService";
 import { ZapierWebhookService } from "../services/ZapierWebhookService";
 import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -661,6 +662,27 @@ export class UnifiedWebhookController {
                                     await inboxService.ingestWebhookMessage(payload);
                                 } catch (inboxErr: any) {
                                     logger.error(`[handleHostifyWebhook] inbox v2 ingest failed: ${inboxErr.message}`);
+                                }
+
+                                // AI response bot: consider auto-replying to inbound guest
+                                // messages. Self-gates on AI_MESSAGING_AUTOSEND_ENABLED and
+                                // applies strict guardrails; fire-and-forget so we never
+                                // delay the webhook ack.
+                                if (
+                                    InboxAIService.isAutosendEnabled() &&
+                                    payload.is_incoming === 1 &&
+                                    payload.is_automatic === 0
+                                ) {
+                                    new InboxAIService()
+                                        .maybeAutoRespond(Number(payload.thread_id), Number(payload.message_id))
+                                        .then((r) => {
+                                            if (r.sent) {
+                                                logger.info(`[handleHostifyWebhook] AI auto-replied to thread ${payload.thread_id}`);
+                                            }
+                                        })
+                                        .catch((e: any) =>
+                                            logger.error(`[handleHostifyWebhook] AI auto-respond error: ${e?.message}`)
+                                        );
                                 }
                             }
 
