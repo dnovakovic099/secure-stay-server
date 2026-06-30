@@ -831,6 +831,64 @@ export class Hostify {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Webhooks (Amazon SNS based). Hostify supports multiple webhooks per action,
+    // so adding ours does not disturb other integrations (e.g. Calry).
+    // -------------------------------------------------------------------------
+
+    /** List all registered webhooks (notifications) for the account. */
+    async listWebhooks(apiKey: string): Promise<any[]> {
+        try {
+            const response = await axios.get("https://api-rms.hostify.com/webhooks_v2", {
+                headers: { "x-api-key": apiKey, "Cache-Control": "no-cache" },
+            });
+            return response.data?.webhooks || [];
+        } catch (error: any) {
+            logger.error(`Error listing Hostify webhooks: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Create a webhook for a given notification type pointing to our handler URL.
+     * Hostify will send an SNS SubscriptionConfirmation to the URL which our
+     * handler auto-confirms. `auth` is echoed back with every notification.
+     */
+    async createWebhook(
+        apiKey: string,
+        params: { notificationType: string; url: string; auth?: string }
+    ): Promise<{ success: boolean; id?: number; error?: string }> {
+        try {
+            const response = await axios.post(
+                "https://api-rms.hostify.com/webhooks_v2",
+                {
+                    notification_type: params.notificationType,
+                    url: params.url,
+                    ...(params.auth ? { auth: params.auth } : {}),
+                },
+                { headers: { "x-api-key": apiKey, "Content-Type": "application/json" } }
+            );
+            return { success: !!response.data?.success, id: response.data?.id };
+        } catch (error: any) {
+            const msg = error?.response?.data?.error || error.message;
+            logger.error(`Error creating Hostify webhook (${params.notificationType}): ${msg}`);
+            return { success: false, error: msg };
+        }
+    }
+
+    /** Delete a webhook by id. */
+    async deleteWebhook(apiKey: string, id: number): Promise<boolean> {
+        try {
+            await axios.delete(`https://api-rms.hostify.com/webhooks_v2/${id}`, {
+                headers: { "x-api-key": apiKey },
+            });
+            return true;
+        } catch (error: any) {
+            logger.error(`Error deleting Hostify webhook ${id}: ${error.message}`);
+            return false;
+        }
+    }
+
     /**
      * Get users/owners from Hostify
      * Note: Hostify's /users endpoint returns property owners, not team members

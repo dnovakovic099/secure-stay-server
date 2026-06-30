@@ -610,27 +610,42 @@ export class UnifiedWebhookController {
                 } catch (err: any) {
                     logger.error("❌ Failed to confirm SNS subscription:", err.message);
                 }
+            } else if (message.Type === "UnsubscribeConfirmation") {
+                logger.info("🔕 SNS UnsubscribeConfirmation received (ignored)");
             } else {
-                const action = message.action;
+                // Hostify delivers via Amazon SNS, so live notifications arrive
+                // enveloped as { Type: "Notification", Message: "<stringified payload>" }.
+                // Unwrap to get the actual Hostify event. (Direct posts without the
+                // envelope are still supported as a fallback.)
+                let payload: any = message;
+                if (message.Type === "Notification" && typeof message.Message === "string") {
+                    try {
+                        payload = JSON.parse(message.Message);
+                    } catch {
+                        logger.warn("[handleHostifyWebhook] SNS Notification.Message was not JSON; using raw envelope");
+                        payload = message;
+                    }
+                }
+                const action = payload.action;
                 switch (action) {
                     case "new_reservation":
                         {
                             logger.info("[handleHostifyWebhook] Processing new_reservation action");
                             const reservationInfoService = new ReservationInfoService();
-                            await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                            await reservationInfoService.handleHostifyReservationEvent(action, payload.reservation_id);
                             break;
                         }
                     case "update_reservation":
                         {
                             logger.info("[handleHostifyWebhook] Processing update_reservation action");
                             const reservationInfoService = new ReservationInfoService();
-                            await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                            await reservationInfoService.handleHostifyReservationEvent(action, payload.reservation_id);
                             break;
                         }
                     case "move_reservation":{
                         logger.info("[handleHostifyWebhook] Processing move_reservation action");
                         const reservationInfoService = new ReservationInfoService();
-                        await reservationInfoService.handleHostifyReservationEvent(action, message.reservation_id);
+                        await reservationInfoService.handleHostifyReservationEvent(action, payload.reservation_id);
                         break;
                     }
                     case "message_new":
@@ -640,10 +655,10 @@ export class UnifiedWebhookController {
                             // v2 inbox: persist EVERY message (incoming + outgoing +
                             // automatic + system) into the local inbox store so it stays
                             // complete and we can drop polling once the webhook is live.
-                            if (message.message_id && message.thread_id) {
+                            if (payload.message_id && payload.thread_id) {
                                 try {
                                     const inboxService = new InboxService();
-                                    await inboxService.ingestWebhookMessage(message);
+                                    await inboxService.ingestWebhookMessage(payload);
                                 } catch (inboxErr: any) {
                                     logger.error(`[handleHostifyWebhook] inbox v2 ingest failed: ${inboxErr.message}`);
                                 }
@@ -651,12 +666,12 @@ export class UnifiedWebhookController {
 
                             // Legacy `messages` table + guest_communication: keep incoming-only
                             // behaviour so the unanswered-message alert job is unaffected.
-                            if (message.message && message.type === "message" && message.reservation_id && message.is_incoming === 1 && message.is_automatic === 0) {
+                            if (payload.message && payload.type === "message" && payload.reservation_id && payload.is_incoming === 1 && payload.is_automatic === 0) {
                                 const messagingService = new MessagingService();
-                                await messagingService.saveHostifyGuestMessage(message);
+                                await messagingService.saveHostifyGuestMessage(payload);
                                 const guestCommunicationService = new GuestCommunicationService();
-                                await guestCommunicationService.storeHostifyWebhookMessage(message);
-                                logger.info(`[handleHostifyWebhook] Saved guest message ${message.message_id}`);
+                                await guestCommunicationService.storeHostifyWebhookMessage(payload);
+                                logger.info(`[handleHostifyWebhook] Saved guest message ${payload.message_id}`);
                             } else {
                                 logger.info("[handleHostifyWebhook] Skipping legacy incoming-only save (kept v2 ingest)");
                             }
