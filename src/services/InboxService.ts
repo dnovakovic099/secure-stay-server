@@ -523,6 +523,64 @@ export class InboxService {
         return saved;
     }
 
+    /**
+     * Deliver an AI-generated reply automatically (no human sender). Mirrors
+     * sendReply but records the message as automated/AI attribution so the UI
+     * and learning loop can distinguish auto-sent replies from human ones.
+     *
+     * This is only ever invoked by InboxAIService.maybeAutoRespond after its
+     * guardrails pass; it performs no gating itself.
+     */
+    async sendAutomatedReply(threadId: number, body: string, opts: { senderName?: string } = {}) {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) {
+            throw new Error(`Conversation ${threadId} not found`);
+        }
+        const senderName = opts.senderName || "AI Assistant";
+
+        // 1) Deliver to the guest via Hostify.
+        const hostifyResult = await this.hostify.postInboxReply(this.apiKey, threadId, body);
+
+        // 2) Persist locally with automated attribution.
+        const externalId =
+            toNumberOrNull(hostifyResult?.message?.id ?? hostifyResult?.id) ?? -Date.now();
+
+        const message = this.messageRepo.create({
+            externalId,
+            threadId,
+            reservationId: conversation.reservationId,
+            listingId: conversation.listingId,
+            body,
+            note: null,
+            direction: "outgoing",
+            senderType: "ai",
+            senderName,
+            isAutomatic: 1,
+            isSms: 0,
+            channel: conversation.channel,
+            attachmentUrl: null,
+            guestId: conversation.guestId,
+            sentAt: new Date(),
+            sentByUserId: null,
+            sentByName: senderName,
+            sentVia: "ai_auto",
+            source: "hostify",
+        });
+        const saved = await this.messageRepo.save(message);
+
+        conversation.lastMessageText = body;
+        conversation.lastMessageAt = saved.sentAt;
+        conversation.answered = 1;
+        conversation.unread = 0;
+        await this.conversationRepo.save(conversation);
+
+        this.syncThread(threadId).catch((err) =>
+            logger.warn(`[InboxService] post-autosend resync failed for thread ${threadId}: ${err.message}`)
+        );
+
+        return saved;
+    }
+
     private async resolveSender(user: any): Promise<{ userId: number | null; userName: string | null }> {
         const secureStayUserId = toNumberOrNull(user?.secureStayUserId ?? user?.id);
         let userName: string | null =

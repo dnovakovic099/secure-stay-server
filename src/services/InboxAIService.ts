@@ -7,6 +7,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
+import { InboxService } from "./InboxService";
 
 /**
  * InboxAIService
@@ -21,8 +22,14 @@ import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
  *  - A server-side keyword safety net force-escalates sensitive topics regardless
  *    of model output (refunds, legal, safety, etc.).
  *
- * Gated by AI_MESSAGING_ENABLED (see isEnabled()). Auto-send is intentionally not
- * implemented here; AI_MESSAGING_AUTOSEND_ENABLED is reserved for future work.
+ * Gated by AI_MESSAGING_ENABLED (see isEnabled()).
+ *
+ * Auto-send (the "response bot") is implemented in maybeAutoRespond() and gated
+ * separately by AI_MESSAGING_AUTOSEND_ENABLED (default OFF). It only delivers a
+ * reply when strict guardrails pass (no escalation, no missing-info warnings,
+ * confidence >= AI_MESSAGING_AUTOSEND_MIN_CONFIDENCE); otherwise the suggestion
+ * is left for a human. Even when enabled, sensitive topics always route to a
+ * human via the escalation keyword safety net.
  */
 
 export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v1";
@@ -71,6 +78,40 @@ export class InboxAIService {
     /** Feature flag. Defaults OFF unless explicitly enabled. */
     static isEnabled(): boolean {
         return String(process.env.AI_MESSAGING_ENABLED || "").toLowerCase() === "true";
+    }
+
+    /**
+     * Auto-send (response bot) flag. Requires BOTH the base assistant and the
+     * auto-send flag to be on. Defaults OFF — no message is ever auto-sent
+     * unless this is explicitly enabled.
+     */
+    static isAutosendEnabled(): boolean {
+        return (
+            InboxAIService.isEnabled() &&
+            String(process.env.AI_MESSAGING_AUTOSEND_ENABLED || "").toLowerCase() === "true"
+        );
+    }
+
+    /** Minimum model confidence (0..100) required to auto-send. Default 85. */
+    static autosendMinConfidence(): number {
+        const v = Number(process.env.AI_MESSAGING_AUTOSEND_MIN_CONFIDENCE);
+        return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 85;
+    }
+
+    /** Optional channel allowlist for auto-send (CSV env), else null = all. */
+    static autosendAllowedChannels(): string[] | null {
+        const raw = (process.env.AI_MESSAGING_AUTOSEND_CHANNELS || "").trim();
+        if (!raw) return null;
+        return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    }
+
+    /** Public config snapshot for the UI / settings surface. */
+    static autosendConfig() {
+        return {
+            enabled: InboxAIService.isAutosendEnabled(),
+            minConfidence: InboxAIService.autosendMinConfidence(),
+            allowedChannels: InboxAIService.autosendAllowedChannels(),
+        };
     }
 
     private getClient(): OpenAI {
@@ -192,7 +233,7 @@ export class InboxAIService {
         status: string,
         opts: { acceptedByUserId?: number | null; finalSentMessageId?: number | null } = {}
     ) {
-        const allowed = ["suggested", "accepted", "edited", "ignored", "rejected", "regenerated"];
+        const allowed = ["suggested", "accepted", "edited", "ignored", "rejected", "regenerated", "auto_sent"];
         if (!allowed.includes(status)) throw new Error(`Invalid suggestion status: ${status}`);
         const suggestion = await this.suggestionRepo.findOne({ where: { id } });
         if (!suggestion) throw new Error(`Suggestion ${id} not found`);
@@ -231,6 +272,102 @@ export class InboxAIService {
         const saved = await this.feedbackRepo.save(feedback);
         logger.info(`[InboxAIService] feedback ${saved.id} recorded (suggestion ${input.suggestionId ?? "n/a"}, rating ${rating ?? "n/a"})`);
         return saved;
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-send (response bot)
+    // ------------------------------------------------------------------
+
+    /**
+     * Consider auto-sending a reply to an inbound guest message. Generates a
+     * fresh suggestion, applies hard guardrails, and only delivers when ALL of:
+     *   - auto-send is enabled (AI_MESSAGING_AUTOSEND_ENABLED)
+     *   - the channel is allowed (if an allowlist is configured)
+     *   - the model did NOT flag escalation
+     *   - the model produced no missing-info warnings
+     *   - confidence >= AI_MESSAGING_AUTOSEND_MIN_CONFIDENCE
+     *   - the reply text is non-empty
+     * Otherwise the suggestion is left in "suggested" state for a human to review.
+     *
+     * Safe to call for every inbound webhook message; it self-gates and never
+     * throws (returns a structured decision instead).
+     */
+    async maybeAutoRespond(
+        threadId: number,
+        messageId?: number | null
+    ): Promise<{ sent: boolean; reason: string; suggestionId?: number; messageExternalId?: number }> {
+        try {
+            if (!InboxAIService.isAutosendEnabled()) return { sent: false, reason: "autosend_disabled" };
+
+            const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+            if (!conversation) return { sent: false, reason: "no_conversation" };
+
+            const allowed = InboxAIService.autosendAllowedChannels();
+            if (allowed && conversation.channel && !allowed.includes(conversation.channel.toLowerCase())) {
+                return { sent: false, reason: `channel_not_allowed:${conversation.channel}` };
+            }
+
+            // Generate a fresh suggestion targeting this inbound message.
+            let suggestion: AIMessageSuggestionEntity;
+            try {
+                suggestion = await this.generateSuggestion(threadId, { messageId: messageId ?? null, force: true });
+            } catch (err: any) {
+                logger.error(`[InboxAIService] autosend generation failed (thread ${threadId}): ${err.message}`);
+                return { sent: false, reason: "generation_failed" };
+            }
+
+            // ---- Hard guardrails (any failure => leave for human) ----
+            const minConf = InboxAIService.autosendMinConfidence();
+            const conf = suggestion.confidence != null ? Number(suggestion.confidence) : null;
+            const reply = (suggestion.suggestedReply || "").trim();
+            const warnings = this.safeJsonArray(suggestion.warnings);
+
+            if (suggestion.escalationRequired) return this.autosendSkip(threadId, suggestion.id, "escalation_required");
+            if (!reply) return this.autosendSkip(threadId, suggestion.id, "empty_reply");
+            if (warnings.length > 0) return this.autosendSkip(threadId, suggestion.id, "model_warnings");
+            if (conf == null || conf < minConf) {
+                return this.autosendSkip(threadId, suggestion.id, `low_confidence:${conf ?? "?"}<${minConf}`);
+            }
+
+            // ---- Deliver ----
+            try {
+                const inboxService = new InboxService();
+                const saved = await inboxService.sendAutomatedReply(threadId, reply, { senderName: "AI Assistant" });
+                const sentExternalId = Number((saved as any)?.externalId);
+                await this.updateSuggestionStatus(suggestion.id, "auto_sent", {
+                    finalSentMessageId: Number.isFinite(sentExternalId) ? sentExternalId : null,
+                });
+                logger.info(
+                    `[InboxAIService] AUTO-SENT reply for thread ${threadId} ` +
+                    `(suggestion ${suggestion.id}, conf ${conf} >= ${minConf})`
+                );
+                return { sent: true, reason: "sent", suggestionId: suggestion.id, messageExternalId: sentExternalId };
+            } catch (err: any) {
+                logger.error(`[InboxAIService] autosend delivery failed (thread ${threadId}): ${err.message}`);
+                return { sent: false, reason: "delivery_failed", suggestionId: suggestion.id };
+            }
+        } catch (err: any) {
+            logger.error(`[InboxAIService] maybeAutoRespond unexpected error (thread ${threadId}): ${err.message}`);
+            return { sent: false, reason: "error" };
+        }
+    }
+
+    private autosendSkip(threadId: number, suggestionId: number, reason: string) {
+        logger.info(
+            `[InboxAIService] autosend skipped for thread ${threadId} ` +
+            `(suggestion ${suggestionId}): ${reason} — left for human review`
+        );
+        return { sent: false, reason, suggestionId };
+    }
+
+    private safeJsonArray(value: string | null): string[] {
+        if (!value) return [];
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+            return [];
+        }
     }
 
     // ------------------------------------------------------------------

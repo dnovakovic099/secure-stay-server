@@ -90,9 +90,15 @@ export class InboxV2Controller {
     // AI suggested replies (suggestion-only; never auto-sends)
     // -------------------------------------------------------------------------
 
-    /** Whether the AI messaging assistant is enabled for this deployment. */
+    /** Whether the AI messaging assistant (and auto-send bot) is enabled. */
     async aiConfig(_request: Request, response: Response) {
-        return response.status(200).json({ status: true, data: { enabled: InboxAIService.isEnabled() } });
+        return response.status(200).json({
+            status: true,
+            data: {
+                enabled: InboxAIService.isEnabled(),
+                autosend: InboxAIService.autosendConfig(),
+            },
+        });
     }
 
     /** Generate (or return cached) AI suggestion for the latest guest message. */
