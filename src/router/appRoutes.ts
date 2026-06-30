@@ -1,6 +1,7 @@
 import { Router } from "express";
 import deviceRoutes from "./deviceRoutes";
 import messagingRoutes from "./messagingRoutes";
+import inboxV2Routes from "./inboxV2Routes";
 import connectedAccountRoutes from "./ConnectedAccountRoutes";
 import subscriptionRoutes from "./userSubscriptionRoutes";
 import usersRoutes from "./usersRoutes";
@@ -69,6 +70,7 @@ router.use('/slack', slackRoutes);
 
 router.use('/device', deviceRoutes);
 router.use('/messaging', messagingRoutes);
+router.use('/inbox-v2', inboxV2Routes);
 router.use('/account', connectedAccountRoutes);
 router.use('/subscription', subscriptionRoutes);
 router.use('/users', usersRoutes)
