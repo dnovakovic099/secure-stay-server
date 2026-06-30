@@ -3211,38 +3211,6 @@ export class ReviewService {
             }
         }
 
-        // "Updated By" filter — matches the displayed Updated By column. That column is
-        // computed from mitigation-specific signals only:
-        //   - reviewCheckout.updatedBy (the user who last edited the row), OR
-        //   - the author of any review_checkout_updates entry attached to this row
-        // We don't consider reservation_info_logs here for the same reason we don't show it
-        // in the column: those are PMS-side edits, not mitigation work.
-        if (updatedBy && updatedBy.length > 0) {
-            const updatedByList = updatedBy.map((value) => String(value || '').trim()).filter(Boolean);
-            if (updatedByList.length > 0) {
-                const updateRows = await this.reviewCheckoutUpdatesRepo
-                    .createQueryBuilder('update')
-                    .leftJoin('update.reviewCheckout', 'rc')
-                    .select('DISTINCT rc.id', 'reviewCheckoutId')
-                    .where('update.deletedAt IS NULL')
-                    .andWhere(new Brackets((qb) => {
-                        qb.where('update.createdBy IN (:...updatedByList)', { updatedByList })
-                          .orWhere('update.updatedBy IN (:...updatedByList)', { updatedByList });
-                    }))
-                    .getRawMany();
-                const updateCheckoutIds = updateRows
-                    .map((row: { reviewCheckoutId: string | number | null }) => Number(row.reviewCheckoutId))
-                    .filter((id) => !Number.isNaN(id) && id > 0);
-
-                query.andWhere(new Brackets((qb) => {
-                    qb.where('reviewCheckout.updatedBy IN (:...updatedByList)', { updatedByList });
-                    if (updateCheckoutIds.length > 0) {
-                        qb.orWhere('reviewCheckout.id IN (:...updatedByCheckoutIds)', { updatedByCheckoutIds: updateCheckoutIds });
-                    }
-                }));
-            }
-        }
-
         if (latestUpdate && latestUpdate.length > 0) {
             const normalizedLatestUpdate = Array.from(new Set(latestUpdate.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)));
             const hasWithUpdates = normalizedLatestUpdate.includes('with-updates');
@@ -3293,6 +3261,48 @@ export class ReviewService {
             query.andWhere("reviewCheckout.comments LIKE :resolutionNotesSearch", { resolutionNotesSearch: `%${resolutionNotesSearch}%` });
         }
 
+        const updatedByList = updatedBy.map((value) => String(value || '').trim()).filter(Boolean);
+        const hasUpdatedByFilter = updatedByList.length > 0;
+        const hasUpdatedOnFilter = !includeOpeningMitigationWindow && Boolean(fromDate && toDate && String(dateType) === 'updatedAt');
+        if (hasUpdatedByFilter || hasUpdatedOnFilter) {
+            const updateRowsQuery = this.reviewCheckoutUpdatesRepo
+                .createQueryBuilder('update')
+                .leftJoin('update.reviewCheckout', 'rc')
+                .select('DISTINCT rc.id', 'reviewCheckoutId')
+                .where('update.deletedAt IS NULL');
+
+            updateRowsQuery.andWhere(new Brackets((qb) => {
+                if (hasUpdatedByFilter && hasUpdatedOnFilter) {
+                    qb.where('(DATE(update.createdAt) BETWEEN :fromDate AND :toDate AND update.createdBy IN (:...updatedByList))', { fromDate, toDate, updatedByList })
+                        .orWhere('(DATE(update.updatedAt) BETWEEN :fromDate AND :toDate AND update.updatedBy IN (:...updatedByList))', { fromDate, toDate, updatedByList });
+                } else if (hasUpdatedByFilter) {
+                    qb.where('update.createdBy IN (:...updatedByList)', { updatedByList })
+                        .orWhere('update.updatedBy IN (:...updatedByList)', { updatedByList });
+                } else {
+                    qb.where('DATE(update.createdAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+                        .orWhere('DATE(update.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
+                }
+            }));
+
+            const updateRows = await updateRowsQuery.getRawMany();
+            const updateCheckoutIds = updateRows
+                .map((row: { reviewCheckoutId: string | number | null }) => Number(row.reviewCheckoutId))
+                .filter((id) => !Number.isNaN(id) && id > 0);
+
+            query.andWhere(new Brackets((qb) => {
+                if (hasUpdatedByFilter && hasUpdatedOnFilter) {
+                    qb.where('(DATE(reviewCheckout.updatedAt) BETWEEN :fromDate AND :toDate AND reviewCheckout.updatedBy IN (:...updatedByList))', { fromDate, toDate, updatedByList });
+                } else if (hasUpdatedByFilter) {
+                    qb.where('reviewCheckout.updatedBy IN (:...updatedByList)', { updatedByList });
+                } else {
+                    qb.where('DATE(reviewCheckout.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
+                }
+                if (updateCheckoutIds.length > 0) {
+                    qb.orWhere('reviewCheckout.id IN (:...updateActivityCheckoutIds)', { updateActivityCheckoutIds: updateCheckoutIds });
+                }
+            }));
+        }
+
         if (!includeOpeningMitigationWindow && fromDate && toDate && String(dateType) === 'submittedAt') {
             // submittedAt is a review-specific column — match against review.submittedAt.
             const matchingReviewRows = await this.reviewRepository
@@ -3311,34 +3321,6 @@ export class ReviewService {
             } else {
                 query.andWhere('reservationInfo.id IN (:...matchingReservationIds)', { matchingReservationIds });
             }
-        } else if (!includeOpeningMitigationWindow && fromDate && toDate && String(dateType) === 'updatedAt') {
-            // "Updated On" matches the column the FE displays, which is now computed purely
-            // from mitigation-specific signals:
-            //   - reviewCheckout.updatedAt (the row was edited), OR
-            //   - the latest review_checkout_updates entry for this row (a comment was added)
-            // reservation_info_logs (PMS edit history) is intentionally NOT considered — those
-            // events are unrelated to the mitigation row and produced the "Updated < Created"
-            // anomaly we just fixed.
-            const updateRows = await this.reviewCheckoutUpdatesRepo
-                .createQueryBuilder('update')
-                .leftJoin('update.reviewCheckout', 'rc')
-                .select('DISTINCT rc.id', 'reviewCheckoutId')
-                .where('update.deletedAt IS NULL')
-                .andWhere(new Brackets((qb) => {
-                    qb.where('DATE(update.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate })
-                      .orWhere('DATE(update.createdAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
-                }))
-                .getRawMany();
-            const updateCheckoutIds = updateRows
-                .map((row: { reviewCheckoutId: string | number | null }) => Number(row.reviewCheckoutId))
-                .filter((id) => !Number.isNaN(id) && id > 0);
-
-            query.andWhere(new Brackets((qb) => {
-                qb.where('DATE(reviewCheckout.updatedAt) BETWEEN :fromDate AND :toDate', { fromDate, toDate });
-                if (updateCheckoutIds.length > 0) {
-                    qb.orWhere('reviewCheckout.id IN (:...updatedAtCheckoutIds)', { updatedAtCheckoutIds: updateCheckoutIds });
-                }
-            }));
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && ['arrivalDate', 'departureDate'].includes(String(dateType))) {
             query.andWhere(`DATE(reservationInfo.${dateType}) BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
         } else if (!includeOpeningMitigationWindow && fromDate && toDate && dateType === 'refundedAt') {
