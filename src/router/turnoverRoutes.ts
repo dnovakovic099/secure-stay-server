@@ -26,6 +26,10 @@ router.route('/settings/:listingId').put(verifySession, turnoverController.updat
 router.route('/contacts/:listingId').get(verifySession, turnoverController.getContactsForListing.bind(turnoverController));
 router.route('/contacts/global').get(verifySession, turnoverController.getGlobalContacts.bind(turnoverController));
 router.route('/sender-numbers').get(verifySession, turnoverController.getSenderNumberOptions.bind(turnoverController));
+router.route('/sender-numbers/manage').get(verifySession, turnoverController.listSenderNumbers.bind(turnoverController));
+router.route('/sender-numbers/manage').post(verifySession, turnoverController.createSenderNumber.bind(turnoverController));
+router.route('/sender-numbers/manage/:id').put(verifySession, turnoverController.updateSenderNumber.bind(turnoverController));
+router.route('/sender-numbers/manage/:id').delete(verifySession, turnoverController.deleteSenderNumber.bind(turnoverController));
 
 // Recipient sync
 router.route('/sync-recipients').post(verifySession, turnoverController.syncRecipients.bind(turnoverController));

@@ -7,7 +7,7 @@ import { Contact } from "../entity/Contact";
 import { ClientEntity } from "../entity/Client";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import { VendorAssignment } from "../entity/VendorAssignment";
-import { MessagingPhoneNoInfo } from "../entity/MessagingPhoneNo";
+import { TurnoverSenderNumber, TurnoverSenderLabel } from "../entity/TurnoverSenderNumber";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrder } from "../entity/UpsellOrder";
 import logger from "../utils/logger.utils";
@@ -258,7 +258,7 @@ export class TurnoverService {
     private listingRepo = appDatabase.getRepository(Listing);
     private contactRepo = appDatabase.getRepository(Contact);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
-    private messagingPhoneNoRepo = appDatabase.getRepository(MessagingPhoneNoInfo);
+    private senderNumberRepo = appDatabase.getRepository(TurnoverSenderNumber);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private upsellRepo = appDatabase.getRepository(UpsellOrder);
 
@@ -437,15 +437,15 @@ export class TurnoverService {
     private resolveEnabledValue(
         settings: TurnoverSettings | null,
         field: 'preStayEnabled' | 'postStayEnabled' | 'sameDayCombinedEnabled',
-        overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
+        _overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
         globalValue: boolean | null | undefined,
         fallback: boolean
     ) {
-        const propertyValue = settings?.[field];
-        const hasPropertyOverride = settings?.[overrideField] === true || propertyValue === false;
-        return hasPropertyOverride
-            ? Boolean(propertyValue)
-            : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+        // Global OFF is a hard kill: nothing sends when the global toggle is false.
+        if (globalValue === false) return false;
+        // Property explicit OFF wins for that one listing.
+        if (settings?.[field] === false) return false;
+        return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
     }
 
     private resolveSource(settings: TurnoverSettings | null, fields: (keyof TurnoverSettings)[]) {
@@ -586,24 +586,119 @@ export class TurnoverService {
         return options;
     }
 
-    async getSenderNumberOptions() {
-        const rows = await this.messagingPhoneNoRepo.find({
-            select: ["id", "country_code", "phone", "supportsSMS", "status"],
-            order: { phone: "ASC" as any }
+    private static readonly SENDER_LABELS: TurnoverSenderLabel[] = [
+        "cleaner_default",
+        "cleaner_group_1",
+        "cleaner_group_2",
+        "owners"
+    ];
+
+    private isValidSenderLabel(label: unknown): label is TurnoverSenderLabel {
+        return typeof label === "string" && (TurnoverService.SENDER_LABELS as string[]).includes(label);
+    }
+
+    private formatSenderValue(countryCode: string | null | undefined, phone: string) {
+        const code = String(countryCode || "").trim();
+        const normalizedCode = code ? (code.startsWith("+") ? code : `+${code}`) : "";
+        const trimmedPhone = String(phone || "").trim();
+        if (!trimmedPhone) return "";
+        return trimmedPhone.startsWith("+") ? trimmedPhone : `${normalizedCode}${trimmedPhone}`;
+    }
+
+    private mapSenderRow(row: TurnoverSenderNumber) {
+        const value = this.formatSenderValue(row.countryCode, row.phone);
+        return {
+            id: row.id,
+            label: row.label,
+            value,
+            displayName: row.displayName || null,
+            countryCode: row.countryCode,
+            phone: row.phone,
+            isActive: Boolean(row.isActive),
+            optionLabel: row.displayName ? `${row.displayName} (${value})` : value
+        };
+    }
+
+    async getSenderNumberOptions(label?: string) {
+        const where: any = { isActive: 1 };
+        if (label && this.isValidSenderLabel(label)) where.label = label;
+        const rows = await this.senderNumberRepo.find({
+            where,
+            order: { label: "ASC" as any, phone: "ASC" as any }
         });
         return rows
             .filter((row) => row.phone)
             .map((row) => {
-                const countryCode = String(row.country_code || "").trim();
-                const normalizedCountryCode = countryCode ? (countryCode.startsWith("+") ? countryCode : `+${countryCode}`) : "";
-                const phone = String(row.phone || "").trim();
-                const value = phone.startsWith("+") ? phone : `${normalizedCountryCode}${phone}`.trim();
+                const mapped = this.mapSenderRow(row);
                 return {
-                    id: row.id,
-                    value,
-                    label: `${normalizedCountryCode} ${phone}`.trim()
+                    id: mapped.id,
+                    value: mapped.value,
+                    label: mapped.optionLabel,
+                    senderLabel: mapped.label
                 };
             });
+    }
+
+    async listSenderNumbers() {
+        const rows = await this.senderNumberRepo.find({
+            order: { label: "ASC" as any, phone: "ASC" as any }
+        });
+        return rows.map((row) => this.mapSenderRow(row));
+    }
+
+    async createSenderNumber(input: { label: string; countryCode?: string; phone: string; displayName?: string | null }, userId?: string) {
+        if (!this.isValidSenderLabel(input.label)) {
+            throw new Error(`Invalid sender label "${input.label}". Allowed: ${TurnoverService.SENDER_LABELS.join(", ")}`);
+        }
+        const phone = String(input.phone || "").trim();
+        if (!phone) throw new Error("Phone number is required");
+        const countryCode = String(input.countryCode || "+1").trim() || "+1";
+        const duplicate = await this.senderNumberRepo.findOne({ where: { label: input.label, phone } });
+        if (duplicate) throw new Error("This number already exists for the selected label");
+        const entity = this.senderNumberRepo.create({
+            label: input.label,
+            phone,
+            countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+            displayName: input.displayName?.toString().trim() || null,
+            isActive: 1,
+            updatedBy: userId || null
+        });
+        const saved = await this.senderNumberRepo.save(entity);
+        return this.mapSenderRow(saved);
+    }
+
+    async updateSenderNumber(id: number, input: { label?: string; countryCode?: string; phone?: string; displayName?: string | null; isActive?: boolean }, userId?: string) {
+        const existing = await this.senderNumberRepo.findOne({ where: { id } });
+        if (!existing) throw new Error("Sender number not found");
+        if (input.label !== undefined) {
+            if (!this.isValidSenderLabel(input.label)) throw new Error("Invalid sender label");
+            existing.label = input.label;
+        }
+        if (input.phone !== undefined) {
+            const phone = String(input.phone).trim();
+            if (!phone) throw new Error("Phone number is required");
+            existing.phone = phone;
+        }
+        if (input.countryCode !== undefined) {
+            const code = String(input.countryCode).trim() || "+1";
+            existing.countryCode = code.startsWith("+") ? code : `+${code}`;
+        }
+        if (input.displayName !== undefined) {
+            existing.displayName = input.displayName ? String(input.displayName).trim() : null;
+        }
+        if (input.isActive !== undefined) {
+            existing.isActive = input.isActive ? 1 : 0;
+        }
+        existing.updatedBy = userId || existing.updatedBy;
+        const saved = await this.senderNumberRepo.save(existing);
+        return this.mapSenderRow(saved);
+    }
+
+    async deleteSenderNumber(id: number) {
+        const existing = await this.senderNumberRepo.findOne({ where: { id } });
+        if (!existing) throw new Error("Sender number not found");
+        await this.senderNumberRepo.delete({ id });
+        return { id };
     }
 
     private async getCurrentBackendCleanerContacts(listingId: number): Promise<Contact[]> {
@@ -1545,6 +1640,7 @@ export class TurnoverService {
                     propertyType,
                     serviceType: this.getServiceTypeLabel(listing),
                     address: listing.address,
+                    listingTags: listing.tags || '',
                     
                     preStayContactId: preStayContactId,
                     preStayContactName: this.getRecipientNames(preStayRecipientIds, recipientOptions).join(', '),
@@ -1741,9 +1837,12 @@ export class TurnoverService {
                 normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
             }
             this.normalizeSenderNumbers(normalized);
-            if ('preStayEnabled' in normalized && !('preStayEnabledOverride' in normalized)) normalized.preStayEnabledOverride = true;
-            if ('postStayEnabled' in normalized && !('postStayEnabledOverride' in normalized)) normalized.postStayEnabledOverride = true;
-            if ('sameDayCombinedEnabled' in normalized && !('sameDayCombinedEnabledOverride' in normalized)) normalized.sameDayCombinedEnabledOverride = true;
+            // The global toggle is the kill switch; the legacy *EnabledOverride flags would let a
+            // property bypass a global OFF, which caused the unintended live SMS incident. Force them
+            // off so future per-property toggles only act as opt-out (false), never as opt-in over global.
+            if ('preStayEnabled' in normalized) normalized.preStayEnabledOverride = false;
+            if ('postStayEnabled' in normalized) normalized.postStayEnabledOverride = false;
+            if ('sameDayCombinedEnabled' in normalized) normalized.sameDayCombinedEnabledOverride = false;
 
             Object.assign(settings, {
                 ...normalized,

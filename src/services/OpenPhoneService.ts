@@ -107,13 +107,13 @@ export class OpenPhoneService {
     }
 
     try {
-      // const response = await this.client.sendSMS({
-      //   content,
-      //   from: senderNumber,
-      //   to: [to],
-      // });
+      const response = await this.client.sendSMS({
+        content,
+        from: senderNumber,
+        to: [to],
+      });
       logger.info(`SMS sent successfully to: ${to}`);
-      // return response;
+      return response;
     } catch (error: any) {
       logger.error(`Failed to send SMS to ${to}:`, error.message);
       throw error;
@@ -134,13 +134,13 @@ export class OpenPhoneService {
     }
 
     try {
-      // const response = await this.client.sendSMS({
-      //   content,
-      //   from: fromNumber,
-      //   to: [to],
-      // });
+      const response = await this.client.sendSMS({
+        content,
+        from: fromNumber,
+        to: [to],
+      });
       logger.info(`SMS sent successfully to: ${to} from: ${fromNumber}`);
-      // return response;
+      return response;
     } catch (error: any) {
       logger.error(`Failed to send SMS to ${to}:`, error.message);
       throw error;

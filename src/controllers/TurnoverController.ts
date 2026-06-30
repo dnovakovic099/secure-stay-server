@@ -168,13 +168,70 @@ export class TurnoverController {
     }
 
     /**
-     * Get sender number options from configured Quo/OpenPhone numbers
+     * Get sender number options for the dropdowns, optionally filtered by label.
      */
     async getSenderNumberOptions(req: CustomRequest, res: Response, next: NextFunction) {
         try {
-            const senderNumbers = await this.turnoverService.getSenderNumberOptions();
+            const label = typeof req.query.label === "string" ? req.query.label : undefined;
+            const senderNumbers = await this.turnoverService.getSenderNumberOptions(label);
             return res.status(200).json({ data: senderNumbers });
         } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Manage list — return every sender number for the management modal.
+     */
+    async listSenderNumbers(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const rows = await this.turnoverService.listSenderNumbers();
+            return res.status(200).json({ data: rows });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async createSenderNumber(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const { label, countryCode, phone, displayName } = req.body || {};
+            const row = await this.turnoverService.createSenderNumber(
+                { label, countryCode, phone, displayName },
+                req.user?.id
+            );
+            return res.status(201).json({ success: true, data: row });
+        } catch (error: any) {
+            if (error?.message && /(invalid|already exists|required)/i.test(error.message)) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
+            next(error);
+        }
+    }
+
+    async updateSenderNumber(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!id) return res.status(400).json({ success: false, message: "Invalid id" });
+            const row = await this.turnoverService.updateSenderNumber(id, req.body || {}, req.user?.id);
+            return res.status(200).json({ success: true, data: row });
+        } catch (error: any) {
+            if (error?.message && /(invalid|not found|required)/i.test(error.message)) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
+            next(error);
+        }
+    }
+
+    async deleteSenderNumber(req: CustomRequest, res: Response, next: NextFunction) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!id) return res.status(400).json({ success: false, message: "Invalid id" });
+            await this.turnoverService.deleteSenderNumber(id);
+            return res.status(200).json({ success: true });
+        } catch (error: any) {
+            if (error?.message && /not found/i.test(error.message)) {
+                return res.status(404).json({ success: false, message: error.message });
+            }
             next(error);
         }
     }
