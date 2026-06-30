@@ -498,14 +498,14 @@ export class CleanerNotificationService {
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
         const resolveEnabled = (
             propertyValue: boolean | null | undefined,
-            overrideValue: boolean | null | undefined,
+            _overrideValue: boolean | null | undefined,
             globalValue: boolean | null | undefined,
             fallback: boolean
         ) => {
-            const hasPropertyOverride = overrideValue === true || propertyValue === false;
-            return hasPropertyOverride
-                ? Boolean(propertyValue)
-                : (globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback);
+            // Global OFF is a hard kill — bug fix for unintended live SMS sends.
+            if (globalValue === false) return false;
+            if (propertyValue === false) return false;
+            return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
         };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
         const postStayDefaultRecipientType = resolve(settings?.postStayDefaultRecipientType, globalSettings?.postStayDefaultRecipientType, "cleaner");
