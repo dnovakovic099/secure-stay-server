@@ -36,8 +36,28 @@ export class AILearnedFactsService {
      * frequency and refresh lastSeenAt (and fill answer/question if empty); else
      * we insert a new pending fact.
      */
+    // Facts that are physically tied to a single property must never be stored
+    // portfolio-wide (that caused e.g. a "one car fits in the garage" answer to
+    // leak onto a driveway-only property). Force these back to property scope.
+    private static PROPERTY_SPECIFIC =
+        /\bgarage|driveway|carport|parking|door\s*code|lock\s*code|gate\s*code|access\s*code|wifi\s*password|address|\bfloor\b|square\s*feet|sq\s*ft|bedroom|bathroom|sleeps|capacity|pool\s*heat/i;
+
     async upsert(input: LearnedFactInput, opts: { autoApprove?: boolean } = {}): Promise<AILearnedFactEntity> {
-        const scope = input.scope === "portfolio" ? "portfolio" : "property";
+        let scope = input.scope === "portfolio" ? "portfolio" : "property";
+        if (
+            scope === "portfolio" &&
+            AILearnedFactsService.PROPERTY_SPECIFIC.test(`${input.question ?? ""} ${input.answer ?? ""}`)
+        ) {
+            // Only demotable if we actually know which listing it came from;
+            // otherwise drop it rather than let it generalize incorrectly.
+            if (input.listingId) {
+                scope = "property";
+                logger.info(`[LearnedFacts] demoted property-specific fact to listing ${input.listingId}: "${input.topic}"`);
+            } else {
+                logger.warn(`[LearnedFacts] dropped ungrounded property-specific portfolio fact: "${input.topic}"`);
+                throw new Error("property-specific fact cannot be portfolio-wide without a listingId");
+            }
+        }
         const listingId = scope === "portfolio" ? null : input.listingId ?? null;
         const topic = slug(input.topic);
 

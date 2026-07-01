@@ -163,11 +163,15 @@ export class InboxAIAuditService {
                 if (!transcript) continue;
                 const facts = await this.callExtractor(openai, transcript, "property");
                 for (const f of facts) {
-                    await this.learned.upsert(
-                        { scope: "property", listingId, topic: f.topic, question: f.question, answer: f.answer },
-                        { autoApprove }
-                    );
-                    factsUpserted++;
+                    try {
+                        await this.learned.upsert(
+                            { scope: "property", listingId, topic: f.topic, question: f.question, answer: f.answer },
+                            { autoApprove }
+                        );
+                        factsUpserted++;
+                    } catch (e: any) {
+                        logger.warn(`[InboxAIAudit] skipped fact "${f.topic}": ${e.message}`);
+                    }
                 }
                 properties++;
             } catch (err: any) {
@@ -184,11 +188,15 @@ export class InboxAIAuditService {
                 if (globalTranscript) {
                     const facts = await this.callExtractor(openai, globalTranscript, "portfolio");
                     for (const f of facts) {
-                        await this.learned.upsert(
-                            { scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer },
-                            { autoApprove }
-                        );
-                        factsUpserted++;
+                        try {
+                            await this.learned.upsert(
+                                { scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer },
+                                { autoApprove }
+                            );
+                            factsUpserted++;
+                        } catch (e: any) {
+                            logger.warn(`[InboxAIAudit] skipped portfolio fact "${f.topic}": ${e.message}`);
+                        }
                     }
                 }
             } catch (err: any) {
