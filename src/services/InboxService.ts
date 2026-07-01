@@ -163,6 +163,48 @@ export class InboxService {
         return conversation;
     }
 
+    /**
+     * For threads where local data is missing (typically new inquiries or
+     * bookings we haven't synced yet), pull details straight from Hostify:
+     *  - reservation info (guest contact, dates, price, status) when we have a
+     *    reservationId but no local reservation row;
+     *  - listing name from the listing details when still unknown.
+     * Best-effort and non-fatal.
+     */
+    private async hydrateFromHostifyReservation(conversation: InboxConversationEntity) {
+        try {
+            if (!this.apiKey) return conversation;
+
+            const missingGuest = !conversation.guestName || !conversation.checkin || conversation.price == null;
+            if (conversation.reservationId && missingGuest) {
+                const res: any = await this.hostify.getReservationInfo(this.apiKey, Number(conversation.reservationId));
+                const r = res?.reservation ?? res?.data ?? res ?? null;
+                if (r) {
+                    conversation.guestName = conversation.guestName || r.guest_name || r.name || null;
+                    conversation.guestPhone = conversation.guestPhone || (r.phone != null ? String(r.phone) : null);
+                    conversation.guestEmail = conversation.guestEmail || r.email || r.guest_email || null;
+                    conversation.reservationStatus = conversation.reservationStatus || r.status || null;
+                    conversation.checkin = conversation.checkin || toDateKey(r.checkIn ?? r.checkin ?? r.arrival_date);
+                    conversation.checkout = conversation.checkout || toDateKey(r.checkOut ?? r.checkout ?? r.departure_date);
+                    conversation.nights = conversation.nights ?? toNumberOrNull(r.nights);
+                    conversation.guests = conversation.guests ?? toNumberOrNull(r.guests);
+                    if (conversation.price == null) conversation.price = toNumberOrNull(r.price ?? r.total_price);
+                    conversation.currency = conversation.currency || r.currency || null;
+                    conversation.listingId = conversation.listingId ?? toNumberOrNull(r.listing_id);
+                }
+            }
+
+            if (conversation.listingId && !conversation.listingName) {
+                const details: any = await this.hostify.getListingDetails(this.apiKey, String(conversation.listingId));
+                const l = details?.listing ?? details?.data ?? details ?? null;
+                if (l) conversation.listingName = l.nickname || l.name || l.title || conversation.listingName || null;
+            }
+        } catch (error: any) {
+            logger.warn(`[InboxService] hydrateFromHostifyReservation failed for thread ${conversation.threadId}: ${error.message}`);
+        }
+        return conversation;
+    }
+
     // -------------------------------------------------------------------------
     // Message upsert (from a Hostify thread-detail message or webhook payload)
     // -------------------------------------------------------------------------
@@ -269,8 +311,9 @@ export class InboxService {
             return null;
         }
 
-        // Ensure a conversation row exists (best-effort enrichment from Hostify summary).
+        // Ensure a conversation row exists.
         let conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        const isNew = !conversation;
         if (!conversation) {
             conversation = this.conversationRepo.create({
                 threadId,
@@ -281,6 +324,19 @@ export class InboxService {
                 source: "hostify",
             });
             conversation = await this.enrichConversation(conversation);
+        }
+
+        // New inquiries arrive via webhook with almost no detail ("Unknown guest /
+        // No listing linked"). Pull the full thread from Hostify so the guest,
+        // listing, dates, price and reservation panel are populated. Best-effort.
+        const missingCore = !conversation.guestName || !conversation.listingId || !conversation.listingName;
+        if (isNew || missingCore) {
+            try {
+                const syn = await this.syncThread(threadId);
+                if (syn?.conversation) conversation = syn.conversation;
+            } catch (err: any) {
+                logger.warn(`[InboxService] webhook hydrate failed for thread ${threadId}: ${err.message}`);
+            }
         }
 
         // Roll the conversation summary forward.
@@ -380,19 +436,20 @@ export class InboxService {
         const numericThreadId = toNumberOrNull(threadSummary?.id ?? threadId);
         if (!numericThreadId) return null;
 
-        let conversation = await this.conversationRepo.findOne({ where: { threadId: numericThreadId } });
+        // Map every field the thread detail exposes (guest name/email/phone,
+        // listing, price, dates, nights, guests, status, thumbs, ...) using the
+        // same rich mapper as the list sync — this is what populates the
+        // reservation-details panel for new inquiries that arrive via webhook.
+        const summaryForUpsert = { ...threadSummary, id: numericThreadId };
+        let conversation = await this.upsertConversationFromSummary(summaryForUpsert, syncedAt);
         if (!conversation) {
-            conversation = this.conversationRepo.create({ threadId: numericThreadId, source: "hostify" });
+            conversation = await this.conversationRepo.findOne({ where: { threadId: numericThreadId } });
         }
-        conversation.reservationId = toNumberOrNull(threadSummary?.reservation_id) ?? conversation.reservationId;
-        conversation.listingId = toNumberOrNull(threadSummary?.listing_id) ?? conversation.listingId;
-        conversation.guestId = toNumberOrNull(threadSummary?.guest_id) ?? conversation.guestId;
-        conversation.channel = threadSummary?.integration_type_name ?? conversation.channel;
-        conversation.answered = threadSummary?.answered ? 1 : conversation.answered;
-        conversation.lastMessageText = threadSummary?.preview ?? conversation.lastMessageText;
-        conversation.lastMessageAt = toDateOrNull(threadSummary?.last_message) ?? conversation.lastMessageAt;
-        conversation.syncedAt = syncedAt;
+        if (!conversation) return null;
+        // Fall back to locally-known reservation/listing data for anything Hostify
+        // omitted (and, for inquiries, pull fresh reservation info from Hostify).
         await this.enrichConversation(conversation);
+        await this.hydrateFromHostifyReservation(conversation);
         await this.conversationRepo.save(conversation);
 
         const rawMessages: any[] = (detail as any)?.messages || [];
