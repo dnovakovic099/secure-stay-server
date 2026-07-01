@@ -5,6 +5,7 @@ import { InboxAIService } from "../services/InboxAIService";
 import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
 import { AILearnedFactsService } from "../services/AILearnedFactsService";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
+import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -162,6 +163,31 @@ export class AICopilotController {
                 message: "Nightly audit started",
                 extractionEnabled: InboxAIAuditService.extractionEnabled(),
             });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Seed every listing's Knowledge Base from structured listing data (idempotent). */
+    async seedKnowledgeFromListings(_request: Request, response: Response, next: NextFunction) {
+        try {
+            new ListingKnowledgeSeeder()
+                .seedAll()
+                .then((r) => console.log("[KBSeeder] done", r))
+                .catch((e) => console.error("[KBSeeder] failed", e));
+            return response.status(202).json({ status: true, message: "Knowledge base seeding started" });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** One-shot: learn from the entire message history, strictly per-listing. */
+    async backfillHistory(_request: Request, response: Response, next: NextFunction) {
+        try {
+            new InboxAIAuditService()
+                .backfillAllHistory()
+                .catch((e) => console.error("[InboxAIAudit] history backfill failed", e));
+            return response.status(202).json({ status: true, message: "History backfill started" });
         } catch (error) {
             return next(error);
         }

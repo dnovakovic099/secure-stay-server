@@ -113,17 +113,32 @@ export class InboxAIAuditService {
     // -------------------------------------------------------------------------
     // 2) Extract frequently-asked facts per property + portfolio-wide.
     // -------------------------------------------------------------------------
-    async extractLearnedFacts(sinceDays = 14): Promise<{ properties: number; factsUpserted: number }> {
+    async extractLearnedFacts(
+        opts: {
+            sinceDays?: number;
+            maxListings?: number;
+            minMessages?: number;
+            maxMessagesPerListing?: number;
+            includePortfolio?: boolean;
+        } = {}
+    ): Promise<{ properties: number; factsUpserted: number }> {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) {
             logger.warn("[InboxAIAudit] OPENAI_API_KEY missing — skipping fact extraction.");
             return { properties: 0, factsUpserted: 0 };
         }
+        const sinceDays = opts.sinceDays ?? 14;
+        const maxListings = opts.maxListings ?? 20;
+        const minMessages = opts.minMessages ?? 3;
+        const maxMsgs = opts.maxMessagesPerListing ?? 60;
+        const includePortfolio = opts.includePortfolio !== false;
+
         const since = new Date();
         since.setDate(since.getDate() - sinceDays);
         const openai = new OpenAI({ apiKey });
 
-        // Busiest listings by recent guest-message volume.
+        // Listings by guest-message volume in the window (busiest first). Each is
+        // processed independently so facts never bleed between different properties.
         const busy = await this.messageRepo
             .createQueryBuilder("m")
             .select("m.listingId", "listingId")
@@ -133,7 +148,7 @@ export class InboxAIAuditService {
             .andWhere("m.listingId IS NOT NULL")
             .groupBy("m.listingId")
             .orderBy("cnt", "DESC")
-            .limit(20)
+            .limit(maxListings)
             .getRawMany();
 
         let factsUpserted = 0;
@@ -142,11 +157,11 @@ export class InboxAIAuditService {
 
         for (const row of busy) {
             const listingId = Number(row.listingId);
-            if (!listingId || Number(row.cnt) < 3) continue;
+            if (!listingId || Number(row.cnt) < minMessages) continue;
             try {
-                const transcript = await this.buildQATranscript(listingId, since, 60);
+                const transcript = await this.buildQATranscript(listingId, since, maxMsgs);
                 if (!transcript) continue;
-                const facts = await this.callExtractor(openai, transcript, `property ${listingId}`);
+                const facts = await this.callExtractor(openai, transcript, "property");
                 for (const f of facts) {
                     await this.learned.upsert(
                         { scope: "property", listingId, topic: f.topic, question: f.question, answer: f.answer },
@@ -160,29 +175,46 @@ export class InboxAIAuditService {
             }
         }
 
-        // Portfolio-wide pass: sample across all recent Q&A for account-wide facts.
-        try {
-            const globalTranscript = await this.buildQATranscript(null, since, 120);
-            if (globalTranscript) {
-                const facts = await this.callExtractor(
-                    openai,
-                    globalTranscript,
-                    "the whole portfolio (facts that apply to ALL properties, e.g. company policies, general processes)"
-                );
-                for (const f of facts) {
-                    await this.learned.upsert(
-                        { scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer },
-                        { autoApprove }
-                    );
-                    factsUpserted++;
+        // Portfolio-wide pass: ONLY genuinely universal company policy — kept strict
+        // because properties differ a lot and we must not promote a single listing's
+        // detail to all of them.
+        if (includePortfolio) {
+            try {
+                const globalTranscript = await this.buildQATranscript(null, since, 150);
+                if (globalTranscript) {
+                    const facts = await this.callExtractor(openai, globalTranscript, "portfolio");
+                    for (const f of facts) {
+                        await this.learned.upsert(
+                            { scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer },
+                            { autoApprove }
+                        );
+                        factsUpserted++;
+                    }
                 }
+            } catch (err: any) {
+                logger.warn(`[InboxAIAudit] portfolio extraction failed: ${err.message}`);
             }
-        } catch (err: any) {
-            logger.warn(`[InboxAIAudit] portfolio extraction failed: ${err.message}`);
         }
 
         logger.info(`[InboxAIAudit] fact extraction: properties=${properties} factsUpserted=${factsUpserted}`);
         return { properties, factsUpserted };
+    }
+
+    /**
+     * One-shot: learn from the ENTIRE message history, every listing, strictly
+     * per-property (no portfolio pass, to avoid cross-listing leakage on bulk data).
+     */
+    async backfillAllHistory(): Promise<{ properties: number; factsUpserted: number }> {
+        logger.info("[InboxAIAudit] full-history backfill started");
+        const res = await this.extractLearnedFacts({
+            sinceDays: 3650,
+            maxListings: 1000,
+            minMessages: 4,
+            maxMessagesPerListing: 200,
+            includePortfolio: false,
+        });
+        logger.info(`[InboxAIAudit] full-history backfill complete: ${JSON.stringify(res)}`);
+        return res;
     }
 
     /** Build a compact "Guest asked / Team answered" transcript for the model. */
@@ -208,16 +240,31 @@ export class InboxAIAuditService {
         return text.length > 12000 ? text.slice(-12000) : text;
     }
 
-    private async callExtractor(openai: OpenAI, transcript: string, scopeLabel: string): Promise<ExtractedFact[]> {
-        const system = [
+    private async callExtractor(openai: OpenAI, transcript: string, mode: "property" | "portfolio"): Promise<ExtractedFact[]> {
+        const common = [
             "You analyze real short-term-rental guest conversations to extract FREQUENTLY-ASKED, STABLE facts",
-            `for ${scopeLabel}, so an assistant can answer future guests directly.`,
+            "so an assistant can answer future guests accurately.",
             "Rules:",
-            "- Only extract facts that are clearly supported by how the TEAM answered guests.",
-            "- Focus on stable, reusable info: wifi/access process, parking, check-in/out process, amenities, house rules, location/directions, pet policy, quiet hours.",
-            "- EXCLUDE anything volatile or sensitive: specific door/lock codes, wifi passwords, exact nightly prices, one-off dates, personal guest data.",
-            "- Merge duplicates. Prefer the team's own wording for the answer.",
+            "- Only extract facts clearly supported by how the TEAM answered guests. Never invent.",
+            "- EXCLUDE anything volatile or sensitive: specific door/lock codes, wifi passwords, exact nightly prices, one-off dates, personal guest data, refund/discount decisions.",
+            "- Merge duplicates. Prefer the team's own wording for the answer. Keep answers concise.",
             "- If nothing qualifies, return an empty array.",
+        ];
+        const modeRules =
+            mode === "property"
+                ? [
+                      "SCOPE: These conversations are all for ONE SPECIFIC PROPERTY.",
+                      "- Extract facts TRUE FOR THIS PROPERTY ONLY (its parking, access process, amenities, layout, directions, quiet hours, pet policy, nearby spots).",
+                      "- Do NOT generalize to other properties. Do NOT include generic company-wide policy — only this property's specifics.",
+                  ]
+                : [
+                      "SCOPE: These conversations span MANY DIFFERENT properties.",
+                      "- Extract ONLY facts that are genuinely UNIVERSAL company policy/process applying to EVERY property (e.g. how payment works, ID/verification, general booking/extension process, quiet-hours policy stated company-wide).",
+                      "- Properties differ a lot: DO NOT extract anything property-specific (a specific address, a specific amenity, a specific parking spot, specific directions). When in doubt, leave it out.",
+                  ];
+        const system = [
+            ...common,
+            ...modeRules,
             'Respond with STRICT JSON only: {"facts":[{"topic":"short-slug","question":"canonical guest question","answer":"concise guest-shareable answer"}]}',
             "Return at most 8 facts.",
         ].join("\n");
