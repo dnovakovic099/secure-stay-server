@@ -173,31 +173,43 @@ export class ListingKnowledgeSeeder {
         // Sensitive staff-only
         if (l.propertyLicenseNumber) push({ title: "Property license (staff only)", category: "Compliance", visibility: "internal", content: `License #: ${l.propertyLicenseNumber}` });
 
-        // Defensive Hostify enrichment: amenities, house rules, area notes.
+        // Defensive Hostify enrichment: amenities (top-level array) + house-rule flags.
         if (fetchHostify && this.apiKey) {
             try {
                 const details: any = await this.hostify.getListingDetails(this.apiKey, String(l.id));
-                const li = details?.listing ?? details?.data ?? details ?? null;
-                if (li) {
-                    const amenities = li.amenities || li.amenities_list || null;
-                    if (Array.isArray(amenities) && amenities.length) {
-                        const names = amenities
-                            .map((a: any) => (typeof a === "string" ? a : a?.name || a?.title))
-                            .filter(Boolean)
-                            .slice(0, 80);
-                        if (names.length) push({ title: "Amenities", category: "Amenities", visibility: "external", content: names.join(", ") });
-                    }
-                    const houseRules = li.house_rules || li.houseRules || li.rules;
-                    if (houseRules) push({ title: "House rules", category: "Rules", visibility: "external", content: this.clean(houseRules).slice(0, 4000) });
-                    const checkinInstr = li.checkin_instructions || li.check_in_instructions || li.arrival_instructions;
-                    if (checkinInstr) push({ title: "Check-in instructions", category: "Check-in", visibility: "external", content: this.clean(checkinInstr).slice(0, 4000) });
-                    const space = li.space || li.summary_space;
-                    if (space) push({ title: "The space", category: "Overview", visibility: "external", content: this.clean(space).slice(0, 4000) });
-                    const access = li.access || li.guest_access;
-                    if (access) push({ title: "Guest access", category: "Overview", visibility: "external", content: this.clean(access).slice(0, 4000) });
-                    const neighborhood = li.neighborhood_overview || li.neighborhood || li.transit;
-                    if (neighborhood) push({ title: "Neighborhood & getting around", category: "Location", visibility: "external", content: this.clean(neighborhood).slice(0, 4000) });
+                const li: any = details?.listing ?? {};
+
+                // Amenities: top-level array of { name } — huge for parking/kitchen/AC questions.
+                const amenities = details?.amenities;
+                if (Array.isArray(amenities) && amenities.length) {
+                    const names = Array.from(
+                        new Set(
+                            amenities
+                                .map((a: any) => (typeof a === "string" ? a : a?.name))
+                                .filter((n: any) => n && String(n).trim())
+                                .map((n: string) => String(n).trim())
+                        )
+                    ).slice(0, 100);
+                    if (names.length) push({ title: "Amenities", category: "Amenities", visibility: "external", content: names.join(", ") });
                 }
+
+                // House rules derived from listing flags.
+                const yes = (v: any) => String(v) === "1" || v === true;
+                const rules: string[] = [];
+                if (li.pets_allowed !== undefined) rules.push(yes(li.pets_allowed) ? "Pets are allowed." : "Pets are not allowed.");
+                if (li.smoking_allowed !== undefined) rules.push(yes(li.smoking_allowed) ? "Smoking is allowed." : "No smoking.");
+                if (li.events_allowed !== undefined) rules.push(yes(li.events_allowed) ? "Events/parties are allowed." : "No parties or events.");
+                if (li.children_allowed !== undefined) rules.push(yes(li.children_allowed) ? "Children are welcome." : "Not suitable for children.");
+                const qf = this.fmtHour(li.quiet_hours_from);
+                const qt = this.fmtHour(li.quiet_hours_to);
+                if (qf && qt) rules.push(`Quiet hours: ${qf} to ${qt}.`);
+                if (rules.length) push({ title: "House rules", category: "Rules", visibility: "external", content: rules.join(" ") });
+
+                // Beds / area augmentation.
+                const extra: string[] = [];
+                if (li.beds != null && Number(li.beds) > 0) extra.push(`${li.beds} bed(s).`);
+                if (li.area != null && Number(li.area) > 0) extra.push(`Approx. ${li.area} sq ft.`);
+                if (extra.length) push({ title: "Size & sleeping", category: "Overview", visibility: "external", content: extra.join(" ") });
             } catch {
                 /* non-fatal */
             }
