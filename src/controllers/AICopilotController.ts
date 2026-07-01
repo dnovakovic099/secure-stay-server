@@ -7,6 +7,7 @@ import { AILearnedFactsService } from "../services/AILearnedFactsService";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
 import { ListingGroupService } from "../services/ListingGroupService";
+import { ExemplarService } from "../services/ExemplarService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -190,6 +191,20 @@ export class AICopilotController {
                 .then((r) => console.log("[ListingGroup] rebuild done", r))
                 .catch((e) => console.error("[ListingGroup] rebuild failed", e));
             return response.status(202).json({ status: true, message: "Listing group rebuild started" });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Backfill the semantic Q&A retrieval store from message history. */
+    async backfillExemplars(request: Request, response: Response, next: NextFunction) {
+        try {
+            const sinceDays = request.body?.sinceDays ? Number(request.body.sinceDays) : undefined;
+            new ExemplarService()
+                .backfillFromHistory({ sinceDays })
+                .then((r) => console.log("[Exemplar] backfill done", r))
+                .catch((e) => console.error("[Exemplar] backfill failed", e));
+            return response.status(202).json({ status: true, message: "Exemplar backfill started" });
         } catch (error) {
             return next(error);
         }
