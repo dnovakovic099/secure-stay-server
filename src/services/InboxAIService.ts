@@ -634,6 +634,31 @@ export class InboxAIService {
         return null;
     }
 
+    /**
+     * Deterministic post-processing: strip dashes from guest-facing replies.
+     * Em/en dashes (and hyphens) read as an "AI tell", so we replace every dash
+     * variant with a space, then tidy spacing (collapse runs, drop spaces before
+     * punctuation, trim line edges) while preserving line breaks. Applied to the
+     * suggested_reply only — never to internal fields.
+     */
+    private stripDashes(text: string): string {
+        if (!text) return text;
+        // Covers hyphen-minus plus unicode hyphen(2010)…horizontal bar(2015),
+        // minus sign(2212), small/fullwidth hyphen & em dash variants.
+        const noDash = text.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D-]/g, " ");
+        return noDash
+            .split("\n")
+            .map((line) =>
+                line
+                    .replace(/[ \t]{2,}/g, " ")
+                    .replace(/\s+([,.!?;:])/g, "$1")
+                    .replace(/^ +| +$/g, "")
+            )
+            .join("\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+    }
+
     private parseModelOutput(raw: string): ModelOutput {
         let parsed: any = {};
         try {
@@ -653,7 +678,7 @@ export class InboxAIService {
             };
         }
         return {
-            suggested_reply: String(parsed.suggested_reply || "").trim(),
+            suggested_reply: this.stripDashes(String(parsed.suggested_reply || "").trim()),
             confidence: typeof parsed.confidence === "number" ? parsed.confidence : Number(parsed.confidence) || 0,
             escalation_required: Boolean(parsed.escalation_required),
             escalation_reason: parsed.escalation_reason ? String(parsed.escalation_reason) : null,
