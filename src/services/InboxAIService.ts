@@ -14,6 +14,7 @@ import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ListingGroupService } from "./ListingGroupService";
+import { ExemplarService } from "./ExemplarService";
 import { Hostify } from "../client/Hostify";
 
 /**
@@ -572,6 +573,19 @@ export class InboxAIService {
                 `[InboxAIService] linked team reply to suggestion ${suggestion.id} ` +
                 `(thread ${threadId}, similarity ${suggestion.replySimilarity}%)`
             );
+
+            // Grow the retrieval store live: the guest question this suggestion
+            // answered + the team's real reply becomes a new proven exemplar.
+            if (ExemplarService.isEnabled() && suggestion.messageId) {
+                const guestMsg = await this.messageRepo.findOne({
+                    where: { threadId, externalId: suggestion.messageId as any },
+                });
+                if (guestMsg?.body) {
+                    new ExemplarService()
+                        .addPair(suggestion.listingId ?? null, guestMsg.body, outgoing.body, Number(suggestion.messageId))
+                        .catch(() => {});
+                }
+            }
             return true;
         } catch (err: any) {
             logger.warn(`[InboxAIService] linkActualReply failed (thread ${threadId}): ${err.message}`);
@@ -678,6 +692,7 @@ export class InboxAIService {
             "- NEVER invent facts (codes, prices, policies, amenities, addresses). Only use provided context.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
+            "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
@@ -900,6 +915,24 @@ export class InboxAIService {
                 lines.push("");
                 lines.push("## Learned answers (approved — you MAY use these directly)");
                 lines.push(learned);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Proven replies (RAG): the highest-value signal — how OUR team actually
+        // answered semantically similar questions on this SAME property group in
+        // the past. Retrieved by embedding similarity over real message history.
+        if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
+            const exemplars = await new ExemplarService().retrieveForQuery(canonicalListingId, guestQuery, { k: 4, minSim: 0.55 });
+            if (exemplars.length) {
+                lines.push("");
+                lines.push("## How our team answered similar questions before (proven replies — prefer these facts & phrasing)");
+                for (const ex of exemplars) {
+                    const a = ex.answer.replace(/\s+/g, " ").trim().slice(0, 500);
+                    const q = ex.question.replace(/\s+/g, " ").trim().slice(0, 200);
+                    lines.push(`- Guest asked: "${q}"\n  Team replied: "${a}"`);
+                }
             }
         } catch {
             /* non-fatal */

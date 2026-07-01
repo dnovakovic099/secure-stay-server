@@ -4,6 +4,7 @@ import logger from "../utils/logger.utils";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AILearnedFactsService } from "./AILearnedFactsService";
+import { ExemplarService } from "./ExemplarService";
 
 interface ExtractedFact {
     topic: string;
@@ -327,9 +328,19 @@ export class InboxAIAuditService {
             logger.info("[InboxAIAudit] extraction disabled via AI_NIGHTLY_AUDIT_ENABLED=false");
         }
 
+        // Grow the semantic retrieval store from the last few days of new replies.
+        let emb = { pairs: 0, embedded: 0 };
+        if (ExemplarService.isEnabled()) {
+            emb = await new ExemplarService().backfillFromHistory({ sinceDays: 7 }).catch((e) => {
+                logger.error(`[InboxAIAudit] exemplar backfill failed: ${e.message}`);
+                return { pairs: 0, embedded: 0 };
+            });
+        }
+
         logger.info(
             `[InboxAIAudit] nightly audit complete — replies matched=${cap.matched}/${cap.scanned}, ` +
-                `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}`
+                `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}, ` +
+                `new exemplars embedded=${emb.embedded}`
         );
     }
 }
