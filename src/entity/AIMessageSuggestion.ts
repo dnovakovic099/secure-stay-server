@@ -56,6 +56,17 @@ export class AIMessageSuggestionEntity {
     /** Raw model response for debugging/audit. */
     @Column({ type: "mediumtext", nullable: true }) rawResponse: string | null;
 
+    /**
+     * Learning loop: what the team actually sent to the guest for this message,
+     * captured by the nightly audit even when they didn't click "use reply".
+     * replySimilarity is 0..100 (how close the human answer was to the AI's).
+     */
+    @Column({ type: "mediumtext", nullable: true }) actualReplyText: string | null;
+    @Column({ type: "bigint", nullable: true }) actualReplyMessageId: number | null;
+    @Column({ type: "datetime", nullable: true }) actualReplyAt: Date | null;
+    @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySimilarity: number | null;
+    @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
+
     @Index() @Column({ type: "datetime" }) generatedAt: Date;
 
     @CreateDateColumn({ type: "timestamp" }) createdAt: Date;
