@@ -6,6 +6,7 @@ import { InboxItemDetectionService } from "../services/InboxItemDetectionService
 import { AILearnedFactsService } from "../services/AILearnedFactsService";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
+import { ListingGroupService } from "../services/ListingGroupService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -176,6 +177,19 @@ export class AICopilotController {
                 .then((r) => console.log("[KBSeeder] done", r))
                 .catch((e) => console.error("[KBSeeder] failed", e));
             return response.status(202).json({ status: true, message: "Knowledge base seeding started" });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Rebuild the channel-split listing→group map from Hostify. */
+    async rebuildListingGroups(_request: Request, response: Response, next: NextFunction) {
+        try {
+            new ListingGroupService()
+                .rebuildFromHostify()
+                .then((r) => console.log("[ListingGroup] rebuild done", r))
+                .catch((e) => console.error("[ListingGroup] rebuild failed", e));
+            return response.status(202).json({ status: true, message: "Listing group rebuild started" });
         } catch (error) {
             return next(error);
         }

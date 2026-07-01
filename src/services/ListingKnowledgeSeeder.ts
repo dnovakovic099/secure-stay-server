@@ -35,13 +35,16 @@ export class ListingKnowledgeSeeder {
         return process.env.HOSTIFY_API_KEY as string;
     }
 
-    /** Convert an hour-of-day int (0-23, or HHmm like 1500) to "3:00 PM". */
+    /** Convert an hour value (int 0-23, HHmm like 1500, or "16:00:00") to "3:00 PM". */
     private fmtHour(v: any): string | null {
         if (v == null || v === "") return null;
-        let n = Number(v);
-        if (!Number.isFinite(n)) return null;
-        if (n > 23) n = Math.floor(n / 100); // handle 1500-style values
-        if (n <= 0 || n > 23) return null; // 0 = unset (midnight check-in/out isn't advertised)
+        let n: number;
+        if (typeof v === "string" && v.includes(":")) n = Number(v.split(":")[0]);
+        else {
+            n = Number(v);
+            if (Number.isFinite(n) && n > 23) n = Math.floor(n / 100); // 1500-style
+        }
+        if (!Number.isFinite(n) || n <= 0 || n > 23) return null; // 0 = unset
         const ampm = n >= 12 ? "PM" : "AM";
         const h12 = n % 12 === 0 ? 12 : n % 12;
         return `${h12}:00 ${ampm}`;
@@ -85,6 +88,137 @@ export class ListingKnowledgeSeeder {
         }
         logger.info(`[KBSeeder] seeded ${entryCount} entries across ${listingCount} listings`);
         return { listings: listingCount, entries: entryCount };
+    }
+
+    /**
+     * Seed KB for listing IDs that are NOT necessarily in listing_info — i.e. the
+     * channel/child listing IDs the inbox actually uses. Everything is derived
+     * from the Hostify listing detail (name, description incl. parking, amenities,
+     * house rules, fees, check-in/out, location), so per-property facts are
+     * grounded even when we only have the OTA child ID.
+     */
+    async seedListingsFromHostify(
+        listingIds: number[],
+        opts: { onlyMissing?: boolean } = {}
+    ): Promise<{ listings: number; entries: number }> {
+        let listingCount = 0;
+        let entryCount = 0;
+        for (const listingId of listingIds) {
+            try {
+                if (opts.onlyMissing) {
+                    const existing = await this.kbRepo.count({ where: { listingId: listingId as any, isArchived: 0 } });
+                    if (existing > 0) continue;
+                }
+                if (!this.apiKey) break;
+                const details: any = await this.hostify.getListingDetails(this.apiKey, String(listingId));
+                if (!details?.listing) continue;
+                const entries = this.buildEntriesFromHostify(details);
+                for (const e of entries) if (await this.upsert(listingId, e)) entryCount++;
+                await this.reconcile(listingId, entries.map((e) => e.title));
+                if (entries.length) listingCount++;
+            } catch (err: any) {
+                logger.warn(`[KBSeeder] Hostify seed failed for ${listingId}: ${err.message}`);
+            }
+        }
+        logger.info(`[KBSeeder] Hostify-seeded ${entryCount} entries across ${listingCount} listings`);
+        return { listings: listingCount, entries: entryCount };
+    }
+
+    /** Build KB entries purely from a Hostify getListingDetails payload. */
+    private buildEntriesFromHostify(details: any): SeedEntry[] {
+        const li = details.listing || {};
+        const entries: SeedEntry[] = [];
+        const push = (e: SeedEntry) => {
+            if (e.content && e.content.trim()) entries.push(e);
+        };
+        const cur = li.currency || "USD";
+
+        // Overview
+        const ov: string[] = [];
+        if (li.property_type) ov.push(`Property type: ${li.property_type}.`);
+        if (li.bedrooms != null) ov.push(`${li.bedrooms} bedroom(s).`);
+        if (li.bathrooms != null) ov.push(`${li.bathrooms} bathroom(s).`);
+        if (li.beds != null && Number(li.beds) > 0) ov.push(`${li.beds} bed(s).`);
+        const cap = li.person_capacity ?? li.guests_included;
+        if (cap != null) ov.push(`Sleeps up to ${cap} guest(s).`);
+        if (li.area != null && Number(li.area) > 0) ov.push(`Approx. ${li.area} sq ft.`);
+        push({ title: "Property overview", category: "Overview", visibility: "external", content: ov.join(" ") });
+
+        // Description (flatten the description object/string — this holds parking,
+        // access notes, neighborhood, etc.).
+        const descText = this.flattenDescription(details.description);
+        if (!this.isBlank(descText)) push({ title: "Listing description", category: "Overview", visibility: "external", content: this.clean(descText).slice(0, 6000) });
+        if (!this.isBlank(li.house_manual)) push({ title: "House manual", category: "Check-in", visibility: "external", content: this.clean(li.house_manual).slice(0, 4000) });
+        if (!this.isBlank(li.directions)) push({ title: "Directions", category: "Location", visibility: "external", content: this.clean(li.directions).slice(0, 3000) });
+
+        // Check-in / out
+        const ci = this.fmtHour(li.checkin_start);
+        const co = this.fmtHour(li.checkout);
+        const t: string[] = [];
+        if (ci) t.push(`Check-in: from ${ci}.`);
+        if (co) t.push(`Check-out: by ${co}.`);
+        if (li.timezone) t.push(`Local time zone: ${li.timezone}.`);
+        push({ title: "Check-in / check-out times", category: "Check-in", visibility: "external", content: t.join(" ") });
+
+        // Fees
+        const fees: string[] = [];
+        if (Number(li.cleaning_fee) > 0) fees.push(`Cleaning fee: ${cur} ${li.cleaning_fee}.`);
+        if (Number(li.pets_fee) > 0) fees.push(`Pet fee: ${cur} ${li.pets_fee}.`);
+        if (Number(li.extra_person) > 0) fees.push(`Extra guest fee: ${cur} ${li.extra_person}/person beyond ${li.guests_included ?? 1} included.`);
+        push({ title: "Fees", category: "Pricing", visibility: "external", content: fees.join(" ") });
+        if (Number(li.security_deposit) > 0)
+            push({ title: "Security deposit (staff only)", category: "Pricing", visibility: "internal", content: `Refundable security deposit on file: ${cur} ${li.security_deposit}.` });
+
+        // Amenities
+        const amenities = details.amenities;
+        if (Array.isArray(amenities) && amenities.length) {
+            const names = Array.from(
+                new Set(amenities.map((a: any) => (typeof a === "string" ? a : a?.name)).filter((n: any) => n && String(n).trim()).map((n: string) => String(n).trim()))
+            ).slice(0, 100);
+            if (names.length) push({ title: "Amenities", category: "Amenities", visibility: "external", content: names.join(", ") });
+        }
+
+        // House rules
+        const yes = (v: any) => String(v) === "1" || v === true;
+        const rules: string[] = [];
+        if (li.pets_allowed !== undefined) rules.push(yes(li.pets_allowed) ? "Pets are allowed." : "Pets are not allowed.");
+        if (li.smoking_allowed !== undefined) rules.push(yes(li.smoking_allowed) ? "Smoking is allowed." : "No smoking.");
+        if (li.events_allowed !== undefined) rules.push(yes(li.events_allowed) ? "Events/parties are allowed." : "No parties or events.");
+        if (li.children_allowed !== undefined) rules.push(yes(li.children_allowed) ? "Children are welcome." : "Not suitable for children.");
+        const qf = this.fmtHour(li.quiet_hours_from);
+        const qt = this.fmtHour(li.quiet_hours_to);
+        if (qf && qt) rules.push(`Quiet hours: ${qf} to ${qt}.`);
+        if (rules.length) push({ title: "House rules", category: "Rules", visibility: "external", content: rules.join(" ") });
+
+        // Stay length
+        const stay: string[] = [];
+        if (li.min_nights != null) stay.push(`Minimum stay: ${li.min_nights} night(s).`);
+        if (li.max_nights != null && Number(li.max_nights) > 0) stay.push(`Maximum stay: ${li.max_nights} night(s).`);
+        push({ title: "Stay length & booking", category: "Booking", visibility: "external", content: stay.join(" ") });
+
+        // Location
+        const loc: string[] = [];
+        if (li.city) loc.push(li.city);
+        if (li.state) loc.push(li.state);
+        if (li.country) loc.push(li.country);
+        push({ title: "General location", category: "Location", visibility: "external", content: loc.length ? `Located in ${loc.join(", ")}.` : "" });
+        const addr = !this.isBlank(li.address) ? li.address : !this.isBlank(li.street) ? li.street : "";
+        push({ title: "Full address (staff only)", category: "Location", visibility: "internal", content: this.clean(addr) });
+
+        return entries;
+    }
+
+    /** Flatten Hostify's description (object of sections or a string) to text. */
+    private flattenDescription(d: any): string {
+        if (!d) return "";
+        if (typeof d === "string") return d;
+        if (Array.isArray(d)) return d.map((x) => this.flattenDescription(x)).join("\n");
+        if (typeof d === "object") {
+            return Object.values(d)
+                .filter((v) => typeof v === "string" && v.trim())
+                .join("\n");
+        }
+        return "";
     }
 
     async seedListing(listingId: number, fetchHostify = true): Promise<number> {
