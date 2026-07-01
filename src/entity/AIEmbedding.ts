@@ -60,6 +60,10 @@ export class AIEmbeddingEntity {
     @Column({ length: 64, nullable: true })
     model: string | null;
 
+    /** For 'doc' chunks: 'internal' (staff-only) | 'external' (guest-shareable). */
+    @Column({ length: 16, nullable: true })
+    visibility: string | null;
+
     /** Normalized dedup key (kind|groupId|normalized question) — unique-ish. */
     @Index("idx_emb_dedup")
     @Column({ length: 200, nullable: true })

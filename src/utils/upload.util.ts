@@ -53,6 +53,9 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallb
         '.xls',
         '.xlsx',
         '.csv',
+        '.txt',
+        '.md',
+        '.rtf',
     ]);
     const allowedMimeTypes = new Set([
         'image/jpeg',
@@ -69,6 +72,10 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallb
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'text/csv',
+        'text/plain',
+        'text/markdown',
+        'application/rtf',
+        'text/rtf',
     ]);
     const extname = allowedExtensions.has(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedMimeTypes.has(file.mimetype.toLowerCase());
