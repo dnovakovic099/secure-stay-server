@@ -8,6 +8,9 @@ import { Listing } from "../entity/Listing";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import { InboxService } from "./InboxService";
+import { ListingKnowledgeService } from "./ListingKnowledgeService";
+import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
+import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 
 /**
  * InboxAIService
@@ -105,12 +108,60 @@ export class InboxAIService {
         return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     }
 
-    /** Public config snapshot for the UI / settings surface. */
+    /** Public config snapshot for the UI / settings surface (env-only, sync). */
     static autosendConfig() {
         return {
             enabled: InboxAIService.isAutosendEnabled(),
             minConfidence: InboxAIService.autosendMinConfidence(),
             allowedChannels: InboxAIService.autosendAllowedChannels(),
+        };
+    }
+
+    /**
+     * DB-aware auto-send resolution. The AI Copilot Settings page controls the
+     * auto-respond toggle / min-confidence / channel allowlist. Env remains a
+     * hard override: the base assistant must be enabled, and an explicit
+     * AI_MESSAGING_AUTOSEND_ENABLED=false keeps auto-send OFF regardless.
+     */
+    static async resolveAutosendEnabled(): Promise<boolean> {
+        if (!InboxAIService.isEnabled()) return false;
+        const envRaw = String(process.env.AI_MESSAGING_AUTOSEND_ENABLED || "").toLowerCase();
+        if (envRaw === "false") return false; // hard kill-switch
+        try {
+            const s = await new AIMessagingSettingsService().getGlobalCached();
+            return Boolean(s.autoRespondEnabled);
+        } catch {
+            return envRaw === "true";
+        }
+    }
+
+    static async autosendMinConfidenceAsync(): Promise<number> {
+        try {
+            const s = await new AIMessagingSettingsService().getGlobalCached();
+            const v = Number(s.autosendMinConfidence);
+            return Number.isFinite(v) && v >= 0 && v <= 100 ? v : InboxAIService.autosendMinConfidence();
+        } catch {
+            return InboxAIService.autosendMinConfidence();
+        }
+    }
+
+    static async autosendAllowedChannelsAsync(): Promise<string[] | null> {
+        try {
+            const s = await new AIMessagingSettingsService().getGlobalCached();
+            const raw = (s.autosendChannels || "").trim();
+            if (!raw) return InboxAIService.autosendAllowedChannels();
+            return raw.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+        } catch {
+            return InboxAIService.autosendAllowedChannels();
+        }
+    }
+
+    /** DB-aware config snapshot for the UI / settings surface. */
+    static async autosendConfigAsync() {
+        return {
+            enabled: await InboxAIService.resolveAutosendEnabled(),
+            minConfidence: await InboxAIService.autosendMinConfidenceAsync(),
+            allowedChannels: await InboxAIService.autosendAllowedChannelsAsync(),
         };
     }
 
@@ -164,6 +215,7 @@ export class InboxAIService {
             if (existing) return existing;
         }
 
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         const context = await this.buildContext(conversation, messages, targetMessage);
         const keywordEscalation = this.scanForEscalation(targetMessage?.body || conversation.lastMessageText || "");
 
@@ -176,7 +228,7 @@ export class InboxAIService {
                 temperature: 0.4,
                 response_format: { type: "json_object" },
                 messages: [
-                    { role: "system", content: this.systemPrompt() },
+                    { role: "system", content: this.systemPrompt(settings) },
                     { role: "user", content: context },
                 ],
             });
@@ -338,12 +390,12 @@ export class InboxAIService {
         messageId?: number | null
     ): Promise<{ sent: boolean; reason: string; suggestionId?: number; messageExternalId?: number }> {
         try {
-            if (!InboxAIService.isAutosendEnabled()) return { sent: false, reason: "autosend_disabled" };
+            if (!(await InboxAIService.resolveAutosendEnabled())) return { sent: false, reason: "autosend_disabled" };
 
             const conversation = await this.conversationRepo.findOne({ where: { threadId } });
             if (!conversation) return { sent: false, reason: "no_conversation" };
 
-            const allowed = InboxAIService.autosendAllowedChannels();
+            const allowed = await InboxAIService.autosendAllowedChannelsAsync();
             if (allowed && conversation.channel && !allowed.includes(conversation.channel.toLowerCase())) {
                 return { sent: false, reason: `channel_not_allowed:${conversation.channel}` };
             }
@@ -358,7 +410,7 @@ export class InboxAIService {
             }
 
             // ---- Hard guardrails (any failure => leave for human) ----
-            const minConf = InboxAIService.autosendMinConfidence();
+            const minConf = await InboxAIService.autosendMinConfidenceAsync();
             const conf = suggestion.confidence != null ? Number(suggestion.confidence) : null;
             const reply = (suggestion.suggestedReply || "").trim();
             const warnings = this.safeJsonArray(suggestion.warnings);
@@ -454,13 +506,30 @@ export class InboxAIService {
         };
     }
 
-    private systemPrompt(): string {
+    private systemPrompt(settings?: AIMessagingSettingsEntity | null): string {
+        const toneLabel = (settings?.tone || "warm").trim();
+        const customRules = (settings?.communicationRules || "").trim();
+        const topicsToAvoid = (settings?.topicsToAvoid || "").trim();
+
+        const settingsBlock: string[] = [];
+        settingsBlock.push(`COMMUNICATION STYLE: adopt a ${toneLabel} tone.`);
+        if (customRules) {
+            settingsBlock.push("TEAM COMMUNICATION RULES (follow these strictly):");
+            settingsBlock.push(customRules);
+        }
+        if (topicsToAvoid) {
+            settingsBlock.push("TOPICS TO AVOID / ALWAYS ESCALATE (never answer these directly — set escalation_required=true):");
+            settingsBlock.push(topicsToAvoid);
+        }
+        settingsBlock.push("");
+
         return [
             "You are SecureStay's guest-messaging assistant for short-term rental operations.",
             "You draft a SUGGESTED reply for a human agent to review. You never send messages yourself.",
             "",
+            ...settingsBlock,
             "PRINCIPLES:",
-            "- Be warm, concise, professional, and helpful. Match a hospitality brand voice.",
+            `- Be concise, professional, and helpful with a ${toneLabel} hospitality brand voice.`,
             "- NEVER invent facts (codes, prices, policies, amenities, addresses). Only use provided context.",
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
@@ -524,8 +593,20 @@ export class InboxAIService {
                 if ((listing as any).checkIn) ll.push(`check-in ${(listing as any).checkIn}`);
                 if ((listing as any).checkOut) ll.push(`check-out ${(listing as any).checkOut}`);
                 if (ll.length) lines.push(`Listing times: ${ll.join(", ")}`);
-                // TODO: Pull richer house rules / listing documentation here once the
-                // listing-documents retrieval layer (Core feature 9) is implemented.
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Property-specific Knowledge Base (staff-maintained on the All Listings
+        // page). External entries are guest-shareable; internal entries inform the
+        // reply but must not be quoted to the guest.
+        try {
+            const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId);
+            if (kb) {
+                lines.push("");
+                lines.push("## Listing Knowledge Base");
+                lines.push(kb);
             }
         } catch {
             /* non-fatal */

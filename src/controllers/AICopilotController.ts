@@ -1,0 +1,83 @@
+import { NextFunction, Request, Response } from "express";
+import { AIMessagingSettingsService } from "../services/AIMessagingSettingsService";
+import { AICopilotService } from "../services/AICopilotService";
+import { InboxAIService } from "../services/InboxAIService";
+
+interface CustomRequest extends Request {
+    user?: any;
+}
+
+const toNum = (v: any): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+};
+
+const userName = (user: any): string | null =>
+    user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || null;
+const userId = (user: any): number | null => toNum(user?.secureStayUserId ?? user?.id);
+
+/**
+ * Backs the GR "AI" page: Settings (tone/rules/topics/auto-respond), AI Copilot
+ * (suggestion review), and AI Manager (response metrics).
+ */
+export class AICopilotController {
+    /** Combined config: env enablement + editable global settings. */
+    async getSettings(_request: Request, response: Response, next: NextFunction) {
+        try {
+            const settings = await new AIMessagingSettingsService().getGlobal();
+            return response.status(200).json({
+                status: true,
+                data: {
+                    enabled: InboxAIService.isEnabled(),
+                    autosend: await InboxAIService.autosendConfigAsync(),
+                    settings,
+                },
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateSettings(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const saved = await new AIMessagingSettingsService().update({
+                tone: b.tone,
+                communicationRules: b.communicationRules,
+                topicsToAvoid: b.topicsToAvoid,
+                autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
+                autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
+                autosendChannels: b.autosendChannels,
+                userId: userId(request.user),
+                userName: userName(request.user),
+            });
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async listSuggestions(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new AICopilotService().listSuggestions({
+                status: (request.query.status as string) || undefined,
+                escalationOnly: request.query.escalationOnly === "true",
+                limit: toNum(request.query.limit) || undefined,
+                offset: toNum(request.query.offset) || undefined,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async metrics(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new AICopilotService().metrics({ sinceDays: toNum(request.query.sinceDays) || undefined });
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+}
