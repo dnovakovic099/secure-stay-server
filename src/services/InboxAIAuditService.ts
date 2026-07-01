@@ -35,6 +35,14 @@ export class InboxAIAuditService {
         return String(process.env.AI_NIGHTLY_AUDIT_ENABLED || "true").toLowerCase() !== "false";
     }
 
+    /**
+     * Auto-approve extracted facts so they feed the bot immediately (default ON).
+     * Set AI_AUTO_APPROVE_FACTS=false to require manual review in the Learned tab.
+     */
+    static autoApproveFacts(): boolean {
+        return String(process.env.AI_AUTO_APPROVE_FACTS || "true").toLowerCase() !== "false";
+    }
+
     private get model(): string {
         return process.env.AI_MESSAGING_MODEL || "gpt-4.1";
     }
@@ -130,6 +138,7 @@ export class InboxAIAuditService {
 
         let factsUpserted = 0;
         let properties = 0;
+        const autoApprove = InboxAIAuditService.autoApproveFacts();
 
         for (const row of busy) {
             const listingId = Number(row.listingId);
@@ -139,13 +148,10 @@ export class InboxAIAuditService {
                 if (!transcript) continue;
                 const facts = await this.callExtractor(openai, transcript, `property ${listingId}`);
                 for (const f of facts) {
-                    await this.learned.upsert({
-                        scope: "property",
-                        listingId,
-                        topic: f.topic,
-                        question: f.question,
-                        answer: f.answer,
-                    });
+                    await this.learned.upsert(
+                        { scope: "property", listingId, topic: f.topic, question: f.question, answer: f.answer },
+                        { autoApprove }
+                    );
                     factsUpserted++;
                 }
                 properties++;
@@ -164,7 +170,10 @@ export class InboxAIAuditService {
                     "the whole portfolio (facts that apply to ALL properties, e.g. company policies, general processes)"
                 );
                 for (const f of facts) {
-                    await this.learned.upsert({ scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer });
+                    await this.learned.upsert(
+                        { scope: "portfolio", listingId: null, topic: f.topic, question: f.question, answer: f.answer },
+                        { autoApprove }
+                    );
                     factsUpserted++;
                 }
             }

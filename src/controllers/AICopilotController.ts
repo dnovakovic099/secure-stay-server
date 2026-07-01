@@ -134,6 +134,22 @@ export class AICopilotController {
         }
     }
 
+    /** Bulk-approve pending learned facts (optionally scoped). */
+    async approveAllLearnedFacts(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const result = await new AILearnedFactsService().approveAllPending(
+                {
+                    scope: (request.body?.scope as string) || (request.query.scope as string) || undefined,
+                    listingId: toNum(request.body?.listingId ?? request.query.listingId) ?? undefined,
+                },
+                userId(request.user)
+            );
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Manually trigger the nightly audit (for testing / on-demand refresh). */
     async runAudit(_request: Request, response: Response, next: NextFunction) {
         try {

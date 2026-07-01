@@ -22,6 +22,7 @@ router.get("/detected-items", verifySession, controller.detectedItems);
 
 // Learned facts (nightly audit output) — review + approve/reject for the bot.
 router.get("/learned-facts", verifySession, controller.listLearnedFacts);
+router.post("/learned-facts/approve-all", verifySession, controller.approveAllLearnedFacts);
 router.post("/learned-facts/:id/review", verifySession, controller.reviewLearnedFact);
 
 // On-demand trigger of the nightly self-improvement audit.

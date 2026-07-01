@@ -36,7 +36,7 @@ export class AILearnedFactsService {
      * frequency and refresh lastSeenAt (and fill answer/question if empty); else
      * we insert a new pending fact.
      */
-    async upsert(input: LearnedFactInput): Promise<AILearnedFactEntity> {
+    async upsert(input: LearnedFactInput, opts: { autoApprove?: boolean } = {}): Promise<AILearnedFactEntity> {
         const scope = input.scope === "portfolio" ? "portfolio" : "property";
         const listingId = scope === "portfolio" ? null : input.listingId ?? null;
         const topic = slug(input.topic);
@@ -52,9 +52,11 @@ export class AILearnedFactsService {
         if (existing) {
             existing.frequency = (existing.frequency || 1) + 1;
             existing.lastSeenAt = new Date();
-            if (!existing.answer && input.answer) existing.answer = input.answer;
-            if (!existing.question && input.question) existing.question = input.question;
-            // A rejected fact stays rejected until a human re-approves it.
+            if (input.answer) existing.answer = input.answer;
+            if (input.question) existing.question = input.question;
+            // Auto-approve keeps still-pending facts flowing to the bot; a rejected
+            // fact stays rejected until a human re-approves it.
+            if (opts.autoApprove && existing.status === "pending") existing.status = "approved";
             return this.repo.save(existing);
         }
 
@@ -65,12 +67,26 @@ export class AILearnedFactsService {
             question: input.question ?? null,
             answer: input.answer ?? null,
             frequency: 1,
-            status: "pending",
+            status: opts.autoApprove ? "approved" : "pending",
             source: input.source || "nightly_audit",
             sampleThreadId: input.sampleThreadId ?? null,
             lastSeenAt: new Date(),
         });
         return this.repo.save(created);
+    }
+
+    /** Bulk-approve every currently-pending fact (optionally filtered). */
+    async approveAllPending(filter: { scope?: string; listingId?: number } = {}, userId?: number | null) {
+        const where: any = { status: "pending" };
+        if (filter.scope) where.scope = filter.scope;
+        if (filter.listingId != null) where.listingId = filter.listingId;
+        const pending = await this.repo.find({ where });
+        for (const f of pending) {
+            f.status = "approved";
+            f.reviewedByUserId = userId ?? f.reviewedByUserId ?? null;
+        }
+        if (pending.length) await this.repo.save(pending);
+        return { approved: pending.length };
     }
 
     async list(opts: { status?: string; scope?: string; listingId?: number } = {}) {
