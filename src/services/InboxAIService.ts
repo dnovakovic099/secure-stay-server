@@ -32,7 +32,7 @@ import { InboxService } from "./InboxService";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v1";
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v2";
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 /** Topics that must always route to a human, regardless of model confidence. */
@@ -195,10 +195,51 @@ export class InboxAIService {
                 : keywordEscalation;
         }
 
-        const confidencePct =
+        // ---- Post-generation safety calibration ----
+        // The model's self-reported confidence is optimistic; we harden it here so
+        // it can be trusted as an auto-send gate and so humans see honest signals.
+        const warnings: string[] = Array.isArray(output.warnings) ? [...output.warnings] : [];
+
+        // (a) No pending guest question: the latest message in the thread is ours
+        //     (or there is no inbound message at all). Drafting is fine, but this
+        //     should never auto-send and confidence should be low.
+        const lastMsg = messages.length ? messages[messages.length - 1] : null;
+        const noPendingQuestion = !targetMessage || (lastMsg != null && lastMsg.direction !== "incoming");
+        if (noPendingQuestion) {
+            warnings.push("No pending guest question — the guest has not sent a new message since our last reply.");
+        }
+
+        // (b) Anti-invention net: flag codes/prices in the reply that do not appear
+        //     verbatim anywhere in the provided context (history + listing block).
+        const contextHaystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
+        const reply = output.suggested_reply || "";
+        const leaks: string[] = [];
+        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
+            const digits = tok.replace(/\D/g, "");
+            if (digits && !contextHaystack.includes(digits)) leaks.push(tok);
+        }
+        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
+            const num = tok.replace(/[^\d.]/g, "");
+            if (num && !contextHaystack.includes(num)) leaks.push(tok);
+        }
+        if (leaks.length) {
+            warnings.push(
+                `Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}. Verify before sending.`
+            );
+        }
+        output.warnings = warnings;
+
+        // (c) Calibrate confidence down when the reply is risky or under-informed.
+        let confidencePct =
             typeof output.confidence === "number" && Number.isFinite(output.confidence)
                 ? Math.max(0, Math.min(100, Math.round(output.confidence * 100)))
                 : null;
+        if (confidencePct != null) {
+            if (leaks.length) confidencePct = Math.min(confidencePct, 30);
+            if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
+            else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
+            if (noPendingQuestion) confidencePct = Math.min(confidencePct, 30);
+        }
 
         const suggestion = this.suggestionRepo.create({
             threadId,
@@ -421,8 +462,16 @@ export class InboxAIService {
             "PRINCIPLES:",
             "- Be warm, concise, professional, and helpful. Match a hospitality brand voice.",
             "- NEVER invent facts (codes, prices, policies, amenities, addresses). Only use provided context.",
+            "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
+            "- Reply in the same language the guest used.",
+            "",
+            "CONFIDENCE — be honest and well-calibrated (this drives automation decisions):",
+            "- Use > 0.9 ONLY when every fact needed is present in context and the reply requires no assumptions.",
+            "- If you added ANY warning or are missing information, confidence MUST be <= 0.6.",
+            "- If the reply is a generic holding/acknowledgement message, or you are guessing, use <= 0.4.",
+            "- If there is no actual pending guest question to answer, use <= 0.3.",
             "",
             "ESCALATION — set escalation_required=true (and explain in escalation_reason) for any of:",
             "refunds, discounts/credits, legal issues, threats, safety/medical/emergency, discrimination/fair-housing,",
