@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { IsNull } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { InboxConversationEntity } from "../entity/InboxConversation";
@@ -461,23 +462,30 @@ export class InboxAIService {
         messageId?: number | null
     ): Promise<{ sent: boolean; reason: string; suggestionId?: number; messageExternalId?: number }> {
         try {
-            if (!(await InboxAIService.resolveAutosendEnabled())) return { sent: false, reason: "autosend_disabled" };
-
             const conversation = await this.conversationRepo.findOne({ where: { threadId } });
             if (!conversation) return { sent: false, reason: "no_conversation" };
 
-            const allowed = await InboxAIService.autosendAllowedChannelsAsync();
-            if (allowed && conversation.channel && !allowed.includes(conversation.channel.toLowerCase())) {
-                return { sent: false, reason: `channel_not_allowed:${conversation.channel}` };
-            }
-
-            // Generate a fresh suggestion targeting this inbound message.
+            // ALWAYS generate + persist a "shadow" suggestion for this inbound guest
+            // message, regardless of auto-send. This builds the suggestion-vs-team
+            // learning dataset: the guest message externalId is stored on the
+            // suggestion (messageId) so the team's actual reply can be matched to it
+            // when it arrives. Deduped per (thread, message), so webhook retries and
+            // repeat opens are cheap no-ops.
             let suggestion: AIMessageSuggestionEntity;
             try {
-                suggestion = await this.generateSuggestion(threadId, { messageId: messageId ?? null, force: true });
+                suggestion = await this.generateSuggestion(threadId, { messageId: messageId ?? null });
             } catch (err: any) {
-                logger.error(`[InboxAIService] autosend generation failed (thread ${threadId}): ${err.message}`);
+                logger.error(`[InboxAIService] suggestion generation failed (thread ${threadId}): ${err.message}`);
                 return { sent: false, reason: "generation_failed" };
+            }
+
+            // ---- Auto-send is a separate, stricter gate (default OFF) ----
+            if (!(await InboxAIService.resolveAutosendEnabled()))
+                return { sent: false, reason: "autosend_disabled", suggestionId: suggestion.id };
+
+            const allowed = await InboxAIService.autosendAllowedChannelsAsync();
+            if (allowed && conversation.channel && !allowed.includes(conversation.channel.toLowerCase())) {
+                return { sent: false, reason: `channel_not_allowed:${conversation.channel}`, suggestionId: suggestion.id };
             }
 
             // ---- Hard guardrails (any failure => leave for human) ----
@@ -522,6 +530,72 @@ export class InboxAIService {
             `(suggestion ${suggestionId}): ${reason} — left for human review`
         );
         return { sent: false, reason, suggestionId };
+    }
+
+    /**
+     * Link the team's actual reply to the pending shadow suggestion for a thread.
+     *
+     * Called live from the webhook when an outgoing HUMAN message is ingested, so
+     * every (guest message → AI suggestion → team reply) triple is captured as it
+     * happens. Matching is DETERMINISTIC — thread ordering plus the guest messageId
+     * the suggestion was generated for — so no text similarity is needed to pair
+     * them; similarity is only computed and stored as a quality score.
+     *
+     * Idempotent and safe to call for every outgoing message.
+     */
+    async linkActualReply(threadId: number, outgoingExternalId?: number | null): Promise<boolean> {
+        try {
+            // The outgoing team message we just ingested (or the latest one).
+            const outgoing =
+                outgoingExternalId != null
+                    ? await this.messageRepo.findOne({ where: { threadId, externalId: outgoingExternalId as any } })
+                    : await this.messageRepo.findOne({ where: { threadId, direction: "outgoing" }, order: { sentAt: "DESC" } });
+            if (!outgoing || outgoing.direction !== "outgoing" || !outgoing.body || !outgoing.body.trim()) return false;
+            // Never treat our own auto-sent message as the "team reply".
+            if (outgoing.isAutomatic === 1 || (outgoing.senderName || "").toLowerCase() === "ai assistant") return false;
+
+            // The most recent still-unmatched suggestion generated before this reply.
+            const suggestion = await this.suggestionRepo.findOne({
+                where: { threadId, actualReplyText: IsNull() },
+                order: { generatedAt: "DESC" },
+            });
+            if (!suggestion || suggestion.status === "auto_sent") return false;
+            if (outgoing.sentAt && suggestion.generatedAt && new Date(outgoing.sentAt) < new Date(suggestion.generatedAt)) return false;
+
+            suggestion.actualReplyText = outgoing.body;
+            suggestion.actualReplyMessageId = outgoing.externalId ?? null;
+            suggestion.actualReplyAt = outgoing.sentAt ?? null;
+            suggestion.replySimilarity = this.replyOverlapPct(suggestion.suggestedReply || "", outgoing.body);
+            suggestion.auditedAt = new Date();
+            await this.suggestionRepo.save(suggestion);
+            logger.info(
+                `[InboxAIService] linked team reply to suggestion ${suggestion.id} ` +
+                `(thread ${threadId}, similarity ${suggestion.replySimilarity}%)`
+            );
+            return true;
+        } catch (err: any) {
+            logger.warn(`[InboxAIService] linkActualReply failed (thread ${threadId}): ${err.message}`);
+            return false;
+        }
+    }
+
+    /** Token-overlap (Jaccard) similarity as a 0..100 percentage. */
+    private replyOverlapPct(a: string, b: string): number {
+        const norm = (s: string) =>
+            new Set(
+                String(s)
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, " ")
+                    .split(/\s+/)
+                    .filter((w) => w.length > 2)
+            );
+        const sa = norm(a);
+        const sb = norm(b);
+        if (sa.size === 0 || sb.size === 0) return 0;
+        let inter = 0;
+        for (const w of sa) if (sb.has(w)) inter++;
+        const union = sa.size + sb.size - inter;
+        return union === 0 ? 0 : Math.round((inter / union) * 10000) / 100;
     }
 
     private safeJsonArray(value: string | null): string[] {

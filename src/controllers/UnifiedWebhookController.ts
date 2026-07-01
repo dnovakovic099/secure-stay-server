@@ -688,6 +688,22 @@ export class UnifiedWebhookController {
                                         );
                                 }
 
+                                // Learning loop: when the team replies (outgoing, human),
+                                // link it to the pending AI shadow suggestion so we always
+                                // have (guest message → AI suggestion → team reply) triples
+                                // to measure and improve against. Fire-and-forget.
+                                if (
+                                    InboxAIService.isEnabled() &&
+                                    payload.is_incoming !== 1 &&
+                                    payload.is_automatic === 0
+                                ) {
+                                    new InboxAIService()
+                                        .linkActualReply(Number(payload.thread_id), Number(payload.message_id))
+                                        .catch((e: any) =>
+                                            logger.error(`[handleHostifyWebhook] link team reply error: ${e?.message}`)
+                                        );
+                                }
+
                                 // DORMANT: detect our own Action Items / Guest Issues from the
                                 // guest message. Env-gated (AI_ITEM_DETECTION_ENABLED, default off)
                                 // so this is a true no-op until we switch it on; even then it only
