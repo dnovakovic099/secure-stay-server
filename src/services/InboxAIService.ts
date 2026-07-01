@@ -327,6 +327,64 @@ export class InboxAIService {
         return saved;
     }
 
+    /**
+     * Dry-run preview: generate a suggestion for a hypothetical guest message on a
+     * given listing WITHOUT a real thread and WITHOUT persisting. Runs the exact
+     * retrieval (KB + learned facts + availability) and system prompt used in
+     * production, so it faithfully reflects what the bot would say. Used by the QA
+     * / eval harness and by any "test this listing" preview surface.
+     */
+    async previewSuggestion(
+        listingId: number,
+        guestMessage: string
+    ): Promise<{ output: ModelOutput; context: string; leaks: string[] }> {
+        const listing = await this.listingRepo
+            .findOne({ where: { id: Number(listingId) }, withDeleted: true })
+            .catch(() => null);
+        const conversation = this.conversationRepo.create({
+            threadId: 0,
+            listingId: Number(listingId),
+            listingName: (listing as any)?.name || null,
+            channel: "preview",
+        }) as InboxConversationEntity;
+        const msg = this.messageRepo.create({
+            threadId: 0,
+            direction: "incoming",
+            body: guestMessage,
+            senderName: "Guest",
+            sentAt: new Date(),
+        }) as InboxMessageEntity;
+
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const context = await this.buildContext(conversation, [msg], msg);
+        const client = this.getClient();
+        const completion = await client.chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.4,
+            response_format: { type: "json_object" },
+            messages: [
+                { role: "system", content: this.systemPrompt(settings) },
+                { role: "user", content: context },
+            ],
+        });
+        const raw = completion.choices[0]?.message?.content?.trim() || "";
+        const output = this.parseModelOutput(raw);
+
+        // Same anti-invention net used in production, surfaced for the eval.
+        const haystack = (context + " " + guestMessage).toLowerCase();
+        const reply = output.suggested_reply || "";
+        const leaks: string[] = [];
+        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
+            const digits = tok.replace(/\D/g, "");
+            if (digits && !haystack.includes(digits)) leaks.push(tok);
+        }
+        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
+            const num = tok.replace(/[^\d.]/g, "");
+            if (num && !haystack.includes(num)) leaks.push(tok);
+        }
+        return { output, context, leaks };
+    }
+
     /** Update a suggestion's lifecycle status (accepted/edited/ignored/rejected). */
     async updateSuggestionStatus(
         id: number,
@@ -700,9 +758,20 @@ export class InboxAIService {
                 ? await this.listingRepo.findOne({ where: { id: Number(listingId) }, withDeleted: true })
                 : null;
             if (listing) {
+                const fmtHour = (v: any): string | null => {
+                    if (v == null || v === "") return null;
+                    let n = Number(v);
+                    if (!Number.isFinite(n)) return null;
+                    if (n > 23) n = Math.floor(n / 100);
+                    if (n < 0 || n > 23) return null;
+                    const ampm = n >= 12 ? "PM" : "AM";
+                    return `${n % 12 === 0 ? 12 : n % 12}:00 ${ampm}`;
+                };
+                const ci = fmtHour((listing as any).checkInTimeStart);
+                const co = fmtHour((listing as any).checkOutTime);
                 const ll: string[] = [];
-                if ((listing as any).checkIn) ll.push(`check-in ${(listing as any).checkIn}`);
-                if ((listing as any).checkOut) ll.push(`check-out ${(listing as any).checkOut}`);
+                if (ci) ll.push(`check-in from ${ci}`);
+                if (co) ll.push(`check-out by ${co}`);
                 if (ll.length) lines.push(`Listing times: ${ll.join(", ")}`);
             }
         } catch {
