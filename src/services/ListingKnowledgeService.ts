@@ -1,3 +1,4 @@
+import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
@@ -92,24 +93,36 @@ export class ListingKnowledgeService {
      */
     async renderForBot(
         listingId: number | null | undefined,
-        opts: { query?: string; maxChars?: number } | number = {}
+        opts: { query?: string; maxChars?: number; listingIds?: number[] } | number = {}
     ): Promise<string | null> {
         if (!listingId) return null;
         // Back-compat: allow renderForBot(id, maxChars).
         const o = typeof opts === "number" ? { maxChars: opts } : opts;
         const maxChars = o.maxChars ?? 5000;
         const qTokens = tokenize(o.query);
+        // Search across the whole property group (channel-split siblings) when
+        // provided, so a conversation on a child listing still finds the KB.
+        const ids = (o.listingIds && o.listingIds.length ? o.listingIds : [Number(listingId)]).map(Number);
 
         let entries: ListingKnowledgeEntryEntity[];
         try {
             entries = await this.repo.find({
-                where: { listingId: Number(listingId), isArchived: 0 },
+                where: { listingId: ids.length === 1 ? (ids[0] as any) : In(ids), isArchived: 0 },
             });
         } catch (err: any) {
             logger.error(`[ListingKnowledge] renderForBot failed for listing ${listingId}: ${err.message}`);
             return null;
         }
         if (!entries.length) return null;
+
+        // Dedup identical entries shared across sibling listings in the group.
+        const seenKey = new Set<string>();
+        entries = entries.filter((e) => {
+            const key = `${e.visibility}|${(e.title || "").toLowerCase()}|${(e.content || "").slice(0, 80).toLowerCase()}`;
+            if (seenKey.has(key)) return false;
+            seenKey.add(key);
+            return true;
+        });
 
         const CORE = /check-?in|check-?out|\bfee\b|fees|wifi|wi-fi|parking|house rule|amenit|address|stay length|\bpet\b|location|overview/i;
         const isDesc = (e: ListingKnowledgeEntryEntity) => /description/i.test(`${e.title || ""} ${e.category || ""}`);

@@ -1,7 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AILearnedFactEntity } from "../entity/AILearnedFact";
-import { IsNull } from "typeorm";
+import { IsNull, In } from "typeorm";
 
 export interface LearnedFactInput {
     scope?: "property" | "portfolio";
@@ -116,18 +116,20 @@ export class AILearnedFactsService {
      */
     async renderForBot(
         listingId: number | null | undefined,
-        opts: { query?: string; maxChars?: number } | number = {}
+        opts: { query?: string; maxChars?: number; listingIds?: number[] } | number = {}
     ): Promise<string | null> {
         const o = typeof opts === "number" ? { maxChars: opts } : opts;
         const maxChars = o.maxChars ?? 3500;
         const qTokens = tokenizeFacts(o.query);
+        // Gather property facts across the whole channel-split group when provided.
+        const ids = (o.listingIds && o.listingIds.length ? o.listingIds : listingId ? [Number(listingId)] : []).map(Number);
         try {
             const [property, portfolio] = await Promise.all([
-                listingId
+                ids.length
                     ? this.repo.find({
-                          where: { status: "approved", scope: "property", listingId: Number(listingId) as any },
+                          where: { status: "approved", scope: "property", listingId: ids.length === 1 ? (ids[0] as any) : In(ids) },
                           order: { frequency: "DESC" },
-                          take: 200,
+                          take: 300,
                       })
                     : Promise.resolve([] as AILearnedFactEntity[]),
                 this.repo.find({

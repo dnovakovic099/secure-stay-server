@@ -31,5 +31,6 @@ router.post("/audit/run", verifySession, controller.runAudit);
 // Seed KB from structured listing data + one-shot full-history learning.
 router.post("/kb/seed-from-listings", verifySession, controller.seedKnowledgeFromListings);
 router.post("/audit/backfill-history", verifySession, controller.backfillHistory);
+router.post("/listing-groups/rebuild", verifySession, controller.rebuildListingGroups);
 
 export default router;
