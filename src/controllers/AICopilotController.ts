@@ -3,6 +3,8 @@ import { AIMessagingSettingsService } from "../services/AIMessagingSettingsServi
 import { AICopilotService } from "../services/AICopilotService";
 import { InboxAIService } from "../services/InboxAIService";
 import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
+import { AILearnedFactsService } from "../services/AILearnedFactsService";
+import { InboxAIAuditService } from "../services/InboxAIAuditService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -95,6 +97,55 @@ export class AICopilotController {
                 limit: toNum(request.query.limit) || undefined,
             });
             return response.status(200).json({ status: true, data, enabledByEnv: InboxItemDetectionService.isEnabledByEnv() });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * Learned facts (per-property + portfolio-wide) proposed by the nightly audit.
+     * Staff review these here; only approved facts feed the bot.
+     */
+    async listLearnedFacts(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new AILearnedFactsService().list({
+                status: (request.query.status as string) || undefined,
+                scope: (request.query.scope as string) || undefined,
+                listingId: toNum(request.query.listingId) ?? undefined,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async reviewLearnedFact(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = toNum(request.params.id);
+            const action = String(request.body?.action || request.query.action || "").toLowerCase();
+            if (!id || !["approve", "reject", "pending"].includes(action)) {
+                return response.status(400).json({ status: false, message: "id and action (approve|reject|pending) required" });
+            }
+            const status = action === "approve" ? "approved" : action === "reject" ? "rejected" : "pending";
+            const saved = await new AILearnedFactsService().setStatus(id, status as any, userId(request.user));
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Manually trigger the nightly audit (for testing / on-demand refresh). */
+    async runAudit(_request: Request, response: Response, next: NextFunction) {
+        try {
+            // Fire-and-forget so the request returns fast; progress is in the logs.
+            new InboxAIAuditService()
+                .runNightlyAudit()
+                .catch((e) => console.error("[InboxAIAudit] manual run failed", e));
+            return response.status(202).json({
+                status: true,
+                message: "Nightly audit started",
+                extractionEnabled: InboxAIAuditService.extractionEnabled(),
+            });
         } catch (error) {
             return next(error);
         }

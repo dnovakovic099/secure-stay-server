@@ -33,6 +33,7 @@ import { ClientService } from "../services/ClientService";
 import { TurnoverService } from "../services/TurnoverService";
 import sendSlackMessage from "./sendSlackMsg";
 import OpenAI from "openai";
+import { InboxAIAuditService } from "../services/InboxAIAuditService";
 
 
 export function scheduleGetReservation() {
@@ -500,6 +501,25 @@ export function scheduleGetReservation() {
         logger.info(`[GuestAnalysis] Scheduled job completed - Processed: ${result.processed}, Failed: ${result.failed}, Skipped: ${result.skipped}`);
       } catch (error) {
         logger.error("[GuestAnalysis] Error in scheduled AI analysis job:", error);
+      }
+    }
+  );
+
+  // Inbox AI nightly self-improvement audit — 3:30 AM EST.
+  // Captures the human reply the team actually sent for each recent AI suggestion
+  // (comparison data) and extracts frequently-asked facts per property + portfolio
+  // as PENDING learned facts for staff review. Never sends messages; extraction is
+  // killable via AI_NIGHTLY_AUDIT_ENABLED=false.
+  schedule.scheduleJob(
+    { hour: 3, minute: 30, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('[InboxAIAudit] Nightly audit scheduled task started...');
+        const auditService = new InboxAIAuditService();
+        await auditService.runNightlyAudit();
+        logger.info('[InboxAIAudit] Nightly audit scheduled task completed.');
+      } catch (error) {
+        logger.error("[InboxAIAudit] Error in nightly audit scheduled task:", error);
       }
     }
   );

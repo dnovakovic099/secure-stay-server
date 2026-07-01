@@ -20,4 +20,11 @@ router.get("/metrics", verifySession, controller.metrics);
 // Detected Action Item / Guest Issue proposals (dormant pipeline review).
 router.get("/detected-items", verifySession, controller.detectedItems);
 
+// Learned facts (nightly audit output) — review + approve/reject for the bot.
+router.get("/learned-facts", verifySession, controller.listLearnedFacts);
+router.post("/learned-facts/:id/review", verifySession, controller.reviewLearnedFact);
+
+// On-demand trigger of the nightly self-improvement audit.
+router.post("/audit/run", verifySession, controller.runAudit);
+
 export default router;

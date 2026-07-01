@@ -11,6 +11,7 @@ import { InboxService } from "./InboxService";
 import { ListingKnowledgeService } from "./ListingKnowledgeService";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
+import { AILearnedFactsService } from "./AILearnedFactsService";
 import { Hostify } from "../client/Hostify";
 
 /**
@@ -717,6 +718,20 @@ export class InboxAIService {
                 lines.push("");
                 lines.push("## Listing Knowledge Base");
                 lines.push(kb);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Learned answers: frequently-asked facts the team has answered before,
+        // approved by staff (per-property + portfolio-wide). These are the bot's
+        // accumulated memory that makes it smarter over time.
+        try {
+            const learned = await new AILearnedFactsService().renderForBot(conversation.listingId);
+            if (learned) {
+                lines.push("");
+                lines.push("## Learned answers (approved — you MAY use these directly)");
+                lines.push(learned);
             }
         } catch {
             /* non-fatal */
