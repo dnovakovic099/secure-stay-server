@@ -5,6 +5,7 @@ import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ExemplarService } from "./ExemplarService";
+import { RetrievalService } from "./RetrievalService";
 
 interface ExtractedFact {
     topic: string;
@@ -328,12 +329,17 @@ export class InboxAIAuditService {
             logger.info("[InboxAIAudit] extraction disabled via AI_NIGHTLY_AUDIT_ENABLED=false");
         }
 
-        // Grow the semantic retrieval store from the last few days of new replies.
+        // Grow the semantic retrieval store from the last few days of new replies,
+        // and index any newly-approved learned facts.
         let emb = { pairs: 0, embedded: 0 };
         if (ExemplarService.isEnabled()) {
             emb = await new ExemplarService().backfillFromHistory({ sinceDays: 7 }).catch((e) => {
                 logger.error(`[InboxAIAudit] exemplar backfill failed: ${e.message}`);
                 return { pairs: 0, embedded: 0 };
+            });
+            await new RetrievalService().embedFacts().catch((e) => {
+                logger.error(`[InboxAIAudit] fact embedding failed: ${e.message}`);
+                return 0;
             });
         }
 

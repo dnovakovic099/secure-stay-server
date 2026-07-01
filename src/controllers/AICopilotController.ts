@@ -8,6 +8,7 @@ import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
 import { ListingGroupService } from "../services/ListingGroupService";
 import { ExemplarService } from "../services/ExemplarService";
+import { RetrievalService } from "../services/RetrievalService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -196,15 +197,16 @@ export class AICopilotController {
         }
     }
 
-    /** Backfill the semantic Q&A retrieval store from message history. */
+    /** Backfill the semantic retrieval store: Q&A exemplars + learned facts. */
     async backfillExemplars(request: Request, response: Response, next: NextFunction) {
         try {
             const sinceDays = request.body?.sinceDays ? Number(request.body.sinceDays) : undefined;
-            new ExemplarService()
-                .backfillFromHistory({ sinceDays })
-                .then((r) => console.log("[Exemplar] backfill done", r))
-                .catch((e) => console.error("[Exemplar] backfill failed", e));
-            return response.status(202).json({ status: true, message: "Exemplar backfill started" });
+            (async () => {
+                const ex = await new ExemplarService().backfillFromHistory({ sinceDays });
+                const facts = await new RetrievalService().embedFacts();
+                console.log("[RAG] backfill done", { ...ex, factVectors: facts });
+            })().catch((e) => console.error("[RAG] backfill failed", e));
+            return response.status(202).json({ status: true, message: "RAG backfill started" });
         } catch (error) {
             return next(error);
         }
