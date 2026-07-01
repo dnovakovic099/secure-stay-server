@@ -118,7 +118,9 @@ export class ListingKnowledgeService {
             let rel = 0;
             for (const t of qTokens) if (hay.includes(t)) rel += 1;
             const key = `${e.category || ""} ${e.title || ""}`;
-            const pri = isDesc(e) ? -2 : CORE.test(key) ? 2 : 1;
+            // Description is neutral priority (0): it must not crowd out structured
+            // facts when irrelevant, but a relevant snippet from it can still surface.
+            const pri = isDesc(e) ? 0 : CORE.test(key) ? 2 : 1;
             return rel * 10 + pri;
         };
         const rank = (list: ListingKnowledgeEntryEntity[]) =>
@@ -128,9 +130,18 @@ export class ListingKnowledgeService {
                 .map((x) => x.e);
         const fmt = (e: ListingKnowledgeEntryEntity) => {
             const head = e.title ? `${e.category} — ${e.title}` : e.category;
-            let body = (e.content || "").replace(/\s+/g, " ").trim();
-            const limit = isDesc(e) ? 600 : 700;
-            if (body.length > limit) body = body.slice(0, limit) + "…";
+            const raw = (e.content || "").trim();
+            const limit = isDesc(e) ? 700 : 700;
+            let body: string;
+            if (raw.replace(/\s+/g, " ").length <= limit) {
+                body = raw.replace(/\s+/g, " ").trim();
+            } else {
+                // Long free-text (e.g. the listing description): pull the sentences
+                // most relevant to the guest's question rather than a blind head
+                // slice, so answers buried deep in the text (parking, early check-in,
+                // A/C, laundry) still surface.
+                body = extractRelevantSnippet(raw, qTokens, limit);
+            }
             return `- [${head}] ${body}`;
         };
 
@@ -164,6 +175,45 @@ export class ListingKnowledgeService {
         const out = lines.join("\n").trim();
         return out || null;
     }
+}
+
+/**
+ * From a long block of free text, return the fragments most relevant to the
+ * query tokens (falling back to the head of the text when there's no query or no
+ * overlap), joined and capped to `limit` chars.
+ */
+function extractRelevantSnippet(text: string, qTokens: string[], limit: number): string {
+    const flat = text.replace(/\s+/g, " ").trim();
+    // Split on sentence / bullet boundaries used in listing descriptions.
+    const parts = text
+        .split(/[\n\r]+|(?<=[.!?])\s+|[▪✔⭐✨•]+/u)
+        .map((s) => s.replace(/\s+/g, " ").trim())
+        .filter((s) => s.length > 3);
+    if (!qTokens.length || parts.length === 0) {
+        return flat.slice(0, limit) + (flat.length > limit ? "…" : "");
+    }
+    const scored = parts
+        .map((s) => {
+            const low = s.toLowerCase();
+            let hit = 0;
+            for (const t of qTokens) if (low.includes(t)) hit += 1;
+            return { s, hit };
+        })
+        .filter((x) => x.hit > 0)
+        .sort((a, b) => b.hit - a.hit);
+
+    if (!scored.length) {
+        // No overlap: give the model the head of the text as general grounding.
+        return flat.slice(0, limit) + (flat.length > limit ? "…" : "");
+    }
+    const out: string[] = [];
+    let used = 0;
+    for (const { s } of scored) {
+        if (used + s.length + 2 > limit) continue;
+        out.push(s);
+        used += s.length + 2;
+    }
+    return out.join(" · ") || flat.slice(0, limit) + "…";
 }
 
 /** Lowercase word tokens (len >= 3) with common stopwords removed. */

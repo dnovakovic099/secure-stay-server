@@ -41,7 +41,7 @@ export class ListingKnowledgeSeeder {
         let n = Number(v);
         if (!Number.isFinite(n)) return null;
         if (n > 23) n = Math.floor(n / 100); // handle 1500-style values
-        if (n < 0 || n > 23) return null;
+        if (n <= 0 || n > 23) return null; // 0 = unset (midnight check-in/out isn't advertised)
         const ampm = n >= 12 ? "PM" : "AM";
         const h12 = n % 12 === 0 ? 12 : n % 12;
         return `${h12}:00 ${ampm}`;
@@ -66,7 +66,9 @@ export class ListingKnowledgeSeeder {
 
     async seedAll(opts: { fetchHostify?: boolean; limit?: number } = {}): Promise<{ listings: number; entries: number }> {
         const fetchHostify = opts.fetchHostify !== false;
-        const listings = await this.listingRepo.find({ take: opts.limit ?? 5000 });
+        // withDeleted: soft-deleted listings can still have active guest threads in
+        // the inbox, so they still need Knowledge Base grounding for the bot.
+        const listings = await this.listingRepo.find({ take: opts.limit ?? 5000, withDeleted: true });
         let listingCount = 0;
         let entryCount = 0;
         for (const l of listings) {
