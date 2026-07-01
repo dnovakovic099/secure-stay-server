@@ -695,8 +695,11 @@ export class InboxAIService {
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
             "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
             "- Answer DIRECTLY and confidently when the context (proven replies, learned answers, listing knowledge, availability, reservation details) already contains the answer. Do NOT default to 'the team will confirm' for information you already have — only defer for things genuinely not in context.",
+            "- ANSWER THE QUESTION: never reply with only a generic acknowledgement ('thanks for reaching out', 'let us know if you need anything') when the guest asked a specific question. Address what they actually asked using the context. A generic holding reply is acceptable ONLY when the needed info is truly absent AND you add a warning and keep confidence low.",
             "- PRICING: never offer, promise, negotiate, or imply a discount, deal, coupon, or 'special offer'. If a guest asks for a better/lower price, explain the rate shown reflects current dynamic pricing for those dates; do not invent reductions.",
-            "- POLICY EXCEPTIONS: never promise or commit to fee waivers, refunds, cancellations without penalty, rebooking, date changes, early check-in/late check-out, or any exception to policy. Say you'll have the team review the request. For platform cancellations or rebooking (Airbnb/Booking.com/Vrbo), direct the guest to manage it through that platform. Do not state a fee amount that is not in the provided context.",
+            "- POLICY & STANDARD OFFERS: If the context (proven replies, learned answers, listing knowledge/documents) shows how we normally handle something — e.g. early check-in for a stated fee, luggage drop-off, a specific refund/cancellation policy — STATE it the way our team does, noting 'subject to availability/confirmation' where appropriate. Do NOT invent or promise exceptions that are NOT documented (free waivers, discounts, penalty-free cancellations, guaranteed early check-in).",
+            "- NEVER ASSERT AN UNKNOWN POLICY: if the context does not tell you how something is handled, do NOT state a policy either way — never say something is 'not allowed', 'non-refundable', 'no refund', or that a policy is 'unknown'. Instead say the team will confirm the specifics. (Stating a policy the context does not support is the worst kind of error.)",
+            "- For platform cancellations or rebooking (Airbnb/Booking.com/Vrbo), direct the guest to manage it through that platform. Do not state a fee amount that is not in the provided context.",
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
@@ -706,6 +709,7 @@ export class InboxAIService {
             "- If a 'Live availability' section is present, it is real calendar data. You MAY state those specific open dates and nightly prices to the guest and answer availability/extension questions directly — do NOT say 'let me check' or 'I'll get back to you' when this data is present.",
             "- For an extension request, if the relevant night is available, confirm it and its nightly price, then say the team will finalize the booking/charge (you cannot modify the reservation yourself). This does NOT require escalation.",
             "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates.",
+            "- If NO 'Live availability' data is present for an extension/date request, do NOT express eagerness that presumes the night is open (avoid 'we'd love to extend your stay!'). Give a neutral reply that you'll confirm availability, keep confidence <= 0.4, and do not imply the night is likely available.",
             "- Only escalate availability/extension messages when the guest is negotiating price/discounts or the calendar data is absent.",
             "",
             "CONFIDENCE — be honest and well-calibrated (this drives automation decisions):",
@@ -745,8 +749,9 @@ export class InboxAIService {
         const patterns = [
             "availab", "available", "vacan", "open date", "any opening",
             "one more night", "1 more night", "another night", "extra night", "extend", "extension",
-            "stay longer", "add a night", "add another", "additional night",
-            "early check", "late check", "check in early", "check out late", "checkout late",
+            "stay longer", "stay another", "can we stay", "add a night", "add another", "additional night",
+            "extend our stay", "extend my stay", "possible to extend", "one extra", "stay an extra",
+            "early check", "late check", "check in early", "check out late", "checkout late", "arrive early", "get in early",
             "book", "reserve", "free on", "still open", "is it open", "are you open",
             "next weekend", "for the weekend", "any nights", "few more days", "couple more days",
         ];
@@ -900,11 +905,32 @@ export class InboxAIService {
         // reply but must not be quoted to the guest.
         const guestQuery = (targetMessage?.body || conversation.lastMessageText || "").toString();
         if (includeKnowledge) try {
-            const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
-            if (kb) {
-                lines.push("");
-                lines.push("## Listing Knowledge Base");
-                lines.push(kb);
+            let rendered = false;
+            // Prefer semantic KB retrieval (embedding-ranked, group-scoped,
+            // visibility-split) when RAG is enabled and the KB has been indexed.
+            if (ExemplarService.isEnabled() && guestQuery.trim()) {
+                const kbSem = await new RetrievalService().retrieveKb(canonicalListingId, guestQuery, { k: 4 });
+                if (kbSem.external.length) {
+                    lines.push("");
+                    lines.push("## Listing Knowledge Base (you MAY share this with the guest)");
+                    for (const d of kbSem.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                    rendered = true;
+                }
+                if (kbSem.internal.length) {
+                    lines.push("");
+                    lines.push("## Internal knowledge (staff-only — use to inform your reply, do NOT quote verbatim)");
+                    for (const d of kbSem.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                    rendered = true;
+                }
+            }
+            // Fallback to the keyword render path (RAG off, or KB not yet indexed).
+            if (!rendered) {
+                const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
+                if (kb) {
+                    lines.push("");
+                    lines.push("## Listing Knowledge Base");
+                    lines.push(kb);
+                }
             }
         } catch {
             /* non-fatal */

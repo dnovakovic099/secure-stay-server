@@ -256,7 +256,8 @@ export class InboxAIAuditService {
             "so an assistant can answer future guests accurately.",
             "Rules:",
             "- Only extract facts clearly supported by how the TEAM answered guests. Never invent.",
-            "- EXCLUDE anything volatile or sensitive: specific door/lock codes, wifi passwords, exact nightly prices, one-off dates, personal guest data, refund/discount decisions.",
+            "- PRIORITIZE the stable operational policies the team repeats to guests: check-in/checkout times, early check-in / late checkout availability & fee, luggage drop-off, parking, pet policy, quiet hours, and the general cancellation/refund POLICY (the standing rule, e.g. 'no refund for shortened stays'), plus the check-in/access PROCESS (how codes/instructions are sent) WITHOUT the actual code value.",
+            "- EXCLUDE volatile or sensitive specifics: door/lock/gate codes, wifi passwords, exact nightly room rates, one-off dates, personal guest data, and ONE-OFF refund/discount DECISIONS made for a single guest (a standing refund POLICY is fine; a specific 'we refunded you $X' is not). Service fees that are standard and repeated (e.g. early check-in fee, pet fee) ARE allowed.",
             "- Merge duplicates. Prefer the team's own wording for the answer. Keep answers concise.",
             "- If nothing qualifies, return an empty array.",
         ];
@@ -339,6 +340,11 @@ export class InboxAIAuditService {
             });
             await new RetrievalService().embedFacts().catch((e) => {
                 logger.error(`[InboxAIAudit] fact embedding failed: ${e.message}`);
+                return 0;
+            });
+            // Index any new/edited Knowledge Base entries into the semantic store.
+            await new RetrievalService().embedKnowledge().catch((e) => {
+                logger.error(`[InboxAIAudit] KB embedding failed: ${e.message}`);
                 return 0;
             });
         }

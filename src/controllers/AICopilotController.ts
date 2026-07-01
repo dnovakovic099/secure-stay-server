@@ -204,7 +204,8 @@ export class AICopilotController {
             (async () => {
                 const ex = await new ExemplarService().backfillFromHistory({ sinceDays });
                 const facts = await new RetrievalService().embedFacts();
-                console.log("[RAG] backfill done", { ...ex, factVectors: facts });
+                const kb = await new RetrievalService().embedKnowledge();
+                console.log("[RAG] backfill done", { ...ex, factVectors: facts, kbVectors: kb });
             })().catch((e) => console.error("[RAG] backfill failed", e));
             return response.status(202).json({ status: true, message: "RAG backfill started" });
         } catch (error) {

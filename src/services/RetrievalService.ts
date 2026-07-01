@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AIEmbeddingEntity } from "../entity/AIEmbedding";
 import { AILearnedFactEntity } from "../entity/AILearnedFact";
+import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { EmbeddingService } from "./EmbeddingService";
 import { ExemplarService, focusQuery } from "./ExemplarService";
 import { ListingGroupService } from "./ListingGroupService";
@@ -22,6 +23,7 @@ export interface RetrievedFact {
 export class RetrievalService {
     private repo = appDatabase.getRepository(AIEmbeddingEntity);
     private factRepo = appDatabase.getRepository(AILearnedFactEntity);
+    private kbRepo = appDatabase.getRepository(ListingKnowledgeEntryEntity);
     private embed = new EmbeddingService();
     private exemplars = new ExemplarService();
     private groups = new ListingGroupService();
@@ -61,6 +63,95 @@ export class RetrievalService {
         RetrievalService.invalidate();
         logger.info(`[Retrieval] embedded ${n} new fact vectors (of ${facts.length} approved)`);
         return n;
+    }
+
+    /**
+     * Index the per-listing Knowledge Base into the embedding store (kind="kb"),
+     * group-scoped and visibility-aware, so property facts (amenities, bed
+     * configs, house rules, policies) are retrievable semantically instead of by
+     * keyword. Idempotent: skips entries already embedded (keyed on content hash
+     * so edits re-embed). Returns the number of new vectors written.
+     */
+    async embedKnowledge(): Promise<number> {
+        const entries = await this.kbRepo.find({ where: { isArchived: 0 as any } });
+        const existing = new Set(
+            (await this.repo.find({ select: ["dedupKey"], where: { kind: "kb" } })).map((e) => e.dedupKey).filter(Boolean) as string[]
+        );
+        const records: any[] = [];
+        for (const e of entries) {
+            const content = (e.content || "").toString().trim();
+            if (content.length < 3) continue;
+            const title = (e.title || e.category || "").toString().trim();
+            const groupId = (await this.groups.resolve(e.listingId)) ?? e.listingId ?? null;
+            const visibility = e.visibility === "internal" ? "internal" : "external";
+            const chunks = this.chunk(content, 1200, 150);
+            chunks.forEach((c, idx) => {
+                // Short content hash keeps dedup stable but re-embeds on edit.
+                const hash = String(c.length) + "_" + c.slice(0, 24).replace(/\s+/g, "");
+                const dedupKey = `kb|${e.id}|${idx}|${hash}`.slice(0, 200);
+                if (existing.has(dedupKey)) return;
+                records.push({
+                    kind: "kb",
+                    refId: e.id,
+                    listingId: e.listingId ?? null,
+                    groupId,
+                    scope: "property",
+                    text: (title ? `${title}: ${c}` : c).slice(0, 4000),
+                    payload: c.slice(0, 4000),
+                    dedupKey,
+                    visibility,
+                });
+            });
+        }
+        const n = await this.exemplars.embedAndStore(records);
+        RetrievalService.invalidate();
+        logger.info(`[Retrieval] embedded ${n} new KB vectors (of ${entries.length} active entries)`);
+        return n;
+    }
+
+    private chunk(text: string, size: number, overlap: number): string[] {
+        const clean = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+        if (clean.length <= size) return [clean];
+        const out: string[] = [];
+        let i = 0;
+        while (i < clean.length) {
+            out.push(clean.slice(i, i + size));
+            i += size - overlap;
+        }
+        return out.slice(0, 30);
+    }
+
+    /**
+     * Semantic KB retrieval for a query, split by visibility (external =
+     * guest-shareable, internal = staff-only informing the reply).
+     */
+    async retrieveKb(
+        groupId: number | null | undefined,
+        queryText: string,
+        opts: { k?: number; minSim?: number } = {}
+    ): Promise<{ external: { text: string; sim: number }[]; internal: { text: string; sim: number }[] }> {
+        const empty = { external: [], internal: [] };
+        if (!groupId || !queryText?.trim()) return empty;
+        const k = opts.k ?? 4;
+        const minSim = opts.minSim ?? 0.3;
+        const qv = await this.embed.embedOne(focusQuery(queryText));
+        const rows = await this.repo.find({ where: { kind: "kb", groupId: Number(groupId) as any }, take: 4000 });
+        const scored = rows
+            .map((r) => ({ text: r.payload || "", vis: r.visibility || "external", sim: EmbeddingService.cosine(qv, EmbeddingService.parseVector(r.vector) || []) }))
+            .filter((s) => s.text && s.sim >= minSim)
+            .sort((a, b) => b.sim - a.sim);
+        const external: { text: string; sim: number }[] = [];
+        const internal: { text: string; sim: number }[] = [];
+        const seen = new Set<string>();
+        for (const s of scored) {
+            const key = s.text.slice(0, 80);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const bucket = s.vis === "internal" ? internal : external;
+            if (bucket.length < k) bucket.push({ text: s.text, sim: s.sim });
+            if (external.length >= k && internal.length >= k) break;
+        }
+        return { external, internal };
     }
 
     private async getPortfolioFacts() {
