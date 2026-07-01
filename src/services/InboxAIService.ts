@@ -950,6 +950,26 @@ export class InboxAIService {
             /* non-fatal */
         }
 
+        // Uploaded listing documents (house manuals, guides, policy sheets):
+        // retrieve the most relevant chunks, kept separate by visibility so the
+        // model quotes guest-shareable content but only uses internal docs to
+        // inform its reply.
+        if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
+            const docs = await new RetrievalService().retrieveDocs(canonicalListingId, guestQuery, { k: 3 });
+            if (docs.external.length) {
+                lines.push("");
+                lines.push("## Listing documents (guest-shareable — you MAY share this content)");
+                for (const d of docs.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+            }
+            if (docs.internal.length) {
+                lines.push("");
+                lines.push("## Internal listing documents (staff-only — use to inform your reply, do NOT quote verbatim)");
+                for (const d of docs.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
         // Live availability: when the guest is asking about availability / dates /
         // extending their stay, pull the real calendar so the reply can answer
         // directly ("the 5th is open at $220") instead of "we'll check".

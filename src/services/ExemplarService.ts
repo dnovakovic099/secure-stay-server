@@ -300,7 +300,7 @@ export class ExemplarService {
 
     /** Embed a set of records (question/text) in batches and persist. */
     async embedAndStore(
-        records: { kind: string; refId: number | null; listingId: number | null; groupId: number | null; scope: string; text: string; payload: string | null; dedupKey: string }[]
+        records: { kind: string; refId: number | null; listingId: number | null; groupId: number | null; scope: string; text: string; payload: string | null; dedupKey: string; visibility?: string | null }[]
     ): Promise<number> {
         let embedded = 0;
         const BATCH = 96;
@@ -325,6 +325,7 @@ export class ExemplarService {
                     vector: JSON.stringify(vectors[idx]),
                     model: EMBEDDING_MODEL,
                     dedupKey: p.dedupKey,
+                    visibility: p.visibility ?? null,
                 })
             );
             await this.repo.save(entities, { chunk: 50 });

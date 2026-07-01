@@ -112,6 +112,40 @@ export class RetrievalService {
         return out;
     }
 
+    /**
+     * Retrieve relevant uploaded-document chunks for a query, split by
+     * visibility so guest-shareable and staff-only content can be labelled
+     * differently in the prompt.
+     */
+    async retrieveDocs(
+        groupId: number | null | undefined,
+        queryText: string,
+        opts: { k?: number; minSim?: number } = {}
+    ): Promise<{ external: { text: string; sim: number }[]; internal: { text: string; sim: number }[] }> {
+        const empty = { external: [], internal: [] };
+        if (!groupId || !queryText?.trim()) return empty;
+        const k = opts.k ?? 4;
+        const minSim = opts.minSim ?? 0.35;
+        const qv = await this.embed.embedOne(focusQuery(queryText));
+        const rows = await this.repo.find({ where: { kind: "doc", groupId: Number(groupId) as any }, take: 3000 });
+        const scored = rows
+            .map((r) => ({ text: r.payload || "", vis: r.visibility || "internal", sim: EmbeddingService.cosine(qv, EmbeddingService.parseVector(r.vector) || []) }))
+            .filter((s) => s.text && s.sim >= minSim)
+            .sort((a, b) => b.sim - a.sim);
+        const external: { text: string; sim: number }[] = [];
+        const internal: { text: string; sim: number }[] = [];
+        const seen = new Set<string>();
+        for (const s of scored) {
+            const key = s.text.slice(0, 80);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const bucket = s.vis === "external" ? external : internal;
+            if (bucket.length < k) bucket.push({ text: s.text, sim: s.sim });
+            if (external.length >= k && internal.length >= k) break;
+        }
+        return { external, internal };
+    }
+
     /** Render retrieved facts to the prompt block (payload already "Q:..\nA:.."). */
     renderFacts(facts: RetrievedFact[]): string | null {
         if (!facts.length) return null;
