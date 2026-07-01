@@ -44,6 +44,21 @@ export class AIMessagingSettingsEntity {
     @Column({ length: 255, nullable: true })
     autosendChannels: string | null;
 
+    // ---- AI detection of our own Action Items + Guest Issues (dormant) ----
+    @Column({ type: "tinyint", default: 0 })
+    itemDetectionEnabled: number;
+
+    @Column({ type: "text", nullable: true })
+    actionItemRules: string | null;
+
+    @Column({ type: "text", nullable: true })
+    guestIssueRules: string | null;
+
+    // Free-form guidance on how to improve detection/creation quality; fed into
+    // the detection prompt so the team can iteratively tune it.
+    @Column({ type: "text", nullable: true })
+    detectionFeedback: string | null;
+
     @Column({ type: "int", nullable: true })
     updatedByUserId: number | null;
 

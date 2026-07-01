@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { AIMessagingSettingsService } from "../services/AIMessagingSettingsService";
 import { AICopilotService } from "../services/AICopilotService";
 import { InboxAIService } from "../services/InboxAIService";
+import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -49,6 +50,10 @@ export class AICopilotController {
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
                 autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
                 autosendChannels: b.autosendChannels,
+                itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
+                actionItemRules: b.actionItemRules,
+                guestIssueRules: b.guestIssueRules,
+                detectionFeedback: b.detectionFeedback,
                 userId: userId(request.user),
                 userName: userName(request.user),
             });
@@ -76,6 +81,20 @@ export class AICopilotController {
         try {
             const data = await new AICopilotService().metrics({ sinceDays: toNum(request.query.sinceDays) || undefined });
             return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Detected Action Item / Guest Issue proposals (review surface). */
+    async detectedItems(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new InboxItemDetectionService().listProposals({
+                type: (request.query.type as string) || undefined,
+                status: (request.query.status as string) || undefined,
+                limit: toNum(request.query.limit) || undefined,
+            });
+            return response.status(200).json({ status: true, data, enabledByEnv: InboxItemDetectionService.isEnabledByEnv() });
         } catch (error) {
             return next(error);
         }

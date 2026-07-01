@@ -17,4 +17,7 @@ router.get("/suggestions", verifySession, controller.listSuggestions);
 // AI Manager: aggregate response/suggestion metrics.
 router.get("/metrics", verifySession, controller.metrics);
 
+// Detected Action Item / Guest Issue proposals (dormant pipeline review).
+router.get("/detected-items", verifySession, controller.detectedItems);
+
 export default router;
