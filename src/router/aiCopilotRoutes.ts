@@ -28,4 +28,8 @@ router.post("/learned-facts/:id/review", verifySession, controller.reviewLearned
 // On-demand trigger of the nightly self-improvement audit.
 router.post("/audit/run", verifySession, controller.runAudit);
 
+// Seed KB from structured listing data + one-shot full-history learning.
+router.post("/kb/seed-from-listings", verifySession, controller.seedKnowledgeFromListings);
+router.post("/audit/backfill-history", verifySession, controller.backfillHistory);
+
 export default router;
