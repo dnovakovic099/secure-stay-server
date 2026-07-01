@@ -125,7 +125,8 @@ export class RetrievalService {
         const empty = { external: [], internal: [] };
         if (!groupId || !queryText?.trim()) return empty;
         const k = opts.k ?? 4;
-        const minSim = opts.minSim ?? 0.35;
+        // Uploaded docs are authoritative/curated, so favour recall.
+        const minSim = opts.minSim ?? 0.3;
         const qv = await this.embed.embedOne(focusQuery(queryText));
         const rows = await this.repo.find({ where: { kind: "doc", groupId: Number(groupId) as any }, take: 3000 });
         const scored = rows
