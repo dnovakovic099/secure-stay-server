@@ -781,8 +781,9 @@ export class InboxAIService {
         // Property-specific Knowledge Base (staff-maintained on the All Listings
         // page). External entries are guest-shareable; internal entries inform the
         // reply but must not be quoted to the guest.
+        const guestQuery = (targetMessage?.body || conversation.lastMessageText || "").toString();
         try {
-            const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId);
+            const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, { query: guestQuery });
             if (kb) {
                 lines.push("");
                 lines.push("## Listing Knowledge Base");
@@ -796,7 +797,7 @@ export class InboxAIService {
         // approved by staff (per-property + portfolio-wide). These are the bot's
         // accumulated memory that makes it smarter over time.
         try {
-            const learned = await new AILearnedFactsService().renderForBot(conversation.listingId);
+            const learned = await new AILearnedFactsService().renderForBot(conversation.listingId, { query: guestQuery });
             if (learned) {
                 lines.push("");
                 lines.push("## Learned answers (approved — you MAY use these directly)");
