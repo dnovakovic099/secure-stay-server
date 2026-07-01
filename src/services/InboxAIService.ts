@@ -336,7 +336,8 @@ export class InboxAIService {
      */
     async previewSuggestion(
         listingId: number,
-        guestMessage: string
+        guestMessage: string,
+        opts: { grounded?: boolean } = {}
     ): Promise<{ output: ModelOutput; context: string; leaks: string[] }> {
         const listing = await this.listingRepo
             .findOne({ where: { id: Number(listingId) }, withDeleted: true })
@@ -356,7 +357,11 @@ export class InboxAIService {
         }) as InboxMessageEntity;
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
-        const context = await this.buildContext(conversation, [msg], msg);
+        // grounded=false simulates the pre-knowledge bot (no KB / learned facts /
+        // availability) for A/B comparison against the team's real replies.
+        const context = await this.buildContext(conversation, [msg], msg, {
+            includeKnowledge: opts.grounded !== false,
+        });
         const client = this.getClient();
         const completion = await client.chat.completions.create({
             model: INBOX_AI_MODEL,
@@ -736,8 +741,10 @@ export class InboxAIService {
     private async buildContext(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
-        targetMessage: InboxMessageEntity | null
+        targetMessage: InboxMessageEntity | null,
+        opts: { includeKnowledge?: boolean } = {}
     ): Promise<string> {
+        const includeKnowledge = opts.includeKnowledge !== false;
         const lines: string[] = [];
         lines.push("## Conversation context");
         lines.push(`Channel: ${conversation.channel || "unknown"}`);
@@ -782,7 +789,7 @@ export class InboxAIService {
         // page). External entries are guest-shareable; internal entries inform the
         // reply but must not be quoted to the guest.
         const guestQuery = (targetMessage?.body || conversation.lastMessageText || "").toString();
-        try {
+        if (includeKnowledge) try {
             const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, { query: guestQuery });
             if (kb) {
                 lines.push("");
@@ -796,7 +803,7 @@ export class InboxAIService {
         // Learned answers: frequently-asked facts the team has answered before,
         // approved by staff (per-property + portfolio-wide). These are the bot's
         // accumulated memory that makes it smarter over time.
-        try {
+        if (includeKnowledge) try {
             const learned = await new AILearnedFactsService().renderForBot(conversation.listingId, { query: guestQuery });
             if (learned) {
                 lines.push("");
@@ -810,7 +817,7 @@ export class InboxAIService {
         // Live availability: when the guest is asking about availability / dates /
         // extending their stay, pull the real calendar so the reply can answer
         // directly ("the 5th is open at $220") instead of "we'll check".
-        try {
+        if (includeKnowledge) try {
             const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
             if (conversation.listingId && this.detectAvailabilityIntent(guestText)) {
                 const avail = await this.buildAvailabilityBlock(conversation);
