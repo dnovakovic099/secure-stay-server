@@ -15,6 +15,7 @@ import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ListingGroupService } from "./ListingGroupService";
 import { ExemplarService } from "./ExemplarService";
+import { RetrievalService } from "./RetrievalService";
 import { Hostify } from "../client/Hostify";
 
 /**
@@ -693,6 +694,8 @@ export class InboxAIService {
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
             "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
+            "- Answer DIRECTLY and confidently when the context (proven replies, learned answers, listing knowledge, availability, reservation details) already contains the answer. Do NOT default to 'the team will confirm' for information you already have — only defer for things genuinely not in context.",
+            "- PRICING: never offer, promise, negotiate, or imply a discount, deal, coupon, or 'special offer'. If a guest asks for a better/lower price, explain the rate shown reflects current dynamic pricing for those dates; do not invent reductions.",
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
@@ -910,7 +913,15 @@ export class InboxAIService {
         // approved by staff (per-property + portfolio-wide). These are the bot's
         // accumulated memory that makes it smarter over time.
         if (includeKnowledge) try {
-            const learned = await new AILearnedFactsService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
+            let learned: string | null = null;
+            if (ExemplarService.isEnabled() && guestQuery.trim()) {
+                // Semantic fact retrieval — paraphrase-robust, ranked by meaning.
+                const facts = await new RetrievalService().retrieveFacts(canonicalListingId, guestQuery, { k: 6 });
+                learned = new RetrievalService().renderFacts(facts);
+            }
+            if (!learned) {
+                learned = await new AILearnedFactsService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
+            }
             if (learned) {
                 lines.push("");
                 lines.push("## Learned answers (approved — you MAY use these directly)");
