@@ -207,6 +207,22 @@ export class ListingKnowledgeSeeder {
                 if (qf && qt) rules.push(`Quiet hours: ${qf} to ${qt}.`);
                 if (rules.length) push({ title: "House rules", category: "Rules", visibility: "external", content: rules.join(" ") });
 
+                // Fees fallback: our listing_info.cleaningFee is often 0 while the
+                // Hostify listing detail carries the real fees. Fees are a top guest
+                // question, so backfill from Hostify when we produced no Fees entry.
+                const cur = li.currency || l.currencyCode || "USD";
+                if (!entries.some((e) => e.title === "Fees")) {
+                    const f: string[] = [];
+                    if (Number(li.cleaning_fee) > 0) f.push(`Cleaning fee: ${cur} ${li.cleaning_fee}.`);
+                    if (Number(li.pets_fee) > 0) f.push(`Pet fee: ${cur} ${li.pets_fee}.`);
+                    if (Number(li.extra_person) > 0) f.push(`Extra guest fee: ${cur} ${li.extra_person}/person.`);
+                    if (f.length) push({ title: "Fees", category: "Pricing", visibility: "external", content: f.join(" ") });
+                }
+                // Security deposit is staff-only: "deposit" always routes to a human,
+                // so the bot should be informed but never quote the amount.
+                if (Number(li.security_deposit) > 0)
+                    push({ title: "Security deposit (staff only)", category: "Pricing", visibility: "internal", content: `Refundable security deposit on file: ${cur} ${li.security_deposit}.` });
+
                 // Beds / area augmentation.
                 const extra: string[] = [];
                 if (li.beds != null && Number(li.beds) > 0) extra.push(`${li.beds} bed(s).`);
