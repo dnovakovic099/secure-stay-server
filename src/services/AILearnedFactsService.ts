@@ -107,47 +107,114 @@ export class AILearnedFactsService {
 
     /**
      * Approved facts for a listing PLUS all approved portfolio-wide facts,
-     * rendered compactly for the bot. Returns null when there's nothing.
+     * rendered compactly for the bot.
+     *
+     * Query-aware + deduped: facts are scored by overlap with the guest's
+     * question (falling back to frequency) so the most relevant answers survive
+     * the size budget, and near-duplicate facts (the auto-extractor produces some,
+     * e.g. "parking" + "parking-multiple") are collapsed. Returns null when empty.
      */
-    async renderForBot(listingId: number | null | undefined, maxChars = 3000): Promise<string | null> {
+    async renderForBot(
+        listingId: number | null | undefined,
+        opts: { query?: string; maxChars?: number } | number = {}
+    ): Promise<string | null> {
+        const o = typeof opts === "number" ? { maxChars: opts } : opts;
+        const maxChars = o.maxChars ?? 3500;
+        const qTokens = tokenizeFacts(o.query);
         try {
             const [property, portfolio] = await Promise.all([
                 listingId
                     ? this.repo.find({
                           where: { status: "approved", scope: "property", listingId: Number(listingId) as any },
                           order: { frequency: "DESC" },
-                          take: 40,
+                          take: 200,
                       })
                     : Promise.resolve([] as AILearnedFactEntity[]),
                 this.repo.find({
                     where: { status: "approved", scope: "portfolio" },
                     order: { frequency: "DESC" },
-                    take: 40,
+                    take: 100,
                 }),
             ]);
 
             if (!property.length && !portfolio.length) return null;
+
+            const score = (f: AILearnedFactEntity) => {
+                const hay = `${f.question || ""} ${f.topic || ""} ${f.answer || ""}`.toLowerCase();
+                let rel = 0;
+                for (const t of qTokens) if (hay.includes(t)) rel += 1;
+                const freqBonus = Math.min(3, Number(f.frequency) || 1);
+                return rel * 10 + freqBonus;
+            };
+            // Dedup near-identical facts by normalized answer prefix.
+            const dedup = (list: AILearnedFactEntity[]) => {
+                const seen = new Set<string>();
+                const out: AILearnedFactEntity[] = [];
+                for (const f of list) {
+                    const key = (f.answer || f.topic || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 60);
+                    if (!key || seen.has(key)) continue;
+                    seen.add(key);
+                    out.push(f);
+                }
+                return out;
+            };
+            const rank = (list: AILearnedFactEntity[]) =>
+                dedup(list.map((f) => ({ f, s: score(f) })).sort((a, b) => b.s - a.s).map((x) => x.f));
+
+            const rankedProperty = rank(property);
+            const rankedPortfolio = rank(portfolio);
+
             const lines: string[] = [];
+            let used = 0;
             const fmt = (f: AILearnedFactEntity) => {
                 const q = (f.question || f.topic || "").replace(/\s+/g, " ").trim();
                 const a = (f.answer || "").replace(/\s+/g, " ").trim();
                 return `- Q: ${q}\n  A: ${a}`;
             };
-            if (property.length) {
-                lines.push("PROPERTY-SPECIFIC learned answers (guest-shareable):");
-                for (const f of property) lines.push(fmt(f));
-            }
-            if (portfolio.length) {
-                if (lines.length) lines.push("");
-                lines.push("PORTFOLIO-WIDE learned answers (apply to all properties, guest-shareable):");
-                for (const f of portfolio) lines.push(fmt(f));
-            }
-            let out = lines.join("\n");
-            if (out.length > maxChars) out = out.slice(0, maxChars) + " …[truncated]";
-            return out;
+            const addSection = (header: string, list: AILearnedFactEntity[], budget: number) => {
+                if (!list.length) return;
+                const start = lines.length;
+                let sectionUsed = 0;
+                for (const f of list) {
+                    const block = fmt(f);
+                    if (sectionUsed + block.length > budget) break;
+                    lines.push(block);
+                    sectionUsed += block.length + 1;
+                    used += block.length + 1;
+                }
+                if (lines.length > start) lines.splice(start, 0, header);
+            };
+
+            addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedProperty, Math.floor(maxChars * 0.7));
+            if (lines.length) lines.push("");
+            addSection(
+                "PORTFOLIO-WIDE learned answers (apply to all properties, guest-shareable):",
+                rankedPortfolio,
+                Math.max(0, maxChars - used)
+            );
+
+            const out = lines.join("\n").trim();
+            return out || null;
         } catch (err: any) {
             logger.error(`[AILearnedFacts] renderForBot failed: ${err.message}`);
             return null;
         }
     }
+}
+
+function tokenizeFacts(text?: string | null): string[] {
+    const stop = new Set([
+        "the", "and", "for", "are", "you", "your", "can", "with", "have", "has", "how", "what", "where", "when",
+        "does", "did", "is", "it", "a", "an", "to", "of", "in", "on", "at", "we", "our", "my", "i", "do", "there",
+        "any", "get", "this", "that", "whats", "im", "me", "please", "would", "could", "about",
+    ]);
+    return Array.from(
+        new Set(
+            String(text || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, " ")
+                .split(/\s+/)
+                .filter((w) => w.length >= 3 && !stop.has(w))
+        )
+    );
 }
