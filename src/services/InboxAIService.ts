@@ -11,6 +11,7 @@ import { InboxService } from "./InboxService";
 import { ListingKnowledgeService } from "./ListingKnowledgeService";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
+import { Hostify } from "../client/Hostify";
 
 /**
  * InboxAIService
@@ -77,6 +78,11 @@ export class InboxAIService {
     private listingRepo = appDatabase.getRepository(Listing);
     private suggestionRepo = appDatabase.getRepository(AIMessageSuggestionEntity);
     private feedbackRepo = appDatabase.getRepository(AIMessageFeedbackEntity);
+    private hostify = new Hostify();
+
+    private get hostifyApiKey(): string {
+        return process.env.HOSTIFY_API_KEY as string;
+    }
 
     /** Feature flag. Defaults OFF unless explicitly enabled. */
     static isEnabled(): boolean {
@@ -536,6 +542,12 @@ export class InboxAIService {
             "- Prefer the property's documented house rules / check-in info when present in context.",
             "- Reply in the same language the guest used.",
             "",
+            "AVAILABILITY / EXTENSIONS:",
+            "- If a 'Live availability' section is present, it is real calendar data. You MAY state those specific open dates and nightly prices to the guest and answer availability/extension questions directly — do NOT say 'let me check' or 'I'll get back to you' when this data is present.",
+            "- For an extension request, if the relevant night is available, confirm it and its nightly price, then say the team will finalize the booking/charge (you cannot modify the reservation yourself). This does NOT require escalation.",
+            "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates.",
+            "- Only escalate availability/extension messages when the guest is negotiating price/discounts or the calendar data is absent.",
+            "",
             "CONFIDENCE — be honest and well-calibrated (this drives automation decisions):",
             "- Use > 0.9 ONLY when every fact needed is present in context and the reply requires no assumptions.",
             "- If you added ANY warning or are missing information, confidence MUST be <= 0.6.",
@@ -561,6 +573,104 @@ export class InboxAIService {
             "}",
             "Do not include any text outside the JSON. Do not expose hidden chain-of-thought; keep internal_summary brief.",
         ].join("\n");
+    }
+
+    /**
+     * Heuristic: does the guest message concern availability / dates / extending
+     * a stay / booking additional nights? Kept broad but cheap (no model call).
+     */
+    private detectAvailabilityIntent(text: string): boolean {
+        const t = (text || "").toLowerCase();
+        if (!t) return false;
+        const patterns = [
+            "availab", "available", "vacan", "open date", "any opening",
+            "one more night", "1 more night", "another night", "extra night", "extend", "extension",
+            "stay longer", "add a night", "add another", "additional night",
+            "early check", "late check", "check in early", "check out late", "checkout late",
+            "book", "reserve", "free on", "still open", "is it open", "are you open",
+            "next weekend", "for the weekend", "any nights", "few more days", "couple more days",
+        ];
+        return patterns.some((p) => t.includes(p));
+    }
+
+    /**
+     * Fetch the live Hostify calendar for the conversation's listing and render a
+     * compact availability summary the model can quote. Window: from today (or
+     * check-in, whichever is earlier-relevant) through ~45 days out; when we know
+     * the checkout date we specifically flag the nights right after it (the exact
+     * dates an extension request is about).
+     */
+    private async buildAvailabilityBlock(conversation: InboxConversationEntity): Promise<string | null> {
+        if (!conversation.listingId || !this.hostifyApiKey) return null;
+
+        const toKey = (d: Date) => d.toISOString().slice(0, 10);
+        const today = new Date();
+        const start = new Date(today);
+        // If they already have a stay, anchor the window near it so extension math lines up.
+        if (conversation.checkout) {
+            const co = new Date(conversation.checkout as any);
+            if (!isNaN(co.getTime()) && co > start) {
+                // keep `start` at today so we also cover "can we come earlier" cases
+            }
+        }
+        const end = new Date(start);
+        end.setDate(end.getDate() + 45);
+
+        let days;
+        try {
+            days = await this.hostify.getCalendar(this.hostifyApiKey, Number(conversation.listingId), toKey(start), toKey(end));
+        } catch {
+            return null;
+        }
+        if (!days || days.length === 0) return null;
+
+        const isAvailable = (d: any) => String(d?.status || "").toLowerCase() === "available";
+        const currency = (days.find((d: any) => d?.currency)?.currency) || conversation.currency || "USD";
+
+        // Collapse consecutive available days into ranges for a tight summary.
+        const ranges: Array<{ from: string; to: string; price: number }> = [];
+        for (const d of days) {
+            if (!isAvailable(d)) continue;
+            const last = ranges[ranges.length - 1];
+            const prevDate = last ? new Date(last.to) : null;
+            const thisDate = new Date(d.date);
+            const contiguous =
+                last && prevDate && (thisDate.getTime() - prevDate.getTime()) === 86400000;
+            if (contiguous) {
+                last!.to = d.date;
+            } else {
+                ranges.push({ from: d.date, to: d.date, price: Number(d.price) || 0 });
+            }
+        }
+
+        const out: string[] = [];
+        if (ranges.length === 0) {
+            out.push("No open nights in the next 45 days — the calendar is fully booked/blocked.");
+        } else {
+            out.push("Open date ranges (next 45 days):");
+            for (const r of ranges.slice(0, 12)) {
+                const label = r.from === r.to ? r.from : `${r.from} → ${r.to}`;
+                out.push(`- ${label}${r.price ? ` (~${currency} ${r.price}/night)` : ""}`);
+            }
+        }
+
+        // Extension-specific: is the night immediately after checkout open?
+        if (conversation.checkout) {
+            const co = new Date(conversation.checkout as any);
+            if (!isNaN(co.getTime())) {
+                const nextNightKey = toKey(co);
+                const day = days.find((d: any) => String(d.date).slice(0, 10) === nextNightKey);
+                if (day) {
+                    out.push(
+                        isAvailable(day)
+                            ? `Extension check: the night of ${nextNightKey} (right after current checkout) IS available${day.price ? ` at ~${currency} ${Number(day.price)}/night` : ""}.`
+                            : `Extension check: the night of ${nextNightKey} (right after current checkout) is NOT available.`
+                    );
+                }
+            }
+        }
+
+        return out.join("\n");
     }
 
     /** Build the user-message context block from conversation + reservation + listing. */
@@ -607,6 +717,23 @@ export class InboxAIService {
                 lines.push("");
                 lines.push("## Listing Knowledge Base");
                 lines.push(kb);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Live availability: when the guest is asking about availability / dates /
+        // extending their stay, pull the real calendar so the reply can answer
+        // directly ("the 5th is open at $220") instead of "we'll check".
+        try {
+            const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
+            if (conversation.listingId && this.detectAvailabilityIntent(guestText)) {
+                const avail = await this.buildAvailabilityBlock(conversation);
+                if (avail) {
+                    lines.push("");
+                    lines.push("## Live availability (from the calendar — you MAY state these facts to the guest)");
+                    lines.push(avail);
+                }
             }
         } catch {
             /* non-fatal */
