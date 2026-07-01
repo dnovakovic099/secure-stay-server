@@ -17,6 +17,7 @@ import { MessagingService } from "../services/MessagingServices";
 import { GuestCommunicationService } from "../services/GuestCommunicationService";
 import { InboxService } from "../services/InboxService";
 import { InboxAIService } from "../services/InboxAIService";
+import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
 import { ZapierWebhookService } from "../services/ZapierWebhookService";
 import { buildZapierEventStatusUpdateMessage, buildZapierStatusChangeThreadMessage } from "../utils/slackMessageBuilder";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
@@ -684,6 +685,27 @@ export class UnifiedWebhookController {
                                         })
                                         .catch((e: any) =>
                                             logger.error(`[handleHostifyWebhook] AI auto-respond error: ${e?.message}`)
+                                        );
+                                }
+
+                                // DORMANT: detect our own Action Items / Guest Issues from the
+                                // guest message. Env-gated (AI_ITEM_DETECTION_ENABLED, default off)
+                                // so this is a true no-op until we switch it on; even then it only
+                                // writes proposals to ai_detected_items. Fire-and-forget.
+                                if (
+                                    InboxItemDetectionService.isEnabledByEnv() &&
+                                    payload.is_incoming === 1 &&
+                                    payload.is_automatic === 0
+                                ) {
+                                    new InboxItemDetectionService()
+                                        .detectForThread(Number(payload.thread_id), Number(payload.message_id))
+                                        .then((r) => {
+                                            if (r.detected > 0) {
+                                                logger.info(`[handleHostifyWebhook] AI detected ${r.detected} item(s) for thread ${payload.thread_id}`);
+                                            }
+                                        })
+                                        .catch((e: any) =>
+                                            logger.error(`[handleHostifyWebhook] AI item detection error: ${e?.message}`)
                                         );
                                 }
                             }
