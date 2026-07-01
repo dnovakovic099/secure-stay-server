@@ -665,11 +665,13 @@ export class UnifiedWebhookController {
                                 }
 
                                 // AI response bot: consider auto-replying to inbound guest
-                                // messages. Self-gates on AI_MESSAGING_AUTOSEND_ENABLED and
+                                // messages. maybeAutoRespond self-gates on the DB
+                                // auto-respond toggle (AI Copilot Settings) plus the
+                                // AI_MESSAGING_AUTOSEND_ENABLED env kill-switch, and
                                 // applies strict guardrails; fire-and-forget so we never
                                 // delay the webhook ack.
                                 if (
-                                    InboxAIService.isAutosendEnabled() &&
+                                    InboxAIService.isEnabled() &&
                                     payload.is_incoming === 1 &&
                                     payload.is_automatic === 0
                                 ) {
