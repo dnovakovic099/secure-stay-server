@@ -51,6 +51,19 @@ export class ListingKnowledgeSeeder {
         return String(s ?? "").replace(/\s+/g, " ").trim();
     }
 
+    /**
+     * Hostify/our DB use parenthesized placeholders like "(NOT SPECIFIED)",
+     * "(NO WIFI)", "(NO PASSWORD)" for empty fields. Treat those (and common
+     * "n/a"/"none") as blank so we never assert a false fact (e.g. "WiFi is
+     * available") for a property that doesn't have it.
+     */
+    private isBlank(v: any): boolean {
+        const s = this.clean(v).toLowerCase();
+        if (!s) return true;
+        if (/^\(.*\)$/.test(s)) return true; // (NO WIFI), (NOT SPECIFIED), ...
+        return ["n/a", "na", "none", "null", "undefined", "not specified", "no wifi", "no password"].includes(s);
+    }
+
     async seedAll(opts: { fetchHostify?: boolean; limit?: number } = {}): Promise<{ listings: number; entries: number }> {
         const fetchHostify = opts.fetchHostify !== false;
         const listings = await this.listingRepo.find({ take: opts.limit ?? 5000 });
@@ -62,6 +75,7 @@ export class ListingKnowledgeSeeder {
                 for (const e of entries) {
                     if (await this.upsert(Number(l.id), e)) entryCount++;
                 }
+                await this.reconcile(Number(l.id), entries.map((e) => e.title));
                 if (entries.length) listingCount++;
             } catch (err: any) {
                 logger.warn(`[KBSeeder] listing ${l.id} failed: ${err.message}`);
@@ -77,7 +91,19 @@ export class ListingKnowledgeSeeder {
         const entries = await this.buildEntries(l, fetchHostify);
         let n = 0;
         for (const e of entries) if (await this.upsert(listingId, e)) n++;
+        await this.reconcile(listingId, entries.map((e) => e.title));
         return n;
+    }
+
+    /** Archive any auto-imported entries that are no longer valid for this listing. */
+    private async reconcile(listingId: number, desiredTitles: string[]) {
+        const existing = await this.kbRepo.find({ where: { listingId: listingId as any, source: SOURCE, isArchived: 0 } });
+        const keep = new Set(desiredTitles);
+        const stale = existing.filter((e) => e.title && !keep.has(e.title));
+        for (const s of stale) {
+            s.isArchived = 1;
+            await this.kbRepo.save(s);
+        }
     }
 
     private async buildEntries(l: Listing, fetchHostify: boolean): Promise<SeedEntry[]> {
@@ -96,7 +122,8 @@ export class ListingKnowledgeSeeder {
         push({ title: "Property overview", category: "Overview", visibility: "external", content: overview.join(" ") });
 
         // Description (public listing copy)
-        push({ title: "Listing description", category: "Overview", visibility: "external", content: this.clean(l.description).slice(0, 4000) });
+        if (!this.isBlank(l.description))
+            push({ title: "Listing description", category: "Overview", visibility: "external", content: this.clean(l.description).slice(0, 4000) });
 
         // Check-in / check-out
         const ci = this.fmtHour(l.checkInTimeStart);
@@ -108,12 +135,14 @@ export class ListingKnowledgeSeeder {
         if (l.timeZoneName) times.push(`Local time zone: ${l.timeZoneName}.`);
         push({ title: "Check-in / check-out times", category: "Check-in", visibility: "external", content: times.join(" ") });
 
-        // WiFi — availability external, credentials internal
-        if (l.wifiUsername || l.wifiPassword) {
+        // WiFi — availability external, credentials internal (only if real values)
+        const hasWifiUser = !this.isBlank(l.wifiUsername);
+        const hasWifiPass = !this.isBlank(l.wifiPassword);
+        if (hasWifiUser || hasWifiPass) {
             push({ title: "WiFi availability", category: "Amenities", visibility: "external", content: "WiFi is available at this property. Network details are shared with confirmed guests before or at check-in." });
             const cred: string[] = [];
-            if (l.wifiUsername) cred.push(`Network: ${l.wifiUsername}`);
-            if (l.wifiPassword) cred.push(`Password: ${l.wifiPassword}`);
+            if (hasWifiUser) cred.push(`Network: ${this.clean(l.wifiUsername)}`);
+            if (hasWifiPass) cred.push(`Password: ${this.clean(l.wifiPassword)}`);
             push({ title: "WiFi credentials (staff only)", category: "Amenities", visibility: "internal", content: cred.join(" | ") });
         }
 
@@ -138,7 +167,8 @@ export class ListingKnowledgeSeeder {
         if (l.state) loc.push(l.state);
         if (l.country) loc.push(l.country);
         push({ title: "General location", category: "Location", visibility: "external", content: loc.length ? `Located in ${loc.join(", ")}.` : "" });
-        push({ title: "Full address (staff only)", category: "Location", visibility: "internal", content: this.clean(l.address || l.street) });
+        const addr = !this.isBlank(l.address) ? l.address : !this.isBlank(l.street) ? l.street : "";
+        push({ title: "Full address (staff only)", category: "Location", visibility: "internal", content: this.clean(addr) });
 
         // Sensitive staff-only
         if (l.propertyLicenseNumber) push({ title: "Property license (staff only)", category: "Compliance", visibility: "internal", content: `License #: ${l.propertyLicenseNumber}` });
