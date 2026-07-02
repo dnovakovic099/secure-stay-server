@@ -9,7 +9,8 @@ interface CustomRequest extends Request {
 interface TokenPayload extends JwtPayload {
     userId: string;
     email: string;
-    fullname: string;
+    fullname?: string;
+    name?: string;
 }
 
 const verifyMobileSession = async (
