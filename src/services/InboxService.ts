@@ -191,6 +191,25 @@ export class InboxService {
                     if (conversation.price == null) conversation.price = toNumberOrNull(r.price ?? r.total_price);
                     conversation.currency = conversation.currency || r.currency || null;
                     conversation.listingId = conversation.listingId ?? toNumberOrNull(r.listing_id);
+                    conversation.guestId = conversation.guestId ?? toNumberOrNull(r.guest_id);
+                }
+            }
+
+            // Guest name/contact usually lives ONLY on the Hostify guest record.
+            // Reservations and thread summaries carry a guest_id but no name —
+            // especially for new/manual bookings we message first (which is why
+            // those threads show "Unknown guest"). Resolve it explicitly.
+            if (conversation.guestId && (!conversation.guestName || !conversation.guestPhone || !conversation.guestEmail)) {
+                const guest: any = await this.hostify.getGuest(this.apiKey, conversation.guestId);
+                if (guest) {
+                    const fullName =
+                        guest.name ||
+                        [guest.first_name, guest.last_name].filter(Boolean).join(" ").trim() ||
+                        null;
+                    conversation.guestName = conversation.guestName || fullName || null;
+                    conversation.guestPhone = conversation.guestPhone || (guest.phone != null ? String(guest.phone) : null);
+                    conversation.guestEmail = conversation.guestEmail || guest.email || null;
+                    conversation.guestThumb = conversation.guestThumb || guest.picture || guest.thumbnail_url || null;
                 }
             }
 
@@ -522,6 +541,20 @@ export class InboxService {
     async getConversation(threadId: number) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) return null;
+
+        // Backfill guest identity on open for older threads created before we
+        // resolved guest names from the Hostify guest record (e.g. reservations
+        // we messaged first, which otherwise stay "Unknown guest"). One-time:
+        // once the name is saved, subsequent opens skip this.
+        if (!conversation.guestName) {
+            try {
+                await this.enrichConversation(conversation);
+                await this.hydrateFromHostifyReservation(conversation);
+                await this.conversationRepo.save(conversation);
+            } catch (err: any) {
+                logger.warn(`[InboxService] getConversation guest backfill failed for thread ${threadId}: ${err.message}`);
+            }
+        }
 
         const messages = await this.messageRepo.find({
             where: { threadId },

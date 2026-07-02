@@ -274,6 +274,27 @@ export class Hostify {
         }
     }
 
+    /**
+     * Fetch a single guest record by id. New/manual reservations (and threads we
+     * message first) carry only a `guest_id` — the guest's name, email and phone
+     * live on this record, not on the reservation or thread summary.
+     */
+    async getGuest(apiKey: string, guestId: number | string) {
+        try {
+            const url = `https://api-rms.hostify.com/guests/${guestId}`;
+            const response = await axios.get(url, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Cache-Control": "no-cache",
+                },
+            });
+            return response.data?.guest || response.data?.data || null;
+        } catch (error) {
+            logger.error(`Error fetching guest ${guestId}:`, error.message);
+            return null;
+        }
+    }
+
     async getReservationCustomFields(apiKey: string, reservationId: number) {
         try {
             const url = `https://api-rms.hostify.com/reservations/custom_fields/${reservationId}`;

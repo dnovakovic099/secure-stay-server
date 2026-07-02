@@ -1186,6 +1186,26 @@ export class MessagingService {
 
         const liveReservation = hostifyReservation?.reservation || {};
         const liveListing = hostifyReservation?.listing || {};
+
+        // Guest name/email/phone usually live only on the Hostify guest record
+        // (reservations carry a guest_id, not a name — notably new/manual
+        // bookings we message first). Resolve it when the local row is missing it.
+        let guestRecord: any = null;
+        const guestId = liveReservation?.guest_id ?? (reservation as any).guestId ?? null;
+        if (guestId && (!reservation.guestName || !reservation.phone || !reservation.guestEmail)) {
+            try {
+                guestRecord = await this.hostifyClient.getGuest(process.env.HOSTIFY_API_KEY, guestId);
+            } catch (error: any) {
+                logger.warn(`[Hostify] Unable to resolve guest ${guestId} for reservation ${reservationId}: ${error.message}`);
+            }
+        }
+        const resolvedGuestName =
+            reservation.guestName ||
+            guestRecord?.name ||
+            [guestRecord?.first_name, guestRecord?.last_name].filter(Boolean).join(" ").trim() ||
+            liveReservation?.guest_name ||
+            null;
+        const resolvedGuestEmail = reservation.guestEmail || guestRecord?.email || liveReservation?.guest_email || null;
         const normalizedListing = listing
             ? (this.listingService as any).normalizeListingOverview?.(listing) || null
             : null;
@@ -1227,6 +1247,7 @@ export class MessagingService {
 
         const phones = [
             reservation.phone,
+            guestRecord?.phone,
             liveReservation?.phone,
             liveReservation?.guest?.phone,
             hostifyReservation?.guest?.phone,
@@ -1238,13 +1259,15 @@ export class MessagingService {
 
         return {
             ...reservation,
+            guestName: resolvedGuestName,
+            guestEmail: resolvedGuestEmail,
             listingName: listing?.internalListingName || reservation.listingName || listing?.name || null,
             propertyType: this.normalizePropertyTypeValue(listing),
             serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             portfolio: this.normalizePortfolioValue(listing),
             status: liveReservation?.status_description || liveReservation?.status || reservation.status || null,
             stayTiming: this.getStayTiming(reservation.arrivalDate || liveReservation?.checkIn, reservation.departureDate || liveReservation?.checkOut, timeZoneIdentifier),
-            guestPicture: reservation.guestPicture || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
+            guestPicture: reservation.guestPicture || guestRecord?.picture || guestRecord?.thumbnail_url || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
             phones,
             hostNote,
             cleaningNote: cleaningNote ?? null,
