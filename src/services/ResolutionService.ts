@@ -498,13 +498,21 @@ export class ResolutionService {
         }
     }
 
-    async processCSVData(filePath: string): Promise<CsvRow[]> {
+    async processCSVData(filePath: string, fromDate?: string, toDate?: string): Promise<CsvRow[]> {
         const allowedTypes = [
             "Resolution Adjustment",
             "Resolution Payout",
             "Cancellation Fee",
             "Cancellation Fee Refund",
         ];
+
+        const hasCustomRange = Boolean(fromDate && toDate);
+        let fallbackFromDate = "";
+        if (!hasCustomRange) {
+            const date30DaysAgo = new Date();
+            date30DaysAgo.setDate(date30DaysAgo.getDate() - 30);
+            fallbackFromDate = format(date30DaysAgo, "yyyy-MM-dd");
+        }
 
         return new Promise((resolve, reject) => {
             const results: CsvRow[] = [];
@@ -535,14 +543,11 @@ export class ResolutionService {
                         // format to yyyy-MM-dd for comparison
                         const formattedDate = format(parsedDate, "yyyy-MM-dd");
 
-                        const startDate = "2025-09-01";
-
-                        //get 30 days back date from current date
-                        const date30DaysAgo = new Date();
-                        date30DaysAgo.setDate(date30DaysAgo.getDate() - 30);
-                        const past30Date = format(date30DaysAgo, "yyyy-MM-dd");
-
-                        if (formattedDate >= past30Date) {
+                        if (hasCustomRange) {
+                            if (formattedDate >= fromDate! && formattedDate <= toDate!) {
+                                results.push(data);
+                            }
+                        } else if (formattedDate >= fallbackFromDate) {
                             results.push(data);
                         }
                     } catch (err) {
@@ -570,6 +575,12 @@ export class ResolutionService {
             fs.unlinkSync(filePath); // Delete the file after processing
             return { successfullyProcessedData, failedToProcessData };
         }
+
+        // Per-reservation DB snapshot plus a set of consumed IDs. Each earlier CSV
+        // row that matches a DB entry consumes it, so identical duplicate CSV rows
+        // can no longer collapse against a single DB row.
+        const snapshotByReservation = new Map<number, Resolution[]>();
+        const consumedByReservation = new Map<number, Set<number>>();
 
         for (const row of filteredRows) {
             const confirmationCode = row["Confirmation code"]?.trim();
@@ -608,30 +619,51 @@ export class ResolutionService {
                 continue;
             }
 
+            if (!snapshotByReservation.has(reservation.id)) {
+                const existing = await this.getResolutionsByReservationId(reservation.id);
+                snapshotByReservation.set(reservation.id, existing);
+                consumedByReservation.set(reservation.id, new Set<number>());
+            }
+            const existingResolutions = snapshotByReservation.get(reservation.id)!;
+            const consumed = consumedByReservation.get(reservation.id)!;
+
+            const rowAmount = Number(row.Amount);
+            const rowType = row.Type;
+
+            // Strict identity: amount + type + claimDate, with consumption so
+            // duplicates on the same date are handled by cardinality and rows
+            // on different dates are always treated as distinct events.
+            const duplicateMatch = claimDate
+                ? existingResolutions.find(res =>
+                    !consumed.has(res.id) &&
+                    res.amount == rowAmount &&
+                    (res.type == rowType || res.description == rowType) &&
+                    res.claimDate == claimDate
+                )
+                : undefined;
+
+            if (duplicateMatch) {
+                consumed.add(duplicateMatch.id);
+                logger.warn(`Skipping duplicate resolution for reservation ID ${reservation.id} with amount ${row.Amount}, type ${row.Type}, date ${claimDate}`);
+                continue;
+            }
+
             const resolutionData: ResolutionData = {
                 category: CategoryKey.RESOLUTION,
                 type: row.Type,
-                listingMapId: reservation.listingMapId, 
-                reservationId: reservation.id, 
+                listingMapId: reservation.listingMapId,
+                reservationId: reservation.id,
                 guestName: reservation.guestName,
                 claimDate: claimDate ? claimDate : format(new Date(), "yyyy-MM-dd"),
-                amount: Number(row.Amount), 
+                amount: rowAmount,
                 arrivalDate: String(reservation.arrivalDate),
                 departureDate: String(reservation.departureDate),
                 creationSource: "csv_upload"
             };
 
             let cancellationFeeInfo = null;
-            const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
-            const hasExistingResolution = existingResolutions.some(res => (res.amount == Number(row.Amount) && (res.type == row.Type || res.description == row.Type)));
-            if (hasExistingResolution) {
-                // failedToProcessData.push(row);
-                logger.warn(`Skipping duplicate resolution for reservation ID ${reservation.id} with amount ${row.Amount} and type ${row.Type}`);
-                continue;
-            }
-
             if (row.Type === "Cancellation Fee Refund") {
-                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(Number(row.Amount)) && (res.type == "Cancellation Fee" || res.description =="Cancellation Fee")));
+                cancellationFeeInfo = existingResolutions.filter(res => (Math.abs(res.amount) == Math.abs(rowAmount) && (res.type == "Cancellation Fee" || res.description =="Cancellation Fee")));
             }
 
             const resolution = await this.createResolution(resolutionData, userId);
@@ -648,8 +680,8 @@ export class ResolutionService {
         return { successfullyProcessedData, failedToProcessData };
     }
 
-    async checkCSVFileForMissingResolutions(filePath: string) {
-        const filteredRows = await this.processCSVData(filePath);
+    async checkCSVFileForMissingResolutions(filePath: string, fromDate?: string, toDate?: string) {
+        const filteredRows = await this.processCSVData(filePath, fromDate, toDate);
         const missingRows: (CsvRow & { reason?: string; })[] = [];
         const presentRows: CsvRow[] = [];
 
@@ -657,6 +689,11 @@ export class ResolutionService {
             fs.unlinkSync(filePath);
             return { missingRows, presentRows };
         }
+
+        // Per-reservation pool of unmatched DB resolutions. Each successful
+        // match consumes one entry so identical duplicate CSV rows can only
+        // be satisfied by a corresponding number of DB rows.
+        const poolByReservation = new Map<number, Resolution[]>();
 
         for (const row of filteredRows) {
             const confirmationCode = row["Confirmation code"]?.trim();
@@ -676,12 +713,35 @@ export class ResolutionService {
                 continue;
             }
 
-            const existingResolutions = await this.getResolutionsByReservationId(reservation.id);
-            const hasExistingResolution = existingResolutions.some(res =>
-                (res.amount == Number(row.Amount) && (res.type == row.Type || res.description == row.Type))
-            );
+            if (!poolByReservation.has(reservation.id)) {
+                const existing = await this.getResolutionsByReservationId(reservation.id);
+                poolByReservation.set(reservation.id, [...existing]);
+            }
+            const pool = poolByReservation.get(reservation.id)!;
 
-            if (hasExistingResolution) {
+            const rowAmount = Number(row.Amount);
+            const rowType = row.Type;
+
+            let csvClaimDate: string | null = null;
+            try {
+                csvClaimDate = format(parse(claimDateRaw.trim(), "MM/dd/yyyy", new Date()), "yyyy-MM-dd");
+            } catch {
+                csvClaimDate = null;
+            }
+
+            // Strict identity: amount + type + claimDate, with consumption so
+            // duplicates on the same date are handled by cardinality and rows
+            // on different dates are always treated as distinct events.
+            const idx = csvClaimDate
+                ? pool.findIndex(res =>
+                    res.amount == rowAmount &&
+                    (res.type == rowType || res.description == rowType) &&
+                    res.claimDate == csvClaimDate
+                )
+                : -1;
+
+            if (idx >= 0) {
+                pool.splice(idx, 1);
                 presentRows.push(row);
             } else {
                 missingRows.push({ ...row, reason: "Resolution not found in database" });
@@ -693,7 +753,9 @@ export class ResolutionService {
         return { missingRows, presentRows };
     }
 
-    async checkCancellationFeesWithoutRefunds(filePath: string): Promise<CsvRow[]> {
+    async checkCancellationFeesWithoutRefunds(filePath: string, fromDate?: string, toDate?: string): Promise<CsvRow[]> {
+        const hasCustomRange = Boolean(fromDate && toDate);
+
         return new Promise((resolve, reject) => {
             const allRows: CsvRow[] = [];
 
@@ -702,7 +764,9 @@ export class ResolutionService {
                     mapHeaders: ({ header }) => header.replace(/^﻿/, "").trim()
                 }))
                 .on("headers", (headers: string[]) => {
-                    const required = ["Guest", "Start date", "Type", "Confirmation code"];
+                    const required = hasCustomRange
+                        ? ["Guest", "Start date", "Type", "Confirmation code", "Date"]
+                        : ["Guest", "Start date", "Type", "Confirmation code"];
                     const missing = required.filter(h => !headers.includes(h));
                     if (missing.length > 0) {
                         fs.unlinkSync(filePath);
@@ -710,9 +774,22 @@ export class ResolutionService {
                     }
                 })
                 .on("data", (row: CsvRow) => {
-                    if (row.Type === "Cancellation Fee" || row.Type === "Cancellation Fee Refund") {
-                        allRows.push(row);
+                    if (row.Type !== "Cancellation Fee" && row.Type !== "Cancellation Fee Refund") {
+                        return;
                     }
+                    if (hasCustomRange) {
+                        const rawDate = row["Date"]?.trim();
+                        if (!rawDate) return;
+                        try {
+                            const parsedDate = parse(rawDate, "MM/dd/yyyy", new Date());
+                            const formattedDate = format(parsedDate, "yyyy-MM-dd");
+                            if (formattedDate < fromDate! || formattedDate > toDate!) return;
+                        } catch (err) {
+                            logger.warn(`Skipping row with invalid date: ${JSON.stringify(row)}`);
+                            return;
+                        }
+                    }
+                    allRows.push(row);
                 })
                 .on("end", () => {
                     const groupMap = new Map<string, { fees: CsvRow[]; refunds: CsvRow[] }>();

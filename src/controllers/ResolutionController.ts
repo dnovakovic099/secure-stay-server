@@ -174,14 +174,17 @@ export class ResolutionController {
                 return response.status(400).json({ message: "No files uploaded" });
             }
 
-            logger.info(`Checking ${files.length} CSV file(s) for missing resolutions`);
+            const fromDate = typeof request.body?.fromDate === "string" && request.body.fromDate.trim() ? request.body.fromDate.trim() : undefined;
+            const toDate = typeof request.body?.toDate === "string" && request.body.toDate.trim() ? request.body.toDate.trim() : undefined;
+
+            logger.info(`Checking ${files.length} CSV file(s) for missing resolutions${fromDate && toDate ? ` from ${fromDate} to ${toDate}` : ""}`);
 
             let allMissingRows: any[] = [];
             let allPresentRows: any[] = [];
 
             for (const file of files) {
                 try {
-                    const { missingRows, presentRows } = await resolutionService.checkCSVFileForMissingResolutions(file.path);
+                    const { missingRows, presentRows } = await resolutionService.checkCSVFileForMissingResolutions(file.path, fromDate, toDate);
                     allMissingRows = [...allMissingRows, ...missingRows];
                     allPresentRows = [...allPresentRows, ...presentRows];
                 } catch (fileError) {
@@ -217,13 +220,16 @@ export class ResolutionController {
                 return response.status(400).json({ message: "No files uploaded" });
             }
 
-            logger.info(`Checking ${files.length} CSV file(s) for cancellation fees without refunds`);
+            const fromDate = typeof request.body?.fromDate === "string" && request.body.fromDate.trim() ? request.body.fromDate.trim() : undefined;
+            const toDate = typeof request.body?.toDate === "string" && request.body.toDate.trim() ? request.body.toDate.trim() : undefined;
+
+            logger.info(`Checking ${files.length} CSV file(s) for cancellation fees without refunds${fromDate && toDate ? ` from ${fromDate} to ${toDate}` : ""}`);
 
             let allUnpairedRows: any[] = [];
 
             for (const file of files) {
                 try {
-                    const rows = await this.resolutionService.checkCancellationFeesWithoutRefunds(file.path);
+                    const rows = await this.resolutionService.checkCancellationFeesWithoutRefunds(file.path, fromDate, toDate);
                     allUnpairedRows = [...allUnpairedRows, ...rows];
                 } catch (fileError) {
                     logger.error(`Failed to process ${file.originalname}: ${fileError.message}`);
