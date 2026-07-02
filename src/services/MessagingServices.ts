@@ -385,14 +385,23 @@ export class MessagingService {
     }
 
     private async listOpenPhoneThreads(per_page = 20, query: any = {}) {
-        const maxResults = Math.min(Math.max(Number(query?.maxResults || per_page * 5 || 100), per_page), 100);
-        const result = await this.openPhoneService.listInboxConversations(maxResults);
-        const mapped = await this.mapOpenPhoneConversationsToThreads(result.data || []);
-        return {
-            threads: mapped,
-            total: result.totalItems || mapped.length,
-            nextPageToken: result.nextPageToken || null,
-        };
+        try {
+            const maxResults = Math.min(Math.max(Number(query?.maxResults || per_page * 2 || 40), per_page), 50);
+            const result = await this.openPhoneService.listInboxConversations(maxResults);
+            const mapped = await this.mapOpenPhoneConversationsToThreads(result.data || []);
+            return {
+                threads: mapped,
+                total: result.totalItems || mapped.length,
+                nextPageToken: result.nextPageToken || null,
+            };
+        } catch (error) {
+            logger.error(`[OpenPhone] Error listing inbox source threads: ${error.message}`);
+            return {
+                threads: [],
+                total: 0,
+                nextPageToken: null,
+            };
+        }
     }
 
     private async enrichHostifyThreads(threads: any[]) {
@@ -1074,7 +1083,7 @@ export class MessagingService {
             const source = this.normalizeText(query?.source || "hostify");
             const wantsQuo = source === "quo";
             const wantsAll = source === "all";
-            const requiresExtendedSearch = Boolean(
+            const hasFilterOrSearch = Boolean(
                 query?.keyword ||
                 query?.property ||
                 query?.propertyType ||
@@ -1085,10 +1094,9 @@ export class MessagingService {
                 query?.stayTiming ||
                 query?.unresponded ||
                 query?.dateFrom ||
-                query?.dateTo ||
-                wantsQuo ||
-                wantsAll
+                query?.dateTo
             );
+            const requiresExtendedSearch = Boolean(hasFilterOrSearch || wantsQuo || wantsAll);
 
             if (!requiresExtendedSearch) {
                 const result = await this.hostifyClient.listInboxThreads(process.env.HOSTIFY_API_KEY, page, per_page);
@@ -1100,7 +1108,7 @@ export class MessagingService {
                 };
             }
 
-            const maxPages = 10;
+            const maxPages = hasFilterOrSearch ? 10 : 1;
             const collected: any[] = [];
 
             if (!wantsQuo) {
