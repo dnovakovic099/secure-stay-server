@@ -126,6 +126,38 @@ export class AILearnedFactsService {
     }
 
     /**
+     * Staff-edit a learned fact: customize the answer/question, recategorize the
+     * topic, or move it between property and portfolio scope. Used by the
+     * "Learned" tab so curators can correct what the bot remembers.
+     */
+    async update(
+        id: number,
+        patch: {
+            answer?: string | null;
+            question?: string | null;
+            topic?: string;
+            scope?: "property" | "portfolio";
+            listingId?: number | null;
+        },
+        userId?: number | null
+    ) {
+        const fact = await this.repo.findOne({ where: { id } });
+        if (!fact) throw new Error(`Learned fact ${id} not found`);
+        if (patch.answer !== undefined) fact.answer = patch.answer;
+        if (patch.question !== undefined) fact.question = patch.question;
+        if (patch.topic !== undefined && patch.topic.trim()) fact.topic = slug(patch.topic);
+        if (patch.scope !== undefined) {
+            fact.scope = patch.scope === "portfolio" ? "portfolio" : "property";
+            if (fact.scope === "portfolio") fact.listingId = null;
+        }
+        if (patch.listingId !== undefined && fact.scope !== "portfolio") {
+            fact.listingId = patch.listingId;
+        }
+        fact.reviewedByUserId = userId ?? fact.reviewedByUserId ?? null;
+        return this.repo.save(fact);
+    }
+
+    /**
      * Approved facts for a listing PLUS all approved portfolio-wide facts,
      * rendered compactly for the bot.
      *

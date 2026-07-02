@@ -138,6 +138,31 @@ export class AICopilotController {
         }
     }
 
+    /** Staff-edit a learned fact (answer / question / topic / scope). */
+    async updateLearnedFact(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = toNum(request.params.id);
+            if (!id) {
+                return response.status(400).json({ status: false, message: "id required" });
+            }
+            const b = request.body || {};
+            const saved = await new AILearnedFactsService().update(
+                id,
+                {
+                    answer: b.answer,
+                    question: b.question,
+                    topic: b.topic,
+                    scope: b.scope,
+                    listingId: b.listingId === undefined ? undefined : toNum(b.listingId),
+                },
+                userId(request.user)
+            );
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Bulk-approve pending learned facts (optionally scoped). */
     async approveAllLearnedFacts(request: CustomRequest, response: Response, next: NextFunction) {
         try {

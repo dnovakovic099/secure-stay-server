@@ -24,6 +24,7 @@ router.get("/detected-items", verifySession, controller.detectedItems);
 router.get("/learned-facts", verifySession, controller.listLearnedFacts);
 router.post("/learned-facts/approve-all", verifySession, controller.approveAllLearnedFacts);
 router.post("/learned-facts/:id/review", verifySession, controller.reviewLearnedFact);
+router.put("/learned-facts/:id", verifySession, controller.updateLearnedFact);
 
 // On-demand trigger of the nightly self-improvement audit.
 router.post("/audit/run", verifySession, controller.runAudit);
