@@ -464,6 +464,20 @@ export class InboxService {
                 })
             )
             .filter((m): m is InboxMessageEntity => m !== null);
+
+        // Inquiries have no reservation, so guest name is often absent from the
+        // thread summary. Fall back to the guest name carried on the incoming
+        // messages themselves so the UI stops showing a bare "Guest".
+        if (!conversation.guestName) {
+            const named = built.find(
+                (m) => m.direction === "incoming" && !!m.senderName && m.senderName.trim() !== ""
+            );
+            if (named?.senderName) {
+                conversation.guestName = named.senderName.trim();
+                await this.conversationRepo.save(conversation);
+            }
+        }
+
         const inserted = await this.saveMessages(built);
         return { conversation, inserted };
     }
