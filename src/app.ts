@@ -31,6 +31,13 @@ const main = async () => {
   await ensureTurnoverSettingsColumns();
 
   const app = express();
+  // Disable ETag generation for all responses. This is a pure JSON API: with
+  // ETags enabled, a repeat/polled GET of unchanged data (listings, channels,
+  // conversations, etc.) triggers a conditional 304 with an empty body, which
+  // the dashboard's axios rejects (it only accepts 200-299) — surfacing as
+  // "Could not fetch listings" / "Error fetching channel" / "Failed to load
+  // conversation" toasts. Turning ETags off makes every read return a full 200.
+  app.set('etag', false);
   // Trust one layer of reverse proxy (Nginx) so req.ip reflects the real client IP
   app.set('trust proxy', 1);
   // Increase qs arrayLimit so repeated query params (e.g. 47 listingMapId values)
