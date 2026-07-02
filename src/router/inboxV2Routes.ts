@@ -15,6 +15,9 @@ router.post("/conversations/:threadId/reply", verifySession, inboxV2Controller.r
 // Reservation details panel
 router.get("/reservation/:reservationId/details", verifySession, inboxV2Controller.reservationDetails);
 
+// Update reservation host/cleaning notes (persists locally + syncs to Hostify)
+router.patch("/reservation/:reservationId/notes", verifySession, inboxV2Controller.updateReservationNotes);
+
 // Backfill / sync from Hostify into local tables
 router.post("/sync", verifySession, inboxV2Controller.sync);
 

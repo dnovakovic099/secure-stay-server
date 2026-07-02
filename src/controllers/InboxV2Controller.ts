@@ -236,4 +236,29 @@ export class InboxV2Controller {
             return next(error);
         }
     }
+
+    /**
+     * Update reservation host note and/or cleaning note. Persists locally and
+     * pushes the change to Hostify (returns the refreshed details + sync status).
+     */
+    async updateReservationNotes(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationId = Number(request.params.reservationId);
+            if (!Number.isFinite(reservationId)) {
+                return response.status(400).json({ status: false, message: "Invalid reservationId" });
+            }
+            const { hostNote, cleaningNote } = request.body || {};
+            if (hostNote === undefined && cleaningNote === undefined) {
+                return response.status(400).json({ status: false, message: "Nothing to update" });
+            }
+            const messagingService = new MessagingService();
+            const result = await messagingService.updateGuestReservationNotes(reservationId, {
+                hostNote: hostNote === undefined ? undefined : (hostNote ?? ""),
+                cleaningNote: cleaningNote === undefined ? undefined : (cleaningNote ?? ""),
+            });
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }
