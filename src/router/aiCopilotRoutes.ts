@@ -26,6 +26,11 @@ router.post("/learned-facts/approve-all", verifySession, controller.approveAllLe
 router.post("/learned-facts/:id/review", verifySession, controller.reviewLearnedFact);
 router.put("/learned-facts/:id", verifySession, controller.updateLearnedFact);
 
+// Guest Simulator — act as a guest, see the bot's reply, and teach it.
+router.post("/sandbox/reply", verifySession, controller.sandboxReply);
+router.post("/sandbox/teach", verifySession, controller.sandboxTeach);
+router.post("/sandbox/feedback", verifySession, controller.sandboxFeedback);
+
 // On-demand trigger of the nightly self-improvement audit.
 router.post("/audit/run", verifySession, controller.runAudit);
 

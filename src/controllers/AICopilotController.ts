@@ -138,6 +138,86 @@ export class AICopilotController {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Guest Simulator — "act as a guest, see the bot's reply, and teach it"
+    // -------------------------------------------------------------------------
+
+    /** Generate a bot reply for a simulated multi-turn conversation on a listing. */
+    async sandboxReply(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(503).json({ status: false, disabled: true, message: "AI messaging is disabled" });
+            }
+            const listingId = toNum(request.body?.listingId);
+            if (!listingId) {
+                return response.status(400).json({ status: false, message: "listingId is required" });
+            }
+            const rawTurns = Array.isArray(request.body?.messages) ? request.body.messages : [];
+            const turns = rawTurns
+                .map((t: any) => ({
+                    role: t?.role === "host" ? "host" : "guest",
+                    text: typeof t?.text === "string" ? t.text : "",
+                }))
+                .filter((t: any) => t.text.trim());
+            if (!turns.some((t: any) => t.role === "guest")) {
+                return response.status(400).json({ status: false, message: "At least one guest message is required" });
+            }
+            const data = await new InboxAIService().sandboxReply(listingId, turns);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Teach the bot: save a Q&A as a learned fact for the listing (auto-approved). */
+    async sandboxTeach(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const listingId = toNum(request.body?.listingId);
+            const question = typeof request.body?.question === "string" ? request.body.question.trim() : "";
+            const answer = typeof request.body?.answer === "string" ? request.body.answer.trim() : "";
+            const scope = request.body?.scope === "portfolio" ? "portfolio" : "property";
+            if (!answer) {
+                return response.status(400).json({ status: false, message: "answer is required" });
+            }
+            if (scope === "property" && !listingId) {
+                return response.status(400).json({ status: false, message: "listingId is required for property-scoped facts" });
+            }
+            const topic = question || answer;
+            const saved = await new AILearnedFactsService().upsert(
+                {
+                    scope,
+                    listingId: scope === "portfolio" ? null : listingId,
+                    topic,
+                    question: question || null,
+                    answer,
+                    source: "simulator",
+                },
+                { autoApprove: true }
+            );
+            return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Record thumbs / correction feedback from the simulator (listing-scoped). */
+    async sandboxFeedback(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const saved = await new InboxAIService().recordFeedback({
+                listingId: toNum(b.listingId),
+                userId: userId(request.user),
+                rating: typeof b.rating === "string" ? b.rating : null,
+                categories: Array.isArray(b.categories) ? b.categories.map(String) : null,
+                feedbackText: typeof b.feedbackText === "string" ? b.feedbackText : null,
+                correctedResponse: typeof b.correctedResponse === "string" ? b.correctedResponse : null,
+            });
+            return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Staff-edit a learned fact (answer / question / topic / scope). */
     async updateLearnedFact(request: CustomRequest, response: Response, next: NextFunction) {
         try {

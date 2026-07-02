@@ -394,6 +394,131 @@ export class InboxAIService {
         return { output, context, leaks };
     }
 
+    /**
+     * Guest Simulator: generate a reply for a multi-turn hypothetical conversation
+     * on a given listing WITHOUT a real thread and WITHOUT persisting. Uses the
+     * exact production retrieval (KB + learned facts + availability), system
+     * prompt, escalation net and anti-invention net, so it faithfully mirrors what
+     * the bot would say. Powers the "act as a guest" training page.
+     */
+    async sandboxReply(
+        listingId: number,
+        turns: { role: "guest" | "host"; text: string }[]
+    ): Promise<{
+        reply: string;
+        confidence: number | null;
+        escalationRequired: boolean;
+        escalationReason: string | null;
+        warnings: string[];
+        sourcesUsed: string[];
+        suggestedActionItems: string[];
+        internalSummary: string | null;
+    }> {
+        const listing = await this.listingRepo
+            .findOne({ where: { id: Number(listingId) }, withDeleted: true })
+            .catch(() => null);
+
+        const conversation = this.conversationRepo.create({
+            threadId: 0,
+            listingId: Number(listingId),
+            listingName: (listing as any)?.internalListingName || (listing as any)?.name || null,
+            channel: "simulator",
+            guestName: "Guest (simulated)",
+        }) as InboxConversationEntity;
+
+        const base = Date.now();
+        const cleaned = (turns || []).filter(
+            (t) => t && typeof t.text === "string" && t.text.trim()
+        );
+        const messages = cleaned.map(
+            (t, i) =>
+                this.messageRepo.create({
+                    threadId: 0,
+                    direction: t.role === "host" ? "outgoing" : "incoming",
+                    body: t.text.trim(),
+                    senderName: t.role === "host" ? "Host" : "Guest",
+                    sentAt: new Date(base + i * 1000),
+                }) as InboxMessageEntity
+        );
+
+        // Target = the most recent guest (incoming) turn.
+        let target: InboxMessageEntity | null = null;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].direction === "incoming") {
+                target = messages[i];
+                break;
+            }
+        }
+        if (!target) throw new Error("At least one guest message is required");
+
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const context = await this.buildContext(conversation, messages, target, {
+            includeKnowledge: true,
+        });
+
+        const client = this.getClient();
+        const completion = await client.chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.4,
+            response_format: { type: "json_object" },
+            messages: [
+                { role: "system", content: this.systemPrompt(settings) },
+                { role: "user", content: context },
+            ],
+        });
+        const raw = completion.choices[0]?.message?.content?.trim() || "";
+        const output = this.parseModelOutput(raw);
+
+        // Same server-side escalation safety net as production.
+        const kw = this.scanForEscalation(target.body || "");
+        if (kw) {
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; ${kw}`
+                : kw;
+        }
+
+        // Anti-invention net: flag codes/prices not present in the context.
+        const haystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
+        const reply = output.suggested_reply || "";
+        const leaks: string[] = [];
+        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
+            const digits = tok.replace(/\D/g, "");
+            if (digits && !haystack.includes(digits)) leaks.push(tok);
+        }
+        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
+            const num = tok.replace(/[^\d.]/g, "");
+            if (num && !haystack.includes(num)) leaks.push(tok);
+        }
+        const warnings = Array.isArray(output.warnings) ? [...output.warnings] : [];
+        if (leaks.length) {
+            warnings.push(`Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}.`);
+        }
+
+        let confidencePct =
+            typeof output.confidence === "number" && Number.isFinite(output.confidence)
+                ? Math.max(0, Math.min(100, Math.round(output.confidence * 100)))
+                : null;
+        if (confidencePct != null) {
+            if (leaks.length) confidencePct = Math.min(confidencePct, 30);
+            if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
+            else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
+        }
+
+        return {
+            reply: output.suggested_reply || "",
+            confidence: confidencePct,
+            escalationRequired: !!output.escalation_required,
+            escalationReason: output.escalation_reason || null,
+            warnings,
+            sourcesUsed: Array.isArray(output.sources_used) ? output.sources_used : [],
+            suggestedActionItems: Array.isArray(output.suggested_action_items)
+                ? output.suggested_action_items
+                : [],
+            internalSummary: output.internal_summary || null,
+        };
+    }
+
     /** Update a suggestion's lifecycle status (accepted/edited/ignored/rejected). */
     async updateSuggestionStatus(
         id: number,
