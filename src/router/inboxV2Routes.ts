@@ -5,6 +5,21 @@ import verifySession from "../middleware/verifySession";
 const router = Router();
 const inboxV2Controller = new InboxV2Controller();
 
+/**
+ * Never return a conditional 304 for these dynamic, authenticated endpoints.
+ * Express auto-generates an ETag for JSON responses; on a repeat/polled fetch of
+ * an *unchanged* (older) conversation the browser sends If-None-Match, Express
+ * replies 304 with an empty body, and the frontend's axios rejects any status
+ * outside 200–299 — surfacing as "Failed to load conversation". Stripping the
+ * conditional request headers forces a full 200 body every time.
+ */
+router.use((request, response, next) => {
+    delete request.headers["if-none-match"];
+    delete request.headers["if-modified-since"];
+    response.set("Cache-Control", "no-store");
+    next();
+});
+
 // Conversation list + thread detail (read from local DB)
 router.get("/conversations", verifySession, inboxV2Controller.listConversations);
 router.get("/conversations/:threadId", verifySession, inboxV2Controller.getConversation);

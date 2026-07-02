@@ -5,6 +5,15 @@ import verifySession from "../middleware/verifySession";
 const router = Router();
 const controller = new AICopilotController();
 
+// Never return a conditional 304 for these dynamic, authenticated endpoints
+// (axios rejects any status outside 200–299). See inboxV2Routes for details.
+router.use((request, response, next) => {
+    delete request.headers["if-none-match"];
+    delete request.headers["if-modified-since"];
+    response.set("Cache-Control", "no-store");
+    next();
+});
+
 // AI Copilot Settings (tone / rules / topics-to-avoid / auto-respond toggle).
 // Mounted under /ai alongside the AI Escalation Manager routes; paths do not
 // collide (/ai/settings, /ai/suggestions, /ai/metrics vs /ai/logs, /ai/assistant).
