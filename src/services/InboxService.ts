@@ -7,6 +7,7 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { UsersEntity } from "../entity/Users";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import { ListingService } from "./ListingService";
 
 /**
  * Raw Hostify webhook payload for a `message_new` event.
@@ -65,12 +66,23 @@ const toDateKey = (value: any): string | null => {
     return d.toISOString().slice(0, 10);
 };
 
+const isLikelySenderId = (value: any) => /^\d+$/.test(String(value || "").trim());
+
+const firstDisplayName = (...values: any[]) => {
+    for (const value of values) {
+        const text = String(value || "").trim();
+        if (text && !isLikelySenderId(text)) return text;
+    }
+    return null;
+};
+
 export class InboxService {
     private conversationRepo = appDatabase.getRepository(InboxConversationEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
+    private listingService = new ListingService();
     private hostify = new Hostify();
 
     private get apiKey(): string {
@@ -86,6 +98,22 @@ export class InboxService {
             return isIncoming === 1 ? "incoming" : "outgoing";
         }
         return String(from || "").toLowerCase() === "guest" ? "incoming" : "outgoing";
+    }
+
+    private normalizePropertyTypeValue(listing: Listing | null | undefined) {
+        const raw = `${listing?.tags || ""} ${listing?.propertyType || ""}`.toLowerCase();
+        if (raw.includes("own")) return "Own";
+        if (raw.includes("arb")) return "Arb";
+        if (raw.includes("pm")) return "PM";
+        return null;
+    }
+
+    private normalizeServiceTypeValue(listing: Listing | null | undefined, normalizedListing?: any) {
+        const raw = `${listing?.tags || ""} ${normalizedListing?.serviceType || ""}`.toLowerCase();
+        if (raw.includes("full")) return "Full";
+        if (raw.includes("pro")) return "Pro";
+        if (raw.includes("launch")) return "Launch";
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -223,8 +251,8 @@ export class InboxService {
         //  - outgoing thread-detail: `guest_name` holds the rep name (no `sent_by`)
         const senderName =
             direction === "incoming"
-                ? raw?.guest_name ?? raw?.sender_name ?? null
-                : raw?.sent_by ?? raw?.sender_name ?? raw?.guest_name ?? null;
+                ? firstDisplayName(raw?.guest_name, raw?.sender_name, raw?.sender)
+                : firstDisplayName(raw?.user_name, raw?.sender_name, raw?.sender, raw?.guest_name, raw?.sent_by);
         const message = this.messageRepo.create({
             externalId,
             threadId: ctx.threadId,
@@ -259,9 +287,35 @@ export class InboxService {
         const externalIds = messages.map((m) => m.externalId);
         const existing = await this.messageRepo.find({
             where: { externalId: In(externalIds) },
-            select: ["externalId"],
+            select: ["id", "externalId", "direction", "senderType", "senderName", "note", "attachmentUrl"],
         });
         const existingIds = new Set(existing.map((m) => Number(m.externalId)));
+        const existingByExternalId = new Map(existing.map((m) => [Number(m.externalId), m]));
+        const toUpdate = messages.flatMap((incoming) => {
+            const existingMessage = existingByExternalId.get(Number(incoming.externalId));
+            if (!existingMessage) return [];
+            let changed = false;
+
+            if (
+                incoming.senderName &&
+                (!existingMessage.senderName || isLikelySenderId(existingMessage.senderName))
+            ) {
+                existingMessage.senderName = incoming.senderName;
+                changed = true;
+            }
+            if (incoming.note && !existingMessage.note) {
+                existingMessage.note = incoming.note;
+                changed = true;
+            }
+            if (incoming.attachmentUrl && !existingMessage.attachmentUrl) {
+                existingMessage.attachmentUrl = incoming.attachmentUrl;
+                changed = true;
+            }
+            return changed ? [existingMessage] : [];
+        });
+        if (toUpdate.length) {
+            await this.messageRepo.save(toUpdate, { chunk: 200 });
+        }
         const toInsert = messages.filter((m) => !existingIds.has(Number(m.externalId)));
         if (!toInsert.length) return 0;
         await this.messageRepo.save(toInsert, { chunk: 200 });
@@ -342,10 +396,11 @@ export class InboxService {
         // Roll the conversation summary forward.
         conversation.lastMessageText = payload?.message ?? conversation.lastMessageText ?? null;
         conversation.lastMessageAt = toDateOrNull(payload?.created) ?? new Date();
-        if (this.resolveDirection(payload?.from, payload?.is_incoming) === "incoming") {
+        const direction = this.resolveDirection(payload?.from, payload?.is_incoming);
+        if (direction === "incoming") {
             conversation.unread = 1;
             conversation.answered = 0;
-        } else {
+        } else if (direction === "outgoing") {
             conversation.answered = 1;
         }
         await this.conversationRepo.save(conversation);
@@ -516,7 +571,31 @@ export class InboxService {
             .take(perPage);
 
         const [conversations, total] = await qb.getManyAndCount();
-        return { conversations, total, page, perPage };
+        const listingIds = Array.from(
+            new Set(
+                conversations
+                    .map((conversation) => Number(conversation.listingId))
+                    .filter((listingId) => Number.isFinite(listingId) && listingId > 0)
+            )
+        );
+        const listings = listingIds.length
+            ? await this.listingRepo.find({ where: { id: In(listingIds) }, withDeleted: true })
+            : [];
+        const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+
+        const enrichedConversations = conversations.map((conversation) => {
+            const listing = listingMap.get(Number(conversation.listingId)) || null;
+            const normalizedListing = listing
+                ? (this.listingService as any).normalizeListingOverview?.(listing) || null
+                : null;
+            return {
+                ...conversation,
+                propertyType: this.normalizePropertyTypeValue(listing),
+                serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
+            };
+        });
+
+        return { conversations: enrichedConversations, total, page, perPage };
     }
 
     async getConversation(threadId: number) {
