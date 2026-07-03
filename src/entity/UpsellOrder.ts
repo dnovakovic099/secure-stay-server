@@ -33,6 +33,9 @@ export class UpsellOrder {
     description: string;
 
     @Column({ nullable: true })
+    payment_method: string;
+
+    @Column({ nullable: true })
     booking_id: string;
 
     @Column({ type: 'date', nullable: true })
@@ -58,4 +61,4 @@ export class UpsellOrder {
 
     @Column({ nullable: true })
     updated_by: string;
-} 
+}

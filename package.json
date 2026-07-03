@@ -7,7 +7,7 @@
     "dev": "npx ts-node-dev src/app.ts",
     "dev:haworker": "npx ts-node-dev src/worker/haWorker.ts",
     "dev:scheduler": "npx ts-node-dev src/worker/schedulerWorker.ts",
-    "build": "tsc",
+    "build": "NODE_OPTIONS='--max-old-space-size=4096' tsc",
     "start": "NODE_ENV=production node dist/out-tsc/app.js",
     "start:haworker": "NODE_ENV=production node dist/out-tsc/worker/haWorker.js",
     "start:scheduler": "NODE_ENV=production node dist/out-tsc/worker/schedulerWorker.js",

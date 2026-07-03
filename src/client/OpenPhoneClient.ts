@@ -19,6 +19,7 @@ export class OpenPhoneClient {
 
     this.client = axios.create({
       baseURL: this.baseUrl,
+      timeout: 8000,
       headers: {
         "Authorization": apiKey || "",
         "Content-Type": "application/json",

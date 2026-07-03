@@ -63,6 +63,7 @@ export class UpSellServices {
         pricingRules: this.normalizeNullableString(item?.pricingRules),
         upsellFee: this.normalizeNullableNumber(item?.upsellFee),
         pairSyncStatus: this.normalizePairSyncStatus(item?.pairSyncStatus),
+        pairSyncAction: this.normalizePairSyncAction(item?.pairSyncAction),
         internalNotes: this.normalizeNullableString(item?.internalNotes),
       }))
       .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
@@ -74,10 +75,29 @@ export class UpSellServices {
     return null;
   }
 
-  private getPairedUpsellTitle(title: unknown): string | null {
-    const normalized = String(title || "")
+  private normalizePairSyncAction(value: unknown): "sync" | "unsync" | null {
+    const normalized = this.normalizeNullableString(value)?.toLowerCase();
+    if (normalized === "sync" || normalized === "unsync") return normalized;
+    return null;
+  }
+
+  private normalizeUpsellTitle(value: unknown): string {
+    return String(value || "")
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ");
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  private isProtectedPairedUpsellTitle(title: unknown): boolean {
+    const normalized = this.normalizeUpsellTitle(title);
+    return (
+      normalized.includes("check") &&
+      (normalized.includes("early") || normalized.includes("late"))
+    );
+  }
+
+  private getPairedUpsellTitle(title: unknown): string | null {
+    const normalized = this.normalizeUpsellTitle(title);
 
     if (normalized.includes("early") && normalized.includes("check")) return "Late Check-Out";
     if (normalized.includes("late") && normalized.includes("check")) return "Early Check-In";
@@ -117,10 +137,35 @@ export class UpSellServices {
 
     await Promise.all(
       propertyConfigs.map(async (config) => {
-        if (config.pairSyncStatus === "unsynced") return;
-
         const listingId = Number(config.listingId);
         const pairedUpSellId = Number(pairedUpSell.upSellId);
+        const existingConfig = await transactionalEntityManager.findOne(UpSellPropertyConfig, {
+          where: { upSellId: pairedUpSellId, listingId },
+        });
+        const sourceConfig = await transactionalEntityManager.findOne(UpSellPropertyConfig, {
+          where: { upSellId: sourceUpSellId, listingId },
+        });
+
+        if (config.pairSyncStatus === "unsynced" || config.pairSyncAction === "unsync") {
+          if (sourceConfig && sourceConfig.pairSyncStatus !== "unsynced") {
+            sourceConfig.pairSyncStatus = "unsynced";
+            await transactionalEntityManager.save(sourceConfig);
+          }
+          if (existingConfig && existingConfig.pairSyncStatus !== "unsynced") {
+            existingConfig.pairSyncStatus = "unsynced";
+            await transactionalEntityManager.save(existingConfig);
+          }
+          return;
+        }
+
+        if (existingConfig?.pairSyncStatus === "unsynced" && config.pairSyncAction !== "sync") {
+          if (sourceConfig && sourceConfig.pairSyncStatus !== "unsynced") {
+            sourceConfig.pairSyncStatus = "unsynced";
+            await transactionalEntityManager.save(sourceConfig);
+          }
+          return;
+        }
+
         const existingListing = await transactionalEntityManager.findOne(UpSellListing, {
           where: { upSellId: pairedUpSellId, listingId },
         });
@@ -136,9 +181,6 @@ export class UpSellServices {
           await transactionalEntityManager.save(upSellListing);
         }
 
-        const existingConfig = await transactionalEntityManager.findOne(UpSellPropertyConfig, {
-          where: { upSellId: pairedUpSellId, listingId },
-        });
         const propertyConfig = existingConfig || new UpSellPropertyConfig();
         propertyConfig.upSellId = pairedUpSellId;
         propertyConfig.listingId = listingId;
@@ -147,6 +189,11 @@ export class UpSellServices {
           pairSyncStatus: "synced",
         });
         await transactionalEntityManager.save(propertyConfig);
+
+        if (sourceConfig && sourceConfig.pairSyncStatus !== "synced") {
+          sourceConfig.pairSyncStatus = "synced";
+          await transactionalEntityManager.save(sourceConfig);
+        }
       })
     );
   }
@@ -479,6 +526,11 @@ export class UpSellServices {
           status: true,
           message: "No associated upsell found.",
         };
+      } else if (this.isProtectedPairedUpsellTitle(data.title)) {
+        return {
+          status: false,
+          message: "Early Check-In and Late Check-Out cannot be deleted because they are protected synced upsells.",
+        };
       } else {
         await appDatabase.transaction(
           async (transactionalEntityManager: EntityManager) => {
@@ -519,6 +571,7 @@ export class UpSellServices {
     try {
       const { upSellIds } = request.body;
       const invalidUpSellIds: any[] = [];
+      const protectedUpSellIds: any[] = [];
 
       await appDatabase.transaction(
         async (transactionalEntityManager: EntityManager) => {
@@ -535,6 +588,8 @@ export class UpSellServices {
               );
               if (!upSell) {
                 invalidUpSellIds.push(data);
+              } else if (this.isProtectedPairedUpsellTitle(upSell.title)) {
+                protectedUpSellIds.push(data);
               } else {
                 // Update records in UpSellListing table
                 await transactionalEntityManager.update(
@@ -551,6 +606,14 @@ export class UpSellServices {
           );
         }
       );
+
+      if (protectedUpSellIds.length > 0) {
+        return {
+          status: false,
+          message: "Early Check-In and Late Check-Out cannot be deleted because they are protected synced upsells.",
+          data: protectedUpSellIds,
+        };
+      }
 
       if (invalidUpSellIds.length > 0) {
         return {

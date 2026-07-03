@@ -95,12 +95,24 @@ export class UpsellOrderService {
             queryOptions.where.type = In(upsellTypeFilters);
         }
 
-        const keywordFields = ['client_name', 'description', 'property_owner'];
+        const keywordFieldMap: Record<string, keyof UpsellOrder | 'requested_date'> = {
+            client_name: 'client_name',
+            type: 'type',
+            listing_name: 'listing_name',
+            status: 'status',
+            cost: 'cost',
+            order_date: 'order_date',
+            requested_date: 'created_at',
+            arrival_date: 'arrival_date',
+            departure_date: 'departure_date',
+            description: 'description',
+        };
+        const keywordFields = Object.keys(keywordFieldMap);
         const selectedKeywordField = keywordFields.includes(String(keywordField || '')) ? String(keywordField) : 'all';
         const where = keyword
         ? selectedKeywordField === 'all'
-            ? keywordFields.map((field) => ({ ...queryOptions.where, [field]: ILike(`%${keyword}%`) }))
-            : { ...queryOptions.where, [selectedKeywordField]: ILike(`%${keyword}%`) }
+            ? keywordFields.map((field) => ({ ...queryOptions.where, [keywordFieldMap[field]]: ILike(`%${keyword}%`) }))
+            : { ...queryOptions.where, [keywordFieldMap[selectedKeywordField]]: ILike(`%${keyword}%`) }
         : queryOptions.where;
 
         queryOptions.where = where;
