@@ -568,8 +568,8 @@ export class ResolutionService {
 
     async processCSVFileForResolution(filePath: string, userId: string) {
         const filteredRows = await this.processCSVData(filePath);
-        const failedToProcessData: (CsvRow & { reason?: string; })[] = [];
-        const successfullyProcessedData: CsvRow[] = [];
+        const failedToProcessData: ({ Listing: string } & CsvRow & { reason?: string; })[] = [];
+        const successfullyProcessedData: ({ Listing: string } & CsvRow)[] = [];
 
         if (filteredRows.length === 0) {
             fs.unlinkSync(filePath); // Delete the file after processing
@@ -581,6 +581,20 @@ export class ResolutionService {
         // can no longer collapse against a single DB row.
         const snapshotByReservation = new Map<number, Resolution[]>();
         const consumedByReservation = new Map<number, Set<number>>();
+        const listingNameByMapId = new Map<number, string>();
+
+        const getInternalListingName = async (listingMapId: number): Promise<string> => {
+            if (listingNameByMapId.has(listingMapId)) return listingNameByMapId.get(listingMapId)!;
+            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId } });
+            const name = listing?.internalListingName || "";
+            listingNameByMapId.set(listingMapId, name);
+            return name;
+        };
+
+        const withListing = (row: CsvRow, internalName: string, extra?: { reason?: string }) => {
+            const { Listing: _airbnbListing, ...rest } = row;
+            return { Listing: internalName, ...rest, ...(extra || {}) };
+        };
 
         for (const row of filteredRows) {
             const confirmationCode = row["Confirmation code"]?.trim();
@@ -590,7 +604,7 @@ export class ResolutionService {
             const amountRaw = row.Amount;
 
             if (!confirmationCode || !amountRaw || !claimDateRaw) {
-                failedToProcessData.push({ ...row, reason: "Missing required data" });
+                failedToProcessData.push(withListing(row, "", { reason: "Missing required data" }));
                 logger.warn(`Skipping row due to missing data: ${JSON.stringify(row)}`);
                 continue;
             }
@@ -605,7 +619,7 @@ export class ResolutionService {
                     );
                 }
             } catch (err) {
-                failedToProcessData.push({ ...row, reason: "Invalid date format" });
+                failedToProcessData.push(withListing(row, "", { reason: "Invalid date format" }));
                 logger.warn(`Invalid date format for row: ${JSON.stringify(row)}`);
                 continue;
             }
@@ -614,10 +628,12 @@ export class ResolutionService {
                 where: { channelReservationId: confirmationCode }
             });
             if (!reservation) {
-                failedToProcessData.push({ ...row, reason: "No matching reservation found" });
+                failedToProcessData.push(withListing(row, "", { reason: "No matching reservation found" }));
                 logger.warn(`No reservation found for confirmation code: ${confirmationCode}`);
                 continue;
             }
+
+            const internalListingName = await getInternalListingName(reservation.listingMapId);
 
             if (!snapshotByReservation.has(reservation.id)) {
                 const existing = await this.getResolutionsByReservationId(reservation.id);
@@ -667,7 +683,7 @@ export class ResolutionService {
             }
 
             const resolution = await this.createResolution(resolutionData, userId);
-            successfullyProcessedData.push(row);
+            successfullyProcessedData.push(withListing(row, internalListingName));
             if (cancellationFeeInfo && cancellationFeeInfo?.length == 1) {
                 // send email notification
                 this.sendCancellationFeeNotification(reservation, resolution, cancellationFeeInfo[0]);
@@ -682,8 +698,8 @@ export class ResolutionService {
 
     async checkCSVFileForMissingResolutions(filePath: string, fromDate?: string, toDate?: string) {
         const filteredRows = await this.processCSVData(filePath, fromDate, toDate);
-        const missingRows: (CsvRow & { reason?: string; })[] = [];
-        const presentRows: CsvRow[] = [];
+        const missingRows: ({ Listing: string } & CsvRow & { reason?: string; })[] = [];
+        const presentRows: ({ Listing: string } & CsvRow)[] = [];
 
         if (filteredRows.length === 0) {
             fs.unlinkSync(filePath);
@@ -694,6 +710,20 @@ export class ResolutionService {
         // match consumes one entry so identical duplicate CSV rows can only
         // be satisfied by a corresponding number of DB rows.
         const poolByReservation = new Map<number, Resolution[]>();
+        const listingNameByMapId = new Map<number, string>();
+
+        const getInternalListingName = async (listingMapId: number): Promise<string> => {
+            if (listingNameByMapId.has(listingMapId)) return listingNameByMapId.get(listingMapId)!;
+            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId } });
+            const name = listing?.internalListingName || "";
+            listingNameByMapId.set(listingMapId, name);
+            return name;
+        };
+
+        const withListing = (row: CsvRow, internalName: string, extra?: { reason?: string }) => {
+            const { Listing: _airbnbListing, ...rest } = row;
+            return { Listing: internalName, ...rest, ...(extra || {}) };
+        };
 
         for (const row of filteredRows) {
             const confirmationCode = row["Confirmation code"]?.trim();
@@ -701,7 +731,7 @@ export class ResolutionService {
             const amountRaw = row.Amount;
 
             if (!confirmationCode || !amountRaw || !claimDateRaw) {
-                missingRows.push({ ...row, reason: "Missing required data" });
+                missingRows.push(withListing(row, "", { reason: "Missing required data" }));
                 continue;
             }
 
@@ -709,9 +739,11 @@ export class ResolutionService {
                 where: { channelReservationId: confirmationCode }
             });
             if (!reservation) {
-                missingRows.push({ ...row, reason: "No matching reservation found" });
+                missingRows.push(withListing(row, "", { reason: "No matching reservation found" }));
                 continue;
             }
+
+            const internalListingName = await getInternalListingName(reservation.listingMapId);
 
             if (!poolByReservation.has(reservation.id)) {
                 const existing = await this.getResolutionsByReservationId(reservation.id);
@@ -742,9 +774,9 @@ export class ResolutionService {
 
             if (idx >= 0) {
                 pool.splice(idx, 1);
-                presentRows.push(row);
+                presentRows.push(withListing(row, internalListingName));
             } else {
-                missingRows.push({ ...row, reason: "Resolution not found in database" });
+                missingRows.push(withListing(row, internalListingName, { reason: "Resolution not found in database" }));
             }
         }
 
@@ -753,10 +785,10 @@ export class ResolutionService {
         return { missingRows, presentRows };
     }
 
-    async checkCancellationFeesWithoutRefunds(filePath: string, fromDate?: string, toDate?: string): Promise<CsvRow[]> {
+    async checkCancellationFeesWithoutRefunds(filePath: string, fromDate?: string, toDate?: string): Promise<({ Listing: string } & CsvRow)[]> {
         const hasCustomRange = Boolean(fromDate && toDate);
 
-        return new Promise((resolve, reject) => {
+        const unpaired = await new Promise<CsvRow[]>((resolve, reject) => {
             const allRows: CsvRow[] = [];
 
             fs.createReadStream(filePath)
@@ -815,6 +847,36 @@ export class ResolutionService {
                     reject(err);
                 });
         });
+
+        // Enrich each output row with the internal listing name so the CSV
+        // export has a leading "Listing" column.
+        const listingNameByCode = new Map<string, string>();
+        const enriched: ({ Listing: string } & CsvRow)[] = [];
+
+        for (const row of unpaired) {
+            const code = row["Confirmation code"]?.trim() || "";
+            let internalName = "";
+            if (code) {
+                if (listingNameByCode.has(code)) {
+                    internalName = listingNameByCode.get(code)!;
+                } else {
+                    const reservation = await this.reservationInfoRepository.findOne({
+                        where: { channelReservationId: code }
+                    });
+                    if (reservation) {
+                        const listing = await this.listingInfoRepository.findOne({
+                            where: { id: reservation.listingMapId }
+                        });
+                        internalName = listing?.internalListingName || "";
+                    }
+                    listingNameByCode.set(code, internalName);
+                }
+            }
+            const { Listing: _airbnbListing, ...rest } = row;
+            enriched.push({ Listing: internalName, ...rest });
+        }
+
+        return enriched;
     }
 
     async sendCancellationFeeNotification(reservation: ReservationInfoEntity, resolution: Resolution, cancellationFeeInfo: Resolution) {
