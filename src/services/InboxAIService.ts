@@ -10,6 +10,7 @@ import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import { InboxService } from "./InboxService";
 import { ListingKnowledgeService } from "./ListingKnowledgeService";
+import { ListingKnowledgeSeeder } from "./ListingKnowledgeSeeder";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
@@ -224,6 +225,25 @@ export class InboxAIService {
         if (!options.force) {
             const existing = await this.getLatestSuggestion(threadId, targetMessageId);
             if (existing) return existing;
+        }
+
+        // Self-heal listing knowledge: if this conversation is on a listing we've
+        // never seeded (e.g. a new reservation arriving on a fresh Hostify child
+        // ID), pull its Knowledge Base from Hostify on the spot so THIS reply is
+        // grounded. Bounded + fully guarded so it can never block or break the
+        // suggestion. Seeded entries are picked up by the keyword KB path even
+        // before they're embedded; embedding (for RAG ranking) is best-effort.
+        if (conversation.listingId) {
+            try {
+                const seeder = new ListingKnowledgeSeeder();
+                const created = await Promise.race([
+                    seeder.ensureListingSeeded(conversation.listingId),
+                    new Promise<number>((resolve) => setTimeout(() => resolve(0), 15000)),
+                ]);
+                if (created > 0) await new RetrievalService().embedKnowledge().catch(() => 0);
+            } catch {
+                /* non-fatal — never block a suggestion on seeding */
+            }
         }
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
@@ -989,6 +1009,86 @@ export class InboxAIService {
     }
 
     /** Build the user-message context block from conversation + reservation + listing. */
+    /** Short-lived cache so repeated previews of the same thread don't refetch Hostify. */
+    private static reservationCache = new Map<number, { at: number; block: string | null }>();
+
+    /**
+     * Live reservation facts for the prompt: exact check-in/out dates, status,
+     * confirmation code, payment state and cancellation/refund terms — pulled
+     * straight from the Hostify booking. The team flagged that the bot "doesn't
+     * detect cancellation policies / reservation dates": the reply pipeline
+     * previously used only the thin InboxConversation columns (often empty) and
+     * never loaded the real reservation. Guest-shareable facts (dates/status/
+     * code) are separated from staff-only billing/cancellation facts so the
+     * model can share the former but only uses the latter to inform its draft.
+     */
+    private async buildReservationBlock(conversation: InboxConversationEntity): Promise<string | null> {
+        const reservationId = conversation.reservationId ? Number(conversation.reservationId) : null;
+        if (!reservationId || !this.hostifyApiKey) return null;
+
+        const cached = InboxAIService.reservationCache.get(reservationId);
+        if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.block;
+
+        let block: string | null = null;
+        try {
+            const data: any = await this.hostify.getReservationInfo(this.hostifyApiKey, reservationId);
+            const r = data?.reservation || {};
+            const l = data?.listing || {};
+            if (r && (r.checkIn || r.confirmation_code || r.status)) {
+                const fmtTime = (t: any): string | null => {
+                    const m = String(t || "").match(/^(\d{1,2}):(\d{2})/);
+                    if (!m) return null;
+                    let h = Number(m[1]);
+                    const ampm = h >= 12 ? "PM" : "AM";
+                    h = h % 12 === 0 ? 12 : h % 12;
+                    return `${h}:${m[2]} ${ampm}`;
+                };
+                const shareable: string[] = [];
+                if (r.confirmation_code) shareable.push(`- Confirmation code: ${r.confirmation_code}`);
+                if (r.checkIn) shareable.push(`- Check-in date: ${r.checkIn}${fmtTime(l.checkin_start) ? ` (from ${fmtTime(l.checkin_start)})` : ""}`);
+                if (r.checkOut) shareable.push(`- Check-out date: ${r.checkOut}${fmtTime(l.checkout) ? ` (by ${fmtTime(l.checkout)})` : ""}`);
+                const stay: string[] = [];
+                if (r.nights != null) stay.push(`${r.nights} night(s)`);
+                if (r.guests != null) stay.push(`${r.guests} guest(s)`);
+                if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
+                if (r.status_description || r.status) shareable.push(`- Reservation status: ${r.status_description || r.status}`);
+
+                const staff: string[] = [];
+                const nonRefundable = Number(l.non_refundable_factor) >= 1;
+                staff.push(
+                    nonRefundable
+                        ? "- Rate type: NON-REFUNDABLE rate plan (the guest booked a non-refundable rate)."
+                        : "- Rate type: standard/refundable rate plan (not a non-refundable booking)."
+                );
+                if (r.cancellation_fee != null && Number(r.cancellation_fee) > 0)
+                    staff.push(`- Cancellation fee currently on file: ${r.cancellation_fee}.`);
+                if (r.cancelled_at)
+                    staff.push(`- This reservation was CANCELLED on ${r.cancelled_at}${r.cancel_reason ? ` (reason: ${r.cancel_reason})` : ""}.`);
+                if (r.sum_refunds != null && Number(r.sum_refunds) > 0) staff.push(`- Refunds issued so far: ${r.sum_refunds}.`);
+                const paidLabel: Record<string, string> = { none: "not yet paid", part: "partially paid", full: "paid in full", all: "paid in full" };
+                const pl = paidLabel[String(r.paid_part || "").toLowerCase()];
+                if (pl) staff.push(`- Payment status: ${pl}${r.paid_sum != null && Number(r.paid_sum) > 0 ? ` (${r.paid_sum} collected so far)` : ""}.`);
+
+                const out: string[] = [];
+                if (shareable.length) {
+                    out.push("## Reservation details (live booking — accurate; you MAY share dates, status and confirmation code with the guest)");
+                    out.push(...shareable);
+                }
+                if (staff.length) {
+                    out.push("");
+                    out.push("## Reservation billing & cancellation (STAFF-ONLY facts — use to inform your reply; still confirm specifics with the team and do NOT over-assert a policy the facts don't clearly support)");
+                    out.push(...staff);
+                }
+                block = out.length ? out.join("\n") : null;
+            }
+        } catch (e: any) {
+            logger.warn(`[InboxAI] reservation enrich failed for ${reservationId}: ${e.message}`);
+            block = null;
+        }
+        InboxAIService.reservationCache.set(reservationId, { at: Date.now(), block });
+        return block;
+    }
+
     private async buildContext(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
@@ -1008,6 +1108,21 @@ export class InboxAIService {
             lines.push(`Booking total: ${conversation.price} ${conversation.currency || ""}`.trim());
         }
         if (conversation.reservationStatus) lines.push(`Reservation status: ${conversation.reservationStatus}`);
+
+        // Full reservation facts (exact dates, status, confirmation code, payment
+        // state, refundability / cancellation terms) pulled live from Hostify.
+        // The thin conversation columns above are frequently empty, which is why
+        // the bot previously "didn't detect" reservation dates or cancellation
+        // policy — this block is what lets it answer those accurately.
+        if (includeKnowledge) try {
+            const resvBlock = await this.buildReservationBlock(conversation);
+            if (resvBlock) {
+                lines.push("");
+                lines.push(resvBlock);
+            }
+        } catch {
+            /* non-fatal */
+        }
 
         // Resolve the channel/child listing to its canonical property group so KB
         // and learned facts are shared across all sibling listings (Hostify splits

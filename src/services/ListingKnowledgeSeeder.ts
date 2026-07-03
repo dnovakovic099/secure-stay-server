@@ -1,8 +1,10 @@
+import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { Listing } from "../entity/Listing";
 import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { Hostify } from "../client/Hostify";
+import { ListingGroupService } from "./ListingGroupService";
 
 const SOURCE = "listing_import";
 
@@ -229,6 +231,62 @@ export class ListingKnowledgeSeeder {
         for (const e of entries) if (await this.upsert(listingId, e)) n++;
         await this.reconcile(listingId, entries.map((e) => e.title));
         return n;
+    }
+
+    /** In-process guard so an on-demand seed is attempted at most once per listing. */
+    private static selfHealAttempts = new Set<number>();
+
+    /**
+     * Self-heal a single listing that just showed up in the inbox with no
+     * Knowledge Base. Hostify splits one property into per-channel child IDs, so
+     * a brand-new reservation can arrive on a child ID we've never seeded —
+     * leaving the bot with zero listing grounding. This pulls that listing's KB
+     * straight from Hostify on demand (idempotent). No-op if the listing (or its
+     * resolved parent group) is already covered. Returns new entries created.
+     */
+    async ensureListingSeeded(listingId: number | null | undefined): Promise<number> {
+        const id = listingId ? Number(listingId) : 0;
+        if (!id || ListingKnowledgeSeeder.selfHealAttempts.has(id)) return 0;
+        ListingKnowledgeSeeder.selfHealAttempts.add(id);
+        try {
+            const groupIds = await new ListingGroupService().groupIds(id).catch(() => [id]);
+            const covered = await this.kbRepo.count({
+                where: { listingId: In(groupIds.length ? groupIds : [id]) as any, isArchived: 0 },
+            });
+            if (covered > 0) return 0;
+            const res = await this.seedListingsFromHostify([id], { onlyMissing: true });
+            if (res.entries) logger.info(`[KBSeeder] self-healed listing ${id}: +${res.entries} KB entries`);
+            return res.entries;
+        } catch (e: any) {
+            logger.warn(`[KBSeeder] self-heal failed for ${listingId}: ${e.message}`);
+            return 0;
+        }
+    }
+
+    /**
+     * Nightly safety net: find every listing that has an inbox conversation but
+     * no Knowledge Base (after group resolution) and seed it from Hostify. Keeps
+     * coverage complete as new reservations/child IDs appear over time.
+     */
+    async sweepMissingConversationKnowledge(): Promise<{ scanned: number; seeded: number; entries: number }> {
+        const rows: { listingId: number }[] = await appDatabase.query(
+            `SELECT DISTINCT listingId FROM inbox_conversations WHERE listingId IS NOT NULL`
+        );
+        const groups = new ListingGroupService();
+        const missing: number[] = [];
+        for (const r of rows) {
+            const id = Number(r.listingId);
+            if (!id) continue;
+            const groupIds = await groups.groupIds(id).catch(() => [id]);
+            const covered = await this.kbRepo.count({
+                where: { listingId: In(groupIds.length ? groupIds : [id]) as any, isArchived: 0 },
+            });
+            if (covered === 0) missing.push(id);
+        }
+        if (!missing.length) return { scanned: rows.length, seeded: 0, entries: 0 };
+        const res = await this.seedListingsFromHostify(missing, { onlyMissing: true });
+        logger.info(`[KBSeeder] nightly sweep seeded ${res.entries} entries across ${res.listings} listings (${missing.length} were missing)`);
+        return { scanned: rows.length, seeded: res.listings, entries: res.entries };
     }
 
     /** Archive any auto-imported entries that are no longer valid for this listing. */

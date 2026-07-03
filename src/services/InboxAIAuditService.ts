@@ -6,6 +6,7 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ExemplarService } from "./ExemplarService";
 import { RetrievalService } from "./RetrievalService";
+import { ListingKnowledgeSeeder } from "./ListingKnowledgeSeeder";
 
 interface ExtractedFact {
     topic: string;
@@ -330,6 +331,14 @@ export class InboxAIAuditService {
             logger.info("[InboxAIAudit] extraction disabled via AI_NIGHTLY_AUDIT_ENABLED=false");
         }
 
+        // Safety net: seed Knowledge Base for any listing that has an inbox
+        // conversation but no KB yet (new reservations arrive on fresh Hostify
+        // child IDs). Keeps listing grounding complete without manual reseeds.
+        const sweep = await new ListingKnowledgeSeeder().sweepMissingConversationKnowledge().catch((e) => {
+            logger.error(`[InboxAIAudit] KB sweep failed: ${e.message}`);
+            return { scanned: 0, seeded: 0, entries: 0 };
+        });
+
         // Grow the semantic retrieval store from the last few days of new replies,
         // and index any newly-approved learned facts.
         let emb = { pairs: 0, embedded: 0 };
@@ -352,6 +361,7 @@ export class InboxAIAuditService {
         logger.info(
             `[InboxAIAudit] nightly audit complete — replies matched=${cap.matched}/${cap.scanned}, ` +
                 `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}, ` +
+                `KB sweep seeded=${sweep.entries} entries/${sweep.seeded} listings, ` +
                 `new exemplars embedded=${emb.embedded}`
         );
     }
