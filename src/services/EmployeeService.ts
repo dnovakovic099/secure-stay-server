@@ -7,6 +7,8 @@ import { UsersEntity } from "../entity/Users";
 import { FileInfo } from "../entity/FileInfo";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
+import { LeaveRequestEntity } from "../entity/LeaveRequest";
+import { LeaveRequestStatus, PaymentType } from "../constant";
 import { Between, IsNull } from "typeorm";
 
 interface CreateEmployeeDto {
@@ -89,6 +91,7 @@ export class EmployeeService {
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private departmentRepo = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
+    private leaveRequestRepo = appDatabase.getRepository(LeaveRequestEntity);
 
     private normalizeDepartmentName(name: string) {
         const trimmed = name.trim();
@@ -666,6 +669,53 @@ export class EmployeeService {
         return entry.notes ? `${range} (${entry.notes})` : range;
     }
 
+    private extractScheduleLeavePaymentType(notes?: string | null) {
+        const firstPhrase = notes?.split('.')[0]?.trim().toLowerCase();
+        if (firstPhrase === 'paid leave') return PaymentType.PAID;
+        if (firstPhrase === 'unpaid leave') return PaymentType.UNPAID;
+        return null;
+    }
+
+    private async syncLeaveRequestFromScheduleOverride(employee: Employee, date: string, notes?: string | null, changedBy?: number) {
+        const paymentType = this.extractScheduleLeavePaymentType(notes);
+        if (!paymentType) return;
+
+        const leaveType = paymentType === PaymentType.PAID ? 'Paid Leave' : 'Unpaid Leave';
+        const reason = notes?.trim() || `Created from schedule adjustment: ${leaveType}`;
+        const activeStatuses = [
+            LeaveRequestStatus.PENDING,
+            LeaveRequestStatus.APPROVED,
+            LeaveRequestStatus.CANCELLATION_PENDING,
+        ];
+
+        const existingLeave = await this.leaveRequestRepo
+            .createQueryBuilder('leave')
+            .where('leave.userId = :userId', { userId: employee.userId })
+            .andWhere('leave.deletedAt IS NULL')
+            .andWhere('leave.status IN (:...statuses)', { statuses: activeStatuses })
+            .andWhere('leave.startDate = :date AND leave.endDate = :date', { date })
+            .orderBy('leave.createdAt', 'DESC')
+            .getOne();
+
+        const leaveRequest = existingLeave || this.leaveRequestRepo.create({
+            userId: employee.userId,
+            totalDays: 1,
+        });
+
+        leaveRequest.leaveType = leaveType;
+        leaveRequest.startDate = new Date(date);
+        leaveRequest.endDate = new Date(date);
+        leaveRequest.totalDays = 1;
+        leaveRequest.reason = reason;
+        leaveRequest.status = LeaveRequestStatus.APPROVED;
+        leaveRequest.paymentType = paymentType;
+        leaveRequest.actionedBy = (changedBy ?? null) as any;
+        leaveRequest.actionedAt = new Date();
+        leaveRequest.adminNotes = 'Created from employee schedule adjustment';
+
+        await this.leaveRequestRepo.save(leaveRequest);
+    }
+
     private toDate(value?: string | null): Date | null {
         if (!value) return null;
         const parsed = new Date(value);
@@ -713,6 +763,29 @@ export class EmployeeService {
             }
             return row;
         });
+    }
+
+    async getScheduleOverrideHistory(employeeId: number, date?: string) {
+        await this.ensureTables();
+
+        const employee = await this.employeeRepo.findOne({
+            where: { id: employeeId, deletedAt: IsNull() },
+        });
+
+        if (!employee) {
+            throw new Error('Employee not found');
+        }
+
+        const query = this.changeLogRepo
+            .createQueryBuilder('log')
+            .leftJoinAndSelect('log.changedByUser', 'changedByUser')
+            .where('log.employeeId = :employeeId', { employeeId })
+            .andWhere('log.fieldName LIKE :fieldName', {
+                fieldName: date ? `Schedule Override (${date})` : 'Schedule Override%',
+            })
+            .orderBy('log.createdAt', 'DESC');
+
+        return query.getMany();
     }
 
     async upsertScheduleOverride(employeeId: number, dto: UpsertScheduleOverrideDto, changedBy?: number) {
@@ -777,6 +850,10 @@ export class EmployeeService {
             this.describeScheduleOverride(saved),
             changedBy
         );
+
+        if (saved.shiftType === EmployeeScheduleShiftType.OFF) {
+            await this.syncLeaveRequestFromScheduleOverride(employee, saved.date, saved.notes, changedBy);
+        }
 
         return saved;
     }
