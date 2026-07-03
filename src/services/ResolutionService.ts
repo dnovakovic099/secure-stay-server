@@ -585,7 +585,7 @@ export class ResolutionService {
 
         const getInternalListingName = async (listingMapId: number): Promise<string> => {
             if (listingNameByMapId.has(listingMapId)) return listingNameByMapId.get(listingMapId)!;
-            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId } });
+            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId }, withDeleted: true });
             const name = listing?.internalListingName || "";
             listingNameByMapId.set(listingMapId, name);
             return name;
@@ -714,7 +714,7 @@ export class ResolutionService {
 
         const getInternalListingName = async (listingMapId: number): Promise<string> => {
             if (listingNameByMapId.has(listingMapId)) return listingNameByMapId.get(listingMapId)!;
-            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId } });
+            const listing = await this.listingInfoRepository.findOne({ where: { id: listingMapId }, withDeleted: true });
             const name = listing?.internalListingName || "";
             listingNameByMapId.set(listingMapId, name);
             return name;
@@ -865,7 +865,8 @@ export class ResolutionService {
                     });
                     if (reservation) {
                         const listing = await this.listingInfoRepository.findOne({
-                            where: { id: reservation.listingMapId }
+                            where: { id: reservation.listingMapId },
+                            withDeleted: true
                         });
                         internalName = listing?.internalListingName || "";
                     }
