@@ -45,6 +45,7 @@ import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { OpenAIService } from "./OpenAIService";
+import { findMatchingHostifyChildListing } from "../utils/listingListedStatus.util";
 
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
@@ -1192,6 +1193,53 @@ export class ReviewService {
                 isLateCancelled: Boolean(cancelledAt && isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt)),
                 cancelledAt,
             });
+        });
+
+        return result;
+    }
+
+    private async getReservationListingListedStatusMap(
+        reservations: ReservationInfoEntity[],
+        listingMap: Map<number, Listing | Pick<Listing, 'timeZoneName' | 'checkInTimeStart'> | undefined>,
+    ): Promise<Map<number, unknown>> {
+        const result = new Map<number, unknown>();
+
+        reservations.forEach((reservation) => {
+            const reservationId = Number(reservation?.id);
+            if (!reservationId) return;
+            const parentListing = listingMap.get(Number(reservation.listingMapId));
+            result.set(reservationId, (parentListing as any)?.is_listed ?? null);
+        });
+
+        const apiKey = process.env.HOSTIFY_API_KEY || "";
+        if (!apiKey) return result;
+
+        const uniqueParentListingIds = Array.from(new Set(
+            reservations
+                .map((reservation) => Number(reservation?.listingMapId))
+                .filter(Boolean)
+        ));
+
+        const childListingsByParentId = new Map<number, any[]>();
+        await Promise.all(uniqueParentListingIds.map(async (listingId) => {
+            const childListings = await this.hostifyClient.getChildListings(apiKey, String(listingId));
+            childListingsByParentId.set(listingId, Array.isArray(childListings) ? childListings : []);
+        }));
+
+        reservations.forEach((reservation) => {
+            const reservationId = Number(reservation?.id);
+            if (!reservationId) return;
+
+            const childListings = childListingsByParentId.get(Number(reservation.listingMapId)) || [];
+            const matchedChildListing = findMatchingHostifyChildListing(childListings, {
+                externalPropertyId: reservation.externalPropertyId,
+                integration_nickname: reservation.integration_nickname,
+                channelName: reservation.channelName,
+            });
+
+            if (matchedChildListing && matchedChildListing.is_listed !== undefined) {
+                result.set(reservationId, matchedChildListing.is_listed);
+            }
         });
 
         return result;
@@ -3991,6 +4039,10 @@ export class ReviewService {
             reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[],
             listingTagMap,
         );
+        const listingListedStatusMap = await this.getReservationListingListedStatusMap(
+            reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[],
+            listingTagMap,
+        );
 
         const transformedData = await Promise.all(reviewCheckoutList.map(async (rc) => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
@@ -4084,6 +4136,7 @@ export class ReviewService {
                     checkOutTime: rc.reservationInfo?.checkOutTime ?? listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.checkOutTime ?? null,
                     timeZoneName: listingTagMap.get(Number(rc.reservationInfo?.listingMapId))?.timeZoneName ?? 'America/New_York',
                     reservationStatus: rc.reservationInfo?.status || null,
+                    listingIsListed: listingListedStatusMap.get(Number(rc.reservationInfo?.id)) ?? null,
                     isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
                     cancelledAt: lateCancellationInfo?.cancelledAt || null,
                 },

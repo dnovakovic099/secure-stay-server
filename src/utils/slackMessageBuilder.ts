@@ -20,6 +20,7 @@ import { CleanerRequest } from "../entity/CleanerRequest";
 import { PhotographerRequest } from "../entity/PhotographerRequest";
 import { MaintenanceFormRequest } from "../entity/MaintenanceFormRequest";
 import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
+import { prefixUnlistedListingMarker } from "./listingListedStatus.util";
 
 const REFUND_REQUEST_CHANNEL = "#resolutions-team";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
@@ -2407,6 +2408,7 @@ export interface ResolutionsCheckoutMessageData {
     tagOptions?: { label: string; value: string }[];
     selectedTags?: string[];
     isCancelled?: boolean;
+    isListingUnlisted?: boolean;
 }
 
 type ResolutionsAssigneeSlackOption = {
@@ -2422,6 +2424,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         visibility,
         reviewCheckoutId, statusOptions, assigneeOptions, tagOptions = [], selectedTags = [],
         isCancelled = false,
+        isListingUnlisted = false,
     } = data;
 
     const guestLabel = `${isCancelled ? '❌ ' : ''}${guestName}`;
@@ -2431,8 +2434,9 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
         : escapeSlackLinkText(guestLabel);
     const normalizedChannelName = normalizeSlackField(channelName, "");
     const normalizedIntegrationName = normalizeSlackField(integrationName, "");
+    const displayIntegrationName = prefixUnlistedListingMarker(normalizedIntegrationName, isListingUnlisted);
     const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
-        ? `${normalizedChannelName} - ${normalizedIntegrationName}`
+        ? `${normalizedChannelName} - ${displayIntegrationName}`
         : normalizedChannelName;
     const headerText = `*${escapeSlackLinkText(listingName)}* ${emoji} | ${guestText} | ${escapeSlackLinkText(channelLabel)} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 

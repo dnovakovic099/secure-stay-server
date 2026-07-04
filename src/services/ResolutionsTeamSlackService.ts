@@ -14,6 +14,7 @@ import { FileInfo } from "../entity/FileInfo";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { GuestAnalysisService } from "./GuestAnalysisService";
+import { Hostify } from "../client/Hostify";
 import {
     buildResolutionsCheckoutMessage,
     buildResolutionsActivityMessage,
@@ -32,6 +33,7 @@ import { supabaseAdmin } from "../utils/supabase";
 import { In } from "typeorm";
 import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
 import { getEasternDateString } from "../utils/easternTime.util";
+import { findMatchingHostifyChildListing, isUnlistedListingStatus } from "../utils/listingListedStatus.util";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -97,6 +99,7 @@ export class ResolutionsTeamSlackService {
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private hostifyClient = new Hostify();
     private usersService = new UsersService();
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -484,6 +487,33 @@ export class ResolutionsTeamSlackService {
             .map((tag) => ({ label: tag, value: tag }));
     }
 
+    private async resolveListingListedStatus(
+        reservation: ReservationInfoEntity,
+        listing: Listing | null,
+        childListingsCache?: Map<number, any[]>,
+    ): Promise<unknown> {
+        const parentStatus = (listing as any)?.is_listed ?? null;
+        const apiKey = process.env.HOSTIFY_API_KEY || "";
+        const parentListingId = Number(reservation.listingMapId);
+        if (!apiKey || !parentListingId) return parentStatus;
+
+        let childListings = childListingsCache?.get(parentListingId);
+        if (!childListings) {
+            childListings = await this.hostifyClient.getChildListings(apiKey, String(parentListingId));
+            if (childListingsCache) {
+                childListingsCache.set(parentListingId, Array.isArray(childListings) ? childListings : []);
+            }
+        }
+
+        const matchedChildListing = findMatchingHostifyChildListing(Array.isArray(childListings) ? childListings : [], {
+            externalPropertyId: reservation.externalPropertyId,
+            integration_nickname: reservation.integration_nickname,
+            channelName: reservation.channelName,
+        });
+
+        return matchedChildListing?.is_listed ?? parentStatus;
+    }
+
     private async updateRootMessage(
         reviewCheckout: ReviewCheckout,
         reservation: ReservationInfoEntity,
@@ -495,6 +525,7 @@ export class ResolutionsTeamSlackService {
         try {
             const { emoji } = this.getListingEmoji(listing?.tags);
             const isLateCancelled = isLateCancelledOverride ?? await this.isLateCancelledReservation(reservation, listing);
+            const listingListedStatus = await this.resolveListingListedStatus(reservation, listing);
             const reviewService = new ReviewService();
             const [statusData, assigneeOptions, tagOptions] = await Promise.all([
                 reviewService.getMitigationStatusOptions(),
@@ -532,6 +563,7 @@ export class ResolutionsTeamSlackService {
                 tagOptions,
                 selectedTags: this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, [])),
                 isCancelled: isLateCancelled,
+                isListingUnlisted: isUnlistedListingStatus(listingListedStatus),
             });
 
             await axios.post(
@@ -618,6 +650,7 @@ export class ResolutionsTeamSlackService {
             : null;
         const { emoji } = this.getListingEmoji(listing?.tags);
         const isLateCancelled = await this.isLateCancelledReservation(reservation, listing);
+        const listingListedStatus = await this.resolveListingListedStatus(reservation, listing);
         const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
@@ -651,6 +684,7 @@ export class ResolutionsTeamSlackService {
             tagOptions: includeTags ? tagOptions : [],
             selectedTags: includeTags ? selectedTags : [],
             isCancelled: isLateCancelled,
+            isListingUnlisted: isUnlistedListingStatus(listingListedStatus),
         });
 
         let msgPayload = buildMessagePayload(true);
@@ -783,6 +817,7 @@ export class ResolutionsTeamSlackService {
 
         let posted = 0;
         let skipped = 0;
+        const childListingsCache = new Map<number, any[]>();
 
         for (const { rc, listing, emoji } of sorted) {
             const reservation = rc.reservationInfo;
@@ -798,6 +833,7 @@ export class ResolutionsTeamSlackService {
                 const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
                 const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
+                const listingListedStatus = await this.resolveListingListedStatus(reservation, listing, childListingsCache);
                 const buildMsgPayload = (includeTags: boolean) => buildResolutionsCheckoutMessage({
                     emoji,
                     listingName: reservation.listingName || "Unknown Property",
@@ -822,6 +858,7 @@ export class ResolutionsTeamSlackService {
                     assigneeOptions,
                     tagOptions: includeTags ? tagOptions : [],
                     selectedTags: includeTags ? selectedTags : [],
+                    isListingUnlisted: isUnlistedListingStatus(listingListedStatus),
                 });
 
                 let msgPayload = buildMsgPayload(true);
