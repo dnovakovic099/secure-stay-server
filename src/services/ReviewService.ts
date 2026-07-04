@@ -2196,6 +2196,10 @@ export class ReviewService {
                 reservationInfoList.filter(Boolean) as ReservationInfoEntity[],
                 listingMap,
             );
+            const listingListedStatusMap = await this.getReservationListingListedStatusMap(
+                reservationInfoList.filter(Boolean) as ReservationInfoEntity[],
+                listingMap,
+            );
 
             const reviewList = await Promise.all(reviews.map(async (review, index) => {
                 const reservationInfo = reservationInfoList[index];
@@ -2267,6 +2271,7 @@ export class ReviewService {
                     accountingLogNetAmount: accountingSummary?.netAmount || 0,
                     accountingLogEntries: accountingSummary?.entries || [],
                     reservationStatus: reservationInfo?.status || null,
+                    listingIsListed: reservationInfo ? listingListedStatusMap.get(Number(reservationInfo.id)) ?? null : null,
                     isLateCancelled: lateCancellationInfo?.isLateCancelled || false,
                     cancelledAt: lateCancellationInfo?.cancelledAt || null,
                 };
