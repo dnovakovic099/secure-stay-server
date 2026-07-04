@@ -1211,19 +1211,22 @@ export class ReviewService {
             result.set(reservationId, (parentListing as any)?.is_listed ?? null);
         });
 
-        const apiKey = process.env.HOSTIFY_API_KEY || "";
-        if (!apiKey) return result;
-
         const uniqueParentListingIds = Array.from(new Set(
             reservations
                 .map((reservation) => Number(reservation?.listingMapId))
                 .filter(Boolean)
         ));
 
+        const listingService = new ListingService();
         const childListingsByParentId = new Map<number, any[]>();
         await Promise.all(uniqueParentListingIds.map(async (listingId) => {
-            const childListings = await this.hostifyClient.getChildListings(apiKey, String(listingId));
-            childListingsByParentId.set(listingId, Array.isArray(childListings) ? childListings : []);
+            try {
+                const childListings = await listingService.getChildListings(listingId);
+                childListingsByParentId.set(listingId, Array.isArray(childListings) ? childListings : []);
+            } catch (error) {
+                logger.warn(`Unable to resolve child listing listed status for listing ${listingId}:`, error);
+                childListingsByParentId.set(listingId, []);
+            }
         }));
 
         reservations.forEach((reservation) => {

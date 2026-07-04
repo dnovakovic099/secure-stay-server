@@ -14,7 +14,6 @@ import { FileInfo } from "../entity/FileInfo";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { GuestAnalysisService } from "./GuestAnalysisService";
-import { Hostify } from "../client/Hostify";
 import {
     buildResolutionsCheckoutMessage,
     buildResolutionsActivityMessage,
@@ -29,6 +28,7 @@ import { ReviewService } from "./ReviewService";
 import { formatCurrency, replaceSlackIdsWithMentions } from "../helpers/helpers";
 import { getSlackUsers } from "../utils/getSlackUsers";
 import { UsersService } from "./UsersService";
+import { ListingService } from "./ListingService";
 import { supabaseAdmin } from "../utils/supabase";
 import { In } from "typeorm";
 import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
@@ -99,7 +99,7 @@ export class ResolutionsTeamSlackService {
     private fileInfoRepo = appDatabase.getRepository(FileInfo);
     private reservationInfoLogsRepo = appDatabase.getRepository(ReservationInfoLog);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
-    private hostifyClient = new Hostify();
+    private listingService = new ListingService();
     private usersService = new UsersService();
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -493,15 +493,22 @@ export class ResolutionsTeamSlackService {
         childListingsCache?: Map<number, any[]>,
     ): Promise<unknown> {
         const parentStatus = (listing as any)?.is_listed ?? null;
-        const apiKey = process.env.HOSTIFY_API_KEY || "";
         const parentListingId = Number(reservation.listingMapId);
-        if (!apiKey || !parentListingId) return parentStatus;
+        if (!parentListingId) return parentStatus;
 
         let childListings = childListingsCache?.get(parentListingId);
         if (!childListings) {
-            childListings = await this.hostifyClient.getChildListings(apiKey, String(parentListingId));
-            if (childListingsCache) {
-                childListingsCache.set(parentListingId, Array.isArray(childListings) ? childListings : []);
+            try {
+                childListings = await this.listingService.getChildListings(parentListingId);
+                if (childListingsCache) {
+                    childListingsCache.set(parentListingId, Array.isArray(childListings) ? childListings : []);
+                }
+            } catch (error) {
+                logger.warn(`Unable to resolve child listing listed status for listing ${parentListingId}:`, error);
+                childListings = [];
+                if (childListingsCache) {
+                    childListingsCache.set(parentListingId, []);
+                }
             }
         }
 
