@@ -15,6 +15,7 @@ const REVIEW_UI_SETTINGS_PAGE_KEYS: ReviewUiSettingsPageKey[] = [
     'vendors',
     'vendor-contacts',
     'refund-requests',
+    'upsells',
     'smart-lock-devices',
     'smart-lock-access-codes',
     'smart-lock-property-mapping',

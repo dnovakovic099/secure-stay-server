@@ -237,6 +237,7 @@ export type ReviewUiSettingsPageKey =
     | 'vendors'
     | 'vendor-contacts'
     | 'refund-requests'
+    | 'upsells'
     | 'smart-lock-devices'
     | 'smart-lock-access-codes'
     | 'smart-lock-property-mapping'
@@ -290,6 +291,7 @@ export class ReviewService {
         vendors: 'ui-settings:vendors',
         'vendor-contacts': 'ui-settings:vendor-contacts',
         'refund-requests': 'ui-settings:refund-requests',
+        upsells: 'ui-settings:upsells',
         'smart-lock-devices': 'ui-settings:smart-lock-devices',
         'smart-lock-access-codes': 'ui-settings:smart-lock-access-codes',
         'smart-lock-property-mapping': 'ui-settings:smart-lock-property-mapping',
@@ -406,6 +408,7 @@ export class ReviewService {
             vendors: 'Shared Vendors UI Settings',
             'vendor-contacts': 'Shared Vendor Contacts UI Settings',
             'refund-requests': 'Shared Refund Requests UI Settings',
+            upsells: 'Shared Upsells UI Settings',
             'smart-lock-devices': 'Shared Smart Lock Devices UI Settings',
             'smart-lock-access-codes': 'Shared Smart Lock Access Codes UI Settings',
             'smart-lock-property-mapping': 'Shared Smart Lock Property Mapping UI Settings',
