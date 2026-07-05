@@ -118,6 +118,9 @@ export class ReservationInfoEntity {
     @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     cleaningFee: number;
 
+    @Column({ type: 'float', nullable: true })
+    base_price: number;
+
     @Column({ type: 'float', nullable: true }) // Replaced DECIMAL with FLOAT
     securityDepositFee: number;
 

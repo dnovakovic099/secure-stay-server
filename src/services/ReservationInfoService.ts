@@ -2076,6 +2076,7 @@ export class ReservationInfoService {
       channelCommissionAmount: reservation.channel_commission,
       hostawayCommissionAmount: null,
       cleaningFee: reservation.cleaning_fee,
+      base_price: reservation.base_price ?? null,
       securityDepositFee: reservation.security_price !== undefined && reservation.security_price !== null
         ? Number(reservation.security_price)
         : reservation.securityPrice !== undefined && reservation.securityPrice !== null
