@@ -21,6 +21,12 @@ import { Hostify } from "../client/Hostify";
 import { ClientPropertyEntity } from "../entity/ClientProperty";
 import pLimit from "p-limit";
 
+// Module-level TTL cache for the enriched child-listings result. Keyed by parent listing id,
+// stores the in-flight promise so concurrent callers (mitigation fan-out fetches this once per
+// unique parent listing) coalesce into a single Hostify round-trip. Child listings + their
+// per-listing getListingDetails enrichment don't change intraday, so a short TTL is safe.
+const CHILD_LISTINGS_TTL_MS = 5 * 60 * 1000;
+const childListingsCache: Map<number, { promise: Promise<any[]>; expiresAt: number }> = new Map();
 
 interface ListingUpdate {
   listingId: number;
@@ -2088,63 +2094,86 @@ export class ListingService {
     const hostifyApiKey = process.env.HOSTIFY_API_KEY;
     if (!hostifyApiKey) throw CustomErrorHandler.notFound('Hostify credentials not found');
 
-    const [childListings, integrations] = await Promise.all([
-      this.hostifyClient.getChildListings(hostifyApiKey, String(listingId)),
-      this.hostifyClient.getIntegrations(hostifyApiKey)
-    ]);
+    // Serve from the module-level cache when the entry is still valid, and hand back the
+    // in-flight promise so parallel callers (mitigation fetches this once per unique parent
+    // listing) collapse into a single Hostify round-trip instead of N concurrent fan-outs.
+    const cached = childListingsCache.get(listingId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.promise;
+    }
 
-    const integrationsById = new Map(
-      integrations.map((integration: any) => [String(integration.id), integration])
-    );
+    const fetchPromise = (async () => {
+      try {
+        const [childListings, integrations] = await Promise.all([
+          this.hostifyClient.getChildListings(hostifyApiKey, String(listingId)),
+          this.hostifyClient.getIntegrations(hostifyApiKey)
+        ]);
 
-    const missingIntegrationIds: string[] = Array.from(
-      new Set(
-        childListings
-          .flatMap((listing: any) => this.getListingIntegrationLookupIds(listing))
-          .filter((integrationId: string) => !integrationsById.has(integrationId))
-      )
-    );
+        const integrationsById = new Map(
+          integrations.map((integration: any) => [String(integration.id), integration])
+        );
 
-    await Promise.all(
-      missingIntegrationIds.map(async (integrationId) => {
-        const integration = await this.hostifyClient.getIntegration(hostifyApiKey, integrationId);
-        if (integration?.id) {
-          integrationsById.set(String(integration.id), integration);
-        }
-      })
-    );
+        const missingIntegrationIds: string[] = Array.from(
+          new Set(
+            childListings
+              .flatMap((listing: any) => this.getListingIntegrationLookupIds(listing))
+              .filter((integrationId: string) => !integrationsById.has(integrationId))
+          )
+        );
 
-    const detailLimit = pLimit(8);
-    const childListingDetails = new Map<string, any>();
-    await Promise.all(
-      childListings.map((listing: any) =>
-        detailLimit(async () => {
-          const detail = await this.hostifyClient.getListingDetails(hostifyApiKey, String(listing.id));
-          if (detail) {
-            childListingDetails.set(String(listing.id), detail);
-          }
-        })
-      )
-    );
+        await Promise.all(
+          missingIntegrationIds.map(async (integrationId) => {
+            const integration = await this.hostifyClient.getIntegration(hostifyApiKey, integrationId);
+            if (integration?.id) {
+              integrationsById.set(String(integration.id), integration);
+            }
+          })
+        );
 
-    return childListings.map((listing: any) => {
-      const integration = this.getListingIntegrationLookupIds(listing)
-        .map((integrationId) => integrationsById.get(integrationId))
-        .find(Boolean);
-      const listingDetail = childListingDetails.get(String(listing.id));
-      const detailListing = listingDetail?.listing || {};
+        const detailLimit = pLimit(8);
+        const childListingDetails = new Map<string, any>();
+        await Promise.all(
+          childListings.map((listing: any) =>
+            detailLimit(async () => {
+              const detail = await this.hostifyClient.getListingDetails(hostifyApiKey, String(listing.id));
+              if (detail) {
+                childListingDetails.set(String(listing.id), detail);
+              }
+            })
+          )
+        );
 
-      return {
-        ...listing,
-        integration_name: this.getIntegrationDisplayName(integration) || '-',
-        integration_picture: integration?.picture || null,
-        channel_name: this.getHostifyChannelName(listing, integration),
-        is_listed: listing?.is_listed ?? detailListing?.is_listed ?? null,
-        service_pms: listing?.service_pms ?? detailListing?.service_pms ?? null,
-        review_rating: listingDetail?.rating?.rating ?? null,
-        review_count: listingDetail?.rating?.reviews ?? null,
-      };
+        return childListings.map((listing: any) => {
+          const integration = this.getListingIntegrationLookupIds(listing)
+            .map((integrationId) => integrationsById.get(integrationId))
+            .find(Boolean);
+          const listingDetail = childListingDetails.get(String(listing.id));
+          const detailListing = listingDetail?.listing || {};
+
+          return {
+            ...listing,
+            integration_name: this.getIntegrationDisplayName(integration) || '-',
+            integration_picture: integration?.picture || null,
+            channel_name: this.getHostifyChannelName(listing, integration),
+            is_listed: listing?.is_listed ?? detailListing?.is_listed ?? null,
+            service_pms: listing?.service_pms ?? detailListing?.service_pms ?? null,
+            review_rating: listingDetail?.rating?.rating ?? null,
+            review_count: listingDetail?.rating?.reviews ?? null,
+          };
+        });
+      } catch (error) {
+        // Evict on failure so we retry on the next call rather than serving an error/empty
+        // result for the whole TTL window.
+        childListingsCache.delete(listingId);
+        throw error;
+      }
+    })();
+
+    childListingsCache.set(listingId, {
+      promise: fetchPromise,
+      expiresAt: Date.now() + CHILD_LISTINGS_TTL_MS,
     });
+    return fetchPromise;
   }
 
 }

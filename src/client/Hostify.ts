@@ -1,6 +1,18 @@
 import axios from "axios";
 import logger from "../utils/logger.utils";
 
+// Module-level TTL cache for the /integrations endpoint. Shared across every `new Hostify()`
+// instance because Hostify integrations rarely change intraday and the endpoint is expensive:
+// it paginates 100-per-page through the full account. The mitigation view calls
+// listingService.getChildListings once per unique parent listing, and each of those calls
+// re-issued the full integrations pagination — 30 unique parents fanned out into hundreds of
+// Hostify API calls per request. Coalescing this into a single cached fetch cuts the /mitigation
+// response time from tens of seconds back to the ~1s we had before "Expose listing status on
+// reviews" (5e05c91c). See getReservationListingListedStatusMap in ReviewService for the
+// original hot path.
+const HOSTIFY_INTEGRATIONS_TTL_MS = 24 * 60 * 60 * 1000;
+const hostifyIntegrationsCache: Map<string, { promise: Promise<any[]>; expiresAt: number }> = new Map();
+
 export class Hostify {
     private apiKey: string = process.env.HOSTIFY_API_KEY || '';
 
@@ -158,40 +170,60 @@ export class Hostify {
     }
 
     async getIntegrations(apiKey: string) {
-        try {
-            const url = "https://api-rms.hostify.com/integrations";
-            const per_page = 100;
-            let page = 1;
-            let hasMore = true;
-            const allIntegrations: any[] = [];
-
-            while (hasMore) {
-                const response = await axios.get(url, {
-                    headers: {
-                        "x-api-key": apiKey,
-                        "Cache-Control": "no-cache",
-                    },
-                    params: {
-                        page,
-                        per_page,
-                    },
-                });
-
-                const integrations = response.data?.integrations || [];
-                allIntegrations.push(...integrations);
-
-                if (integrations.length < per_page) {
-                    hasMore = false;
-                } else {
-                    page += 1;
-                }
-            }
-
-            return allIntegrations;
-        } catch (error) {
-            logger.error("Error fetching integrations:", error.message);
-            return [];
+        // Return the in-flight promise if we're already fetching, or a fresh copy of the
+        // cached result if the entry is still valid. Storing the promise (not just the
+        // resolved data) means N concurrent callers coalesce into one HTTP fetch — critical
+        // because getReservationListingListedStatusMap calls this via Promise.all fan-out.
+        const cached = hostifyIntegrationsCache.get(apiKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.promise;
         }
+
+        const fetchPromise = (async () => {
+            try {
+                const url = "https://api-rms.hostify.com/integrations";
+                const per_page = 100;
+                let page = 1;
+                let hasMore = true;
+                const allIntegrations: any[] = [];
+
+                while (hasMore) {
+                    const response = await axios.get(url, {
+                        headers: {
+                            "x-api-key": apiKey,
+                            "Cache-Control": "no-cache",
+                        },
+                        params: {
+                            page,
+                            per_page,
+                        },
+                    });
+
+                    const integrations = response.data?.integrations || [];
+                    allIntegrations.push(...integrations);
+
+                    if (integrations.length < per_page) {
+                        hasMore = false;
+                    } else {
+                        page += 1;
+                    }
+                }
+
+                return allIntegrations;
+            } catch (error) {
+                logger.error("Error fetching integrations:", error.message);
+                // Evict the failed entry so the next caller retries instead of serving []
+                // for the whole TTL window.
+                hostifyIntegrationsCache.delete(apiKey);
+                return [];
+            }
+        })();
+
+        hostifyIntegrationsCache.set(apiKey, {
+            promise: fetchPromise,
+            expiresAt: Date.now() + HOSTIFY_INTEGRATIONS_TTL_MS,
+        });
+        return fetchPromise;
     }
 
     async getIntegration(apiKey: string, integrationId: string | number) {
