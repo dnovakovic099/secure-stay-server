@@ -1287,6 +1287,11 @@ export class MessagingService {
             revenue: liveReservation?.revenue ?? reservation.totalPrice ?? null,
             netRevenue: liveReservation?.net_revenue ?? liveReservation?.payout_price ?? reservation.owner_revenue ?? null,
             nightRate: liveReservation?.price_per_night ?? liveReservation?.base_price ?? null,
+            // reservation.base_price only gets populated on records synced *after* the
+            // 20260705_add_base_price_to_reservation_info migration; for older rows the
+            // column is still NULL in the DB. Fall back to the live Hostify value so the
+            // Base Price row in the mitigation review modal doesn't render as "—".
+            base_price: reservation.base_price ?? liveReservation?.base_price ?? null,
             cleaningFee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
             channelCommission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
             confirmedAt: liveReservation?.confirmed_at ?? reservation.reservationDate ?? null,
