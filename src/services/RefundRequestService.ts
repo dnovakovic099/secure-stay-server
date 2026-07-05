@@ -26,6 +26,7 @@ import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Employee } from "../entity/Employee";
 import { getEasternDateString, getEasternTimestampRange } from "../utils/easternTime.util";
+import { ReservationInfoLog } from "../entity/ReservationInfologs";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -36,6 +37,7 @@ export class RefundRequestService {
   private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private employeeRepo = appDatabase.getRepository(Employee);
+  private reservationInfoLogRepo = appDatabase.getRepository(ReservationInfoLog);
   private reservationHistoryService = new ReservationHistoryService();
 
   private normalizeChargeToClient(value: unknown): number {
@@ -717,6 +719,123 @@ export class RefundRequestService {
     async getRefundRequestById(id: number) {
         const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
         return await this.decorateRefundRequests(refundRequest);
+    }
+
+    async getRefundRequestActivity(query: { ids?: string; }) {
+        const normalizeIds = (value?: string): number[] => {
+          if (!value) return [];
+          return String(value)
+            .split(",")
+            .map((id) => Number(String(id).trim()))
+            .filter((id) => Number.isFinite(id) && id > 0);
+        };
+        const refundRequestIds = normalizeIds(query.ids);
+        const refundRequests = await this.refundRequestRepo.find({
+          where: refundRequestIds.length ? { id: In(refundRequestIds) } : {},
+          order: { createdAt: "DESC" },
+        });
+        await this.decorateRefundRequests(refundRequests);
+
+        const requestIds = new Set(refundRequests.map((request) => Number(request.id)));
+        const reservationIds = Array.from(new Set(refundRequests.map((request) => Number(request.reservationId)).filter(Boolean)));
+        const expenseIds = Array.from(new Set(refundRequests.map((request) => Number(request.expenseId)).filter(Boolean)));
+        const expenses = expenseIds.length
+          ? await this.expenseRepo.find({ where: { id: In(expenseIds) } })
+          : [];
+        const expenseMap = new Map(expenses.map((expense) => [Number(expense.id), expense]));
+        const requestsByReservation = new Map<number, RefundRequestEntity[]>();
+
+        refundRequests.forEach((request) => {
+          const reservationId = Number(request.reservationId);
+          if (!reservationId) return;
+          const rows = requestsByReservation.get(reservationId) || [];
+          rows.push(request);
+          requestsByReservation.set(reservationId, rows);
+        });
+
+        const historyLogs = reservationIds.length
+          ? await this.reservationInfoLogRepo.find({
+            where: { reservationInfoId: In(reservationIds), action: "UPDATE" as any },
+            order: { changedAt: "ASC", id: "ASC" },
+          })
+          : [];
+        const statusLogs = historyLogs.filter((log) => Boolean((log.diff || {}).refundStatus));
+        const events: any[] = [];
+        const eventKeys = new Set<string>();
+
+        const makeRequestSnapshot = (request: any) => ({
+          id: request.id,
+          reservationId: request.reservationId,
+          listingId: request.listingId,
+          guestName: request.guestName,
+          listingName: request.listingName,
+          channelName: request.channelName,
+          propertyType: request.propertyType,
+          serviceType: request.serviceType,
+          status: request.status,
+          refundAmount: request.refundAmount,
+          expenseId: request.expenseId,
+          datePaid: expenseMap.get(Number(request.expenseId))?.datePaid || null,
+          createdAt: request.createdAt,
+          updatedAt: request.updatedAt,
+        });
+
+        const addEvent = (
+          request: RefundRequestEntity,
+          status: string,
+          occurredAt: Date | string | null | undefined,
+          source: string,
+          historyId?: number
+        ) => {
+          if (!requestIds.has(Number(request.id))) return;
+          const normalizedStatus = String(status || "").trim();
+          if (!normalizedStatus || !occurredAt) return;
+          const eventDate = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
+          if (Number.isNaN(eventDate.getTime())) return;
+          const key = `${request.id}:${normalizedStatus}:${eventDate.toISOString().slice(0, 10)}:${source}:${historyId || ""}`;
+          if (eventKeys.has(key)) return;
+          eventKeys.add(key);
+          events.push({
+            id: key,
+            requestId: request.id,
+            reservationId: request.reservationId,
+            status: normalizedStatus,
+            amount: Number(request.refundAmount || 0),
+            occurredAt: eventDate,
+            source,
+            historyId: historyId || null,
+            request: makeRequestSnapshot(request),
+          });
+        };
+
+        statusLogs.forEach((log) => {
+          const newStatus = String(log.diff?.refundStatus?.new || "").trim();
+          if (!newStatus) return;
+          const candidates = requestsByReservation.get(Number(log.reservationInfoId)) || [];
+          candidates.forEach((request) => {
+            const expense = expenseMap.get(Number(request.expenseId));
+            if (newStatus === "Paid" && expense?.datePaid) return;
+            addEvent(request, newStatus, log.changedAt, "status-history", log.id);
+          });
+        });
+
+        refundRequests.forEach((request) => {
+          const expense = expenseMap.get(Number(request.expenseId));
+          if (String(request.status || "") === "Paid" && expense?.datePaid) {
+            addEvent(request, "Paid", expense.datePaid, "date-paid");
+            return;
+          }
+
+          const hasCurrentStatusEvent = events.some((event) =>
+            Number(event.requestId) === Number(request.id) && event.status === request.status
+          );
+          if (!hasCurrentStatusEvent && request.status) {
+            addEvent(request, String(request.status), request.createdAt, "current-status-fallback");
+          }
+        });
+
+        events.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
+        return { data: events };
     }
 
     async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {

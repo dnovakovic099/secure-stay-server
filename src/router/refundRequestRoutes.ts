@@ -31,6 +31,8 @@ router.route('/')
 
 router.route('/list').get(verifySession, refundRequestController.getRefundRequestList);
 
+router.route('/activity').get(verifySession, refundRequestController.getRefundRequestActivity);
+
 router.route('/:reservationId').get(verifySession, refundRequestController.getRefundRequestByReservationId);
 
 router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, refundRequestController.updateRefundRequestStatus);

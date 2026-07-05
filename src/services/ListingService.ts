@@ -1391,7 +1391,7 @@ export class ListingService {
 
   async getListingAddresses(userId: string, includeDeleted: boolean = false) {
     const listings = await this.listingRepository.find({
-      select: ['id', 'address', 'internalListingName', 'deletedAt', 'propertyType', 'tags'],
+      select: ['id', 'address', 'internalListingName', 'deletedAt', 'propertyType', 'tags', 'state', 'city'],
       withDeleted: includeDeleted
     });
 

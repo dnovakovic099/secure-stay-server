@@ -100,6 +100,16 @@ export class RefundRequestController {
         }
     }
 
+    async getRefundRequestActivity(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const refundRequestService = new RefundRequestService();
+            const { ids } = request.query;
+            return response.send(await refundRequestService.getRefundRequestActivity({ ids: ids as string }));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async updateRefundRequestStatus(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const refundRequestService = new RefundRequestService();
