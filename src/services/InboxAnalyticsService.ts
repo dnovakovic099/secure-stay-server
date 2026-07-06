@@ -605,12 +605,14 @@ export class InboxAnalyticsService {
             if (!promptByThread.has(Number(pr.threadId))) promptByThread.set(Number(pr.threadId), pr);
         }
 
-        // Generic ops phrasing that matches everything and means nothing.
+        // Generic phrasing that matches everything and means nothing.
         const MATCH_STOPWORDS = new Set([
             "guest", "guests", "team", "property", "answer", "answered", "question", "provided", "clear",
             "reply", "replied", "reported", "requested", "request", "asked", "asking", "needs", "needed",
             "their", "there", "about", "should", "would", "could", "entire", "total", "your", "stay",
             "host", "listing", "information", "info", "correct", "correctly", "incorrectly", "specific",
+            "the", "and", "did", "not", "but", "was", "has", "have", "had", "this", "that", "will",
+            "can", "you", "are", "were", "they", "them", "its", "his", "her", "our", "with", "for",
         ]);
         const tokOverlap = (a: string, b: string): number => {
             const tok = (s: string) =>
@@ -619,7 +621,7 @@ export class InboxAnalyticsService {
                         .toLowerCase()
                         .replace(/[^a-z0-9\s]/g, " ")
                         .split(/\s+/)
-                        .filter((w) => w.length > 3 && !MATCH_STOPWORDS.has(w))
+                        .filter((w) => w.length >= 3 && !MATCH_STOPWORDS.has(w))
                 );
             const A = tok(a);
             const B = tok(b);
@@ -633,7 +635,9 @@ export class InboxAnalyticsService {
 
         const remediationOf = (p: Pair) => {
             const lid = listingByThread.get(p.threadId) ?? null;
-            const missText = `${p.aiQualityNote || ""} ${p.guestMsg || ""}`;
+            // Match on the judge's note (short, topical). The raw guest message is
+            // full of generic conversational words that create false matches.
+            const missText = p.aiQualityNote || p.guestMsg || "";
             const candidates = facts.filter(
                 (f) => f.scope === "portfolio" || (lid != null && Number(f.listingId) === lid)
             );
