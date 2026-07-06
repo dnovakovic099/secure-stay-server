@@ -168,6 +168,11 @@ export class InboxV2Controller {
             const suggestion = await service.generateSuggestion(threadId, {
                 messageId: toNum(request.body?.messageId),
                 force: request.body?.force === true || request.body?.force === "true",
+                // Composer steering: "Generate" sends instructions only; "Refine"
+                // sends instructions + the current draft to revise.
+                instructions:
+                    typeof request.body?.instructions === "string" ? request.body.instructions : null,
+                baseDraft: typeof request.body?.baseDraft === "string" ? request.body.baseDraft : null,
             });
             return response.status(200).json({ status: true, data: suggestion });
         } catch (error) {

@@ -35,6 +35,11 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     topicsToAvoid: string | null;
 
+    // Separate rules applied ONLY when the conversation is with Airbnb Support
+    // (platform case workers), which needs a very different register than guests.
+    @Column({ type: "text", nullable: true })
+    airbnbSupportRules: string | null;
+
     @Column({ type: "tinyint", default: 0 })
     autoRespondEnabled: number;
 

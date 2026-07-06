@@ -53,6 +53,7 @@ export class AICopilotController {
                 tone: b.tone,
                 communicationRules: b.communicationRules,
                 topicsToAvoid: b.topicsToAvoid,
+                airbnbSupportRules: b.airbnbSupportRules,
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
                 autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
                 autosendChannels: b.autosendChannels,
@@ -74,6 +75,7 @@ export class AICopilotController {
             const data = await new AICopilotService().listSuggestions({
                 status: (request.query.status as string) || undefined,
                 escalationOnly: request.query.escalationOnly === "true",
+                warningsOnly: request.query.warningsOnly === "true",
                 limit: toNum(request.query.limit) || undefined,
                 offset: toNum(request.query.offset) || undefined,
             });
@@ -192,7 +194,8 @@ export class AICopilotController {
                     answer,
                     source: "simulator",
                 },
-                { autoApprove: true }
+                // Staff explicitly taught this — trusted, no frequency gate.
+                { autoApprove: true, trustedSource: true }
             );
             return response.status(201).json({ status: true, data: saved });
         } catch (error) {

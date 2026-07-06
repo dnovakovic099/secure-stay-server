@@ -6,6 +6,7 @@ export interface AIMessagingSettingsPatch {
     tone?: string | null;
     communicationRules?: string | null;
     topicsToAvoid?: string | null;
+    airbnbSupportRules?: string | null;
     autoRespondEnabled?: boolean;
     autosendMinConfidence?: number;
     autosendChannels?: string | null;
@@ -64,6 +65,7 @@ export class AIMessagingSettingsService {
         if (patch.tone !== undefined) row.tone = patch.tone ? String(patch.tone).slice(0, 64) : null;
         if (patch.communicationRules !== undefined) row.communicationRules = patch.communicationRules ?? null;
         if (patch.topicsToAvoid !== undefined) row.topicsToAvoid = patch.topicsToAvoid ?? null;
+        if (patch.airbnbSupportRules !== undefined) row.airbnbSupportRules = patch.airbnbSupportRules ?? null;
         if (patch.autoRespondEnabled !== undefined) row.autoRespondEnabled = patch.autoRespondEnabled ? 1 : 0;
         if (patch.autosendMinConfidence !== undefined && Number.isFinite(patch.autosendMinConfidence)) {
             row.autosendMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendMinConfidence)));

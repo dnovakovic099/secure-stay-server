@@ -6,6 +6,7 @@ import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import { ListingIntake } from "../entity/ListingIntake";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import { InboxService } from "./InboxService";
@@ -64,6 +65,13 @@ interface GenerateOptions {
     messageId?: number | null;
     /** Force a fresh generation even if a recent suggestion exists. */
     force?: boolean;
+    /**
+     * Staff instruction for what the reply should say (composer "Generate") or
+     * how to revise it ("Refine"). Always bypasses the suggestion cache.
+     */
+    instructions?: string | null;
+    /** The current draft to revise when refining. Only meaningful with instructions. */
+    baseDraft?: string | null;
 }
 
 interface ModelOutput {
@@ -225,8 +233,14 @@ export class InboxAIService {
                 : null;
         const targetMessageId = targetMessage ? Number(targetMessage.externalId) : null;
 
+        const instructions = (options.instructions || "").trim() || null;
+        const baseDraft = instructions ? (options.baseDraft || "").trim() || null : null;
+
         // Cache: reuse the last suggestion for this target unless force=true.
-        if (!options.force) {
+        // Staff-steered generations (instructions present) always run fresh —
+        // returning a cached suggestion here is why Refine/Generate appeared to
+        // "not follow instructions at all".
+        if (!options.force && !instructions) {
             const existing = await this.getLatestSuggestion(threadId, targetMessageId);
             if (existing) return existing;
         }
@@ -251,7 +265,10 @@ export class InboxAIService {
         }
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
-        const context = await this.buildContext(conversation, messages, targetMessage);
+        const context = await this.buildContext(conversation, messages, targetMessage, {
+            instructions,
+            baseDraft,
+        });
         const keywordEscalation = this.scanForEscalation(targetMessage?.body || conversation.lastMessageText || "");
 
         let output: ModelOutput;
@@ -263,7 +280,12 @@ export class InboxAIService {
                 temperature: 0.4,
                 response_format: { type: "json_object" },
                 messages: [
-                    { role: "system", content: this.systemPrompt(settings) },
+                    {
+                        role: "system",
+                        content: this.systemPrompt(settings, {
+                            airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
+                        }),
+                    },
                     { role: "user", content: context },
                 ],
             });
@@ -292,7 +314,9 @@ export class InboxAIService {
         //     should never auto-send and confidence should be low.
         const lastMsg = messages.length ? messages[messages.length - 1] : null;
         const noPendingQuestion = !targetMessage || (lastMsg != null && lastMsg.direction !== "incoming");
-        if (noPendingQuestion) {
+        // When staff explicitly steered this draft (Generate/Refine), a proactive
+        // message is intentional — don't flag it or crush its confidence.
+        if (noPendingQuestion && !instructions) {
             warnings.push("No pending guest question — the guest has not sent a new message since our last reply.");
         }
 
@@ -325,7 +349,7 @@ export class InboxAIService {
             if (leaks.length) confidencePct = Math.min(confidencePct, 30);
             if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
-            if (noPendingQuestion) confidencePct = Math.min(confidencePct, 30);
+            if (noPendingQuestion && !instructions) confidencePct = Math.min(confidencePct, 30);
         }
 
         const suggestion = this.suggestionRepo.create({
@@ -794,6 +818,17 @@ export class InboxAIService {
     // Internals
     // ------------------------------------------------------------------
 
+    /** Threads where the counterparty is Airbnb Support (case workers), not a guest. */
+    private isAirbnbSupportThread(
+        conversation: InboxConversationEntity,
+        messages: InboxMessageEntity[]
+    ): boolean {
+        if (/airbnb\s*support/i.test(conversation.guestName || "")) return true;
+        return messages.some(
+            (m) => m.direction === "incoming" && /airbnb\s*support/i.test(m.senderName || "")
+        );
+    }
+
     private scanForEscalation(text: string): string | null {
         for (const { pattern, reason } of ESCALATION_KEYWORDS) {
             if (pattern.test(text)) return reason;
@@ -858,10 +893,14 @@ export class InboxAIService {
         };
     }
 
-    private systemPrompt(settings?: AIMessagingSettingsEntity | null): string {
+    private systemPrompt(
+        settings?: AIMessagingSettingsEntity | null,
+        opts: { airbnbSupport?: boolean } = {}
+    ): string {
         const toneLabel = (settings?.tone || "warm").trim();
         const customRules = (settings?.communicationRules || "").trim();
         const topicsToAvoid = (settings?.topicsToAvoid || "").trim();
+        const airbnbSupportRules = (settings?.airbnbSupportRules || "").trim();
 
         const settingsBlock: string[] = [];
         settingsBlock.push(`COMMUNICATION STYLE: adopt a ${toneLabel} tone.`);
@@ -872,6 +911,17 @@ export class InboxAIService {
         if (topicsToAvoid) {
             settingsBlock.push("TOPICS TO AVOID / ALWAYS ESCALATE (never answer these directly — set escalation_required=true):");
             settingsBlock.push(topicsToAvoid);
+        }
+        if (opts.airbnbSupport) {
+            settingsBlock.push(
+                "THIS CONVERSATION IS WITH AIRBNB SUPPORT (a platform case worker, NOT a guest). " +
+                "Write as the host's team addressing Airbnb: factual, professional, case-focused. " +
+                "Do not use guest hospitality phrasing ('we hope to host you', reviews, upsells)."
+            );
+            if (airbnbSupportRules) {
+                settingsBlock.push("AIRBNB SUPPORT RULES (follow these strictly for this conversation):");
+                settingsBlock.push(airbnbSupportRules);
+            }
         }
         settingsBlock.push("");
 
@@ -1080,7 +1130,18 @@ export class InboxAIService {
                 if (r.nights != null) stay.push(`${r.nights} night(s)`);
                 if (r.guests != null) stay.push(`${r.guests} guest(s)`);
                 if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
+                // Party breakdown incl. pets — the bot must know these when the
+                // guest asks about pet fees, extra guests, etc.
+                const party: string[] = [];
+                if (r.adults != null && Number(r.adults) > 0) party.push(`${r.adults} adult(s)`);
+                if (r.children != null && Number(r.children) > 0) party.push(`${r.children} child(ren)`);
+                if (r.infants != null && Number(r.infants) > 0) party.push(`${r.infants} infant(s)`);
+                if (r.pets != null) party.push(Number(r.pets) > 0 ? `${r.pets} pet(s)` : "no pets registered");
+                if (party.length) shareable.push(`- Party details: ${party.join(", ")}`);
                 if (r.status_description || r.status) shareable.push(`- Reservation status: ${r.status_description || r.status}`);
+                const cancelPolicyName =
+                    r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
+                if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
 
                 const staff: string[] = [];
                 const nonRefundable = Number(l.non_refundable_factor) >= 1;
@@ -1122,7 +1183,7 @@ export class InboxAIService {
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
         targetMessage: InboxMessageEntity | null,
-        opts: { includeKnowledge?: boolean } = {}
+        opts: { includeKnowledge?: boolean; instructions?: string | null; baseDraft?: string | null } = {}
     ): Promise<string> {
         const includeKnowledge = opts.includeKnowledge !== false;
         const lines: string[] = [];
@@ -1168,7 +1229,10 @@ export class InboxAIService {
             /* non-fatal — fall back to the raw listingId */
         }
 
-        // Best-effort listing house-rules / check-in context from local reservation+listing.
+        // Best-effort listing profile from the local listing record: times, size,
+        // capacity, location and standard fees. The team flagged the bot "doesn't
+        // use listing details like address, bedrooms, baths, fees" — this block is
+        // what grounds those answers.
         try {
             const listing = canonicalListingId
                 ? await this.listingRepo.findOne({ where: { id: Number(canonicalListingId) }, withDeleted: true })
@@ -1189,6 +1253,43 @@ export class InboxAIService {
                 if (ci) ll.push(`check-in from ${ci}`);
                 if (co) ll.push(`check-out by ${co}`);
                 if (ll.length) lines.push(`Listing times: ${ll.join(", ")}`);
+
+                const l: any = listing;
+                const details: string[] = [];
+                const loc = [l.address, l.city, l.state].filter((v: any) => v && String(v).trim() && String(v) !== "(NOT SPECIFIED)");
+                if (loc.length) details.push(`- Location: ${loc.join(", ")}`);
+                if (l.bedroomsNumber != null) details.push(`- Bedrooms: ${l.bedroomsNumber}`);
+                if (l.bathroomsNumber != null) details.push(`- Bathrooms: ${l.bathroomsNumber}`);
+                if (l.personCapacity != null) details.push(`- Max guests: ${l.personCapacity}`);
+                if (l.cleaningFee != null && Number(l.cleaningFee) > 0) details.push(`- Cleaning fee: $${l.cleaningFee}`);
+                if (l.airbnbPetFeeAmount != null && Number(l.airbnbPetFeeAmount) > 0)
+                    details.push(`- Pet fee: $${l.airbnbPetFeeAmount}`);
+                const desc = String(l.description || "").replace(/\s+/g, " ").trim();
+                if (desc) details.push(`- Description: ${desc.slice(0, 900)}`);
+                if (details.length) {
+                    lines.push("");
+                    lines.push("## Listing details (from our listing record — you MAY share these with the guest)");
+                    lines.push(...details);
+                }
+            }
+
+            // Standing cancellation policy from the listing intake record (the
+            // Hostify reservation block above only carries booking-level billing
+            // signals; this is the property's documented standing policy).
+            if (canonicalListingId) {
+                const intakeRepo = appDatabase.getRepository(ListingIntake);
+                const intake = await intakeRepo
+                    .createQueryBuilder("i")
+                    .where("i.listingId = :lid", { lid: Number(canonicalListingId) })
+                    .orderBy("i.id", "DESC")
+                    .getOne()
+                    .catch(() => null);
+                const policy = (intake as any)?.cancellationPolicy;
+                if (policy && String(policy).trim()) {
+                    lines.push("");
+                    lines.push("## Cancellation policy (property's documented standing policy — you MAY state this to the guest)");
+                    lines.push(String(policy).trim().slice(0, 1200));
+                }
             }
         } catch {
             /* non-fatal */
@@ -1245,7 +1346,11 @@ export class InboxAIService {
             }
             if (learned) {
                 lines.push("");
-                lines.push("## Learned answers (approved — you MAY use these directly)");
+                lines.push(
+                    "## Learned answers (approved background facts — use the INFORMATION, but rewrite it for THIS guest; " +
+                    "never paste one verbatim, and drop any part that is redundant for this guest's situation, " +
+                    "e.g. don't tell a guest who already inquired to 'inquire if interested')"
+                );
                 lines.push(learned);
             }
         } catch {
@@ -1330,6 +1435,35 @@ export class InboxAIService {
             lines.push("## Task");
             lines.push("There is no unanswered guest message; draft a helpful, context-appropriate reply or a check-in follow-up.");
         }
+
+        // Staff steering (composer Refine/Generate). These instructions come from
+        // OUR team, take precedence over defaults, and MUST be followed — while
+        // still never inventing facts that aren't in context.
+        const staffInstructions = (opts.instructions || "").trim();
+        if (staffInstructions) {
+            const staffDraft = (opts.baseDraft || "").trim();
+            lines.push("");
+            if (staffDraft) {
+                lines.push("## Current draft to revise (written by staff/AI — revise it, do not start over)");
+                lines.push(staffDraft);
+                lines.push("");
+                lines.push("## STAFF INSTRUCTIONS (highest priority — follow these exactly)");
+                lines.push(staffInstructions);
+                lines.push(
+                    "Revise the draft above per these instructions. Keep everything from the draft that the instructions " +
+                    "don't ask you to change. Do not add new facts that are not in the provided context."
+                );
+            } else {
+                lines.push("## STAFF INSTRUCTIONS (highest priority — follow these exactly)");
+                lines.push(staffInstructions);
+                lines.push(
+                    "A staff member is telling you what this reply should say. Write the reply to carry out these " +
+                    "instructions, adapted to this guest and conversation, in the configured tone. Treat facts the staff " +
+                    "member states here as authoritative context you may use."
+                );
+            }
+        }
+
         lines.push("");
         lines.push("Draft the suggested reply now as STRICT JSON per the schema.");
         return lines.join("\n");

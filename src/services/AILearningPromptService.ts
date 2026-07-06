@@ -93,7 +93,8 @@ export class AILearningPromptService {
                     sampleThreadId: prompt.threadId,
                     source: "learning_prompt",
                 },
-                { autoApprove: InboxAIAuditService.autoApproveFacts() }
+                // Staff typed this answer themselves — trusted, no frequency gate.
+                { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
             );
         } catch (e: any) {
             // If a property-specific fact couldn't be stored portfolio-wide, retry as property.
@@ -110,7 +111,7 @@ export class AILearningPromptService {
                             sampleThreadId: prompt.threadId,
                             source: "learning_prompt",
                         },
-                        { autoApprove: InboxAIAuditService.autoApproveFacts() }
+                        { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
                     )
                     .catch((e2: any) => logger.warn(`[LearningPrompt] retry failed: ${e2.message}`));
             }

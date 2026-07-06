@@ -19,6 +19,8 @@ export class AICopilotService {
     async listSuggestions(opts: {
         status?: string;
         escalationOnly?: boolean;
+        /** Only suggestions where the model flagged limitations/missing info. */
+        warningsOnly?: boolean;
         limit?: number;
         offset?: number;
     } = {}) {
@@ -33,6 +35,11 @@ export class AICopilotService {
             .skip(offset);
         if (opts.status) qb.andWhere("s.status = :status", { status: opts.status });
         if (opts.escalationOnly) qb.andWhere("s.escalationRequired = 1");
+        if (opts.warningsOnly) {
+            qb.andWhere("s.warnings IS NOT NULL")
+                .andWhere("s.warnings <> ''")
+                .andWhere("s.warnings <> '[]'");
+        }
 
         const suggestions = await qb.getMany();
         const threadIds = Array.from(new Set(suggestions.map((s) => Number(s.threadId)).filter(Boolean)));

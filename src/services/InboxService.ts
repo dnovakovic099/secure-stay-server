@@ -491,6 +491,7 @@ export class InboxService {
                         )
                         .filter((m): m is InboxMessageEntity => m !== null);
                     insertedMessages += await this.saveMessages(built);
+                    await this.refreshConversationPreview(conversation);
                 } catch (error: any) {
                     logger.error(`[InboxService] sync failed for thread ${summary?.id}: ${error.message}`);
                 }
@@ -553,7 +554,37 @@ export class InboxService {
         }
 
         const inserted = await this.saveMessages(built);
+        await this.refreshConversationPreview(conversation);
         return { conversation, inserted };
+    }
+
+    /**
+     * Keep the list preview honest: Hostify's thread `preview` field can lag
+     * behind the real conversation (the team flagged previews not showing the
+     * latest message). After a sync, recompute the preview from the newest
+     * stored message for the thread.
+     */
+    private async refreshConversationPreview(conversation: InboxConversationEntity): Promise<void> {
+        try {
+            const latest = await this.messageRepo.findOne({
+                where: { threadId: conversation.threadId },
+                order: { sentAt: "DESC", id: "DESC" },
+            });
+            if (!latest) return;
+            const body = (latest.body || latest.note || "").replace(/\s+/g, " ").trim();
+            if (!body) return;
+            const latestAt = latest.sentAt ? new Date(latest.sentAt) : null;
+            const knownAt = conversation.lastMessageAt ? new Date(conversation.lastMessageAt) : null;
+            if (knownAt && latestAt && latestAt < knownAt) return;
+            if (conversation.lastMessageText === body) return;
+            conversation.lastMessageText = body;
+            if (latestAt) conversation.lastMessageAt = latestAt;
+            await this.conversationRepo.save(conversation);
+        } catch (err: any) {
+            logger.warn(
+                `[InboxService] preview refresh failed for thread ${conversation.threadId}: ${err.message}`
+            );
+        }
     }
 
     // -------------------------------------------------------------------------

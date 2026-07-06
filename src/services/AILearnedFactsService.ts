@@ -42,7 +42,60 @@ export class AILearnedFactsService {
     private static PROPERTY_SPECIFIC =
         /\bgarage|driveway|carport|parking|door\s*code|lock\s*code|gate\s*code|access\s*code|wifi\s*password|address|\bfloor\b|square\s*feet|sq\s*ft|bedroom|bathroom|sleeps|capacity|pool\s*heat/i;
 
-    async upsert(input: LearnedFactInput, opts: { autoApprove?: boolean } = {}): Promise<AILearnedFactEntity> {
+    /**
+     * Property-scoped facts only auto-approve once the same topic has been seen
+     * this many times (team feedback: one-off Q&As were auto-approving bad info).
+     */
+    private static AUTO_APPROVE_MIN_FREQUENCY = 3;
+
+    /**
+     * Auto-approval gate (team feedback: blanket auto-approve produced bad facts).
+     *  - property scope: the same (listing, topic) must have been seen at least
+     *    AUTO_APPROVE_MIN_FREQUENCY times before it can auto-approve.
+     *  - portfolio scope: only auto-approve when the topic has already been asked
+     *    on (essentially) every active property — otherwise it stays pending for
+     *    a human to confirm it's truly universal.
+     * Explicit staff sources (simulator teach, learning-prompt answers) bypass
+     * this via opts.trustedSource.
+     */
+    private async passesAutoApproveGate(
+        scope: string,
+        listingId: number | null,
+        topic: string,
+        frequency: number
+    ): Promise<boolean> {
+        if (scope === "property") {
+            return frequency >= AILearnedFactsService.AUTO_APPROVE_MIN_FREQUENCY;
+        }
+        // Portfolio: how many distinct properties has this topic been asked on,
+        // vs. how many properties actively receive guest messages?
+        try {
+            const askedRow = await this.repo
+                .createQueryBuilder("f")
+                .select("COUNT(DISTINCT f.listingId)", "cnt")
+                .where("f.scope = 'property'")
+                .andWhere("f.topic = :topic", { topic })
+                .andWhere("f.listingId IS NOT NULL")
+                .getRawOne();
+            const askedOn = Number(askedRow?.cnt) || 0;
+            const activeRow = await appDatabase
+                .createQueryBuilder()
+                .select("COUNT(DISTINCT c.listingId)", "cnt")
+                .from("inbox_conversations", "c")
+                .where("c.listingId IS NOT NULL")
+                .getRawOne();
+            const active = Number(activeRow?.cnt) || 0;
+            return active > 0 && askedOn >= active;
+        } catch (err: any) {
+            logger.warn(`[LearnedFacts] portfolio auto-approve coverage check failed: ${err.message}`);
+            return false;
+        }
+    }
+
+    async upsert(
+        input: LearnedFactInput,
+        opts: { autoApprove?: boolean; trustedSource?: boolean } = {}
+    ): Promise<AILearnedFactEntity> {
         let scope = input.scope === "portfolio" ? "portfolio" : "property";
         if (
             scope === "portfolio" &&
@@ -75,11 +128,20 @@ export class AILearnedFactsService {
             if (input.answer) existing.answer = input.answer;
             if (input.question) existing.question = input.question;
             // Auto-approve keeps still-pending facts flowing to the bot; a rejected
-            // fact stays rejected until a human re-approves it.
-            if (opts.autoApprove && existing.status === "pending") existing.status = "approved";
+            // fact stays rejected until a human re-approves it. Extracted facts
+            // must additionally pass the frequency/coverage gate.
+            if (opts.autoApprove && existing.status === "pending") {
+                const approve =
+                    opts.trustedSource ||
+                    (await this.passesAutoApproveGate(scope, listingId, topic, existing.frequency));
+                if (approve) existing.status = "approved";
+            }
             return this.repo.save(existing);
         }
 
+        const autoApproveNew =
+            !!opts.autoApprove &&
+            (opts.trustedSource || (await this.passesAutoApproveGate(scope, listingId, topic, 1)));
         const created = this.repo.create({
             scope,
             listingId,
@@ -87,7 +149,7 @@ export class AILearnedFactsService {
             question: input.question ?? null,
             answer: input.answer ?? null,
             frequency: 1,
-            status: opts.autoApprove ? "approved" : "pending",
+            status: autoApproveNew ? "approved" : "pending",
             source: input.source || "nightly_audit",
             sampleThreadId: input.sampleThreadId ?? null,
             lastSeenAt: new Date(),
