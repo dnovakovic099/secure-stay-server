@@ -27,6 +27,7 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Employee } from "../entity/Employee";
 import { getEasternDateString, getEasternTimestampRange } from "../utils/easternTime.util";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
+import { ReviewEntity } from "../entity/Review";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -35,6 +36,7 @@ export class RefundRequestService {
   private expenseRepo = appDatabase.getRepository(ExpenseEntity);
   private listingRepo = appDatabase.getRepository(Listing);
   private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
+  private reviewRepo = appDatabase.getRepository(ReviewEntity);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private employeeRepo = appDatabase.getRepository(Employee);
   private reservationInfoLogRepo = appDatabase.getRepository(ReservationInfoLog);
@@ -142,23 +144,32 @@ export class RefundRequestService {
     const listingIds = Array.from(new Set(rows.map((request) => Number(request.listingId)).filter(Boolean)));
     const reservationIds = Array.from(new Set(rows.map((request) => Number(request.reservationId)).filter(Boolean)));
     const expenseIds = Array.from(new Set(rows.map((request) => Number(request.expenseId)).filter(Boolean)));
-    const [listings, reservations, expenses] = await Promise.all([
+    const [listings, reservations, expenses, reviews] = await Promise.all([
       listingIds.length ? this.listingRepo.find({ where: { id: In(listingIds) } }) : [],
       reservationIds.length ? this.reservationInfoRepo.find({ where: { id: In(reservationIds) } }) : [],
       expenseIds.length ? this.expenseRepo.find({ where: { id: In(expenseIds) } }) : [],
+      reservationIds.length ? this.reviewRepo.find({ where: { reservationId: In(reservationIds) }, order: { submittedAt: "DESC", updatedAt: "DESC" } }) : [],
     ]);
     const listingMap = new Map<number, Listing>(listings.map((listing) => [Number(listing.id), listing] as [number, Listing]));
     const reservationMap = new Map<number, ReservationInfoEntity>(reservations.map((reservation) => [Number(reservation.id), reservation] as [number, ReservationInfoEntity]));
     const expenseMap = new Map<number, ExpenseEntity>(expenses.map((expense) => [Number(expense.id), expense] as [number, ExpenseEntity]));
+    const reviewMap = new Map<number, ReviewEntity>();
+    reviews.forEach((review) => {
+      const reservationId = Number(review.reservationId);
+      if (reservationId && !reviewMap.has(reservationId)) reviewMap.set(reservationId, review);
+    });
 
     rows.forEach((request: any) => {
       const listing = listingMap.get(Number(request.listingId));
       const reservation = reservationMap.get(Number(request.reservationId));
       const expense = expenseMap.get(Number(request.expenseId));
+      const review = reviewMap.get(Number(request.reservationId));
       request.propertyType = this.inferPropertyTypeTag(listing);
       request.serviceType = this.inferServiceTypeTag(listing);
       request.listingTags = listing?.tags || null;
       request.channelName = reservation?.channelName || reservation?.source || null;
+      request.reviewRating = review?.rating ?? null;
+      request.privateReview = review?.privateReview || null;
       request.expenseStatus = expense?.status || null;
       request.expense = expense
         ? {
