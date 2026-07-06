@@ -164,7 +164,10 @@ export class AICopilotController {
             if (!turns.some((t: any) => t.role === "guest")) {
                 return response.status(400).json({ status: false, message: "At least one guest message is required" });
             }
-            const data = await new InboxAIService().sandboxReply(listingId, turns);
+            const phase = ["inquiry", "accepted", "cancelled"].includes(request.body?.reservationStatus)
+                ? (request.body.reservationStatus as string)
+                : null;
+            const data = await new InboxAIService().sandboxReply(listingId, turns, { reservationStatus: phase });
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

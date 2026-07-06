@@ -469,7 +469,11 @@ export class InboxAIService {
      */
     async sandboxReply(
         listingId: number,
-        turns: { role: "guest" | "host"; text: string }[]
+        turns: { role: "guest" | "host"; text: string }[],
+        opts: {
+            /** Simulated reservation phase: inquiry | accepted | cancelled. */
+            reservationStatus?: string | null;
+        } = {}
     ): Promise<{
         reply: string;
         confidence: number | null;
@@ -490,6 +494,19 @@ export class InboxAIService {
             listingName: (listing as any)?.internalListingName || (listing as any)?.name || null,
             channel: "simulator",
             guestName: "Guest (simulated)",
+            // Simulated phase flows into buildContext as "Reservation status: …"
+            // so the bot answers as it would for an inquiry / confirmed booking /
+            // cancelled reservation. Descriptive strings (prompt-only; this
+            // conversation is never persisted) steer the model more reliably
+            // than a bare status word.
+            reservationStatus:
+                opts.reservationStatus === "inquiry"
+                    ? "inquiry — the guest has NOT booked yet; this is a pre-booking question. Answer helpfully and encourage them to book, but never imply they have a confirmed reservation."
+                    : opts.reservationStatus === "accepted"
+                    ? "accepted — confirmed upcoming/active reservation."
+                    : opts.reservationStatus === "cancelled"
+                    ? "cancelled — this reservation was cancelled. Do not treat it as an upcoming stay; do not share check-in details or access info."
+                    : null,
         }) as InboxConversationEntity;
 
         const base = Date.now();
