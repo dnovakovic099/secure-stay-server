@@ -310,22 +310,95 @@ export class ZapierWebhookService {
             statusHistory: ZapierEventStatusHistoryRow[];
         };
     }> {
-        const result = await this.getEvents({
-            events: filters.events,
-            slackChannels: filters.slackChannels,
-            search: filters.search,
-            page: 1,
-            limit: 100000,
+        await this.ensureStatusHistoryTable();
+
+        const [currentResult, logBackedTasks] = await Promise.all([
+            this.getEvents({
+                events: filters.events,
+                slackChannels: filters.slackChannels,
+                search: filters.search,
+                page: 1,
+                limit: 100000,
+            }),
+            this.getActivityTasksFromStatusLogs(filters),
+        ]);
+
+        const taskById = new Map<number, ZapierTriggerEvent & { userInputCount: number; systemInputCount: number }>();
+        [...logBackedTasks, ...currentResult.data].forEach((task: any) => {
+            taskById.set(task.id, task);
         });
-        const taskIds = result.data.map((task) => task.id);
+
+        const tasks = Array.from(taskById.values())
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const taskIds = tasks.map((task) => task.id);
         const statusHistory = taskIds.length ? await this.getStatusHistoryForEvents(taskIds) : [];
 
         return {
             data: {
-                tasks: result.data as any,
+                tasks: tasks as any,
                 statusHistory,
             },
         };
+    }
+
+    private async getActivityTasksFromStatusLogs(filters: {
+        events?: string[];
+        slackChannels?: string[];
+        search?: string;
+    }): Promise<Array<ZapierTriggerEvent & { userInputCount: number; systemInputCount: number }>> {
+        const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+        const queryBuilder = eventRepo
+            .createQueryBuilder('event')
+            .innerJoin('zapier_trigger_event_status_history', 'statusLog', 'statusLog.event_id = event.id')
+            .distinct(true);
+
+        if (filters.events && filters.events.length > 0) {
+            queryBuilder.andWhere('event.event IN (:...eventTypes)', { eventTypes: filters.events });
+        }
+
+        if (filters.slackChannels && filters.slackChannels.length > 0) {
+            queryBuilder.andWhere('event.slackChannel IN (:...slackChannels)', { slackChannels: filters.slackChannels });
+        }
+
+        if (filters.search) {
+            const searchTerm = `%${filters.search}%`;
+            queryBuilder.leftJoin('thread_messages', 'tm', 'tm.gr_task_id = event.id');
+            queryBuilder.andWhere(
+                new Brackets(qb => {
+                    qb.where('event.title LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.message LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.event LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.slackChannel LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.emailSubject LIKE :searchTerm', { searchTerm })
+                        .orWhere('event.emailBodyPlain LIKE :searchTerm', { searchTerm })
+                        .orWhere('tm.content LIKE :searchTerm', { searchTerm });
+                })
+            );
+        }
+
+        queryBuilder.addSelect(
+            `(SELECT COUNT(*) FROM thread_messages tm WHERE tm.gr_task_id = event.id AND (tm.source = 'slack' OR tm.source = 'securestay'))`,
+            'userInputCount'
+        );
+
+        queryBuilder.addSelect(
+            `(SELECT COUNT(*) FROM ai_escalation_logs aiel WHERE aiel.task_id = event.id)`,
+            'systemInputCount'
+        );
+
+        const { entities, raw } = await queryBuilder
+            .orderBy('event.createdAt', 'DESC')
+            .take(100000)
+            .getRawAndEntities();
+
+        return entities.map(entity => {
+            const rawItem = raw.find(r => r.event_id === entity.id);
+            return {
+                ...entity,
+                userInputCount: rawItem ? parseInt(rawItem.userInputCount || '0') : 0,
+                systemInputCount: rawItem ? parseInt(rawItem.systemInputCount || '0') : 0
+            };
+        }) as any;
     }
 
     private async ensureStatusHistoryTable() {
