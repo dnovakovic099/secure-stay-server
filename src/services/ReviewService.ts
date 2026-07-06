@@ -258,7 +258,11 @@ export type ReviewUiSettingsPageKey =
     | 'reservations'
     | 'claims'
     | 'tasks'
+    | 'gr-tasks'
     | 'gr-tasks-activity'
+    | 'gr-tasks-ai-decisions'
+    | 'gr-tasks-escalation-settings'
+    | 'gr-tasks-ai-assistant'
     | 'clients'
     | 'client-tickets'
     | 'client-onboarding'
@@ -313,7 +317,11 @@ export class ReviewService {
         reservations: 'ui-settings:reservations',
         claims: 'ui-settings:claims',
         tasks: 'ui-settings:tasks',
+        'gr-tasks': 'ui-settings:gr-tasks',
         'gr-tasks-activity': 'ui-settings:gr-tasks-activity',
+        'gr-tasks-ai-decisions': 'ui-settings:gr-tasks-ai-decisions',
+        'gr-tasks-escalation-settings': 'ui-settings:gr-tasks-escalation-settings',
+        'gr-tasks-ai-assistant': 'ui-settings:gr-tasks-ai-assistant',
         clients: 'ui-settings:clients',
         'client-tickets': 'ui-settings:client-tickets',
         'client-onboarding': 'ui-settings:client-onboarding',
@@ -431,7 +439,11 @@ export class ReviewService {
             reservations: 'Shared Reservations UI Settings',
             claims: 'Shared Claims UI Settings',
             tasks: 'Shared Tasks UI Settings',
+            'gr-tasks': 'Shared GR Tasks UI Settings',
             'gr-tasks-activity': 'Shared GR Tasks Activity UI Settings',
+            'gr-tasks-ai-decisions': 'Shared GR Tasks AI Decisions UI Settings',
+            'gr-tasks-escalation-settings': 'Shared GR Tasks Escalation Settings UI Settings',
+            'gr-tasks-ai-assistant': 'Shared GR Tasks AI Assistant UI Settings',
             clients: 'Shared Clients UI Settings',
             'client-tickets': 'Shared Client Tickets UI Settings',
             'client-onboarding': 'Shared Client Onboarding UI Settings',
