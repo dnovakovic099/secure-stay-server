@@ -128,31 +128,41 @@ export class InboxAnalyticsService {
         };
     }
 
-    private weeklyTrend(pairs: Pair[]) {
-        const byWeek: Record<string, { sem: number[]; jac: number[] }> = {};
+    private bucketKey(d: Date, granularity: "day" | "week" | "month"): string {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        if (granularity === "month") return `${y}-${m}`;
+        if (granularity === "day") return `${y}-${m}-${String(d.getDate()).padStart(2, "0")}`;
+        // ISO-ish week bucket
+        const onejan = new Date(y, 0, 1);
+        const wk = String(
+            Math.ceil((((d as any) - (onejan as any)) / 86400000 + onejan.getDay() + 1) / 7)
+        ).padStart(2, "0");
+        return `${y}-W${wk}`;
+    }
+
+    private buildTrend(pairs: Pair[], granularity: "day" | "week" | "month") {
+        const byBucket: Record<string, { sem: number[]; jac: number[] }> = {};
         for (const p of pairs) {
-            const d = new Date(p.generatedAt);
-            const onejan = new Date(d.getFullYear(), 0, 1);
-            const wk = `${d.getFullYear()}-W${String(
-                Math.ceil((((d as any) - (onejan as any)) / 86400000 + onejan.getDay() + 1) / 7)
-            ).padStart(2, "0")}`;
-            const b = (byWeek[wk] = byWeek[wk] || { sem: [], jac: [] });
+            const key = this.bucketKey(new Date(p.generatedAt), granularity);
+            const b = (byBucket[key] = byBucket[key] || { sem: [], jac: [] });
             if (p.semantic != null) b.sem.push(p.semantic);
             b.jac.push(p.jaccard);
         }
         const avg = (a: number[]) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null);
-        return Object.keys(byWeek)
+        return Object.keys(byBucket)
             .sort()
-            .map((wk) => ({
-                week: wk,
-                avgSemantic: avg(byWeek[wk].sem),
-                avgJaccard: avg(byWeek[wk].jac),
-                count: byWeek[wk].jac.length,
+            .map((key) => ({
+                bucket: key,
+                avgSemantic: avg(byBucket[key].sem),
+                avgJaccard: avg(byBucket[key].jac),
+                count: byBucket[key].jac.length,
             }));
     }
 
-    async report(sinceDays = 60): Promise<any> {
+    async report(sinceDays = 60, granularity: "day" | "week" | "month" = "day"): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
+        const gran = granularity === "week" || granularity === "month" ? granularity : "day";
 
         // (a) vs TEAM (Hostify-captured replies).
         const teamRows: any[] = await appDatabase.query(
@@ -217,11 +227,12 @@ export class InboxAnalyticsService {
 
         return {
             sinceDays: days,
+            granularity: gran,
             generatedAt: new Date().toISOString(),
             semanticCoverage: { scored: totalSemantic, total: totalMatched },
             vsTeam: this.summarize(teamPairs),
             vsUser: this.summarize(userPairs),
-            trend: this.weeklyTrend(teamPairs),
+            trend: this.buildTrend(teamPairs, gran),
         };
     }
 

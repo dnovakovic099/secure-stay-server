@@ -10,7 +10,8 @@ export class InboxAnalyticsController {
     async report(request: Request, response: Response, next: NextFunction) {
         try {
             const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
-            const data = await new InboxAnalyticsService().report(sinceDays);
+            const granularity = (request.query.granularity as "day" | "week" | "month") || "day";
+            const data = await new InboxAnalyticsService().report(sinceDays, granularity);
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
