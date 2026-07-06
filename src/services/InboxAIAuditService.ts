@@ -174,11 +174,13 @@ export class InboxAIAuditService {
 
         // Look up the guest message each suggestion was drafted against.
         const items: { row: AIMessageSuggestionEntity; guestMsg: string }[] = [];
+        const skipped: AIMessageSuggestionEntity[] = [];
         for (const s of rows) {
             if (!s.actualReplyText || !s.actualReplyText.trim()) continue;
             // Follow-up pairs are already excluded from scoring; don't spend tokens.
             if (s.auditMatchQuality === "guest_followup") {
                 s.replyRelevance = "unknown";
+                skipped.push(s);
                 continue;
             }
             let guestMsg = "";
@@ -193,10 +195,12 @@ export class InboxAIAuditService {
             }
             if (!guestMsg) {
                 s.replyRelevance = "unknown";
+                skipped.push(s);
                 continue;
             }
             items.push({ row: s, guestMsg });
         }
+        if (skipped.length) await this.suggestionRepo.save(skipped);
 
         const system = [
             "You review short-term-rental guest messaging quality data.",
@@ -243,11 +247,12 @@ export class InboxAIAuditService {
                 }
                 // Anything the model skipped: mark unknown so backfill doesn't loop on it.
                 for (const it of batch) if (!it.row.replyRelevance) it.row.replyRelevance = "unknown";
+                // Persist per batch so progress survives an interrupted long run.
+                await this.suggestionRepo.save(batch.map((it) => it.row));
             } catch (err: any) {
                 logger.warn(`[InboxAIAudit] relevance judge batch failed: ${err.message}`);
             }
         }
-        await this.suggestionRepo.save(rows);
         return judged;
     }
 

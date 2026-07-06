@@ -369,12 +369,17 @@ export class InboxAnalyticsService {
         // Overall totals for semantic coverage messaging (comparable pairs only).
         const totalMatched = teamComparable.length;
         const totalSemantic = teamComparable.filter((p) => p.semantic != null).length;
+        // Pairs not yet relevance-judged (LLM): drives the "Compute now" nudge too,
+        // since unjudged off-topic replies silently drag the coverage average down.
+        const relevancePending = teamPairs.filter(
+            (p) => p.relevance == null && p.matchQuality !== "guest_followup"
+        ).length;
 
         return {
             sinceDays: days,
             granularity: gran,
             generatedAt: new Date().toISOString(),
-            semanticCoverage: { scored: totalSemantic, total: totalMatched },
+            semanticCoverage: { scored: totalSemantic, total: totalMatched, relevancePending },
             dataQuality: {
                 teamMatched: teamPairs.length,
                 teamComparable: teamComparable.length,
