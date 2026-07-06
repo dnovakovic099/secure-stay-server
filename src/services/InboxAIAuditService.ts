@@ -308,6 +308,38 @@ export class InboxAIAuditService {
             .limit(maxListings)
             .getRawMany();
 
+        // Targeted learning: put listings where the AI recently diverged most from
+        // the team (low answer-coverage pairs) at the FRONT of the queue, so every
+        // divergence becomes a learning opportunity instead of just a metric.
+        try {
+            const struggling: any[] = await appDatabase.query(
+                `SELECT listingId, COUNT(*) cnt FROM ai_message_suggestions
+                 WHERE replyCoverageScore >= 0 AND replyCoverageScore < 50
+                   AND (auditMatchQuality IS NULL OR auditMatchQuality <> 'guest_followup')
+                   AND generatedAt >= ? AND listingId IS NOT NULL
+                 GROUP BY listingId ORDER BY cnt DESC LIMIT 10`,
+                [since]
+            );
+            const seen = new Set(busy.map((b: any) => Number(b.listingId)));
+            const priority = struggling
+                .filter((r) => !seen.has(Number(r.listingId)))
+                .map((r) => ({ listingId: r.listingId, cnt: minMessages }));
+            // Low-coverage listings already in the busy list move to the front.
+            const strugglingIds = new Set(struggling.map((r) => Number(r.listingId)));
+            busy.sort(
+                (a: any, b: any) =>
+                    Number(strugglingIds.has(Number(b.listingId))) - Number(strugglingIds.has(Number(a.listingId)))
+            );
+            busy.unshift(...priority);
+            if (priority.length || strugglingIds.size) {
+                logger.info(
+                    `[InboxAIAudit] extraction prioritizing ${strugglingIds.size} low-coverage listing(s) (${priority.length} added)`
+                );
+            }
+        } catch {
+            /* best-effort prioritization */
+        }
+
         let factsUpserted = 0;
         let properties = 0;
         const autoApprove = InboxAIAuditService.autoApproveFacts();

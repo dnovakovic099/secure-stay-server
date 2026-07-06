@@ -37,6 +37,28 @@ const nonLatinRe = /[\u0400-\u04FF\u4E00-\u9FFF\u3040-\u30FF\u0600-\u06FF]/;
 const ackRe =
     /^(yes|no|yep|sure|ok|okay|great|perfect|thanks|thank you|sounds good|got it|will do|done|absolutely|of course|no problem|you['’]?re welcome|awesome|wonderful|glad)/i;
 
+// Team replies driven by internal operations (PM callbacks, payment auth links,
+// unreachable-phone chases, alteration mechanics). These aren't answers to the
+// guest's question, so grading the AI against them is meaningless.
+const opsDrivenRe =
+    /(property managers? will reach out|will reach out to you shortly|kindly anticipate (their|the) call|(has|have) been trying to reach you|currently unreachable|alternate phone number|authenticate now|requires authentication|chargeautomation|securelink|alteration request|payment card ending)/i;
+
+/** First name in a leading greeting ("Hi Caitlyn, ..."), lowercased, or null. */
+function greetName(s: string): string | null {
+    const m = String(s || "").match(/^\s*(?:hi|hello|hey|hola|aloha)[ ,]+([A-Za-zÀ-ÿ]{2,})/i);
+    return m ? m[1].toLowerCase() : null;
+}
+
+/** Team reply is a pure pleasantry/ack (possibly after a greeting) — no substance to cover. */
+function isAckOnly(s: string): boolean {
+    const stripped = String(s || "")
+        .replace(/^\s*(?:hi|hello|hey|hola|aloha)[ ,!]*[A-Za-zÀ-ÿ]*[.!,]*\s*/i, "")
+        .trim();
+    const w = stripped.split(/\s+/).filter(Boolean).length;
+    if (w === 0) return true;
+    return w <= 9 && (ackRe.test(stripped) || /^thank(s| you) for (reaching out|your (message|patience|feedback))/i.test(stripped));
+}
+
 const REASON_LABELS: Record<string, string> = {
     team_ack_short: "They sent a short acknowledgement",
     ai_deferred_or_escalated: "AI deferred / escalated; they answered directly",
@@ -214,10 +236,32 @@ export class InboxAnalyticsService {
             matchQuality: r.auditMatchQuality ?? null,
         }));
 
-        // Exclude pairs where the guest sent a follow-up before the team replied:
-        // the AI answered one message while the team answered a newer one, so the
-        // similarity is meaningless (not an AI quality signal).
-        const teamComparable = teamPairs.filter((p) => p.matchQuality !== "guest_followup");
+        // Exclude pairs that are not a fair grade of AI answer quality:
+        //  - guest_followup: team answered a NEWER guest message than the AI drafted against
+        //  - ops_driven: team reply is an internal ops action (PM callback, payment auth link…)
+        //  - ack_only: team reply is a pure pleasantry with no substance to cover
+        //  - name_mismatch: greeting names differ → replies are clearly to different messages/guests
+        let teamOpsDriven = 0;
+        let teamAckOnly = 0;
+        let teamNameMismatch = 0;
+        const teamComparable = teamPairs.filter((p) => {
+            if (p.matchQuality === "guest_followup") return false;
+            if (opsDrivenRe.test(p.other)) {
+                teamOpsDriven++;
+                return false;
+            }
+            if (isAckOnly(p.other)) {
+                teamAckOnly++;
+                return false;
+            }
+            const an = greetName(p.ai);
+            const tn = greetName(p.other);
+            if (an && tn && an !== tn) {
+                teamNameMismatch++;
+                return false;
+            }
+            return true;
+        });
         const teamNotComparable = teamPairs.length - teamComparable.length;
 
         // (b) vs USER edits/rejects sent from SecureStay.
@@ -263,7 +307,10 @@ export class InboxAnalyticsService {
             dataQuality: {
                 teamMatched: teamPairs.length,
                 teamComparable: teamComparable.length,
-                teamNotComparable, // guest sent a follow-up before the team replied
+                teamNotComparable, // total excluded (followup + ops + ack + name mismatch)
+                teamOpsDriven,
+                teamAckOnly,
+                teamNameMismatch,
             },
             vsTeam: this.summarize(teamComparable),
             vsUser: this.summarize(userPairs),

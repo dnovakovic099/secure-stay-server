@@ -959,6 +959,18 @@ export class InboxAIService {
             "- Always label these as approximate and traffic-dependent, e.g. 'roughly a 20-minute drive (~15 miles), depending on traffic'. Round sensibly; never present an estimate as an exact, guaranteed figure.",
             "- This exception is ONLY for general travel time/distance/directions. It does NOT permit inventing property-specific facts (exact street address if not provided, gate/parking specifics, private transport arrangements) — those still follow the no-invention rules above.",
             "",
+            "STAY-STAGE PROACTIVITY (anticipate like our team does):",
+            "- The context includes a 'Stay stage' line. Use it to add the ONE next thing the guest will need, briefly, after answering their actual question:",
+            "  * Checks in today/tomorrow → confirm arrival details you have (check-in time, access process — never invent a code).",
+            "  * Checks out today/tomorrow → add a short checkout reminder using the property's documented checkout steps IF they are in context; otherwise just note the checkout time if known.",
+            "  * Post-stay → warm closure; address anything left open. Do not send arrival info post-stay.",
+            "- Keep the proactive part to 1–2 sentences; never let it crowd out the direct answer.",
+            "",
+            "INTERNAL OPERATIONS AWARENESS:",
+            "- If an 'Internal operations in progress' section is present, our team already has real work open for this guest (tasks, maintenance, callbacks, payment follow-ups).",
+            "- Align with it: if the guest's message relates to an open item, say the team is already on it and reference the state naturally. Do NOT offer to 'look into' something already in motion, and do NOT restart a process the team has underway.",
+            "- Never reveal internal wording, staff names, vendor names, or internal prices from that section.",
+            "",
             "CONFIDENCE — be honest and well-calibrated (this drives automation decisions):",
             "- Use > 0.9 ONLY when every fact needed is present in context and the reply requires no assumptions.",
             "- If you added ANY warning or are missing information, confidence MUST be <= 0.6.",
@@ -1179,6 +1191,144 @@ export class InboxAIService {
         return block;
     }
 
+    /**
+     * Stay-stage line so the bot can anticipate like the team does (checkout steps
+     * the day before checkout, arrival info near check-in, warm closure post-stay).
+     */
+    private stayStageLine(checkin: string | null, checkout: string | null): string | null {
+        const day = (s: string | null): number | null => {
+            const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (!m) return null;
+            return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000);
+        };
+        const now = new Date();
+        const today = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+        const ci = day(checkin);
+        const co = day(checkout);
+        if (ci == null && co == null) return null;
+        const label = (() => {
+            if (ci != null && today < ci) {
+                const d = ci - today;
+                return d === 1 ? "PRE-STAY — guest CHECKS IN TOMORROW" : `PRE-STAY — guest checks in in ${d} days`;
+            }
+            if (ci != null && today === ci) return "CHECK-IN IS TODAY";
+            if (co != null && today === co) return "CHECKOUT IS TODAY";
+            if (co != null && today === co - 1) return "MID-STAY — guest CHECKS OUT TOMORROW";
+            if (co != null && today > co) {
+                const d = today - co;
+                return d <= 7 ? `POST-STAY — guest checked out ${d} day(s) ago` : "POST-STAY (checked out over a week ago)";
+            }
+            return "MID-STAY — guest is currently staying";
+        })();
+        return `Stay stage: ${label}.`;
+    }
+
+    /**
+     * Internal operations context: open action items and property issues the team
+     * is already working for this guest/reservation/property. This is what the
+     * team's replies are often driven by ("a PM will call you", "please
+     * authenticate your card") — without it the bot answers in a vacuum.
+     * Best-effort raw queries; any failure just omits the block.
+     */
+    private async buildOpsBlock(
+        conversation: InboxConversationEntity,
+        groupIds: number[]
+    ): Promise<string | null> {
+        const resvId = conversation.reservationId ? Number(conversation.reservationId) : null;
+        const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+        const guestName = (conversation.guestName || "").trim();
+        if (!resvId && !listingIds.length) return null;
+
+        const fmtDate = (d: any): string => {
+            const m = String(d || "").match(/^\d{4}-\d{2}-\d{2}/);
+            return m ? m[0] : "";
+        };
+        const out: string[] = [];
+
+        // Open action items for this reservation (or this guest on this property).
+        try {
+            const conds: string[] = [];
+            const params: any[] = [];
+            if (resvId) {
+                conds.push("reservationId = ?");
+                params.push(resvId);
+            }
+            if (listingIds.length && guestName) {
+                conds.push(`(listingId IN (${listingIds.map(() => "?").join(",")}) AND guestName = ?)`);
+                params.push(...listingIds, guestName);
+            }
+            if (conds.length) {
+                const rows: any[] = await appDatabase.query(
+                    `SELECT item, category, status, createdAt FROM action_items
+                     WHERE deletedAt IS NULL
+                       AND (completedOn IS NULL OR completedOn = '')
+                       AND (${conds.join(" OR ")})
+                     ORDER BY createdAt DESC LIMIT 5`,
+                    params
+                );
+                const items = rows
+                    .filter((r) => r.item && String(r.item).trim())
+                    .map((r) => {
+                        const meta = [r.category, r.status, fmtDate(r.createdAt)].filter(Boolean).join(", ");
+                        return `- ${String(r.item).replace(/\s+/g, " ").trim().slice(0, 240)}${meta ? ` (${meta})` : ""}`;
+                    });
+                if (items.length) {
+                    out.push("Open internal tasks for this guest/reservation:");
+                    out.push(...items);
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Open property issues (maintenance etc.) on this property group.
+        try {
+            const conds: string[] = [];
+            const params: any[] = [];
+            if (resvId) {
+                conds.push("reservation_id = ?");
+                params.push(String(resvId));
+            }
+            if (listingIds.length) {
+                conds.push(`listing_id IN (${listingIds.map(() => "?").join(",")})`);
+                params.push(...listingIds.map((n) => String(n)));
+            }
+            if (conds.length) {
+                const rows: any[] = await appDatabase.query(
+                    `SELECT ai_short_title, issue_description, status, next_steps, created_at FROM issues
+                     WHERE deleted_at IS NULL
+                       AND status NOT IN ('Completed')
+                       AND created_at >= (NOW() - INTERVAL 30 DAY)
+                       AND (${conds.join(" OR ")})
+                     ORDER BY created_at DESC LIMIT 4`,
+                    params
+                );
+                const items = rows
+                    .map((r) => {
+                        const title = String(r.ai_short_title || r.issue_description || "").replace(/\s+/g, " ").trim();
+                        if (!title) return null;
+                        const next = String(r.next_steps || "").replace(/\s+/g, " ").trim();
+                        return `- ${title.slice(0, 200)} (status: ${r.status || "?"}${next ? `; next steps: ${next.slice(0, 160)}` : ""})`;
+                    })
+                    .filter(Boolean) as string[];
+                if (items.length) {
+                    out.push("Open property issues the team is working on:");
+                    out.push(...items);
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        if (!out.length) return null;
+        return [
+            "## Internal operations in progress (STAFF-ONLY — real work our team already has open for this guest/property. " +
+                "Align your reply with it: reference ongoing work naturally ('our team is on it / will reach out'), " +
+                "don't offer to 'check' something already in motion, and never quote internal wording, names, or prices verbatim)",
+            ...out,
+        ].join("\n");
+    }
+
     private async buildContext(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
@@ -1193,6 +1343,8 @@ export class InboxAIService {
         lines.push(`Listing: ${conversation.listingName || "unknown"}`);
         if (conversation.checkin || conversation.checkout) {
             lines.push(`Stay: ${conversation.checkin || "?"} to ${conversation.checkout || "?"} (${conversation.nights ?? "?"} nights, ${conversation.guests ?? "?"} guests)`);
+            const stage = this.stayStageLine(conversation.checkin, conversation.checkout);
+            if (stage) lines.push(stage);
         }
         if (conversation.price != null) {
             lines.push(`Booking total: ${conversation.price} ${conversation.currency || ""}`.trim());
@@ -1227,6 +1379,19 @@ export class InboxAIService {
             if (canon) canonicalListingId = canon;
         } catch {
             /* non-fatal — fall back to the raw listingId */
+        }
+
+        // Internal operations context: what the team already has in motion for
+        // this guest (open tasks, property issues). The team's replies are often
+        // driven by this, so the bot must see it to stay consistent with them.
+        if (includeKnowledge) try {
+            const ops = await this.buildOpsBlock(conversation, groupIds);
+            if (ops) {
+                lines.push("");
+                lines.push(ops);
+            }
+        } catch {
+            /* non-fatal */
         }
 
         // Best-effort listing profile from the local listing record: times, size,
