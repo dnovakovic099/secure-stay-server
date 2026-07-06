@@ -83,12 +83,25 @@ function detectLang(text: string): string | null {
     return bestHits >= 3 && bestHits >= secondHits + 2 ? best : null;
 }
 
-/** AI and team replies are in clearly different languages — skip grading. */
+/**
+ * Text is clearly not English. Catches short foreign acks the stopword detector
+ * can't ("¡De nada!", "Ole hyvä 💛"): non-Latin scripts, Spanish inverted
+ * punctuation, two-plus accented/foreign letters, or a non-en stopword verdict.
+ * A single accented char is allowed so English replies greeting "José" pass.
+ */
+function looksNonEnglish(text: string): boolean {
+    const t = String(text || "");
+    if (nonLatinRe.test(t)) return true;
+    if (/[¡¿]/.test(t)) return true;
+    const accents = (t.match(/[àâãäåæçèéêëìíîïñòóôõöøùúûüýÿßœ]/gi) || []).length;
+    if (accents >= 2) return true;
+    const lang = detectLang(t);
+    return !!(lang && lang !== "en");
+}
+
+/** Pair involves a non-English reply on either side — skip grading for now. */
 function isLanguageMismatch(ai: string, team: string): boolean {
-    if (nonLatinRe.test(team) !== nonLatinRe.test(ai)) return true;
-    const la = detectLang(ai);
-    const lt = detectLang(team);
-    return !!(la && lt && la !== lt);
+    return looksNonEnglish(ai) || looksNonEnglish(team);
 }
 
 /** First name in a leading greeting ("Hi Caitlyn, ..."), lowercased, or null. */
@@ -187,7 +200,7 @@ export class InboxAnalyticsService {
                 pct: Math.round((ps.length / Math.max(low.length, 1)) * 100),
                 examples: ps
                     .sort((a, b) => this.simOf(a) - this.simOf(b))
-                    .slice(0, 3)
+                    .slice(0, 30)
                     .map((p) => ({
                         threadId: p.threadId,
                         channel: p.channel,
@@ -256,7 +269,14 @@ export class InboxAnalyticsService {
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
                     s.replyRelevance, s.replyRelevanceNote, s.generatedAt,
-                    c.channel, gm.body AS guestMsg
+                    c.channel,
+                    COALESCE(
+                        gm.body,
+                        (SELECT m2.body FROM inbox_messages m2
+                         WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
+                           AND m2.sentAt <= s.generatedAt
+                         ORDER BY m2.sentAt DESC LIMIT 1)
+                    ) AS guestMsg
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
              LEFT JOIN inbox_messages gm ON gm.threadId = s.threadId AND gm.externalId = s.messageId
@@ -338,7 +358,14 @@ export class InboxAnalyticsService {
         // (b) vs USER edits/rejects sent from SecureStay.
         const userRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.status, s.escalationRequired, s.suggestedReply, s.generatedAt,
-                    c.channel, gm.body AS guestMsg, sm.body AS sentBody
+                    c.channel,
+                    COALESCE(
+                        gm.body,
+                        (SELECT m2.body FROM inbox_messages m2
+                         WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
+                           AND m2.sentAt <= s.generatedAt
+                         ORDER BY m2.sentAt DESC LIMIT 1)
+                    ) AS guestMsg, sm.body AS sentBody
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
              LEFT JOIN inbox_messages gm ON gm.threadId = s.threadId AND gm.externalId = s.messageId
