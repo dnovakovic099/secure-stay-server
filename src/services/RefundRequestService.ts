@@ -169,7 +169,7 @@ export class RefundRequestService {
       request.listingTags = listing?.tags || null;
       request.channelName = reservation?.channelName || reservation?.source || null;
       request.reviewRating = review?.rating ?? null;
-      request.privateReview = review?.privateReview || null;
+      request.publicReview = review?.publicReview || null;
       request.expenseStatus = expense?.status || null;
       request.expense = expense
         ? {
