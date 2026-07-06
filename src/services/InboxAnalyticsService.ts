@@ -280,10 +280,11 @@ export class InboxAnalyticsService {
                     s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.generatedAt,
                     c.channel,
                     COALESCE(
-                        gm.body,
+                        NULLIF(gm.body, ''),
                         (SELECT m2.body FROM inbox_messages m2
                          WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
                            AND m2.sentAt <= s.generatedAt
+                           AND m2.body IS NOT NULL AND m2.body <> ''
                          ORDER BY m2.sentAt DESC LIMIT 1)
                     ) AS guestMsg
              FROM ai_message_suggestions s
@@ -370,10 +371,11 @@ export class InboxAnalyticsService {
             `SELECT s.id, s.threadId, s.status, s.escalationRequired, s.suggestedReply, s.generatedAt,
                     c.channel,
                     COALESCE(
-                        gm.body,
+                        NULLIF(gm.body, ''),
                         (SELECT m2.body FROM inbox_messages m2
                          WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
                            AND m2.sentAt <= s.generatedAt
+                           AND m2.body IS NOT NULL AND m2.body <> ''
                          ORDER BY m2.sentAt DESC LIMIT 1)
                     ) AS guestMsg, sm.body AS sentBody
              FROM ai_message_suggestions s
