@@ -67,6 +67,12 @@ export class AIMessageSuggestionEntity {
     @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySimilarity: number | null;
     /** Semantic (embedding cosine) similarity 0..100 between suggestion and actual reply. */
     @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySemanticSimilarity: number | null;
+    /**
+     * Whether the AI suggestion and the captured team reply are answering the SAME
+     * guest message: "clean" (comparable), "guest_followup" (guest sent a newer
+     * message before the team replied — not comparable), or "unknown".
+     */
+    @Column({ length: 20, nullable: true }) auditMatchQuality: string | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;

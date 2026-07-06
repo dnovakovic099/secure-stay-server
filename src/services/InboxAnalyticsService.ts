@@ -25,6 +25,7 @@ interface Pair {
     semantic: number | null;
     escalation: boolean;
     generatedAt: Date;
+    matchQuality?: string | null;
 }
 
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
@@ -167,7 +168,7 @@ export class InboxAnalyticsService {
         // (a) vs TEAM (Hostify-captured replies).
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
-                    s.replySimilarity, s.replySemanticSimilarity, s.generatedAt,
+                    s.replySimilarity, s.replySemanticSimilarity, s.auditMatchQuality, s.generatedAt,
                     c.channel, gm.body AS guestMsg
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
@@ -189,7 +190,14 @@ export class InboxAnalyticsService {
             semantic: r.replySemanticSimilarity != null ? Number(r.replySemanticSimilarity) : null,
             escalation: Number(r.escalationRequired) === 1,
             generatedAt: r.generatedAt,
+            matchQuality: r.auditMatchQuality ?? null,
         }));
+
+        // Exclude pairs where the guest sent a follow-up before the team replied:
+        // the AI answered one message while the team answered a newer one, so the
+        // similarity is meaningless (not an AI quality signal).
+        const teamComparable = teamPairs.filter((p) => p.matchQuality !== "guest_followup");
+        const teamNotComparable = teamPairs.length - teamComparable.length;
 
         // (b) vs USER edits/rejects sent from SecureStay.
         const userRows: any[] = await appDatabase.query(
@@ -221,24 +229,32 @@ export class InboxAnalyticsService {
                 generatedAt: r.generatedAt,
             }));
 
-        // Overall totals for semantic coverage messaging.
-        const totalMatched = teamPairs.length;
-        const totalSemantic = teamPairs.filter((p) => p.semantic != null).length;
+        // Overall totals for semantic coverage messaging (comparable pairs only).
+        const totalMatched = teamComparable.length;
+        const totalSemantic = teamComparable.filter((p) => p.semantic != null).length;
 
         return {
             sinceDays: days,
             granularity: gran,
             generatedAt: new Date().toISOString(),
             semanticCoverage: { scored: totalSemantic, total: totalMatched },
-            vsTeam: this.summarize(teamPairs),
+            dataQuality: {
+                teamMatched: teamPairs.length,
+                teamComparable: teamComparable.length,
+                teamNotComparable, // guest sent a follow-up before the team replied
+            },
+            vsTeam: this.summarize(teamComparable),
             vsUser: this.summarize(userPairs),
-            trend: this.buildTrend(teamPairs, gran),
+            trend: this.buildTrend(teamComparable, gran),
         };
     }
 
     /** Bounded on-demand semantic backfill so the page can populate the chart now. */
     async backfillSemantic(limit = 500): Promise<{ backfilled: number; remaining: number }> {
-        const res = await new InboxAIAuditService().backfillSemantic(limit);
+        const audit = new InboxAIAuditService();
+        // Classify comparability too (cheap, no embeddings) so excluded pairs drop out immediately.
+        await audit.backfillMatchQuality(3000).catch(() => ({ backfilled: 0 }));
+        const res = await audit.backfillSemantic(limit);
         const remainingRows: any[] = await appDatabase.query(
             `SELECT COUNT(*) c FROM ai_message_suggestions
              WHERE actualReplyText IS NOT NULL AND actualReplyText <> ''

@@ -84,6 +84,7 @@ export class InboxAIAuditService {
                     s.actualReplyMessageId = reply.externalId ?? null;
                     s.actualReplyAt = reply.sentAt ?? null;
                     s.replySimilarity = this.similarityPct(s.suggestedReply || "", reply.body);
+                    s.auditMatchQuality = await this.assessMatchQuality(s, reply.sentAt);
                     matched++;
                     newlyMatched.push(s);
                 }
@@ -98,6 +99,56 @@ export class InboxAIAuditService {
         );
         logger.info(`[InboxAIAudit] reply capture: scanned=${suggestions.length} matched=${matched}`);
         return { scanned: suggestions.length, matched };
+    }
+
+    /**
+     * Decide whether the AI suggestion and the team's reply are answering the SAME
+     * guest message. The team replies to whatever the LATEST inbound message was
+     * just before they sent. If that isn't the message the AI drafted against
+     * (s.messageId), the guest sent a follow-up first and the two replies are about
+     * different things — so the similarity is meaningless. Returns:
+     *   "clean" | "guest_followup" | "unknown"
+     */
+    private async assessMatchQuality(
+        s: AIMessageSuggestionEntity,
+        replyAt: Date | null
+    ): Promise<string> {
+        if (!replyAt || s.messageId == null) return "unknown";
+        try {
+            const latestInbound = await this.messageRepo
+                .createQueryBuilder("m")
+                .where("m.threadId = :tid", { tid: s.threadId })
+                .andWhere("m.direction = :dir", { dir: "incoming" })
+                .andWhere("m.sentAt < :r", { r: replyAt })
+                .orderBy("m.sentAt", "DESC")
+                .getOne();
+            if (!latestInbound || latestInbound.externalId == null) return "unknown";
+            return Number(latestInbound.externalId) === Number(s.messageId) ? "clean" : "guest_followup";
+        } catch {
+            return "unknown";
+        }
+    }
+
+    /**
+     * Backfill auditMatchQuality for previously-matched pairs that predate the flag.
+     * Bounded; runs nightly so history classifies itself over a few nights.
+     */
+    async backfillMatchQuality(limit = 1000): Promise<{ backfilled: number }> {
+        const rows = await this.suggestionRepo
+            .createQueryBuilder("s")
+            .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
+            .andWhere("s.actualReplyAt IS NOT NULL")
+            .andWhere("s.auditMatchQuality IS NULL")
+            .orderBy("s.generatedAt", "DESC")
+            .take(Math.min(Math.max(limit, 1), 3000))
+            .getMany();
+        if (!rows.length) return { backfilled: 0 };
+        for (const s of rows) {
+            s.auditMatchQuality = await this.assessMatchQuality(s, s.actualReplyAt);
+        }
+        await this.suggestionRepo.save(rows);
+        logger.info(`[InboxAIAudit] match-quality backfill: ${rows.length} pairs`);
+        return { backfilled: rows.length };
     }
 
     /**
@@ -381,6 +432,12 @@ export class InboxAIAuditService {
             return { backfilled: 0 };
         });
 
+        // Classify historical pairs as comparable vs guest-followup (bounded).
+        const mqBf = await this.backfillMatchQuality().catch((e) => {
+            logger.error(`[InboxAIAudit] match-quality backfill failed: ${e.message}`);
+            return { backfilled: 0 };
+        });
+
         // Auto-resolve learning prompts whose fact has since been learned.
         const { AILearningPromptService } = await import("./AILearningPromptService");
         const learnRes = await new AILearningPromptService().autoResolveCovered().catch((e) => {
@@ -431,6 +488,7 @@ export class InboxAIAuditService {
                 `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}, ` +
                 `KB sweep seeded=${sweep.entries} entries/${sweep.seeded} listings, ` +
                 `semantic backfilled=${semBf.backfilled}, ` +
+                `match-quality backfilled=${mqBf.backfilled}, ` +
                 `learning prompts auto-resolved=${learnRes.resolved}, ` +
                 `new exemplars embedded=${emb.embedded}`
         );
