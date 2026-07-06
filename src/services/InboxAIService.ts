@@ -75,6 +75,10 @@ interface ModelOutput {
     sources_used: string[];
     warnings: string[];
     suggested_action_items: string[];
+    /** Optional: a short question to ask staff to learn a missing reusable fact. */
+    learning_question?: string | null;
+    /** Optional: short topic slug for the learning question, e.g. "parking". */
+    learning_topic?: string | null;
 }
 
 export class InboxAIService {
@@ -348,6 +352,24 @@ export class InboxAIService {
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
             `(conf ${confidencePct ?? "?"}, escalate ${saved.escalationRequired})`
         );
+
+        // If the model flagged a reusable knowledge gap, raise a learning prompt
+        // for staff on this conversation. Best-effort; never blocks the suggestion.
+        if (output.learning_question && String(output.learning_question).trim()) {
+            try {
+                const { AILearningPromptService } = await import("./AILearningPromptService");
+                await new AILearningPromptService().raise({
+                    threadId,
+                    listingId: conversation.listingId ?? null,
+                    listingName: conversation.listingName ?? null,
+                    question: String(output.learning_question),
+                    topic: output.learning_topic ? String(output.learning_topic) : null,
+                    sampleSuggestionId: saved.id,
+                });
+            } catch (e: any) {
+                logger.warn(`[InboxAIService] learning prompt raise failed: ${e.message}`);
+            }
+        }
         return saved;
     }
 
@@ -908,7 +930,9 @@ export class InboxAIService {
             '  "internal_summary": "one or two short sentences for staff (NOT shown to the guest)",',
             '  "sources_used": ["short labels of context you relied on"],',
             '  "warnings": ["any missing info or risks"],',
-            '  "suggested_action_items": ["optional internal tasks, e.g. \'Confirm early check-in availability\'"]',
+            '  "suggested_action_items": ["optional internal tasks, e.g. \'Confirm early check-in availability\'"],',
+            '  "learning_question": "string or null — if you lacked a SPECIFIC, REUSABLE, property-level fact a staff member could answer to improve FUTURE replies (e.g. parking capacity, whether the grill is gas/charcoal, nearest grocery), a short question to ask staff. Null if you had what you needed, or the gap is a one-off / not property-specific.",',
+            '  "learning_topic": "string or null — a short slug for that question, e.g. \'parking\', \'grill\', \'checkout-time\'."',
             "}",
             "Do not include any text outside the JSON. Do not expose hidden chain-of-thought; keep internal_summary brief.",
         ].join("\n");

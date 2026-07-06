@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { InboxService } from "../services/InboxService";
 import { InboxAIService } from "../services/InboxAIService";
 import { MessagingService } from "../services/MessagingServices";
+import { AILearningPromptService } from "../services/AILearningPromptService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -81,6 +82,58 @@ export class InboxV2Controller {
                 }
             }
             return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Learning prompts (bot asks staff to fill a knowledge gap for a conversation)
+    // -------------------------------------------------------------------------
+
+    async getLearningPrompt(request: Request, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const prompt = await new AILearningPromptService().getPendingForThread(threadId);
+            return response.status(200).json({ status: true, data: prompt });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async answerLearningPrompt(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            const { answer, scope } = request.body || {};
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid id" });
+            }
+            if (!answer || !String(answer).trim()) {
+                return response.status(400).json({ status: false, message: "Answer is required" });
+            }
+            const saved = await new AILearningPromptService().answer(id, {
+                answer: String(answer),
+                scope: scope === "portfolio" ? "portfolio" : "property",
+                userId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+            });
+            if (!saved) return response.status(404).json({ status: false, message: "Prompt not found" });
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async dismissLearningPrompt(request: Request, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid id" });
+            }
+            const ok = await new AILearningPromptService().dismiss(id);
+            return response.status(200).json({ status: ok });
         } catch (error) {
             return next(error);
         }

@@ -47,4 +47,9 @@ router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Cont
 router.post("/ai/feedback", verifySession, inboxV2Controller.aiFeedback);
 router.patch("/ai/suggestions/:id/status", verifySession, inboxV2Controller.aiUpdateSuggestionStatus);
 
+// Learning prompts (bot-raised knowledge-gap questions for staff to answer)
+router.get("/conversations/:threadId/learning-prompt", verifySession, inboxV2Controller.getLearningPrompt);
+router.post("/learning-prompt/:id/answer", verifySession, inboxV2Controller.answerLearningPrompt);
+router.post("/learning-prompt/:id/dismiss", verifySession, inboxV2Controller.dismissLearningPrompt);
+
 export default router;

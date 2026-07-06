@@ -381,6 +381,13 @@ export class InboxAIAuditService {
             return { backfilled: 0 };
         });
 
+        // Auto-resolve learning prompts whose fact has since been learned.
+        const { AILearningPromptService } = await import("./AILearningPromptService");
+        const learnRes = await new AILearningPromptService().autoResolveCovered().catch((e) => {
+            logger.error(`[InboxAIAudit] learning prompt auto-resolve failed: ${e.message}`);
+            return { resolved: 0 };
+        });
+
         // Gated: AI extraction of learned facts (stored pending; never guest-facing).
         let ext = { properties: 0, factsUpserted: 0 };
         if (InboxAIAuditService.extractionEnabled()) {
@@ -424,6 +431,7 @@ export class InboxAIAuditService {
                 `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}, ` +
                 `KB sweep seeded=${sweep.entries} entries/${sweep.seeded} listings, ` +
                 `semantic backfilled=${semBf.backfilled}, ` +
+                `learning prompts auto-resolved=${learnRes.resolved}, ` +
                 `new exemplars embedded=${emb.embedded}`
         );
     }
