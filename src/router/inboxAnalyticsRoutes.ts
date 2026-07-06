@@ -13,6 +13,7 @@ router.use((request, response, next) => {
 });
 
 router.get("/", verifySession, controller.report);
+router.get("/worst", verifySession, controller.worst);
 router.post("/backfill", verifySession, controller.backfill);
 
 export default router;

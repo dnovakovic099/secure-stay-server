@@ -269,11 +269,8 @@ export class InboxAnalyticsService {
             }));
     }
 
-    async report(sinceDays = 60, granularity: "day" | "week" | "month" = "day"): Promise<any> {
-        const days = Math.min(Math.max(sinceDays, 7), 180);
-        const gran = granularity === "week" || granularity === "month" ? granularity : "day";
-
-        // (a) vs TEAM (Hostify-captured replies).
+    /** Load AI-vs-team pairs (Hostify-captured replies) for the last N days. */
+    private async loadTeamPairs(days: number): Promise<Pair[]> {
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
@@ -317,21 +314,24 @@ export class InboxAnalyticsService {
             relevanceNote: r.replyRelevanceNote ?? null,
             aiQuality: r.aiReplyQuality ?? null,
         }));
+        return teamPairs;
+    }
 
-        // Exclude pairs that are not a fair grade of AI answer quality:
-        //  - guest_followup: team answered a NEWER guest message than the AI drafted against
-        //  - ops_driven: team reply is an internal ops action (PM callback, payment auth link…)
-        //  - ack_only: team reply is a pure pleasantry with no substance to cover
-        //  - name_mismatch: greeting names differ → replies are clearly to different messages/guests
+    /**
+     * Split team pairs into comparable (fair grade of AI answer quality) vs
+     * excluded, with the exclusion breakdown. Excluded:
+     *  - guest_followup: team answered a NEWER guest message than the AI drafted against
+     *  - off_topic / ops_driven: team reply didn't answer the guest (kept in notValid)
+     *  - ack_only: team reply is a pure pleasantry with no substance to cover
+     *  - name_mismatch: greeting names differ → replies are clearly to different messages/guests
+     *  - language_mismatch: non-English on either side, embeddings under-score those
+     */
+    private filterComparable(teamPairs: Pair[]) {
         let teamOpsDriven = 0;
         let teamAckOnly = 0;
         let teamNameMismatch = 0;
         let teamLangMismatch = 0;
         let teamOffTopic = 0;
-        // Team replies that didn't actually answer the guest (LLM-judged off-topic,
-        // or ops-driven by regex). Excluded from scores but surfaced at the bottom
-        // of the page as "not valid for scoring" — worth keeping: one day the bot
-        // may learn to anticipate these internal actions.
         const notValid: Pair[] = [];
         const teamComparable = teamPairs.filter((p) => {
             if (p.matchQuality === "guest_followup") return false;
@@ -356,14 +356,37 @@ export class InboxAnalyticsService {
                 teamNameMismatch++;
                 return false;
             }
-            // Different languages (e.g. AI replied in the guest's Spanish, team in
-            // English): embeddings under-score cross-language pairs, so skip.
             if (isLanguageMismatch(p.ai, p.other)) {
                 teamLangMismatch++;
                 return false;
             }
             return true;
         });
+        return {
+            teamComparable,
+            notValid,
+            teamOpsDriven,
+            teamAckOnly,
+            teamNameMismatch,
+            teamLangMismatch,
+            teamOffTopic,
+        };
+    }
+
+    async report(sinceDays = 60, granularity: "day" | "week" | "month" = "day"): Promise<any> {
+        const days = Math.min(Math.max(sinceDays, 7), 180);
+        const gran = granularity === "week" || granularity === "month" ? granularity : "day";
+
+        const teamPairs = await this.loadTeamPairs(days);
+        const {
+            teamComparable,
+            notValid,
+            teamOpsDriven,
+            teamAckOnly,
+            teamNameMismatch,
+            teamLangMismatch,
+            teamOffTopic,
+        } = this.filterComparable(teamPairs);
         const teamNotComparable = teamPairs.length - teamComparable.length;
 
         // (b) vs USER edits/rejects sent from SecureStay.
@@ -445,6 +468,54 @@ export class InboxAnalyticsService {
                 })),
             },
         };
+    }
+
+    /**
+     * Worst-scoring comparable AI-vs-team pairs by a chosen metric (coverage,
+     * semantic, or word overlap), ascending — powers the "click a metric to see
+     * the worst replies" drill-down on the Analytics page.
+     */
+    async worstReplies(
+        metric: "coverage" | "semantic" | "jaccard" = "coverage",
+        sinceDays = 60,
+        limit = 50
+    ): Promise<any> {
+        const days = Math.min(Math.max(sinceDays, 7), 180);
+        const cap = Math.min(Math.max(limit, 1), 100);
+        const m = metric === "semantic" || metric === "jaccard" ? metric : "coverage";
+
+        const teamPairs = await this.loadTeamPairs(days);
+        const { teamComparable } = this.filterComparable(teamPairs);
+
+        const score = (p: Pair): number | null =>
+            m === "coverage" ? p.coverage : m === "semantic" ? p.semantic : p.jaccard;
+
+        const scored = teamComparable.filter((p) => score(p) != null);
+        const examples = scored
+            .sort((a, b) => {
+                const d = (score(a) as number) - (score(b) as number);
+                if (d !== 0) return d;
+                // Tie-break: true AI misses first, judged-fine replies last.
+                const rank = (p: Pair) =>
+                    p.aiQuality === "missed" ? 0 : p.aiQuality === "addressed" ? 2 : 1;
+                return rank(a) - rank(b);
+            })
+            .slice(0, cap)
+            .map((p) => ({
+                threadId: p.threadId,
+                channel: p.channel,
+                guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
+                aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
+                theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
+                coverage: p.coverage,
+                semantic: p.semantic,
+                jaccard: p.jaccard,
+                aiQuality: p.aiQuality ?? null,
+                reason: REASON_LABELS[this.classify(p)] || null,
+                generatedAt: p.generatedAt,
+            }));
+
+        return { metric: m, sinceDays: days, scored: scored.length, examples };
     }
 
     /** Bounded on-demand semantic backfill so the page can populate the chart now. */

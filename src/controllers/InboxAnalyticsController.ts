@@ -18,6 +18,18 @@ export class InboxAnalyticsController {
         }
     }
 
+    async worst(request: Request, response: Response, next: NextFunction) {
+        try {
+            const metric = (request.query.metric as "coverage" | "semantic" | "jaccard") || "coverage";
+            const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
+            const limit = request.query.limit ? Number(request.query.limit) : 50;
+            const data = await new InboxAnalyticsService().worstReplies(metric, sinceDays, limit);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async backfill(request: Request, response: Response, next: NextFunction) {
         try {
             const limit = request.query.limit ? Number(request.query.limit) : 500;
