@@ -176,6 +176,8 @@ export class RefundRequestService {
           id: expense.id,
           expenseId: expense.expenseId,
           status: expense.status,
+          datePaid: expense.datePaid,
+          expenseDate: expense.expenseDate,
         }
         : null;
     });
@@ -689,7 +691,7 @@ export class RefundRequestService {
 
 
   private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus) {
-        const today = format(new Date(), 'yyyy-MM-dd');
+        const today = getEasternDateString();
         return {
             listingMapId: body.listingId,
             expenseDate: today,
@@ -861,8 +863,8 @@ export class RefundRequestService {
         return { data: events };
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundCategory?: string; reviewRating?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -880,6 +882,10 @@ export class RefundRequestService {
         const statusFilters = normalizeArray(status);
         const createdByFilters = normalizeArray(createdBy);
         const paymentMethodFilters = normalizeArray(paymentMethod);
+        const refundCategoryFilters = normalizeArray(refundCategory);
+        const reviewRatingFilters = normalizeArray(reviewRating)
+            .map((rating) => Number(rating))
+            .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
         const minAmount = refundAmountMin !== undefined && refundAmountMin !== null && refundAmountMin !== "" ? Number(refundAmountMin) : null;
         const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
         const selectedExpenseEntry = String(expenseEntry || "").trim();
@@ -888,6 +894,7 @@ export class RefundRequestService {
         const mitigationFromDate = format(new Date(`${easternToday}T12:00:00Z`).getTime() - 14 * 24 * 60 * 60 * 1000, "yyyy-MM-dd");
         const keywordFieldOptions = ["guestName", "explaination", "notes", "paymentDetails", "approvedBy", "refundCategory"];
         const selectedKeywordField = keywordFieldOptions.includes(String(keywordField || "")) ? String(keywordField) : "all";
+        const decoratedSortColumns = new Set(["reviewRating"]);
         const directSortColumns: Record<string, keyof RefundRequestEntity> = {
             status: "status",
             guestName: "guestName",
@@ -918,7 +925,7 @@ export class RefundRequestService {
                         field: String(rule?.field || ""),
                         direction: String(rule?.direction || "asc").toLowerCase() === "desc" ? "DESC" as const : "ASC" as const,
                     }))
-                    .filter((rule) => Boolean(directSortColumns[rule.field]))
+                    .filter((rule) => Boolean(directSortColumns[rule.field]) || decoratedSortColumns.has(rule.field))
                     .slice(0, 3);
             } catch {
                 return [];
@@ -927,23 +934,53 @@ export class RefundRequestService {
         const activeSortRules = parseSortRules();
         const sortOrder = activeSortRules.length
             ? activeSortRules.reduce<Record<string, "ASC" | "DESC">>((order, rule) => {
+                if (!directSortColumns[rule.field]) return order;
                 order[directSortColumns[rule.field] as string] = rule.direction;
                 return order;
             }, {})
             : { createdAt: "DESC" as const };
+        if (!Object.keys(sortOrder).length) sortOrder.createdAt = "DESC";
         const applySortRulesToQuery = (qb: any) => {
             if (!activeSortRules.length) {
                 qb.orderBy("refundRequest.createdAt", "DESC");
                 return;
             }
+            let hasDirectSort = false;
             activeSortRules.forEach((rule, index) => {
                 const column = directSortColumns[rule.field];
                 if (!column) return;
                 const expression = `refundRequest.${String(column)}`;
-                if (index === 0) qb.orderBy(expression, rule.direction);
+                if (!hasDirectSort) qb.orderBy(expression, rule.direction);
                 else qb.addOrderBy(expression, rule.direction);
+                hasDirectSort = true;
             });
+            if (!hasDirectSort) qb.orderBy("refundRequest.createdAt", "DESC");
             qb.addOrderBy("refundRequest.createdAt", "DESC");
+        };
+        const shouldSortDecoratedData = activeSortRules.some((rule) => decoratedSortColumns.has(rule.field));
+        const getSortValue = (request: any, field: string) => {
+            if (field === "reviewRating") return request.reviewRating ?? null;
+            const directColumn = directSortColumns[field];
+            return directColumn ? request[directColumn as string] ?? null : null;
+        };
+        const compareSortValues = (left: any, right: any) => {
+            if (left === right) return 0;
+            if (left === null || left === undefined || left === "") return 1;
+            if (right === null || right === undefined || right === "") return -1;
+            const leftNumber = Number(left);
+            const rightNumber = Number(right);
+            if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) return leftNumber - rightNumber;
+            return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+        };
+        const sortDecoratedRefundRequests = (rows: any[]) => {
+            if (!shouldSortDecoratedData) return rows;
+            return rows.sort((left, right) => {
+                for (const rule of activeSortRules) {
+                    const result = compareSortValues(getSortValue(left, rule.field), getSortValue(right, rule.field));
+                    if (result !== 0) return rule.direction === "DESC" ? -result : result;
+                }
+                return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+            });
         };
 
         const applyKeywordToQuery = (qb: any, keywordValue: string) => {
@@ -1009,8 +1046,17 @@ export class RefundRequestService {
         if (statusFilters.length) {
             whereConditions.status = In(statusFilters);
         }  
-        if(reservationIdFilters.length) {
-            whereConditions.reservationId = In(reservationIdFilters);
+        const explicitReservationIds = reservationIdFilters.map(Number).filter(Boolean);
+        let effectiveReservationIds = explicitReservationIds;
+        if (reviewRatingFilters.length) {
+            const matchingReviews = await this.reviewRepo.find({ where: { rating: In(reviewRatingFilters) } });
+            const reviewReservationIds = Array.from(new Set(matchingReviews.map((review) => Number(review.reservationId)).filter(Boolean)));
+            effectiveReservationIds = explicitReservationIds.length
+                ? explicitReservationIds.filter((reservationId) => reviewReservationIds.includes(reservationId))
+                : reviewReservationIds;
+        }
+        if (explicitReservationIds.length || reviewRatingFilters.length) {
+            whereConditions.reservationId = In(effectiveReservationIds.length ? effectiveReservationIds : [-1]);
         }
         if (listingIdFilters.length || propertyTypes.length || serviceTypes.length) {
             const explicitListingIds = listingIdFilters.map(Number).filter(Boolean);
@@ -1039,6 +1085,10 @@ export class RefundRequestService {
             whereConditions.paymentMethod = In(paymentMethodFilters);
         }
 
+        if (refundCategoryFilters.length) {
+            whereConditions.refundCategory = In(refundCategoryFilters);
+        }
+
         if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
             whereConditions.refundAmount = Between(minAmount, maxAmount);
         } else if (minAmount !== null && !Number.isNaN(minAmount)) {
@@ -1062,8 +1112,8 @@ export class RefundRequestService {
             if (statusFilters.length) {
                 qb.andWhere("refundRequest.status IN (:...statusFilters)", { statusFilters });
             }
-            if (reservationIdFilters.length) {
-                qb.andWhere("refundRequest.reservationId IN (:...reservationIdFilters)", { reservationIdFilters });
+            if (explicitReservationIds.length || reviewRatingFilters.length) {
+                qb.andWhere("refundRequest.reservationId IN (:...effectiveReservationIds)", { effectiveReservationIds: effectiveReservationIds.length ? effectiveReservationIds : [-1] });
             }
             if (listingIdFilters.length || propertyTypes.length || serviceTypes.length) {
                 const explicitListingIds = listingIdFilters.map(Number).filter(Boolean);
@@ -1087,6 +1137,9 @@ export class RefundRequestService {
             }
             if (paymentMethodFilters.length) {
                 qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
+            }
+            if (refundCategoryFilters.length) {
+                qb.andWhere("refundRequest.refundCategory IN (:...refundCategoryFilters)", { refundCategoryFilters });
             }
             if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
                 qb.andWhere("refundRequest.refundAmount BETWEEN :minAmount AND :maxAmount", { minAmount, maxAmount });
@@ -1112,6 +1165,13 @@ export class RefundRequestService {
             }
 
             applySortRulesToQuery(qb);
+
+            if (shouldSortDecoratedData) {
+                const data = await qb.getMany();
+                await this.decorateRefundRequests(data);
+                const sortedData = sortDecoratedRefundRequests(data);
+                return { data: sortedData.slice(offset, offset + limit), total: sortedData.length };
+            }
 
             const [data, total] = await qb
                 .take(limit)
@@ -1160,6 +1220,16 @@ export class RefundRequestService {
                             { ...whereConditions, refundCategory: ILike(`%${keyword}%`) },
                         ]
         : whereConditions;
+
+        if (shouldSortDecoratedData) {
+            const data = await this.refundRequestRepo.find({
+                where,
+                order: sortOrder as any,
+            });
+            await this.decorateRefundRequests(data);
+            const sortedData = sortDecoratedRefundRequests(data);
+            return { data: sortedData.slice(offset, offset + limit), total: sortedData.length };
+        }
 
         const [data, total] = await this.refundRequestRepo.findAndCount({
             where,
