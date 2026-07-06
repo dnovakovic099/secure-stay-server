@@ -978,10 +978,64 @@ export class ResolutionsTeamSlackService {
 
             const channelId = rc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL;
 
-            const result = await sendSlackMessage(
+            let result = await sendSlackMessage(
                 { ...msgPayload, channel: channelId },
                 rc.slackThreadTs
             );
+
+            // Slack may silently drop `thread_ts` when the parent message no longer exists
+            // (e.g. this row's slackThreadTs came from the July 2 main-table dump and points
+            // at a message that's no longer resolvable in the current workspace/channel).
+            // The API still returns `ok: true` and posts as a top-level channel message —
+            // which is why yesterday's status/notes/tag/visibility updates for pre-migration
+            // rows showed up as free-floating messages instead of thread replies.
+            //
+            // Detect it by comparing the requested thread_ts against message.thread_ts on the
+            // response. If they mismatch (or Slack returned thread_not_found / message_not_found),
+            // the current slackThreadTs is stale — clear it, spin up a fresh thread via
+            // ensureThreadForReservation, and re-post the activity into the new thread so this
+            // activity is threaded. The orphaned top-level message we just posted is left in
+            // the channel intentionally; auto-deleting historical Slack messages is destructive
+            // enough that we'd rather keep it visible while the operator understands the state.
+            const requestedThreadTs = rc.slackThreadTs;
+            const responseThreadTs = result?.message?.thread_ts;
+            const staleThreadErrorCode = ["thread_not_found", "message_not_found"];
+            const slackReportedStaleError = result && result.ok === false && result.error && staleThreadErrorCode.includes(String(result.error));
+            const slackSilentlyUnthreaded = Boolean(result?.ok && requestedThreadTs && !responseThreadTs);
+
+            if ((slackReportedStaleError || slackSilentlyUnthreaded) && rc.reservationInfo?.id) {
+                logger.warn(
+                    `[ResolutionsTeam] slackThreadTs=${requestedThreadTs} for reviewCheckout=${reviewCheckoutId} is stale (Slack ${slackReportedStaleError ? `error=${result?.error}` : "silently dropped thread_ts"}); recreating thread and re-posting`,
+                );
+                // Clear so ensureThreadForReservation goes through its create path instead of
+                // its early-return short-circuit at line 644.
+                rc.slackThreadTs = null;
+                rc.slackChannelId = null;
+                try {
+                    await this.reviewCheckoutRepo.save(rc);
+                    const refreshedRc = await this.ensureThreadForReservation(
+                        Number(rc.reservationInfo.id),
+                        activity.actor || null,
+                    );
+                    if (refreshedRc?.slackThreadTs) {
+                        rc.slackThreadTs = refreshedRc.slackThreadTs;
+                        rc.slackChannelId = refreshedRc.slackChannelId;
+                        result = await sendSlackMessage(
+                            { ...msgPayload, channel: refreshedRc.slackChannelId || RESOLUTIONS_TEAM_CHANNEL },
+                            refreshedRc.slackThreadTs,
+                        );
+                    } else {
+                        logger.error(
+                            `[ResolutionsTeam] Recreated thread lookup returned no slackThreadTs for reviewCheckout=${reviewCheckoutId}; original orphan post remains as-is`,
+                        );
+                    }
+                } catch (recreateErr) {
+                    logger.error(
+                        `[ResolutionsTeam] Thread recreation failed for reviewCheckout=${reviewCheckoutId}; original orphan post remains as-is:`,
+                        recreateErr,
+                    );
+                }
+            }
 
             // Keep root controls in sync after edits from Slack or the app.
             if (activity.type === "status" || activity.type === "assignee" || activity.type === "visibility" || activity.type === "resolution_tag") {
