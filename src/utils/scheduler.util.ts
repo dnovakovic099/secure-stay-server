@@ -34,6 +34,7 @@ import { TurnoverService } from "../services/TurnoverService";
 import sendSlackMessage from "./sendSlackMsg";
 import OpenAI from "openai";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
+import { AutoMessageService } from "../services/AutoMessageService";
 
 
 export function scheduleGetReservation() {
@@ -520,6 +521,26 @@ export function scheduleGetReservation() {
         logger.info('[InboxAIAudit] Nightly audit scheduled task completed.');
       } catch (error) {
         logger.error("[InboxAIAudit] Error in nightly audit scheduled task:", error);
+      }
+    }
+  );
+
+  // Automated guest messages (rule-based: inquiry winback, pre-arrival /
+  // checkout reminders, trash-day notes, one-off follow-ups). Every 10 minutes,
+  // offset by 3 min to avoid colliding with the other */5 jobs. Idempotent —
+  // each (rule, thread, occurrence) is claimed in auto_message_log before
+  // delivery. Kill switch: AUTO_MESSAGES_ENABLED=false.
+  schedule.scheduleJob(
+    "3-59/10 * * * *",
+    async () => {
+      try {
+        const autoMessageService = new AutoMessageService();
+        const result = await autoMessageService.processDueMessages();
+        if (result.evaluated > 0 && (result.sent || result.failed)) {
+          logger.info(`[AutoMessage] Sweep — sent=${result.sent}, failed=${result.failed}, skipped=${result.skipped}`);
+        }
+      } catch (error) {
+        logger.error("[AutoMessage] Error in scheduled sweep:", error);
       }
     }
   );

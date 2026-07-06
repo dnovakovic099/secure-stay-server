@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS `auto_message_rules` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(255) NOT NULL,
+  `enabled` TINYINT NOT NULL DEFAULT 0,
+  `triggerType` VARCHAR(30) NOT NULL,
+  `offsetHours` INT NULL,
+  `offsetDays` INT NULL,
+  `daysOfWeek` VARCHAR(30) NULL,
+  `sendTime` VARCHAR(5) NULL,
+  `sendAt` DATETIME NULL,
+  `threadId` BIGINT NULL,
+  `listingIds` TEXT NULL,
+  `channels` VARCHAR(255) NULL,
+  `reservationStatuses` VARCHAR(255) NULL,
+  `minNights` INT NULL,
+  `maxNights` INT NULL,
+  `skipIfGuestReplied` TINYINT NOT NULL DEFAULT 1,
+  `messageTemplate` TEXT NOT NULL,
+  `createdByUserId` INT NULL,
+  `createdByName` VARCHAR(255) NULL,
+  `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `IDX_auto_message_rules_enabled` (`enabled`),
+  INDEX `IDX_auto_message_rules_trigger` (`triggerType`),
+  INDEX `IDX_auto_message_rules_thread` (`threadId`)
+);
+
+CREATE TABLE IF NOT EXISTS `auto_message_log` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `ruleId` INT NOT NULL,
+  `threadId` BIGINT NOT NULL,
+  `dedupeKey` VARCHAR(40) NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'sending',
+  `messageBody` TEXT NULL,
+  `error` TEXT NULL,
+  `sentAt` DATETIME NULL,
+  `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE INDEX `IDX_auto_message_log_dedupe` (`ruleId`, `threadId`, `dedupeKey`),
+  INDEX `IDX_auto_message_log_rule` (`ruleId`),
+  INDEX `IDX_auto_message_log_thread` (`threadId`),
+  INDEX `IDX_auto_message_log_status` (`status`)
+);

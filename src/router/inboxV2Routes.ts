@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { InboxV2Controller } from "../controllers/InboxV2Controller";
+import { AutoMessageRuleController } from "../controllers/AutoMessageRuleController";
 import verifySession from "../middleware/verifySession";
 
 const router = Router();
 const inboxV2Controller = new InboxV2Controller();
+const autoMessageController = new AutoMessageRuleController();
 
 /**
  * Never return a conditional 304 for these dynamic, authenticated endpoints.
@@ -46,6 +48,18 @@ router.get("/conversations/:threadId/ai/suggestion", verifySession, inboxV2Contr
 router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Controller.aiListSuggestions);
 router.post("/ai/feedback", verifySession, inboxV2Controller.aiFeedback);
 router.patch("/ai/suggestions/:id/status", verifySession, inboxV2Controller.aiUpdateSuggestionStatus);
+
+// -------------------------------------------------------------------------
+// Automated messages (rule-based scheduled sends: winback, reminders,
+// day-of-week notes, one-off follow-ups). Engine gated by AUTO_MESSAGES_ENABLED;
+// every rule starts disabled.
+// -------------------------------------------------------------------------
+router.get("/auto-messages/rules", verifySession, autoMessageController.listRules);
+router.post("/auto-messages/rules", verifySession, autoMessageController.createRule);
+router.put("/auto-messages/rules/:id", verifySession, autoMessageController.updateRule);
+router.delete("/auto-messages/rules/:id", verifySession, autoMessageController.deleteRule);
+router.get("/auto-messages/logs", verifySession, autoMessageController.listLogs);
+router.post("/auto-messages/run", verifySession, autoMessageController.runNow);
 
 // Learning prompts (bot-raised knowledge-gap questions for staff to answer)
 router.get("/conversations/:threadId/learning-prompt", verifySession, inboxV2Controller.getLearningPrompt);
