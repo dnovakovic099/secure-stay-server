@@ -626,6 +626,8 @@ export class InboxAnalyticsService {
             if (A.size < 2 || B.size < 2) return 0;
             let inter = 0;
             for (const w of A) if (B.has(w)) inter++;
+            // One shared word (e.g. just "check") is coincidence, not a match.
+            if (inter < 2) return 0;
             return inter / Math.min(A.size, B.size);
         };
 
