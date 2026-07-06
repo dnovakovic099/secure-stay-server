@@ -90,6 +90,13 @@ export class AIMessageSuggestionEntity {
     @Column({ length: 20, nullable: true }) replyRelevance: string | null;
     /** One-line judge explanation for off_topic verdicts (for the Analytics list). */
     @Column({ length: 255, nullable: true }) replyRelevanceNote: string | null;
+    /**
+     * LLM judgement of the AI's own reply against the guest's message:
+     * "addressed" (reasonably answered what was asked) | "missed" (guest asked
+     * for something the AI failed to provide but the team did) | "unknown".
+     * Drives audit ordering on Analytics: true misses first, fine replies last.
+     */
+    @Column({ length: 20, nullable: true }) aiReplyQuality: string | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;

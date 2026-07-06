@@ -180,6 +180,7 @@ export class InboxAIAuditService {
             // Follow-up pairs are already excluded from scoring; don't spend tokens.
             if (s.auditMatchQuality === "guest_followup") {
                 s.replyRelevance = "unknown";
+                s.aiReplyQuality = "unknown";
                 skipped.push(s);
                 continue;
             }
@@ -195,6 +196,7 @@ export class InboxAIAuditService {
             }
             if (!guestMsg) {
                 s.replyRelevance = "unknown";
+                s.aiReplyQuality = "unknown";
                 skipped.push(s);
                 continue;
             }
@@ -204,13 +206,18 @@ export class InboxAIAuditService {
 
         const system = [
             "You review short-term-rental guest messaging quality data.",
-            "For each pair you get the GUEST's message and the reply a human TEAM member actually sent.",
-            "Decide whether the team reply ADDRESSES the guest's message:",
+            "For each item you get the GUEST's message, the AI's suggested reply, and the reply a human TEAM member actually sent.",
+            "Judge TWO things independently:",
+            "1) verdict — does the TEAM reply address the guest's message?",
             '- "relevant": it answers, partially answers, asks a clarifying question about, or directly acknowledges the guest\'s topic.',
             '- "off_topic": it is about something unrelated or driven by internal operations the guest did not ask about (e.g. guest asks about parking and the team says "our property manager will call your phone", a payment-verification link, an upsell pitch, or a question about a completely different subject).',
             '- "unknown": you cannot tell.',
             'For "off_topic" include a short note (max 15 words) saying what the team reply was actually about.',
-            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","note":"..."}]}',
+            "2) ai_verdict — did the AI reply handle the guest's message well on its own?",
+            '- "missed": the guest asked for specific information or content (e.g. the house rules, check-in instructions, a price) and the AI failed to provide it while the team did, OR the AI\'s answer was wrong/unhelpful for what was asked.',
+            '- "addressed": the AI reply reasonably answered or handled the guest\'s message, even if the team said something different or was more proactive. A polite, correct reply to a message that needed no information is "addressed".',
+            '- "unknown": you cannot tell.',
+            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","ai_verdict":"addressed|missed|unknown","note":"..."}]}',
         ].join("\n");
 
         let judged = 0;
@@ -219,7 +226,9 @@ export class InboxAIAuditService {
             const user = batch
                 .map(
                     (it, i) =>
-                        `#${i}\nGUEST: ${it.guestMsg.slice(0, 400)}\nTEAM REPLY: ${(it.row.actualReplyText || "")
+                        `#${i}\nGUEST: ${it.guestMsg.slice(0, 400)}\nAI REPLY: ${(it.row.suggestedReply || "")
+                            .replace(/\s+/g, " ")
+                            .slice(0, 400)}\nTEAM REPLY: ${(it.row.actualReplyText || "")
                             .replace(/\s+/g, " ")
                             .slice(0, 400)}`
                 )
@@ -243,10 +252,15 @@ export class InboxAIAuditService {
                     it.row.replyRelevance = v === "relevant" || v === "off_topic" ? v : "unknown";
                     it.row.replyRelevanceNote =
                         v === "off_topic" && r?.note ? String(r.note).slice(0, 255) : null;
+                    const av = String(r?.ai_verdict || "").toLowerCase();
+                    it.row.aiReplyQuality = av === "addressed" || av === "missed" ? av : "unknown";
                     judged++;
                 }
                 // Anything the model skipped: mark unknown so backfill doesn't loop on it.
-                for (const it of batch) if (!it.row.replyRelevance) it.row.replyRelevance = "unknown";
+                for (const it of batch) {
+                    if (!it.row.replyRelevance) it.row.replyRelevance = "unknown";
+                    if (!it.row.aiReplyQuality) it.row.aiReplyQuality = "unknown";
+                }
                 // Persist per batch so progress survives an interrupted long run.
                 await this.suggestionRepo.save(batch.map((it) => it.row));
             } catch (err: any) {
@@ -266,7 +280,7 @@ export class InboxAIAuditService {
             .createQueryBuilder("s")
             .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
             .andWhere("s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''")
-            .andWhere("s.replyRelevance IS NULL")
+            .andWhere("(s.replyRelevance IS NULL OR s.aiReplyQuality IS NULL)")
             .orderBy("s.generatedAt", "DESC")
             .take(Math.min(Math.max(limit, 1), 1000))
             .getMany();

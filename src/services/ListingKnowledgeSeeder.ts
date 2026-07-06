@@ -192,6 +192,18 @@ export class ListingKnowledgeSeeder {
         if (qf && qt) rules.push(`Quiet hours: ${qf} to ${qt}.`);
         if (rules.length) push({ title: "House rules", category: "Rules", visibility: "external", content: rules.join(" ") });
 
+        // Full house-rules TEXT as written by the host (the version the team
+        // pastes to guests). The flag summary above misses fees, guest limits,
+        // registration requirements etc., so the bot deflected instead of
+        // sending the actual rules.
+        const rulesText = !this.isBlank(li.house_rules)
+            ? li.house_rules
+            : details.description && !this.isBlank(details.description.house_rules)
+              ? details.description.house_rules
+              : "";
+        if (!this.isBlank(rulesText))
+            push({ title: "House rules (full text)", category: "Rules", visibility: "external", content: this.clean(rulesText).slice(0, 5000) });
+
         // Stay length
         const stay: string[] = [];
         if (li.min_nights != null) stay.push(`Minimum stay: ${li.min_nights} night(s).`);

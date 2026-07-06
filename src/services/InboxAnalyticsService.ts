@@ -29,6 +29,7 @@ interface Pair {
     matchQuality?: string | null;
     relevance?: string | null;
     relevanceNote?: string | null;
+    aiQuality?: string | null;
 }
 
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
@@ -199,7 +200,14 @@ export class InboxAnalyticsService {
                 count: ps.length,
                 pct: Math.round((ps.length / Math.max(low.length, 1)) * 100),
                 examples: ps
-                    .sort((a, b) => this.simOf(a) - this.simOf(b))
+                    // Audit-worthy first: true AI misses, then unjudged, then pairs
+                    // where the AI's reply was actually fine (team just did/knew
+                    // something else) — those need the least human attention.
+                    .sort((a, b) => {
+                        const rank = (p: Pair) =>
+                            p.aiQuality === "missed" ? 0 : p.aiQuality === "addressed" ? 2 : 1;
+                        return rank(a) - rank(b) || this.simOf(a) - this.simOf(b);
+                    })
                     .slice(0, 30)
                     .map((p) => ({
                         threadId: p.threadId,
@@ -210,6 +218,7 @@ export class InboxAnalyticsService {
                         coverage: p.coverage,
                         semantic: p.semantic,
                         jaccard: p.jaccard,
+                        aiQuality: p.aiQuality ?? null,
                     })),
             }))
             .sort((a, b) => b.count - a.count);
@@ -268,7 +277,7 @@ export class InboxAnalyticsService {
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
-                    s.replyRelevance, s.replyRelevanceNote, s.generatedAt,
+                    s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.generatedAt,
                     c.channel,
                     COALESCE(
                         gm.body,
@@ -305,6 +314,7 @@ export class InboxAnalyticsService {
             matchQuality: r.auditMatchQuality ?? null,
             relevance: r.replyRelevance ?? null,
             relevanceNote: r.replyRelevanceNote ?? null,
+            aiQuality: r.aiReplyQuality ?? null,
         }));
 
         // Exclude pairs that are not a fair grade of AI answer quality:

@@ -964,6 +964,7 @@ export class InboxAIService {
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
+            "- WHEN THE GUEST ASKS FOR THE RULES OR INSTRUCTIONS THEMSELVES (house rules, check-in/checkout instructions, house manual): if the actual content is in context (e.g. a 'House rules' or check-in entry), SEND IT — reproduce the documented rules/steps in the reply rather than telling the guest where to find them or offering to send them later. Only point to a physical location or defer if the actual content is not in context.",
             "- Reply in the same language the guest used.",
             "",
             "AVAILABILITY / EXTENSIONS:",
