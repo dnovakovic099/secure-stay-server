@@ -1,0 +1,3 @@
+ALTER TABLE upsell_property_config
+  ADD COLUMN IF NOT EXISTS source VARCHAR(20) NULL AFTER pairSyncStatus,
+  ADD COLUMN IF NOT EXISTS sdto VARCHAR(100) NULL AFTER source;

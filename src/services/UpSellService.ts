@@ -51,7 +51,7 @@ export class UpSellServices {
   }
 
   private normalizePropertyConfigs(value: unknown) {
-    return this.parseArrayField<any>(value)
+    const configs = this.parseArrayField<any>(value)
       .map((item) => ({
         listingId: Number(item?.listingId),
         serviceType: this.normalizeNullableString(item?.serviceType),
@@ -64,9 +64,24 @@ export class UpSellServices {
         upsellFee: this.normalizeNullableNumber(item?.upsellFee),
         pairSyncStatus: this.normalizePairSyncStatus(item?.pairSyncStatus),
         pairSyncAction: this.normalizePairSyncAction(item?.pairSyncAction),
+        source: this.normalizeSource(item?.source),
+        sdto: this.normalizeNullableString(item?.sdto),
         internalNotes: this.normalizeNullableString(item?.internalNotes),
       }))
       .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
+
+    return Array.from(
+      configs.reduce((deduped, config) => deduped.set(config.listingId, config), new Map<number, typeof configs[number]>()).values()
+    );
+  }
+
+  private normalizeSource(value: unknown): string | null {
+    const normalized = this.normalizeNullableString(value);
+    if (!normalized) return null;
+    const lower = normalized.toLowerCase();
+    if (lower === "ll") return "LL";
+    if (lower === "client") return "Client";
+    return normalized;
   }
 
   private normalizePairSyncStatus(value: unknown): string | null {
@@ -114,6 +129,8 @@ export class UpSellServices {
     propertyConfig.pricingRules = config.pricingRules;
     propertyConfig.upsellFee = config.upsellFee;
     propertyConfig.pairSyncStatus = config.pairSyncStatus;
+    propertyConfig.source = config.source;
+    propertyConfig.sdto = config.sdto;
     propertyConfig.internalNotes = config.internalNotes;
   }
 
@@ -253,6 +270,8 @@ export class UpSellServices {
               propertyConfig.pricingRules = config.pricingRules;
               propertyConfig.upsellFee = config.upsellFee;
               propertyConfig.pairSyncStatus = config.pairSyncStatus;
+              propertyConfig.source = config.source;
+              propertyConfig.sdto = config.sdto;
               propertyConfig.internalNotes = config.internalNotes;
               await transactionalEntityManager.save(propertyConfig);
             })
@@ -360,6 +379,8 @@ export class UpSellServices {
                 propertyConfig.pricingRules = config.pricingRules;
                 propertyConfig.upsellFee = config.upsellFee;
                 propertyConfig.pairSyncStatus = config.pairSyncStatus;
+                propertyConfig.source = config.source;
+                propertyConfig.sdto = config.sdto;
                 propertyConfig.internalNotes = config.internalNotes;
                 await transactionalEntityManager.save(propertyConfig);
               })
@@ -698,6 +719,8 @@ export class UpSellServices {
             listingInfo.pricingRules = propertyConfig?.pricingRules ?? null;
             listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
             listingInfo.pairSyncStatus = propertyConfig?.pairSyncStatus ?? null;
+            listingInfo.source = propertyConfig?.source ?? null;
+            listingInfo.sdto = propertyConfig?.sdto ?? null;
             listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
             listingInfo.createdAt = propertyConfig?.createdAt ?? null;
             listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;

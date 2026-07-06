@@ -38,6 +38,12 @@ export class UpSellPropertyConfig {
   @Column({ type: "varchar", length: 20, nullable: true })
   pairSyncStatus: string | null;
 
+  @Column({ type: "varchar", length: 20, nullable: true })
+  source: string | null;
+
+  @Column({ type: "varchar", length: 100, nullable: true })
+  sdto: string | null;
+
   @Column({ type: "text", nullable: true })
   internalNotes: string | null;
 
