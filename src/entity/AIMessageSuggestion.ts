@@ -68,6 +68,13 @@ export class AIMessageSuggestionEntity {
     /** Semantic (embedding cosine) similarity 0..100 between suggestion and actual reply. */
     @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySemanticSimilarity: number | null;
     /**
+     * North-star answer-quality metric (0..100): how much of the SUBSTANCE in the
+     * team's reply the AI reply also covered, sentence-by-sentence — length- and
+     * verbosity-invariant, so it rises as self-learning adds facts the bot then uses.
+     * NULL when the team reply had no substantive content (e.g. a pure acknowledgement).
+     */
+    @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replyCoverageScore: number | null;
+    /**
      * Whether the AI suggestion and the captured team reply are answering the SAME
      * guest message: "clean" (comparable), "guest_followup" (guest sent a newer
      * message before the team replied — not comparable), or "unknown".

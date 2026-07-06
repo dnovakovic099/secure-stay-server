@@ -162,13 +162,58 @@ export class InboxAIAuditService {
         if (!rows.length || !process.env.OPENAI_API_KEY) return;
         const { EmbeddingService } = await import("./EmbeddingService");
         const es = new EmbeddingService();
+
+        // Whole-reply semantic (style-sensitive, kept as a secondary signal).
         const aiVecs = await es.embedMany(rows.map((r) => r.suggestedReply || ""));
         const teamVecs = await es.embedMany(rows.map((r) => r.actualReplyText || ""));
+
+        // Sentence-level embeddings for coverage (the length-invariant north-star).
+        const aiSentsPer = rows.map((r) => this.splitSentences(r.suggestedReply || ""));
+        const teamSentsPer = rows.map((r) => this.splitSentences(r.actualReplyText || ""));
+        const flat: string[] = [];
+        aiSentsPer.forEach((arr) => arr.forEach((s) => flat.push(s)));
+        teamSentsPer.forEach((arr) => arr.forEach((s) => flat.push(s)));
+        const sentVecs = flat.length ? await es.embedMany(flat) : [];
+        let pos = 0;
+        const aiVecsPer = aiSentsPer.map((arr) => arr.map(() => sentVecs[pos++]));
+        const teamVecsPer = teamSentsPer.map((arr) => arr.map(() => sentVecs[pos++]));
+
         for (let i = 0; i < rows.length; i++) {
             const sem = EmbeddingService.cosine(aiVecs[i], teamVecs[i]) * 100;
             rows[i].replySemanticSimilarity = Math.round(sem * 100) / 100;
+
+            // Coverage = for each substantive sentence the TEAM said, how well does
+            // the AI reply cover it (best matching AI sentence)? Extra AI verbosity
+            // does not lower the score, so it isolates substance from length.
+            const tvs = teamVecsPer[i];
+            const avs = aiVecsPer[i];
+            if (!tvs.length) {
+                rows[i].replyCoverageScore = null; // team reply had no substantive content (ack)
+            } else if (!avs.length) {
+                rows[i].replyCoverageScore = 0;
+            } else {
+                let sum = 0;
+                for (const tv of tvs) {
+                    let mx = 0;
+                    for (const av of avs) mx = Math.max(mx, EmbeddingService.cosine(tv, av));
+                    sum += Math.max(0, mx);
+                }
+                rows[i].replyCoverageScore = Math.round((sum / tvs.length) * 10000) / 100;
+            }
         }
         await this.suggestionRepo.save(rows);
+    }
+
+    /**
+     * Split a reply into substantive sentences for coverage scoring. Drops greetings
+     * and tiny fragments so the metric focuses on real informational content.
+     */
+    private splitSentences(text: string): string[] {
+        return String(text || "")
+            .replace(/\s+/g, " ")
+            .split(/(?<=[.!?])\s+|\n+/)
+            .map((s) => s.trim())
+            .filter((s) => s.length >= 12 && s.split(/\s+/).length >= 3);
     }
 
     /**
@@ -182,21 +227,21 @@ export class InboxAIAuditService {
             .createQueryBuilder("s")
             .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
             .andWhere("s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''")
-            .andWhere("s.replySemanticSimilarity IS NULL")
+            .andWhere("(s.replySemanticSimilarity IS NULL OR s.replyCoverageScore IS NULL)")
             .orderBy("s.generatedAt", "DESC")
             .take(Math.min(Math.max(limit, 1), 1000))
             .getMany();
         if (!rows.length) return { backfilled: 0 };
         // Chunk so a single embed request stays reasonable.
         let done = 0;
-        for (let i = 0; i < rows.length; i += 100) {
-            const chunk = rows.slice(i, i + 100);
+        for (let i = 0; i < rows.length; i += 60) {
+            const chunk = rows.slice(i, i + 60);
             await this.scoreSemantic(chunk).catch((e) =>
                 logger.warn(`[InboxAIAudit] backfill chunk failed: ${e.message}`)
             );
             done += chunk.length;
         }
-        logger.info(`[InboxAIAudit] semantic backfill: ${done} pairs`);
+        logger.info(`[InboxAIAudit] semantic+coverage backfill: ${done} pairs`);
         return { backfilled: done };
     }
 

@@ -23,6 +23,7 @@ interface Pair {
     other: string;
     jaccard: number;
     semantic: number | null;
+    coverage: number | null;
     escalation: boolean;
     generatedAt: Date;
     matchQuality?: string | null;
@@ -81,6 +82,7 @@ export class InboxAnalyticsService {
     private summarize(pairs: Pair[], lowThreshold = 45) {
         const avg = (a: number[]) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : 0);
         const sem = pairs.filter((p) => p.semantic != null).map((p) => p.semantic as number);
+        const cov = pairs.filter((p) => p.coverage != null).map((p) => p.coverage as number);
         const jac = pairs.map((p) => p.jaccard);
         const buckets = { "0-25": 0, "25-50": 0, "50-70": 0, "70-100": 0 };
         pairs.forEach((p) => {
@@ -121,6 +123,8 @@ export class InboxAnalyticsService {
 
         return {
             count: pairs.length,
+            avgCoverage: avg(cov),
+            coverageScored: cov.length,
             avgSemantic: avg(sem),
             avgJaccard: avg(jac),
             semanticCoverage: sem.length,
@@ -143,11 +147,12 @@ export class InboxAnalyticsService {
     }
 
     private buildTrend(pairs: Pair[], granularity: "day" | "week" | "month") {
-        const byBucket: Record<string, { sem: number[]; jac: number[] }> = {};
+        const byBucket: Record<string, { sem: number[]; jac: number[]; cov: number[] }> = {};
         for (const p of pairs) {
             const key = this.bucketKey(new Date(p.generatedAt), granularity);
-            const b = (byBucket[key] = byBucket[key] || { sem: [], jac: [] });
+            const b = (byBucket[key] = byBucket[key] || { sem: [], jac: [], cov: [] });
             if (p.semantic != null) b.sem.push(p.semantic);
+            if (p.coverage != null) b.cov.push(p.coverage);
             b.jac.push(p.jaccard);
         }
         const avg = (a: number[]) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null);
@@ -155,6 +160,7 @@ export class InboxAnalyticsService {
             .sort()
             .map((key) => ({
                 bucket: key,
+                avgCoverage: avg(byBucket[key].cov),
                 avgSemantic: avg(byBucket[key].sem),
                 avgJaccard: avg(byBucket[key].jac),
                 count: byBucket[key].jac.length,
@@ -168,7 +174,7 @@ export class InboxAnalyticsService {
         // (a) vs TEAM (Hostify-captured replies).
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
-                    s.replySimilarity, s.replySemanticSimilarity, s.auditMatchQuality, s.generatedAt,
+                    s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality, s.generatedAt,
                     c.channel, gm.body AS guestMsg
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
@@ -188,6 +194,7 @@ export class InboxAnalyticsService {
             other: r.actualReplyText,
             jaccard: r.replySimilarity != null ? Number(r.replySimilarity) : jaccardPct(r.suggestedReply, r.actualReplyText),
             semantic: r.replySemanticSimilarity != null ? Number(r.replySemanticSimilarity) : null,
+            coverage: r.replyCoverageScore != null ? Number(r.replyCoverageScore) : null,
             escalation: Number(r.escalationRequired) === 1,
             generatedAt: r.generatedAt,
             matchQuality: r.auditMatchQuality ?? null,
@@ -225,6 +232,7 @@ export class InboxAnalyticsService {
                 other: r.sentBody,
                 jaccard: jaccardPct(r.suggestedReply, r.sentBody),
                 semantic: null,
+                coverage: null,
                 escalation: Number(r.escalationRequired) === 1,
                 generatedAt: r.generatedAt,
             }));
