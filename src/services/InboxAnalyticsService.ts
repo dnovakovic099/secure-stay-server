@@ -38,7 +38,7 @@ const deferRe =
 const specificsRe = /(\d{1,2}:\d{2}|\d{1,2}\s?(am|pm)|\$\d|\d{3,}|https?:\/\/|\bcode\b|\bwifi\b|\bpassword\b)/i;
 const nonLatinRe = /[\u0400-\u04FF\u4E00-\u9FFF\u3040-\u30FF\u0600-\u06FF]/;
 const ackRe =
-    /^(yes|no|yep|sure|ok|okay|great|perfect|thanks|thank you|sounds good|got it|will do|done|absolutely|of course|no problem|you['’]?re welcome|awesome|wonderful|glad)/i;
+    /^(yes|no|yep|sure|ok|okay|great|perfect|thanks|thank you|sounds good|got it|will do|done|absolutely|of course|no problem|you['’]?re\s+(?:most\s+|very\s+|so\s+)?welcome|most welcome|awesome|wonderful|glad)/i;
 
 // Team replies driven by internal operations (PM callbacks, payment auth links,
 // unreachable-phone chases, alteration mechanics). These aren't answers to the
