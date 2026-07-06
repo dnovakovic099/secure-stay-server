@@ -39,6 +39,9 @@ export class RefundRequestEntity {
     @Column({ type: "text", nullable: false })
     explaination: string;
 
+    @Column({ nullable: true })
+    refundCategory: string;
+
     @Column({ type: "float", nullable: false })
     refundAmount: number;
 
@@ -47,6 +50,9 @@ export class RefundRequestEntity {
 
     @Column({ nullable: false })
     status: string;
+
+    @Column({ nullable: true })
+    approvedBy: string;
 
     @Column({ nullable: true })
     paymentMethod: string;

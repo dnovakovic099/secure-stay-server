@@ -72,6 +72,7 @@ export const slackInteractivityEventNames={
     DENY_REFUND_REQUEST: "deny_refund_request",
     PAID_REFUND_REQUEST: "paid_refund_request",
     UPDATE_REFUND_REQUEST_STATUS: "update_refund_request_status",
+    UPDATE_REFUND_REQUEST_APPROVED_BY: "update_refund_request_approved_by",
     UPDATE_ISSUE_STATUS: "update_issue_status",
     UPDATE_ACTION_ITEM_STATUS: "update_action_item_status",
     UPDATE_EXPENSE_STATUS: "update_expense_status",

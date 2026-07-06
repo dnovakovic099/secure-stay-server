@@ -255,6 +255,22 @@ export class UnifiedWebhookController {
 
                     break;
                 }
+                case `${slackInteractivityEventNames.UPDATE_REFUND_REQUEST_APPROVED_BY}`: {
+                    try {
+                        const requestObj = JSON.parse(action.selected_option?.value || action.value);
+                        const refundRequestService = new RefundRequestService();
+                        const refundRequest = await refundRequestService.updateRefundRequestApprovedBy(Number(requestObj.id), requestObj.approvedBy, user);
+                        if (refundRequest) {
+                            logger.info(`User ${user} updated refund request ${requestObj.id} approved by to ${requestObj.approvedBy}`);
+                        } else {
+                            logger.error(`Failed to update refund request ${requestObj.id} approved by to ${requestObj.approvedBy}`);
+                        }
+                    } catch (error) {
+                        logger.error(`Error updating refund request approved by: ${error}`);
+                    }
+
+                    break;
+                }
                 case `${slackInteractivityEventNames.UPDATE_ISSUE_STATUS}`: {
                     try {
                         const requestObj = JSON.parse(action.selected_option.value);

@@ -64,6 +64,13 @@ const normalizeRefundChargeToClient = (value?: unknown) => {
     return value === true || value === 1 || value === "1" || value === "true" ? "Yes" : "No";
 };
 
+const REFUND_APPROVED_BY_STATUS_OPTIONS = ["Approved", "For Processing", "Paid"];
+const REFUND_APPROVED_BY_OPTIONS = ["Louis", "Darko", "Anj", "Jade", "Owner", "Custom"];
+
+const shouldShowRefundApprovedBy = (status?: string | null) => (
+    REFUND_APPROVED_BY_STATUS_OPTIONS.includes(String(status || "").trim())
+);
+
 const formatRefundDate = (value?: unknown) => {
     if (!value) return "—";
     const date = new Date(value as any);
@@ -112,6 +119,14 @@ const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
                 { type: "mrkdwn", text: rightColumn },
             ]
         },
+        {
+            type: "section",
+            text: { type: "mrkdwn", text: `*Refund Category:*\n${normalizeSlackField(refundRequest.refundCategory)}` }
+        },
+        ...(shouldShowRefundApprovedBy(refundRequest.status) ? [{
+            type: "section",
+            text: { type: "mrkdwn", text: `*Approved By:*\n${normalizeSlackField(refundRequest.approvedBy)}` }
+        }] : []),
         {
             type: "section",
             text: { type: "mrkdwn", text: `*Explanation:*\n${normalizeSlackField(refundRequest.explaination)}` }
@@ -196,6 +211,41 @@ const buildRefundStatusOption = (refundRequest: RefundRequestEntity, status: str
         amount: refundRequest.refundAmount
     })
 });
+
+const buildRefundApprovedByOption = (refundRequest: RefundRequestEntity, approvedBy: string) => ({
+    text: {
+        type: "plain_text",
+        text: approvedBy,
+        emoji: true
+    },
+    value: JSON.stringify({
+        id: refundRequest.id,
+        approvedBy,
+        guestName: refundRequest.guestName,
+        listingName: refundRequest.listingName,
+        amount: refundRequest.refundAmount
+    })
+});
+
+const buildRefundApprovedBySelect = (refundRequest: RefundRequestEntity) => {
+    const currentValue = normalizeSlackField(refundRequest.approvedBy, "");
+    const options = Array.from(new Set([
+        ...REFUND_APPROVED_BY_OPTIONS,
+        ...(currentValue && !REFUND_APPROVED_BY_OPTIONS.includes(currentValue) ? [currentValue] : []),
+    ]));
+
+    return {
+        type: "static_select",
+        action_id: slackInteractivityEventNames.UPDATE_REFUND_REQUEST_APPROVED_BY,
+        placeholder: {
+            type: "plain_text",
+            text: "Approved By",
+            emoji: true
+        },
+        ...(currentValue ? { initial_option: buildRefundApprovedByOption(refundRequest, currentValue) } : {}),
+        options: options.map((approvedBy) => buildRefundApprovedByOption(refundRequest, approvedBy))
+    };
+};
 
 const escapeSlackLinkText = (value: string) =>
     value
@@ -441,6 +491,9 @@ export const buildRefundRequestOriginalMessageForStatus = (refundRequest: Refund
             }
         ];
     }
+    if (shouldShowRefundApprovedBy(refundRequest.status)) {
+        actionElements = [buildRefundApprovedBySelect(refundRequest), ...actionElements];
+    }
     // Paid / Denied / Cancelled have no action buttons.
 
     const blocks: any[] = [
@@ -513,6 +566,7 @@ export const buildMitigationRefundRequestMessage = (
                         initial_option: buildRefundStatusOption(refundRequest, currentStatus),
                         options: REFUND_REQUEST_STATUS_OPTIONS.map((status) => buildRefundStatusOption(refundRequest, status))
                     },
+                    ...(shouldShowRefundApprovedBy(refundRequest.status) ? [buildRefundApprovedBySelect(refundRequest)] : []),
                     {
                         type: "button",
                         text: { type: "plain_text", text: "View Refund Request", emoji: true },
@@ -602,6 +656,7 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
                         { type: "mrkdwn", text: `*Reservation:*\n${request.guestName}` },
                         { type: "mrkdwn", text: `*Listing:*\n${request.listingName}` },
                         { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(request.refundAmount)}` },
+                        { type: "mrkdwn", text: `*Refund Category:*\n${normalizeSlackField(request.refundCategory)}` },
                         { type: "mrkdwn", text: `*Explanation:*\n${request.explaination}` },
                         ...(buildRefundIssueLink(request) ? [{ type: "mrkdwn", text: buildRefundIssueLink(request) }] : [])
                     ]
@@ -662,6 +717,8 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
                     { type: "mrkdwn", text: `*Reservation:*\n${refundRequest.guestName}` },
                     { type: "mrkdwn", text: `*Listing:*\n${refundRequest.listingName}` },
                     { type: "mrkdwn", text: `*Amount:*\n${formatCurrency(refundRequest.refundAmount)}` },
+                    ...(shouldShowRefundApprovedBy(refundRequest.status) ? [{ type: "mrkdwn", text: `*Approved By:*\n${normalizeSlackField(refundRequest.approvedBy)}` }] : []),
+                    { type: "mrkdwn", text: `*Refund Category:*\n${normalizeSlackField(refundRequest.refundCategory)}` },
                     { type: "mrkdwn", text: `*Explanation:*\n${refundRequest.explaination}` },
                     { type: "mrkdwn", text: `*Status:*\n${refundRequest.status}` }
                 ]

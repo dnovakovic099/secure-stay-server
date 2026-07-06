@@ -30,6 +30,7 @@ router.route('/zapier').post(zapierWebhookController.handleWebhook);
 
 // Zapier events management endpoints (for GR Tasks page)
 router.route('/zapier/events').get(verifySession, zapierWebhookController.getEvents);
+router.route('/zapier/events/activity').get(verifySession, zapierWebhookController.getActivityData);
 router.route('/zapier/events/bulk-update-status').put(verifySession, zapierWebhookController.bulkUpdateEventStatus);
 router.route('/zapier/events/:id').get(verifySession, zapierWebhookController.getEventById);
 router.route('/zapier/events/:id/status').put(verifySession, zapierWebhookController.updateEventStatus);

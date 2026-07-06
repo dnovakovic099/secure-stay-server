@@ -258,6 +258,7 @@ export type ReviewUiSettingsPageKey =
     | 'reservations'
     | 'claims'
     | 'tasks'
+    | 'gr-tasks-activity'
     | 'clients'
     | 'client-tickets'
     | 'client-onboarding'
@@ -312,6 +313,7 @@ export class ReviewService {
         reservations: 'ui-settings:reservations',
         claims: 'ui-settings:claims',
         tasks: 'ui-settings:tasks',
+        'gr-tasks-activity': 'ui-settings:gr-tasks-activity',
         clients: 'ui-settings:clients',
         'client-tickets': 'ui-settings:client-tickets',
         'client-onboarding': 'ui-settings:client-onboarding',
@@ -429,6 +431,7 @@ export class ReviewService {
             reservations: 'Shared Reservations UI Settings',
             claims: 'Shared Claims UI Settings',
             tasks: 'Shared Tasks UI Settings',
+            'gr-tasks-activity': 'Shared GR Tasks Activity UI Settings',
             clients: 'Shared Clients UI Settings',
             'client-tickets': 'Shared Client Tickets UI Settings',
             'client-onboarding': 'Shared Client Onboarding UI Settings',
@@ -2269,6 +2272,8 @@ export class ReviewService {
                     refundAmount,
                     refundRequestId: latestRefund?.id ?? null,
                     refundStatus: latestRefund?.status ?? null,
+                    refundApprovedBy: latestRefund?.approvedBy ?? null,
+                    refundCategory: latestRefund?.refundCategory ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
                     accountingLogCount: accountingSummary?.count || 0,
@@ -4137,6 +4142,8 @@ export class ReviewService {
                     refundAmount,
                     refundRequestId: latestRefund?.id ?? null,
                     refundStatus: latestRefund?.status ?? null,
+                    refundApprovedBy: latestRefund?.approvedBy ?? null,
+                    refundCategory: latestRefund?.refundCategory ?? null,
                     refundExplanation: latestRefund?.explaination ?? null,
                     refundPercent,
                     accountingLogCount: accountingSummary?.count || 0,

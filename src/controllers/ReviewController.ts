@@ -36,6 +36,7 @@ const REVIEW_UI_SETTINGS_PAGE_KEYS: ReviewUiSettingsPageKey[] = [
     'reservations',
     'claims',
     'tasks',
+    'gr-tasks-activity',
     'clients',
     'client-tickets',
     'client-onboarding',

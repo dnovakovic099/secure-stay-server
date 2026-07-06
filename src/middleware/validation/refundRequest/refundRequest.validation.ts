@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
 const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
+const REFUND_REQUEST_CATEGORY_OPTIONS = ["Refund for 5-star", "Refund for No Review", "Refund to Remove Bad Review", "Others"];
 
 export const validateSaveRefundRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
@@ -13,9 +14,11 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         checkOut: Joi.date().required(),
         issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
+        refundCategory: Joi.string().optional().allow(null, '').valid(...REFUND_REQUEST_CATEGORY_OPTIONS, null, ''),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
+        approvedBy: Joi.string().optional().allow(null, ''),
         paymentMethod: Joi.string().optional().allow(null, ''),
         paymentDetails: Joi.string().optional().allow(null, ''),
         chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
@@ -41,9 +44,11 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         checkOut: Joi.date().required(),
         issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
+        refundCategory: Joi.string().optional().allow(null, '').valid(...REFUND_REQUEST_CATEGORY_OPTIONS, null, ''),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
+        approvedBy: Joi.string().optional().allow(null, ''),
         paymentMethod: Joi.string().optional().allow(null, ''),
         paymentDetails: Joi.string().optional().allow(null, ''),
         chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
@@ -63,6 +68,7 @@ export const validateRefundRequestStatus = (request: Request, response: Response
     const schema = Joi.object({
         id: Joi.number().required(),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
+        approvedBy: Joi.string().optional().allow(null, ''),
     });
 
     const { error } = schema.validate(request.body);

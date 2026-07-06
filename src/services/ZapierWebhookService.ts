@@ -19,6 +19,16 @@ export enum ZapierEventStatus {
     Completed = 'Completed'
 }
 
+export interface ZapierEventStatusHistoryRow {
+    id: number;
+    eventId: number;
+    previousStatus: string | null;
+    status: string;
+    changedBy: string | null;
+    changedAt: Date;
+    createdAt: Date;
+}
+
 export class ZapierWebhookService {
     private slackMessageService = new SlackMessageService();
     private aiManager = new AIEscalationManagerService();
@@ -50,6 +60,7 @@ export class ZapierWebhookService {
         try {
             // Save the initial event record
             await eventRepo.save(event);
+            await this.recordStatusHistory(event.id, null, ZapierEventStatus.New, event.createdBy, event.createdAt);
             logger.info(`[ZapierWebhookService][processWebhook] Created event record with ID: ${event.id}`);
 
             // Send Slack notifications (main message + threaded reply)
@@ -289,6 +300,90 @@ export class ZapierWebhookService {
         };
     }
 
+    async getActivityData(filters: {
+        events?: string[];
+        slackChannels?: string[];
+        search?: string;
+    }): Promise<{
+        data: {
+            tasks: Array<ZapierTriggerEvent & { userInputCount: number; systemInputCount: number }>;
+            statusHistory: ZapierEventStatusHistoryRow[];
+        };
+    }> {
+        const result = await this.getEvents({
+            events: filters.events,
+            slackChannels: filters.slackChannels,
+            search: filters.search,
+            page: 1,
+            limit: 100000,
+        });
+        const taskIds = result.data.map((task) => task.id);
+        const statusHistory = taskIds.length ? await this.getStatusHistoryForEvents(taskIds) : [];
+
+        return {
+            data: {
+                tasks: result.data as any,
+                statusHistory,
+            },
+        };
+    }
+
+    private async ensureStatusHistoryTable() {
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS zapier_trigger_event_status_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                event_id INT NOT NULL,
+                previous_status VARCHAR(50) NULL,
+                status VARCHAR(50) NOT NULL,
+                changed_by VARCHAR(255) NULL,
+                changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_ztesh_event_changed (event_id, changed_at),
+                INDEX idx_ztesh_status_changed (status, changed_at),
+                CONSTRAINT fk_ztesh_event
+                    FOREIGN KEY (event_id)
+                    REFERENCES zapier_trigger_events(id)
+                    ON DELETE CASCADE
+            )
+        `);
+    }
+
+    private async recordStatusHistory(
+        eventId: number,
+        previousStatus: string | null,
+        status: string,
+        changedBy?: string | null,
+        changedAt: Date = new Date()
+    ) {
+        if (previousStatus === status) return;
+        await this.ensureStatusHistoryTable();
+        await appDatabase.query(
+            `INSERT INTO zapier_trigger_event_status_history
+                (event_id, previous_status, status, changed_by, changed_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [eventId, previousStatus, status, changedBy || null, changedAt]
+        );
+    }
+
+    private async getStatusHistoryForEvents(eventIds: number[]): Promise<ZapierEventStatusHistoryRow[]> {
+        await this.ensureStatusHistoryTable();
+        const rows = await appDatabase.query(
+            `SELECT
+                id,
+                event_id AS eventId,
+                previous_status AS previousStatus,
+                status,
+                changed_by AS changedBy,
+                changed_at AS changedAt,
+                created_at AS createdAt
+             FROM zapier_trigger_event_status_history
+             WHERE event_id IN (?)
+             ORDER BY changed_at ASC, id ASC`,
+            [eventIds]
+        );
+        return rows;
+    }
+
     /**
      * Update event status
      */
@@ -301,6 +396,7 @@ export class ZapierWebhookService {
         }
 
         const previousStatus = event.status;
+        const changedAt = new Date();
         event.status = status;
         event.updatedBy = updatedBy || 'user';
 
@@ -320,6 +416,7 @@ export class ZapierWebhookService {
         }
 
         await eventRepo.save(event);
+        await this.recordStatusHistory(event.id, previousStatus, status, event.updatedBy, changedAt);
         logger.info(`[ZapierWebhookService][updateEventStatus] Updated event ${id} to status: ${status}`);
 
         // Notify Slack about the status change
@@ -405,7 +502,9 @@ export class ZapierWebhookService {
             throw new Error(`Events with IDs ${missingIds.join(', ')} not found`);
         }
 
-        const updatePromises = events.map(event => {
+        const changedAt = new Date();
+        const updatePromises = events.map(async event => {
+            const previousStatus = event.status;
             event.status = status;
             event.updatedBy = updatedBy;
 
@@ -422,7 +521,9 @@ export class ZapierWebhookService {
                 event.escalationLevel = 0;
             }
 
-            return eventRepo.save(event);
+            const savedEvent = await eventRepo.save(event);
+            await this.recordStatusHistory(event.id, previousStatus, status, updatedBy, changedAt);
+            return savedEvent;
         });
 
         const updatedEvents = await Promise.all(updatePromises);

@@ -141,6 +141,7 @@ export class ReviewDetailService {
             checkOut: review.departureDate,
             issueId: JSON.stringify(issueIds),
             explaination: attempt.details,
+            refundCategory: "Refund to Remove Bad Review",
             refundAmount: attempt.resolutionAmount || 0,
             requestedBy: requestedBy,
             status: 'Pending',
@@ -176,6 +177,7 @@ export class ReviewDetailService {
             checkOut: review.departureDate,
             issueId: JSON.stringify(issueIds),
             explaination: attempt.details,
+            refundCategory: "Refund to Remove Bad Review",
             refundAmount: attempt.resolutionAmount || 0,
         };
 

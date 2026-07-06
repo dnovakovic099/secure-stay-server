@@ -79,6 +79,8 @@ export class RefundRequestService {
       { label: "charge to client", oldValue: previousState.chargeToClient, newValue: savedRefundRequest.chargeToClient },
       { label: "payment method", oldValue: previousState.paymentMethod, newValue: savedRefundRequest.paymentMethod },
       { label: "payment details", oldValue: previousState.paymentDetails, newValue: savedRefundRequest.paymentDetails },
+      { label: "approved by", oldValue: previousState.approvedBy, newValue: savedRefundRequest.approvedBy },
+      { label: "refund category", oldValue: previousState.refundCategory, newValue: savedRefundRequest.refundCategory },
       { label: "explanation", oldValue: previousState.explaination, newValue: savedRefundRequest.explaination },
       { label: "notes", oldValue: previousState.notes, newValue: savedRefundRequest.notes },
       { label: "check-in", oldValue: previousState.checkIn, newValue: savedRefundRequest.checkIn },
@@ -349,9 +351,11 @@ export class RefundRequestService {
         newRefundRequest.checkOut = body.checkOut;
         newRefundRequest.issueId = body.issueId;
         newRefundRequest.explaination = body.explaination;
+        newRefundRequest.refundCategory = body.refundCategory || null;
         newRefundRequest.refundAmount = body.refundAmount;
         newRefundRequest.requestedBy = body.requestedBy;
         newRefundRequest.status = body.status;
+        newRefundRequest.approvedBy = body.approvedBy || null;
         newRefundRequest.paymentMethod = body.paymentMethod;
         newRefundRequest.paymentDetails = body.paymentDetails;
         newRefundRequest.chargeToClient = this.normalizeChargeToClient((body as any).chargeToClient);
@@ -371,6 +375,8 @@ export class RefundRequestService {
             status: refundRequest.status ?? null,
             paymentMethod: refundRequest.paymentMethod ?? null,
             paymentDetails: refundRequest.paymentDetails ?? null,
+            approvedBy: refundRequest.approvedBy ?? null,
+            refundCategory: refundRequest.refundCategory ?? null,
             chargeToClient: refundRequest.chargeToClient ?? 0,
             notes: refundRequest.notes ?? null,
             checkIn: refundRequest.checkIn ?? null,
@@ -384,9 +390,11 @@ export class RefundRequestService {
         refundRequest.checkOut = body.checkOut;
         refundRequest.issueId = body.issueId;
         refundRequest.explaination = body.explaination;
+        refundRequest.refundCategory = body.refundCategory || null;
         refundRequest.refundAmount = body.refundAmount;
         refundRequest.requestedBy = body.requestedBy;
         refundRequest.status = body.status;
+        refundRequest.approvedBy = body.approvedBy || null;
         refundRequest.paymentMethod = body.paymentMethod;
         refundRequest.paymentDetails = body.paymentDetails;
         refundRequest.chargeToClient = this.normalizeChargeToClient((body as any).chargeToClient);
@@ -403,6 +411,8 @@ export class RefundRequestService {
             refundStatus: { old: previousState.status, new: saved.status ?? null },
             refundPaymentMethod: { old: previousState.paymentMethod, new: saved.paymentMethod ?? null },
             refundPaymentDetails: { old: previousState.paymentDetails, new: saved.paymentDetails ?? null },
+            refundApprovedBy: { old: previousState.approvedBy, new: saved.approvedBy ?? null },
+            refundCategory: { old: previousState.refundCategory, new: saved.refundCategory ?? null },
             refundChargeToClient: { old: previousState.chargeToClient, new: saved.chargeToClient ?? 0 },
             refundNotes: { old: previousState.notes, new: saved.notes ?? null },
             refundCheckIn: { old: previousState.checkIn, new: saved.checkIn ?? null },
@@ -478,6 +488,8 @@ export class RefundRequestService {
             status: refundRequest.status ?? null,
             paymentMethod: refundRequest.paymentMethod ?? null,
             paymentDetails: refundRequest.paymentDetails ?? null,
+            approvedBy: refundRequest.approvedBy ?? null,
+            refundCategory: refundRequest.refundCategory ?? null,
             chargeToClient: refundRequest.chargeToClient ?? 0,
             notes: refundRequest.notes ?? null,
             checkIn: refundRequest.checkIn ?? null,
@@ -863,7 +875,7 @@ export class RefundRequestService {
         const selectedStayTiming = ["ongoing", "mitigation"].includes(String(stayTiming || "")) ? String(stayTiming) : "";
         const easternToday = getEasternDateString();
         const mitigationFromDate = format(new Date(`${easternToday}T12:00:00Z`).getTime() - 14 * 24 * 60 * 60 * 1000, "yyyy-MM-dd");
-        const keywordFieldOptions = ["guestName", "explaination", "notes", "paymentDetails"];
+        const keywordFieldOptions = ["guestName", "explaination", "notes", "paymentDetails", "approvedBy", "refundCategory"];
         const selectedKeywordField = keywordFieldOptions.includes(String(keywordField || "")) ? String(keywordField) : "all";
         const directSortColumns: Record<string, keyof RefundRequestEntity> = {
             status: "status",
@@ -879,6 +891,8 @@ export class RefundRequestService {
             refundAmount: "refundAmount",
             paymentMethod: "paymentMethod",
             paymentDetails: "paymentDetails",
+            approvedBy: "approvedBy",
+            refundCategory: "refundCategory",
             chargeToClient: "chargeToClient",
             explaination: "explaination",
             expenseEntry: "expenseId",
@@ -940,11 +954,21 @@ export class RefundRequestService {
                     subQuery.where("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike });
                     return;
                 }
+                if (selectedKeywordField === "approvedBy") {
+                    subQuery.where("LOWER(refundRequest.approvedBy) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
+                if (selectedKeywordField === "refundCategory") {
+                    subQuery.where("LOWER(refundRequest.refundCategory) LIKE :keyword", { keyword: keywordLike });
+                    return;
+                }
                 subQuery
                     .where("LOWER(refundRequest.explaination) LIKE :keyword", { keyword: keywordLike })
                     .orWhere("LOWER(refundRequest.guestName) LIKE :keyword", { keyword: keywordLike })
                     .orWhere("LOWER(refundRequest.notes) LIKE :keyword", { keyword: keywordLike })
-                    .orWhere("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike });
+                    .orWhere("LOWER(refundRequest.paymentDetails) LIKE :keyword", { keyword: keywordLike })
+                    .orWhere("LOWER(refundRequest.approvedBy) LIKE :keyword", { keyword: keywordLike })
+                    .orWhere("LOWER(refundRequest.refundCategory) LIKE :keyword", { keyword: keywordLike });
             }));
         };
         const applyStayTimingToQuery = (qb: any) => {
@@ -1112,11 +1136,17 @@ export class RefundRequestService {
                     ? { ...whereConditions, notes: ILike(`%${keyword}%`) }
                     : selectedKeywordField === "paymentDetails"
                         ? { ...whereConditions, paymentDetails: ILike(`%${keyword}%`) }
+                    : selectedKeywordField === "approvedBy"
+                        ? { ...whereConditions, approvedBy: ILike(`%${keyword}%`) }
+                    : selectedKeywordField === "refundCategory"
+                        ? { ...whereConditions, refundCategory: ILike(`%${keyword}%`) }
                         : [
                             { ...whereConditions, explaination: ILike(`%${keyword}%`) },
                             { ...whereConditions, guestName: ILike(`%${keyword}%`) },
                             { ...whereConditions, notes: ILike(`%${keyword}%`) },
                             { ...whereConditions, paymentDetails: ILike(`%${keyword}%`) },
+                            { ...whereConditions, approvedBy: ILike(`%${keyword}%`) },
+                            { ...whereConditions, refundCategory: ILike(`%${keyword}%`) },
                         ]
         : whereConditions;
 
@@ -1203,6 +1233,67 @@ export class RefundRequestService {
         );
       }
       return refundRequest
+    }
+
+    async updateRefundRequestApprovedBy(id: number, approvedBy: string, userId: string) {
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        if (!refundRequest) {
+            throw CustomErrorHandler.notFound('Refund request not found');
+        }
+
+        const previousApprovedBy = refundRequest.approvedBy;
+        refundRequest.approvedBy = approvedBy || null;
+        refundRequest.updatedBy = userId;
+        await this.refundRequestRepo.save(refundRequest);
+
+        await this.logRefundRequestChanges(refundRequest.reservationId, userId, {
+            refundApprovedBy: { old: previousApprovedBy, new: refundRequest.approvedBy ?? null },
+        });
+
+        const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+        const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : userId;
+        const slackMessageInfo = await this.slackMessageRepo.findOne({
+            where: {
+                entityType: "refund_request",
+                entityId: id,
+            },
+        });
+
+        const mitigationThreadHandled = await this.postOrUpdateMitigationRefundCard(
+            refundRequest,
+            user,
+            new SlackMessageService()
+        );
+
+        if (mitigationThreadHandled) {
+            await this.postMitigationRefundUpdate(
+                refundRequest,
+                this.buildRefundRequestUpdateDescription("approved by", previousApprovedBy, refundRequest.approvedBy),
+                user
+            );
+        } else if (slackMessageInfo) {
+            await updateSlackMessage(
+                buildRefundRequestOriginalMessageForStatus(refundRequest),
+                slackMessageInfo.messageTs,
+                slackMessageInfo.channel
+            );
+            await sendSlackMessage(
+                buildUpdatedRefundRequestMessage(refundRequest, user),
+                slackMessageInfo.threadTs || slackMessageInfo.messageTs
+            );
+        }
+
+        await this.recordRefundRequestSystemUpdate(
+            refundRequest,
+            `Refund request approved by updated from ${previousApprovedBy || "blank"} to ${refundRequest.approvedBy || "blank"}.`,
+            userId,
+            {
+                oldApprovedBy: previousApprovedBy,
+                newApprovedBy: refundRequest.approvedBy,
+            }
+        );
+
+        return refundRequest;
     }
 
 

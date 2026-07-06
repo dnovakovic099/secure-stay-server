@@ -55,6 +55,32 @@ export class ZapierWebhookController {
     };
 
     /**
+     * GET /zapier/events/activity - Activity data without table pagination
+     */
+    getActivityData = async (req: Request, res: Response) => {
+        try {
+            const { event, events, slackChannel, slackChannels, search } = req.query;
+
+            const eventsList = events ? (events as string).split(',').filter(Boolean) : (event ? [event as string] : undefined);
+            const channelsList = slackChannels ? (slackChannels as string).split(',').filter(Boolean) : (slackChannel ? [slackChannel as string] : undefined);
+
+            const result = await this.webhookService.getActivityData({
+                events: eventsList,
+                slackChannels: channelsList,
+                search: search as string,
+            });
+
+            return res.status(200).json(result);
+        } catch (error) {
+            logger.error('[ZapierWebhookController][getActivityData] Error:', error);
+            return res.status(500).json({
+                status: 'error',
+                message: 'Failed to fetch activity data'
+            });
+        }
+    };
+
+    /**
      * GET /zapier/events/:id - Get single event by ID
      */
     getEventById = async (req: Request, res: Response) => {
