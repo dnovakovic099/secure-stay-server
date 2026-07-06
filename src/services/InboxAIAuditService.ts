@@ -97,6 +97,10 @@ export class InboxAIAuditService {
         await this.scoreSemantic(newlyMatched).catch((e) =>
             logger.warn(`[InboxAIAudit] semantic scoring failed: ${e.message}`)
         );
+        // Judge whether the team reply actually answered the guest (best-effort).
+        await this.judgeRelevance(newlyMatched).catch((e) =>
+            logger.warn(`[InboxAIAudit] relevance judging failed: ${e.message}`)
+        );
         logger.info(`[InboxAIAudit] reply capture: scanned=${suggestions.length} matched=${matched}`);
         return { scanned: suggestions.length, matched };
     }
@@ -148,6 +152,122 @@ export class InboxAIAuditService {
         }
         await this.suggestionRepo.save(rows);
         logger.info(`[InboxAIAudit] match-quality backfill: ${rows.length} pairs`);
+        return { backfilled: rows.length };
+    }
+
+    // -------------------------------------------------------------------------
+    // Relevance judging: did the team's reply actually ANSWER the guest?
+    // -------------------------------------------------------------------------
+
+    /**
+     * LLM-judge whether each captured team reply actually addresses the guest's
+     * message. Team replies that are off-topic (e.g. "we'll call your phone"
+     * when the guest asked about parking — driven by internal context the AI
+     * can't know) are tagged "off_topic": excluded from quality scores but kept
+     * and listed on Analytics as "not valid for scoring". Best-effort; failures
+     * leave replyRelevance NULL for a later retry.
+     */
+    async judgeRelevance(rows: AIMessageSuggestionEntity[]): Promise<number> {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!rows.length || !apiKey) return 0;
+        const openai = new OpenAI({ apiKey });
+
+        // Look up the guest message each suggestion was drafted against.
+        const items: { row: AIMessageSuggestionEntity; guestMsg: string }[] = [];
+        for (const s of rows) {
+            if (!s.actualReplyText || !s.actualReplyText.trim()) continue;
+            // Follow-up pairs are already excluded from scoring; don't spend tokens.
+            if (s.auditMatchQuality === "guest_followup") {
+                s.replyRelevance = "unknown";
+                continue;
+            }
+            let guestMsg = "";
+            if (s.messageId != null) {
+                const gm = await this.messageRepo
+                    .createQueryBuilder("m")
+                    .where("m.threadId = :tid", { tid: s.threadId })
+                    .andWhere("m.externalId = :eid", { eid: s.messageId })
+                    .getOne()
+                    .catch(() => null);
+                guestMsg = (gm?.body || "").replace(/\s+/g, " ").trim();
+            }
+            if (!guestMsg) {
+                s.replyRelevance = "unknown";
+                continue;
+            }
+            items.push({ row: s, guestMsg });
+        }
+
+        const system = [
+            "You review short-term-rental guest messaging quality data.",
+            "For each pair you get the GUEST's message and the reply a human TEAM member actually sent.",
+            "Decide whether the team reply ADDRESSES the guest's message:",
+            '- "relevant": it answers, partially answers, asks a clarifying question about, or directly acknowledges the guest\'s topic.',
+            '- "off_topic": it is about something unrelated or driven by internal operations the guest did not ask about (e.g. guest asks about parking and the team says "our property manager will call your phone", a payment-verification link, an upsell pitch, or a question about a completely different subject).',
+            '- "unknown": you cannot tell.',
+            'For "off_topic" include a short note (max 15 words) saying what the team reply was actually about.',
+            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","note":"..."}]}',
+        ].join("\n");
+
+        let judged = 0;
+        for (let start = 0; start < items.length; start += 15) {
+            const batch = items.slice(start, start + 15);
+            const user = batch
+                .map(
+                    (it, i) =>
+                        `#${i}\nGUEST: ${it.guestMsg.slice(0, 400)}\nTEAM REPLY: ${(it.row.actualReplyText || "")
+                            .replace(/\s+/g, " ")
+                            .slice(0, 400)}`
+                )
+                .join("\n\n");
+            try {
+                const resp = await openai.chat.completions.create({
+                    model: this.model,
+                    temperature: 0,
+                    response_format: { type: "json_object" },
+                    messages: [
+                        { role: "system", content: system },
+                        { role: "user", content: user },
+                    ],
+                });
+                const parsed = JSON.parse(resp.choices?.[0]?.message?.content || "{}");
+                const results: any[] = Array.isArray(parsed?.results) ? parsed.results : [];
+                for (const r of results) {
+                    const it = batch[Number(r?.i)];
+                    if (!it) continue;
+                    const v = String(r?.verdict || "").toLowerCase();
+                    it.row.replyRelevance = v === "relevant" || v === "off_topic" ? v : "unknown";
+                    it.row.replyRelevanceNote =
+                        v === "off_topic" && r?.note ? String(r.note).slice(0, 255) : null;
+                    judged++;
+                }
+                // Anything the model skipped: mark unknown so backfill doesn't loop on it.
+                for (const it of batch) if (!it.row.replyRelevance) it.row.replyRelevance = "unknown";
+            } catch (err: any) {
+                logger.warn(`[InboxAIAudit] relevance judge batch failed: ${err.message}`);
+            }
+        }
+        await this.suggestionRepo.save(rows);
+        return judged;
+    }
+
+    /**
+     * Backfill replyRelevance for historical matched pairs. Bounded per run so
+     * the nightly job classifies history over a few nights.
+     */
+    async backfillRelevance(limit = 300): Promise<{ backfilled: number }> {
+        if (!process.env.OPENAI_API_KEY) return { backfilled: 0 };
+        const rows = await this.suggestionRepo
+            .createQueryBuilder("s")
+            .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
+            .andWhere("s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''")
+            .andWhere("s.replyRelevance IS NULL")
+            .orderBy("s.generatedAt", "DESC")
+            .take(Math.min(Math.max(limit, 1), 1000))
+            .getMany();
+        if (!rows.length) return { backfilled: 0 };
+        await this.judgeRelevance(rows);
+        logger.info(`[InboxAIAudit] relevance backfill: ${rows.length} pairs`);
         return { backfilled: rows.length };
     }
 
@@ -518,6 +638,12 @@ export class InboxAIAuditService {
             return { backfilled: 0 };
         });
 
+        // Judge team-reply relevance for historical pairs (bounded).
+        const relBf = await this.backfillRelevance().catch((e) => {
+            logger.error(`[InboxAIAudit] relevance backfill failed: ${e.message}`);
+            return { backfilled: 0 };
+        });
+
         // Auto-resolve learning prompts whose fact has since been learned.
         const { AILearningPromptService } = await import("./AILearningPromptService");
         const learnRes = await new AILearningPromptService().autoResolveCovered().catch((e) => {
@@ -569,6 +695,7 @@ export class InboxAIAuditService {
                 `KB sweep seeded=${sweep.entries} entries/${sweep.seeded} listings, ` +
                 `semantic backfilled=${semBf.backfilled}, ` +
                 `match-quality backfilled=${mqBf.backfilled}, ` +
+                `relevance backfilled=${relBf.backfilled}, ` +
                 `learning prompts auto-resolved=${learnRes.resolved}, ` +
                 `new exemplars embedded=${emb.embedded}`
         );

@@ -80,6 +80,16 @@ export class AIMessageSuggestionEntity {
      * message before the team replied — not comparable), or "unknown".
      */
     @Column({ length: 20, nullable: true }) auditMatchQuality: string | null;
+    /**
+     * LLM judgement of whether the team's reply actually ANSWERS the guest's
+     * message: "relevant" | "off_topic" (team said something unrelated — e.g.
+     * "we'll call your phone" to a parking question — which no AI could predict)
+     * | "unknown". Off-topic pairs are excluded from quality scores but kept and
+     * surfaced on Analytics as "not valid for scoring" so we can learn from them.
+     */
+    @Column({ length: 20, nullable: true }) replyRelevance: string | null;
+    /** One-line judge explanation for off_topic verdicts (for the Analytics list). */
+    @Column({ length: 255, nullable: true }) replyRelevanceNote: string | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;

@@ -27,6 +27,8 @@ interface Pair {
     escalation: boolean;
     generatedAt: Date;
     matchQuality?: string | null;
+    relevance?: string | null;
+    relevanceNote?: string | null;
 }
 
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
@@ -252,7 +254,8 @@ export class InboxAnalyticsService {
         // (a) vs TEAM (Hostify-captured replies).
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
-                    s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality, s.generatedAt,
+                    s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
+                    s.replyRelevance, s.replyRelevanceNote, s.generatedAt,
                     c.channel, gm.body AS guestMsg
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
@@ -280,6 +283,8 @@ export class InboxAnalyticsService {
             escalation: Number(r.escalationRequired) === 1,
             generatedAt: r.generatedAt,
             matchQuality: r.auditMatchQuality ?? null,
+            relevance: r.replyRelevance ?? null,
+            relevanceNote: r.replyRelevanceNote ?? null,
         }));
 
         // Exclude pairs that are not a fair grade of AI answer quality:
@@ -291,10 +296,23 @@ export class InboxAnalyticsService {
         let teamAckOnly = 0;
         let teamNameMismatch = 0;
         let teamLangMismatch = 0;
+        let teamOffTopic = 0;
+        // Team replies that didn't actually answer the guest (LLM-judged off-topic,
+        // or ops-driven by regex). Excluded from scores but surfaced at the bottom
+        // of the page as "not valid for scoring" — worth keeping: one day the bot
+        // may learn to anticipate these internal actions.
+        const notValid: Pair[] = [];
         const teamComparable = teamPairs.filter((p) => {
             if (p.matchQuality === "guest_followup") return false;
+            if (p.relevance === "off_topic") {
+                teamOffTopic++;
+                notValid.push(p);
+                return false;
+            }
             if (opsDrivenRe.test(p.other)) {
                 teamOpsDriven++;
+                if (!p.relevanceNote) p.relevanceNote = "Internal ops action (auto-detected)";
+                notValid.push(p);
                 return false;
             }
             if (isAckOnly(p.other)) {
@@ -365,10 +383,23 @@ export class InboxAnalyticsService {
                 teamAckOnly,
                 teamNameMismatch,
                 teamLangMismatch,
+                teamOffTopic,
             },
             vsTeam: this.summarize(teamComparable),
             vsUser: this.summarize(userPairs),
             trend: this.buildTrend(teamComparable, gran),
+            notValidForScoring: {
+                count: notValid.length,
+                examples: notValid.slice(0, 30).map((p) => ({
+                    threadId: p.threadId,
+                    channel: p.channel,
+                    guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
+                    aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
+                    theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
+                    note: p.relevanceNote || null,
+                    generatedAt: p.generatedAt,
+                })),
+            },
         };
     }
 
@@ -377,6 +408,9 @@ export class InboxAnalyticsService {
         const audit = new InboxAIAuditService();
         // Classify comparability too (cheap, no embeddings) so excluded pairs drop out immediately.
         await audit.backfillMatchQuality(3000).catch(() => ({ backfilled: 0 }));
+        // Judge team-reply relevance for a bounded slice (LLM calls, so kept small
+        // per click; the nightly job finishes the rest).
+        await audit.backfillRelevance(150).catch(() => ({ backfilled: 0 }));
         const res = await audit.backfillSemantic(limit);
         const remainingRows: any[] = await appDatabase.query(
             `SELECT COUNT(*) c FROM ai_message_suggestions
