@@ -605,12 +605,25 @@ export class InboxAnalyticsService {
             if (!promptByThread.has(Number(pr.threadId))) promptByThread.set(Number(pr.threadId), pr);
         }
 
+        // Generic ops phrasing that matches everything and means nothing.
+        const MATCH_STOPWORDS = new Set([
+            "guest", "guests", "team", "property", "answer", "answered", "question", "provided", "clear",
+            "reply", "replied", "reported", "requested", "request", "asked", "asking", "needs", "needed",
+            "their", "there", "about", "should", "would", "could", "entire", "total", "your", "stay",
+            "host", "listing", "information", "info", "correct", "correctly", "incorrectly", "specific",
+        ]);
         const tokOverlap = (a: string, b: string): number => {
             const tok = (s: string) =>
-                new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
+                new Set(
+                    String(s || "")
+                        .toLowerCase()
+                        .replace(/[^a-z0-9\s]/g, " ")
+                        .split(/\s+/)
+                        .filter((w) => w.length > 3 && !MATCH_STOPWORDS.has(w))
+                );
             const A = tok(a);
             const B = tok(b);
-            if (!A.size || !B.size) return 0;
+            if (A.size < 2 || B.size < 2) return 0;
             let inter = 0;
             for (const w of A) if (B.has(w)) inter++;
             return inter / Math.min(A.size, B.size);
@@ -631,7 +644,7 @@ export class InboxAnalyticsService {
                     best = f;
                 }
             }
-            if (best && bestScore >= 0.3) {
+            if (best && bestScore >= 0.45) {
                 return {
                     status: best.status === "approved" ? "learned" : "learned_pending_review",
                     detail: String(best.answer || best.question || best.topic).replace(/\s+/g, " ").slice(0, 220),
