@@ -13,7 +13,8 @@
     "start:scheduler": "NODE_ENV=production node dist/out-tsc/worker/schedulerWorker.js",
     "deploy": "npm run build && pm2 delete all && pm2 start ecosystem.config.js",
     "migrate": "npx ts-node-dev src/runMigrations.ts",
-    "migrate:prod": "NODE_ENV=production node dist/out-tsc/runMigrations.js"
+    "migrate:prod": "NODE_ENV=production node dist/out-tsc/runMigrations.js",
+    "backfill:slack-thread-replies": "npx ts-node-dev src/scripts/backfillSlackThreadReplies.ts"
   },
   "author": "Viktor",
   "license": "ISC",
