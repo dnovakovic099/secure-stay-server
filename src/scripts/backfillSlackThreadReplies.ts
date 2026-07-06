@@ -148,9 +148,34 @@ const fetchThreadReplies = async (channel: string, threadTs: string): Promise<an
 export const backfillSlackThreadReplies = async (
     options: BackfillOptions = {},
 ): Promise<SyncCounters> => {
+    // Direct console output alongside winston. winston is buffered / async, and on a fresh
+    // ts-node-dev cold start we get no visible progress for 15–30s otherwise; the user just
+    // sees the ts-node banner and thinks the script is stuck when it's actually mid-startup.
+    console.log(
+        `[backfillSlackThreadReplies] Starting with options=${JSON.stringify(options)} — connecting to DB…`,
+    );
+    logger.info(
+        `[backfillSlackThreadReplies] Starting with options=${JSON.stringify(options)}`,
+    );
+
+    const dbStart = Date.now();
     await initDatabase();
+    if (!appDatabase.isInitialized) {
+        // initDatabase() swallows the connect error and just logs it. Fail loudly instead so
+        // the ops runner doesn't stare at a mystery hang wondering if the query is slow.
+        throw new Error(
+            "Database failed to initialize — check DATABASE_URL / DATABASE_PORT / credentials in .env and re-run.",
+        );
+    }
+    console.log(
+        `[backfillSlackThreadReplies] DB ready in ${Date.now() - dbStart}ms — querying affected rows…`,
+    );
 
     const affected = await findAffectedRows(options);
+    console.log(
+        `[backfillSlackThreadReplies] Found ${affected.length} review_checkout row(s) to backfill` +
+        (options.dryRun ? " (dry-run)" : ""),
+    );
     logger.info(
         `[backfillSlackThreadReplies] Found ${affected.length} review_checkout row(s) to backfill` +
         (options.dryRun ? " (dry-run)" : ""),
