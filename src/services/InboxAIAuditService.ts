@@ -188,7 +188,10 @@ export class InboxAIAuditService {
             const tvs = teamVecsPer[i];
             const avs = aiVecsPer[i];
             if (!tvs.length) {
-                rows[i].replyCoverageScore = null; // team reply had no substantive content (ack)
+                // Team reply had no substantive content (pure ack/emoji). Store -1 as
+                // a "scored, not applicable" sentinel — NULL would make the backfill
+                // reprocess these rows forever. Readers treat negatives as null.
+                rows[i].replyCoverageScore = -1;
             } else if (!avs.length) {
                 rows[i].replyCoverageScore = 0;
             } else {

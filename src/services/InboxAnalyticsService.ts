@@ -204,7 +204,11 @@ export class InboxAnalyticsService {
             other: r.actualReplyText,
             jaccard: r.replySimilarity != null ? Number(r.replySimilarity) : jaccardPct(r.suggestedReply, r.actualReplyText),
             semantic: r.replySemanticSimilarity != null ? Number(r.replySemanticSimilarity) : null,
-            coverage: r.replyCoverageScore != null ? Number(r.replyCoverageScore) : null,
+            // Negative = "scored, not applicable" sentinel (team reply was a pure ack).
+            coverage:
+                r.replyCoverageScore != null && Number(r.replyCoverageScore) >= 0
+                    ? Number(r.replyCoverageScore)
+                    : null,
             escalation: Number(r.escalationRequired) === 1,
             generatedAt: r.generatedAt,
             matchQuality: r.auditMatchQuality ?? null,
@@ -277,7 +281,7 @@ export class InboxAnalyticsService {
             `SELECT COUNT(*) c FROM ai_message_suggestions
              WHERE actualReplyText IS NOT NULL AND actualReplyText <> ''
                AND suggestedReply IS NOT NULL AND suggestedReply <> ''
-               AND replySemanticSimilarity IS NULL`
+               AND (replySemanticSimilarity IS NULL OR replyCoverageScore IS NULL)`
         );
         return { backfilled: res.backfilled, remaining: Number(remainingRows?.[0]?.c || 0) };
     }
