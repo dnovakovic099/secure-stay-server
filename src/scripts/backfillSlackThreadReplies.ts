@@ -107,6 +107,72 @@ const findAffectedRows = async (options: BackfillOptions): Promise<AffectedRow[]
     return appDatabase.query(sql, params);
 };
 
+/**
+ * For any reservationId the caller passed on the CLI that didn't survive
+ * findAffectedRows, run a follow-up query to figure out *why* it dropped —
+ * unknown reservation, no review_checkout row yet, thread never created,
+ * or the row is soft-deleted. Only meaningful when --reservationId was used.
+ */
+const diagnoseMissingReservationIds = async (
+    requested: number[],
+    matched: AffectedRow[],
+): Promise<void> => {
+    const matchedSet = new Set(matched.map((row) => row.reservationId));
+    const missing = requested.filter((id) => !matchedSet.has(id));
+    if (!missing.length) return;
+
+    const placeholders = missing.map(() => "?").join(",");
+    const rows: Array<{
+        reservationId: number | null;
+        reviewCheckoutId: number | null;
+        slackThreadTs: string | null;
+        deletedAt: string | null;
+    }> = await appDatabase.query(
+        `
+            SELECT
+                ri.id                     AS reservationId,
+                rc.id                     AS reviewCheckoutId,
+                rc.slackThreadTs          AS slackThreadTs,
+                rc.deletedAt              AS deletedAt
+            FROM reservation_info ri
+            LEFT JOIN review_checkout rc ON rc.reservationInfoId = ri.id
+            WHERE ri.id IN (${placeholders})
+        `,
+        missing,
+    );
+
+    const stateByReservation = new Map<number, typeof rows[number]>();
+    for (const row of rows) {
+        if (row.reservationId != null) stateByReservation.set(Number(row.reservationId), row);
+    }
+
+    console.log(`[backfillSlackThreadReplies] Diagnosing ${missing.length} filtered ID(s):`);
+    for (const id of missing) {
+        const state = stateByReservation.get(id);
+        if (!state) {
+            console.log(`  reservation=${id} → not found in reservation_info (typo, or record was deleted)`);
+            continue;
+        }
+        if (state.reviewCheckoutId == null) {
+            console.log(`  reservation=${id} → no review_checkout row (mitigation record was never created for this reservation)`);
+            continue;
+        }
+        if (state.deletedAt) {
+            console.log(`  reservation=${id} → review_checkout is soft-deleted (deletedAt=${state.deletedAt})`);
+            continue;
+        }
+        if (!state.slackThreadTs || String(state.slackThreadTs).trim() === "") {
+            console.log(`  reservation=${id} → review_checkout exists (id=${state.reviewCheckoutId}) but slackThreadTs is empty — no Slack thread to pull from`);
+            continue;
+        }
+        // Row exists AND has a thread ts AND isn't soft-deleted, yet fell out of findAffectedRows.
+        // That's unexpected; surface it so we don't silently miss it.
+        console.log(
+            `  reservation=${id} → unexpected drop (reviewCheckout=${state.reviewCheckoutId}, threadTs=${state.slackThreadTs}). Please report.`,
+        );
+    }
+};
+
 interface SyncCounters {
     threadsProcessed: number;
     threadsSkipped: number;
@@ -181,6 +247,10 @@ export const backfillSlackThreadReplies = async (
         (options.dryRun ? " (dry-run)" : ""),
     );
 
+    if (options.reservationIds?.length) {
+        await diagnoseMissingReservationIds(options.reservationIds, affected);
+    }
+
     const counters: SyncCounters = {
         threadsProcessed: 0,
         threadsSkipped: 0,
@@ -196,9 +266,9 @@ export const backfillSlackThreadReplies = async (
 
     for (const row of affected) {
         if (!row.slackChannelId) {
-            logger.warn(
-                `[backfillSlackThreadReplies] Skipping reviewCheckout=${row.reviewCheckoutId} — slackChannelId is null even though slackThreadTs is set. Investigate manually.`,
-            );
+            const message = `[backfillSlackThreadReplies] Skipping reviewCheckout=${row.reviewCheckoutId} — slackChannelId is null even though slackThreadTs is set. Investigate manually.`;
+            console.warn(message);
+            logger.warn(message);
             counters.threadsSkipped++;
             continue;
         }
@@ -206,6 +276,7 @@ export const backfillSlackThreadReplies = async (
         try {
             const messages = await fetchThreadReplies(row.slackChannelId, row.slackThreadTs);
             counters.threadsProcessed++;
+            let humanRepliesInThisThread = 0;
 
             for (const msg of messages) {
                 // Skip the parent status card and every bot-originated activity post. The
@@ -215,11 +286,13 @@ export const backfillSlackThreadReplies = async (
                 if (msg.bot_id || msg.subtype === "bot_message") continue;
                 if (!msg.user) continue;
 
+                humanRepliesInThisThread++;
+
                 if (options.dryRun) {
                     counters.repliesSkipped++;
-                    logger.info(
-                        `[backfillSlackThreadReplies] (dry-run) would sync ts=${msg.ts} reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId}`,
-                    );
+                    const line = `[backfillSlackThreadReplies] (dry-run) would sync ts=${msg.ts} reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId}`;
+                    console.log(line);
+                    logger.info(line);
                     continue;
                 }
 
@@ -234,14 +307,16 @@ export const backfillSlackThreadReplies = async (
                 counters.repliesSynced++;
             }
 
-            logger.info(
-                `[backfillSlackThreadReplies] Thread reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId} — ${messages.length} raw message(s), ${counters.repliesSynced} synced running total`,
-            );
+            // Per-thread summary. Mirror to console.log because winston's async transport can
+            // batch these; the operator wants to see progress as each thread completes.
+            const summary = `[backfillSlackThreadReplies] Thread reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId} — ${messages.length} raw message(s), ${humanRepliesInThisThread} human reply(ies) in this thread (${options.dryRun ? counters.repliesSkipped : counters.repliesSynced} ${options.dryRun ? "would-sync" : "synced"} running total)`;
+            console.log(summary);
+            logger.info(summary);
         } catch (err: any) {
             counters.apiErrors++;
-            logger.error(
-                `[backfillSlackThreadReplies] Failed reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId}: ${err?.message || err}`,
-            );
+            const errorLine = `[backfillSlackThreadReplies] Failed reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId}: ${err?.message || err}`;
+            console.error(errorLine);
+            logger.error(errorLine);
         }
 
         // Gentle pacing between distinct threads. syncSlackReplyToSS writes to the DB and
@@ -251,9 +326,9 @@ export const backfillSlackThreadReplies = async (
         await sleep(SLACK_API_PAUSE_MS);
     }
 
-    logger.info(
-        `[backfillSlackThreadReplies] Done — threads processed: ${counters.threadsProcessed}, skipped: ${counters.threadsSkipped}, replies synced: ${counters.repliesSynced}, dry-run entries: ${counters.repliesSkipped}, API errors: ${counters.apiErrors}`,
-    );
+    const done = `[backfillSlackThreadReplies] Done — threads processed: ${counters.threadsProcessed}, skipped: ${counters.threadsSkipped}, replies synced: ${counters.repliesSynced}, dry-run entries: ${counters.repliesSkipped}, API errors: ${counters.apiErrors}`;
+    console.log(done);
+    logger.info(done);
 
     return counters;
 };
