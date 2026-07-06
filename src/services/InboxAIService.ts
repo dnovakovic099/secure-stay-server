@@ -907,6 +907,8 @@ export class InboxAIService {
             suggested_action_items: Array.isArray(parsed.suggested_action_items)
                 ? parsed.suggested_action_items.map(String)
                 : [],
+            learning_question: parsed.learning_question ? String(parsed.learning_question) : null,
+            learning_topic: parsed.learning_topic ? String(parsed.learning_topic) : null,
         };
     }
 
@@ -987,6 +989,17 @@ export class InboxAIService {
             "- If an 'Internal operations in progress' section is present, our team already has real work open for this guest (tasks, maintenance, callbacks, payment follow-ups).",
             "- Align with it: if the guest's message relates to an open item, say the team is already on it and reference the state naturally. Do NOT offer to 'look into' something already in motion, and do NOT restart a process the team has underway.",
             "- Never reveal internal wording, staff names, vendor names, or internal prices from that section.",
+            "",
+            "PAID SERVICES / UPSELLS:",
+            "- If an 'Available paid services' section is present, those are the ONLY add-on services offered for this property (e.g. early check-in, late checkout, pool heating) with their guest prices.",
+            "- When the guest asks about one of them, state it directly with the listed price, subject to availability/confirmation by the team. Do not discount it.",
+            "- If the guest asks for a service NOT in that section (e.g. airport transfer when none is listed), do NOT invent one and do NOT flatly say we don't offer it unless context says so — offer what IS documented, or say the team will confirm options. This is a prime case for a learning_question.",
+            "",
+            "LEARNING QUESTIONS — how the bot gets smarter (IMPORTANT, use often):",
+            "- Whenever your reply would have been BETTER with a specific, reusable, property-level fact you did not have, you MUST fill `learning_question` with one short question a staff member can answer.",
+            "- Triggers: you deferred to the team, escalated for missing info, added a missing-info warning, hedged ('the team will confirm'), or answered from general knowledge instead of property context (e.g. guest asked about airport transportation and context said nothing → ask 'Do we offer or arrange airport transportation for this property, and at what cost?').",
+            "- Make it reusable and property-level: 'Is there a luggage drop-off option?', 'What parking is available and for how many cars?' — never guest-specific ('should we refund Janet?').",
+            "- Do NOT raise one when the context already had the answer, or the gap is one-off/personal. One question max per reply; pick the most valuable gap.",
             "",
             "CONFIDENCE — be honest and well-calibrated (this drives automation decisions):",
             "- Use > 0.9 ONLY when every fact needed is present in context and the reply requires no assumptions.",
@@ -1346,6 +1359,54 @@ export class InboxAIService {
         ].join("\n");
     }
 
+    /**
+     * Paid add-on services (upsells) configured for this property group — early
+     * check-in, late checkout, pool heating, etc., with the guest-facing price.
+     * Per-listing fee overrides (upsell_property_config) win over the base price.
+     * Without this the bot either invents offers or wrongly says "we don't
+     * provide that" for services we actually sell.
+     */
+    private async buildUpsellsBlock(groupIds: number[]): Promise<string | null> {
+        const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+        if (!listingIds.length) return null;
+        try {
+            const ph = listingIds.map(() => "?").join(",");
+            const rows: any[] = await appDatabase.query(
+                `SELECT ui.title, ui.timePeriod, ui.availability, ui.description,
+                        ui.price AS basePrice, MAX(upc.upsellFee) AS listingFee
+                 FROM upsell_listing ul
+                 JOIN upsell_info ui ON ui.upsell_id = ul.upSellId AND ui.isActive = 1
+                 LEFT JOIN upsell_property_config upc
+                        ON upc.upSellId = ul.upSellId AND upc.listingId = ul.listingId
+                 WHERE ul.status = 1 AND ul.listingId IN (${ph})
+                 GROUP BY ui.upsell_id, ui.title, ui.timePeriod, ui.availability, ui.description, ui.price`,
+                listingIds
+            );
+            if (!rows.length) return null;
+            const items = rows
+                .map((r) => {
+                    const title = String(r.title || "").trim();
+                    if (!title) return null;
+                    const fee = r.listingFee != null && Number(r.listingFee) > 0 ? Number(r.listingFee) : Number(r.basePrice) || 0;
+                    const bits: string[] = [];
+                    if (fee > 0) bits.push(`$${fee.toFixed(2)}${r.timePeriod ? ` ${String(r.timePeriod).toLowerCase()}` : ""}`);
+                    else bits.push("price on request");
+                    if (r.availability && String(r.availability).toLowerCase() !== "always") bits.push(`availability: ${r.availability}`);
+                    const desc = String(r.description || "").replace(/\s+/g, " ").trim();
+                    return `- ${title}: ${bits.join("; ")}${desc ? ` — ${desc.slice(0, 160)}` : ""}`;
+                })
+                .filter(Boolean) as string[];
+            if (!items.length) return null;
+            return [
+                "## Available paid services for this property (the ONLY add-ons we offer here; " +
+                    "state the price when the guest asks, subject to availability/confirmation — never discount)",
+                ...items,
+            ].join("\n");
+        } catch {
+            return null;
+        }
+    }
+
     private async buildContext(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
@@ -1406,6 +1467,18 @@ export class InboxAIService {
             if (ops) {
                 lines.push("");
                 lines.push(ops);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Paid add-on services (early check-in, late checkout, pool heat…) that
+        // are actually configured for this property, with real prices.
+        if (includeKnowledge) try {
+            const ups = await this.buildUpsellsBlock(groupIds);
+            if (ups) {
+                lines.push("");
+                lines.push(ups);
             }
         } catch {
             /* non-fatal */
