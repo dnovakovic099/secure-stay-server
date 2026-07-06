@@ -217,7 +217,14 @@ export class InboxAIAuditService {
             '- "missed": the guest asked for specific information or content (e.g. the house rules, check-in instructions, a price) and the AI failed to provide it while the team did, OR the AI\'s answer was wrong/unhelpful for what was asked.',
             '- "addressed": the AI reply reasonably answered or handled the guest\'s message, even if the team said something different or was more proactive. A polite, correct reply to a message that needed no information is "addressed".',
             '- "unknown": you cannot tell.',
-            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","ai_verdict":"addressed|missed|unknown","note":"..."}]}',
+            'For "missed" ALSO include:',
+            '- ai_note: one short sentence (max 20 words) saying exactly what the AI failed to provide or got wrong.',
+            "- ai_category: the root cause —",
+            '  "missing_info" = the AI lacked a property/reservation fact the team knew (fix: add it to the knowledge base);',
+            '  "wrong_info" = the AI stated something incorrect (fix: correct the knowledge base);',
+            '  "deferral" = the AI deferred/escalated when it could and should have answered;',
+            '  "other" = anything else.',
+            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","ai_verdict":"addressed|missed|unknown","note":"...","ai_note":"...","ai_category":"missing_info|wrong_info|deferral|other"}]}',
         ].join("\n");
 
         let judged = 0;
@@ -254,6 +261,16 @@ export class InboxAIAuditService {
                         v === "off_topic" && r?.note ? String(r.note).slice(0, 255) : null;
                     const av = String(r?.ai_verdict || "").toLowerCase();
                     it.row.aiReplyQuality = av === "addressed" || av === "missed" ? av : "unknown";
+                    if (av === "missed") {
+                        it.row.aiReplyQualityNote = r?.ai_note ? String(r.ai_note).slice(0, 255) : null;
+                        const cat = String(r?.ai_category || "").toLowerCase();
+                        it.row.aiReplyQualityCategory = ["missing_info", "wrong_info", "deferral"].includes(cat)
+                            ? cat
+                            : "other";
+                    } else {
+                        it.row.aiReplyQualityNote = null;
+                        it.row.aiReplyQualityCategory = null;
+                    }
                     judged++;
                 }
                 // Anything the model skipped: mark unknown so backfill doesn't loop on it.
@@ -280,7 +297,11 @@ export class InboxAIAuditService {
             .createQueryBuilder("s")
             .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
             .andWhere("s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''")
-            .andWhere("(s.replyRelevance IS NULL OR s.aiReplyQuality IS NULL)")
+            .andWhere(
+                // Unjudged rows, plus already-judged misses that predate the
+                // note/category fields (re-judged once to populate the fix queue).
+                "(s.replyRelevance IS NULL OR s.aiReplyQuality IS NULL OR (s.aiReplyQuality = 'missed' AND s.aiReplyQualityCategory IS NULL))"
+            )
             .orderBy("s.generatedAt", "DESC")
             .take(Math.min(Math.max(limit, 1), 1000))
             .getMany();

@@ -30,6 +30,28 @@ export class InboxAnalyticsController {
         }
     }
 
+    async misses(request: Request, response: Response, next: NextFunction) {
+        try {
+            const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
+            const includeResolved = request.query.includeResolved === "true";
+            const data = await new InboxAnalyticsService().misses(sinceDays, includeResolved);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async resolveMiss(request: Request, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            const resolved = request.body?.resolved !== false;
+            const data = await new InboxAnalyticsService().resolveMiss(id, resolved);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async backfill(request: Request, response: Response, next: NextFunction) {
         try {
             const limit = request.query.limit ? Number(request.query.limit) : 500;

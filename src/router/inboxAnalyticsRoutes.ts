@@ -14,6 +14,8 @@ router.use((request, response, next) => {
 
 router.get("/", verifySession, controller.report);
 router.get("/worst", verifySession, controller.worst);
+router.get("/misses", verifySession, controller.misses);
+router.post("/misses/:id/resolve", verifySession, controller.resolveMiss);
 router.post("/backfill", verifySession, controller.backfill);
 
 export default router;

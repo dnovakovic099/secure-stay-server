@@ -97,6 +97,17 @@ export class AIMessageSuggestionEntity {
      * Drives audit ordering on Analytics: true misses first, fine replies last.
      */
     @Column({ length: 20, nullable: true }) aiReplyQuality: string | null;
+    /** One-line judge explanation of WHAT the AI missed (only set for "missed"). */
+    @Column({ length: 255, nullable: true }) aiReplyQualityNote: string | null;
+    /**
+     * Root cause for a "missed" verdict, so fixes can be routed:
+     * "missing_info" (property fact absent → add to KB) | "wrong_info"
+     * (AI stated something incorrect → correct the KB) | "deferral"
+     * (AI escalated/deferred when it could have answered) | "other".
+     */
+    @Column({ length: 30, nullable: true }) aiReplyQualityCategory: string | null;
+    /** Set when a human marks this miss as handled in the "Replies to fix" queue. */
+    @Column({ type: "datetime", nullable: true }) missResolvedAt: Date | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;

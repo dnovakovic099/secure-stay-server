@@ -30,6 +30,9 @@ interface Pair {
     relevance?: string | null;
     relevanceNote?: string | null;
     aiQuality?: string | null;
+    aiQualityNote?: string | null;
+    aiQualityCategory?: string | null;
+    missResolvedAt?: Date | null;
 }
 
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
@@ -274,7 +277,8 @@ export class InboxAnalyticsService {
         const teamRows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
-                    s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.generatedAt,
+                    s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
+                    s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
                     c.channel,
                     COALESCE(
                         NULLIF(gm.body, ''),
@@ -313,6 +317,9 @@ export class InboxAnalyticsService {
             relevance: r.replyRelevance ?? null,
             relevanceNote: r.replyRelevanceNote ?? null,
             aiQuality: r.aiReplyQuality ?? null,
+            aiQualityNote: r.aiReplyQualityNote ?? null,
+            aiQualityCategory: r.aiReplyQualityCategory ?? null,
+            missResolvedAt: r.missResolvedAt ?? null,
         }));
         return teamPairs;
     }
@@ -516,6 +523,64 @@ export class InboxAnalyticsService {
             }));
 
         return { metric: m, sinceDays: days, scored: scored.length, examples };
+    }
+
+    /**
+     * "Replies to fix" queue: every pair the LLM judged as a true AI miss
+     * (guest asked for something specific, AI failed while the team delivered,
+     * or the AI was wrong). Grouped counts by root cause so fixes can be routed
+     * (missing_info → add KB fact, wrong_info → correct KB, deferral → behavior).
+     */
+    async misses(sinceDays = 60, includeResolved = false): Promise<any> {
+        const days = Math.min(Math.max(sinceDays, 7), 180);
+        const teamPairs = await this.loadTeamPairs(days);
+        // Same fairness filters as the scores: a "miss" judged against a
+        // follow-up or off-topic team reply isn't actionable.
+        const { teamComparable } = this.filterComparable(teamPairs);
+
+        const all = teamComparable.filter((p) => p.aiQuality === "missed");
+        const unresolved = all.filter((p) => !p.missResolvedAt);
+        const shown = includeResolved ? all : unresolved;
+
+        const byCategory: Record<string, number> = {};
+        for (const p of unresolved) {
+            const c = p.aiQualityCategory || "other";
+            byCategory[c] = (byCategory[c] || 0) + 1;
+        }
+
+        return {
+            sinceDays: days,
+            total: all.length,
+            unresolved: unresolved.length,
+            resolved: all.length - unresolved.length,
+            byCategory,
+            examples: shown
+                .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
+                .slice(0, 200)
+                .map((p) => ({
+                    id: p.id,
+                    threadId: p.threadId,
+                    channel: p.channel,
+                    guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
+                    aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
+                    theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
+                    note: p.aiQualityNote || null,
+                    category: p.aiQualityCategory || "other",
+                    coverage: p.coverage,
+                    resolvedAt: p.missResolvedAt || null,
+                    generatedAt: p.generatedAt,
+                })),
+        };
+    }
+
+    /** Mark / unmark a miss as handled so the fix queue shrinks as it's worked. */
+    async resolveMiss(suggestionId: number, resolved: boolean): Promise<{ resolvedAt: Date | null }> {
+        const resolvedAt = resolved ? new Date() : null;
+        await appDatabase.query(
+            `UPDATE ai_message_suggestions SET missResolvedAt = ? WHERE id = ?`,
+            [resolvedAt, suggestionId]
+        );
+        return { resolvedAt };
     }
 
     /** Bounded on-demand semantic backfill so the page can populate the chart now. */
