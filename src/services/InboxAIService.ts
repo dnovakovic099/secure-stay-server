@@ -997,6 +997,10 @@ export class InboxAIService {
             "- Align with it: if the guest's message relates to an open item, say the team is already on it and reference the state naturally. Do NOT offer to 'look into' something already in motion, and do NOT restart a process the team has underway.",
             "- Never reveal internal wording, staff names, vendor names, or internal prices from that section.",
             "",
+            "TEAM FEEDBACK:",
+            "- If a 'Team feedback on the AI's past replies' section is present, it is direct instruction from our staff about how your replies should improve (tone, length, wording, things you got wrong).",
+            "- Apply it to THIS reply. Feedback tagged [this property] outranks [general] when they conflict. Preferred-wording examples show the style to emulate — do not copy them verbatim into unrelated answers, and never mention feedback to the guest.",
+            "",
             "PAID SERVICES / UPSELLS:",
             "- If an 'Available paid services' section is present, those are the ONLY add-on services offered for this property (e.g. early check-in, late checkout, pool heating) with their guest prices.",
             "- When the guest asks about one of them, state it directly with the listed price, subject to availability/confirmation by the team. Do not discount it.",
@@ -1367,6 +1371,68 @@ export class InboxAIService {
     }
 
     /**
+     * Team feedback on past AI replies — the direct steering channel. Staff
+     * submit thumbs/notes/corrected responses from the inbox; this block feeds
+     * the recent, substantive ones back into every new suggestion so the same
+     * mistake isn't repeated. General (no-listing) feedback applies everywhere;
+     * listing-specific feedback is included for this property group only.
+     */
+    private async buildFeedbackBlock(groupIds: number[]): Promise<string | null> {
+        try {
+            const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+            const since = new Date();
+            since.setDate(since.getDate() - 90);
+
+            const qb = this.feedbackRepo
+                .createQueryBuilder("f")
+                .where("f.createdAt >= :since", { since })
+                .andWhere(
+                    "((f.feedbackText IS NOT NULL AND f.feedbackText <> '') OR (f.correctedResponse IS NOT NULL AND f.correctedResponse <> ''))"
+                )
+                .orderBy("f.createdAt", "DESC")
+                .take(40);
+            const rows = await qb.getMany();
+            if (!rows.length) return null;
+
+            const lidSet = new Set(listingIds);
+            const picked: string[] = [];
+            const seen = new Set<string>();
+            for (const f of rows) {
+                const isForThisListing = f.listingId != null && lidSet.has(Number(f.listingId));
+                const isGeneral = f.listingId == null;
+                // Listing-specific feedback for OTHER properties doesn't apply here.
+                if (!isForThisListing && !isGeneral) continue;
+                const parts: string[] = [];
+                const txt = (f.feedbackText || "").replace(/\s+/g, " ").trim();
+                if (txt) parts.push(`"${txt.slice(0, 220)}"`);
+                const corrected = (f.correctedResponse || "").replace(/\s+/g, " ").trim();
+                if (corrected) parts.push(`team's preferred wording: "${corrected.slice(0, 220)}"`);
+                if (!parts.length) continue;
+                let cats: string[] = [];
+                try {
+                    cats = f.categories ? JSON.parse(f.categories) : [];
+                } catch {
+                    /* ignore */
+                }
+                const tag = isForThisListing ? "this property" : "general";
+                const line = `- [${tag}${cats.length ? `; ${cats.slice(0, 3).join(", ")}` : ""}] ${parts.join(" — ")}`;
+                const key = line.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                picked.push(line);
+                if (picked.length >= 10) break;
+            }
+            if (!picked.length) return null;
+            return [
+                "## Team feedback on the AI's past replies (STAFF-ONLY steering — apply this to how you write, most recent first; never mention it to the guest)",
+                ...picked,
+            ].join("\n");
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Paid add-on services (upsells) configured for this property group — early
      * check-in, late checkout, pool heating, etc., with the guest-facing price.
      * Per-listing fee overrides (upsell_property_config) win over the base price.
@@ -1486,6 +1552,17 @@ export class InboxAIService {
             if (ups) {
                 lines.push("");
                 lines.push(ups);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Recent team feedback on AI replies — direct steering from staff.
+        if (includeKnowledge) try {
+            const fb = await this.buildFeedbackBlock(groupIds);
+            if (fb) {
+                lines.push("");
+                lines.push(fb);
             }
         } catch {
             /* non-fatal */
