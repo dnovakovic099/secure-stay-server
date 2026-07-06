@@ -12,7 +12,7 @@ import { appDatabase } from "../utils/database.util";
  * Action Items (Beta). It reads only inbox-v2 AI tables and never writes.
  */
 export interface TestingActionItem {
-    id: string; // `${suggestionId}-${index}`
+    id: string; // `${suggestionId}-${index}` (reply bot) or `d-${id}` (detector)
     suggestionId: number;
     threadId: number;
     listingId: number | null;
@@ -24,6 +24,12 @@ export interface TestingActionItem {
     escalationRequired: boolean;
     status: string;
     generatedAt: string | null;
+    /** "detector" = dedicated whole-conversation scanner; "reply_bot" = side-product of a reply suggestion. */
+    source: "detector" | "reply_bot";
+    category: string | null;
+    priority: string | null;
+    /** Detector rows only: "action_item" | "guest_issue". */
+    itemType: string | null;
 }
 
 export class AIActionItemsTestingService {
@@ -36,8 +42,20 @@ export class AIActionItemsTestingService {
         const limit = Math.min(Math.max(Number(opts.limit) || 200, 1), 1000);
         const offset = Math.max(Number(opts.offset) || 0, 0);
 
-        // Pull suggestions that carry at least one action item, newest first, with
-        // conversation context. Kept generous then flattened + filtered in JS.
+        // (a) Items from the dedicated whole-conversation detector (rich:
+        // title/description/category/priority), newest first.
+        const detectorRows: any[] = await appDatabase.query(
+            `SELECT d.id, d.type, d.threadId, d.listingId, d.title, d.description,
+                    d.category, d.priority, d.confidence, d.status, d.createdAt,
+                    c.listingName, c.guestName, c.channel
+             FROM ai_detected_items d
+             LEFT JOIN inbox_conversations c ON c.threadId = d.threadId
+             ORDER BY d.createdAt DESC
+             LIMIT 2000`
+        );
+
+        // (b) Items the reply bot jotted down while drafting suggestions. Kept
+        // generous then flattened + filtered in JS.
         const rows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.listingId, s.suggestedActionItems, s.confidence,
                     s.escalationRequired, s.status, s.generatedAt,
@@ -55,6 +73,32 @@ export class AIActionItemsTestingService {
         const channelSet = new Set<string>();
 
         const flat: TestingActionItem[] = [];
+
+        for (const d of detectorRows) {
+            const text = [d.title, d.description].filter(Boolean).join(" — ");
+            if (d.channel) channelSet.add(String(d.channel));
+            if (channelFilter && String(d.channel || "").toLowerCase() !== channelFilter) continue;
+            if (search && !text.toLowerCase().includes(search)) continue;
+            flat.push({
+                id: `d-${d.id}`,
+                suggestionId: 0,
+                threadId: Number(d.threadId),
+                listingId: d.listingId != null ? Number(d.listingId) : null,
+                listingName: d.listingName ?? null,
+                guestName: d.guestName ?? null,
+                channel: d.channel ?? null,
+                item: text,
+                confidence: d.confidence != null ? Number(d.confidence) : null,
+                escalationRequired: ["urgent", "critical", "high"].includes(String(d.priority || "").toLowerCase()),
+                status: d.status || "proposed",
+                generatedAt: d.createdAt ? new Date(d.createdAt).toISOString() : null,
+                source: "detector",
+                category: d.category ?? null,
+                priority: d.priority ?? null,
+                itemType: d.type ?? null,
+            });
+        }
+
         for (const r of rows) {
             let items: string[] = [];
             try {
@@ -81,9 +125,16 @@ export class AIActionItemsTestingService {
                     escalationRequired: Number(r.escalationRequired) === 1,
                     status: r.status || "suggested",
                     generatedAt: r.generatedAt ? new Date(r.generatedAt).toISOString() : null,
+                    source: "reply_bot",
+                    category: null,
+                    priority: null,
+                    itemType: null,
                 });
             });
         }
+
+        // Merge both sources newest-first so detector items interleave naturally.
+        flat.sort((a, b) => (b.generatedAt || "").localeCompare(a.generatedAt || ""));
 
         const total = flat.length;
         const items = flat.slice(offset, offset + limit);

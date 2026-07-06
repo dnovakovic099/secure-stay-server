@@ -6,8 +6,15 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 
-const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || process.env.AI_MESSAGING_MODEL || "gpt-4.1";
-const DETECTION_PROMPT_VERSION = "inbox-detect-v1";
+// Mini is plenty for "extract tasks from a conversation" and keeps the
+// per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
+const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
+const DETECTION_PROMPT_VERSION = "inbox-detect-v2";
+
+// Guests send messages in bursts. Instead of scanning per message we wait for
+// the burst to settle and scan the thread once — fewer calls, better context,
+// and far fewer near-duplicate items.
+const BURST_DELAY_MS = Number(process.env.AI_ITEM_DETECTION_DEBOUNCE_MS || 4 * 60 * 1000);
 
 interface DetectedActionItem {
     title: string;
@@ -67,6 +74,46 @@ export class InboxItemDetectionService {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
         return new OpenAI({ apiKey });
+    }
+
+    /**
+     * Per-process burst debounce: the first message of a burst arms a timer;
+     * follow-up messages within the window just refresh the latest messageId.
+     * When the timer fires we scan the whole thread once. Cluster workers each
+     * keep their own map, so cross-worker duplicates are possible — the
+     * save-time dedupe below is the authoritative guard.
+     */
+    private static pendingThreads = new Map<number, { timer: NodeJS.Timeout; messageId: number | null }>();
+
+    static scheduleDetection(threadId: number, messageId?: number | null): void {
+        const existing = InboxItemDetectionService.pendingThreads.get(threadId);
+        if (existing) {
+            existing.messageId = messageId ?? existing.messageId;
+            return;
+        }
+        const entry = {
+            messageId: messageId ?? null,
+            timer: setTimeout(() => {
+                InboxItemDetectionService.pendingThreads.delete(threadId);
+                new InboxItemDetectionService()
+                    .detectForThread(threadId, entry.messageId)
+                    .catch((e) => logger.error(`[ItemDetection] scheduled run failed (thread ${threadId}): ${e.message}`));
+            }, BURST_DELAY_MS),
+        };
+        entry.timer.unref?.();
+        InboxItemDetectionService.pendingThreads.set(threadId, entry);
+    }
+
+    /** Tokenized overlap for duplicate suppression across repeated scans. */
+    private static similar(a: string, b: string): boolean {
+        const tok = (s: string) =>
+            new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
+        const A = tok(a);
+        const B = tok(b);
+        if (!A.size || !B.size) return false;
+        let inter = 0;
+        for (const w of A) if (B.has(w)) inter++;
+        return inter / Math.min(A.size, B.size) >= 0.55;
     }
 
     /**
@@ -158,9 +205,32 @@ export class InboxItemDetectionService {
             }
 
             if (!rows.length) return { detected: 0, reason: "nothing_detected" };
-            await this.detectedRepo.save(rows);
-            logger.info(`[ItemDetection] thread ${threadId}: proposed ${rows.length} item(s)`);
-            return { detected: rows.length };
+
+            // Dedup: never re-raise a task we already proposed for this thread
+            // recently (repeated scans of the same conversation see the same facts).
+            const recent = await this.detectedRepo
+                .createQueryBuilder("d")
+                .where("d.threadId = :tid", { tid: threadId })
+                .andWhere("d.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
+                .getMany();
+            const fresh = rows.filter(
+                (r) =>
+                    !recent.some(
+                        (e) =>
+                            e.type === r.type &&
+                            InboxItemDetectionService.similar(
+                                `${e.title || ""} ${e.description || ""}`,
+                                `${r.title || ""} ${r.description || ""}`
+                            )
+                    )
+            );
+            if (!fresh.length) return { detected: 0, reason: "all_duplicates" };
+            await this.detectedRepo.save(fresh);
+            logger.info(
+                `[ItemDetection] thread ${threadId}: proposed ${fresh.length} item(s)` +
+                    (rows.length - fresh.length ? ` (${rows.length - fresh.length} duplicate(s) suppressed)` : "")
+            );
+            return { detected: fresh.length };
         } catch (err: any) {
             logger.error(`[ItemDetection] unexpected error (thread ${threadId}): ${err.message}`);
             return { detected: 0, reason: "error" };
@@ -190,9 +260,27 @@ export class InboxItemDetectionService {
 
         return [
             "You analyze a short-term-rental guest conversation and extract structured operational items.",
-            "You produce two lists: action_items (tasks the team must do) and guest_issues (problems the guest is experiencing).",
+            "You produce two lists: action_items (tasks a HUMAN team member must do) and guest_issues (problems the guest is experiencing at the property).",
             "Only extract items that are clearly supported by the conversation. Do NOT invent or speculate.",
             "If nothing qualifies, return empty arrays.",
+            "",
+            "WHAT COUNTS AS AN ACTION ITEM (be thorough — these are commonly missed):",
+            "- Reservation changes: extension / early checkout / date change / cancellation intent ('our plans changed'), late checkout or early check-in requests, adding guests or pets (verify fees).",
+            "- Guest profile/ops updates: new phone number or contact info, completed forms needing confirmation, payment or refund questions needing human action.",
+            "- Promised follow-ups: guest says they'll send photos/documents — create a task to watch for and review them.",
+            "- Access problems: codes not working, lockbox confusion, can't find the unit — these are urgent.",
+            "- Listing errors the guest points out (wrong bathroom count, wrong amenity info) — task to fix the listing.",
+            "- Requests needing human confirmation: phone call requests, special arrangements, item locations nobody documented.",
+            "",
+            "ESCALATION / SENTIMENT: if the guest sounds frustrated, angry, or reports being ignored, create an URGENT action item describing what they are upset about so a human takes over the conversation.",
+            "",
+            "WHAT TO EXCLUDE (noise):",
+            "- Steps the messaging AI itself will do in its reply (answering a question is not a task).",
+            "- Generic filler like 'follow up with the guest' or 'monitor the situation' with no concrete action.",
+            "- Matters the conversation shows are already resolved.",
+            "- The same underlying task twice — one item per distinct task, even if the guest mentioned it in several messages.",
+            "",
+            'category MUST be one of: "reservation_change", "guest_request", "property_access", "maintenance", "cleanliness", "hvac", "pest_control", "pool_spa", "landscaping", "listing_error", "escalation", "other".',
             "",
             ...(extra.length ? [...extra, ""] : []),
             "OUTPUT: STRICT JSON only, exactly this shape:",

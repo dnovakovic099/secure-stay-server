@@ -720,25 +720,20 @@ export class UnifiedWebhookController {
                                         );
                                 }
 
-                                // DORMANT: detect our own Action Items / Guest Issues from the
-                                // guest message. Env-gated (AI_ITEM_DETECTION_ENABLED, default off)
-                                // so this is a true no-op until we switch it on; even then it only
+                                // Detect our own Action Items / Guest Issues from the guest
+                                // message. Env-gated (AI_ITEM_DETECTION_ENABLED) and it only
                                 // writes proposals to ai_detected_items. Fire-and-forget.
                                 if (
                                     InboxItemDetectionService.isEnabledByEnv() &&
                                     payload.is_incoming === 1 &&
                                     payload.is_automatic === 0
                                 ) {
-                                    new InboxItemDetectionService()
-                                        .detectForThread(Number(payload.thread_id), Number(payload.message_id))
-                                        .then((r) => {
-                                            if (r.detected > 0) {
-                                                logger.info(`[handleHostifyWebhook] AI detected ${r.detected} item(s) for thread ${payload.thread_id}`);
-                                            }
-                                        })
-                                        .catch((e: any) =>
-                                            logger.error(`[handleHostifyWebhook] AI item detection error: ${e?.message}`)
-                                        );
+                                    // Debounced: bursts of guest messages produce ONE
+                                    // whole-thread scan a few minutes after the burst starts.
+                                    InboxItemDetectionService.scheduleDetection(
+                                        Number(payload.thread_id),
+                                        Number(payload.message_id)
+                                    );
                                 }
                             }
 
