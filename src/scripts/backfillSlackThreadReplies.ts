@@ -39,6 +39,12 @@ interface BackfillOptions {
     toDate?: string;
     reservationIds?: number[];
     dryRun?: boolean;
+    // Any thread whose root ts was posted at/after this date is flagged as a "likely
+    // post-migration replacement thread" — because a fresh Slack root card was created
+    // after the July 2 server migration, meaning the original pre-migration thread is
+    // orphaned in Slack and this row's slackThreadTs no longer points at the real
+    // history. Default matches the migration cutoff.
+    migrationCutoff?: string;
 }
 
 interface AffectedRow {
@@ -65,9 +71,21 @@ const parseCliArgs = (): BackfillOptions => {
                 .filter((value) => Number.isFinite(value));
         } else if (arg === "--dry-run" || arg === "--dryRun") {
             opts.dryRun = true;
+        } else if (arg.startsWith("--migrationCutoff=")) {
+            opts.migrationCutoff = arg.slice("--migrationCutoff=".length);
         }
     }
     return opts;
+};
+
+const DEFAULT_MIGRATION_CUTOFF_ISO = "2026-07-02T00:00:00Z";
+
+const parseSlackTsToDate = (ts: string): Date | null => {
+    // Slack ts strings are of the form "1783192637.810629" — seconds.microseconds since epoch.
+    // Number.parseFloat handles both the integer and fractional part correctly for Date use.
+    const seconds = Number.parseFloat(ts);
+    if (!Number.isFinite(seconds)) return null;
+    return new Date(seconds * 1000);
 };
 
 const findAffectedRows = async (options: BackfillOptions): Promise<AffectedRow[]> => {
@@ -179,7 +197,25 @@ interface SyncCounters {
     repliesSynced: number;
     repliesSkipped: number;
     apiErrors: number;
+    // Number of threads whose root ts is post-migration — flagged as likely
+    // "duplicate replacement thread" so the operator can go verify in Slack whether the
+    // original pre-migration thread lives somewhere else in the channel.
+    suspiciousThreads: number;
 }
+
+const fetchSlackPermalink = async (channel: string, messageTs: string): Promise<string | null> => {
+    try {
+        const response = await axios.get("https://slack.com/api/chat.getPermalink", {
+            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+            params: { channel, message_ts: messageTs },
+            timeout: 10_000,
+        });
+        if (!response.data?.ok) return null;
+        return response.data.permalink || null;
+    } catch {
+        return null;
+    }
+};
 
 const fetchThreadReplies = async (channel: string, threadTs: string): Promise<any[]> => {
     // conversations.replies paginates by cursor; walk it all so long threads aren't truncated.
@@ -257,12 +293,36 @@ export const backfillSlackThreadReplies = async (
         repliesSynced: 0,
         repliesSkipped: 0,
         apiErrors: 0,
+        suspiciousThreads: 0,
     };
 
     if (!affected.length) return counters;
 
     const slackService = new ResolutionsTeamSlackService();
     const slackUsers = await getSlackUsers();
+
+    // Cutoff for the "post-migration replacement thread" heuristic. Any thread whose root
+    // ts is at/after this instant is treated as suspicious — the operator should verify
+    // manually in Slack that the original pre-migration thread isn't sitting elsewhere in
+    // the same channel. The default matches the July 2 server migration.
+    const migrationCutoff = new Date(options.migrationCutoff || DEFAULT_MIGRATION_CUTOFF_ISO);
+    const migrationCutoffValid = !Number.isNaN(migrationCutoff.getTime());
+    if (!migrationCutoffValid) {
+        console.warn(
+            `[backfillSlackThreadReplies] --migrationCutoff="${options.migrationCutoff}" is not a valid date; the suspicious-thread heuristic is disabled for this run.`,
+        );
+    }
+    // Collect the flagged rows so we can print a consolidated report at the end. Iterating
+    // one Slack message at a time in the loop above is fine for visibility, but the operator
+    // wants a single "these are the suspects" block they can copy into a ticket.
+    const suspiciousReport: Array<{
+        reviewCheckoutId: number;
+        reservationId: number;
+        threadTs: string;
+        rootDate: Date;
+        permalink: string | null;
+        rawMessageCount: number;
+    }> = [];
 
     for (const row of affected) {
         if (!row.slackChannelId) {
@@ -307,9 +367,52 @@ export const backfillSlackThreadReplies = async (
                 counters.repliesSynced++;
             }
 
+            // Post-migration replacement detection: convert the root ts to a Date and
+            // compare against the cutoff. When the root was posted after the migration,
+            // the current slackThreadTs is very likely a fresh thread the app created
+            // after the DB dump landed on the new server — meaning the *real* pre-migration
+            // thread is orphaned in Slack and this backfill can't reach it.
+            const rootDate = parseSlackTsToDate(row.slackThreadTs);
+            const isSuspicious = migrationCutoffValid
+                && rootDate !== null
+                && rootDate.getTime() >= migrationCutoff.getTime();
+
+            let permalink: string | null = null;
+            if (isSuspicious || options.dryRun) {
+                // Fetch a permalink for the current root message so the operator can jump
+                // to Slack from the log and eyeball the thread. Only done for suspicious
+                // rows and in dry-run mode; not worth the extra Slack call on production
+                // real runs where we're just refilling data.
+                permalink = await fetchSlackPermalink(row.slackChannelId, row.slackThreadTs);
+            }
+
+            if (isSuspicious) {
+                counters.suspiciousThreads++;
+                suspiciousReport.push({
+                    reviewCheckoutId: row.reviewCheckoutId,
+                    reservationId: row.reservationId,
+                    threadTs: row.slackThreadTs,
+                    rootDate: rootDate as Date,
+                    permalink,
+                    rawMessageCount: messages.length,
+                });
+                const suspiciousLine =
+                    `[backfillSlackThreadReplies] ⚠️  Suspicious thread — root posted ${rootDate?.toISOString()} (>= migration cutoff ${migrationCutoff.toISOString()}). ` +
+                    `reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId} threadTs=${row.slackThreadTs}` +
+                    (permalink ? ` permalink=${permalink}` : "");
+                console.warn(suspiciousLine);
+                logger.warn(suspiciousLine);
+            }
+
             // Per-thread summary. Mirror to console.log because winston's async transport can
             // batch these; the operator wants to see progress as each thread completes.
-            const summary = `[backfillSlackThreadReplies] Thread reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId} — ${messages.length} raw message(s), ${humanRepliesInThisThread} human reply(ies) in this thread (${options.dryRun ? counters.repliesSkipped : counters.repliesSynced} ${options.dryRun ? "would-sync" : "synced"} running total)`;
+            const rootDateFragment = rootDate ? ` rootPostedAt=${rootDate.toISOString()}` : "";
+            const permalinkFragment = permalink && options.dryRun ? ` permalink=${permalink}` : "";
+            const summary =
+                `[backfillSlackThreadReplies] Thread reviewCheckout=${row.reviewCheckoutId} reservation=${row.reservationId} — ` +
+                `${messages.length} raw message(s), ${humanRepliesInThisThread} human reply(ies) in this thread ` +
+                `(${options.dryRun ? counters.repliesSkipped : counters.repliesSynced} ${options.dryRun ? "would-sync" : "synced"} running total)` +
+                rootDateFragment + permalinkFragment;
             console.log(summary);
             logger.info(summary);
         } catch (err: any) {
@@ -326,7 +429,21 @@ export const backfillSlackThreadReplies = async (
         await sleep(SLACK_API_PAUSE_MS);
     }
 
-    const done = `[backfillSlackThreadReplies] Done — threads processed: ${counters.threadsProcessed}, skipped: ${counters.threadsSkipped}, replies synced: ${counters.repliesSynced}, dry-run entries: ${counters.repliesSkipped}, API errors: ${counters.apiErrors}`;
+    // Consolidated end-of-run report for the flagged threads — easy to copy into a ticket
+    // or paste back to me to decide whether to hunt for the original pre-migration threads.
+    if (suspiciousReport.length) {
+        console.warn(
+            `[backfillSlackThreadReplies] ${suspiciousReport.length} thread(s) look like post-migration replacements (root ts >= ${migrationCutoff.toISOString()}). Full list:`,
+        );
+        for (const entry of suspiciousReport) {
+            console.warn(
+                `  reservation=${entry.reservationId} reviewCheckout=${entry.reviewCheckoutId} rootPostedAt=${entry.rootDate.toISOString()} rawMessages=${entry.rawMessageCount} threadTs=${entry.threadTs}` +
+                (entry.permalink ? ` permalink=${entry.permalink}` : ""),
+            );
+        }
+    }
+
+    const done = `[backfillSlackThreadReplies] Done — threads processed: ${counters.threadsProcessed}, skipped: ${counters.threadsSkipped}, replies synced: ${counters.repliesSynced}, dry-run entries: ${counters.repliesSkipped}, API errors: ${counters.apiErrors}, suspicious (likely post-migration) threads: ${counters.suspiciousThreads}`;
     console.log(done);
     logger.info(done);
 
