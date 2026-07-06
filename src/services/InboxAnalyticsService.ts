@@ -43,6 +43,52 @@ const ackRe =
 const opsDrivenRe =
     /(property managers? will reach out|will reach out to you shortly|kindly anticipate (their|the) call|(has|have) been trying to reach you|currently unreachable|alternate phone number|authenticate now|requires authentication|chargeautomation|securelink|alteration request|payment card ending)/i;
 
+// Cheap stopword-based language detection for Latin-script languages (the
+// non-Latin regex can't tell Spanish from English). Only claims a language when
+// clearly ahead, so mixed/short texts return null instead of a guess.
+const LANG_STOPWORDS: Record<string, string[]> = {
+    en: ["the", "and", "you", "for", "your", "with", "that", "have", "will", "this", "please", "thank", "thanks", "know", "our", "here", "let", "stay", "any", "need"],
+    es: ["que", "para", "por", "con", "los", "las", "una", "esta", "gracias", "hola", "favor", "aqui", "como", "pero", "estamos", "cualquier", "durante", "sea", "tu", "si"],
+    fr: ["vous", "pour", "avec", "votre", "merci", "bonjour", "est", "nous", "dans", "pas", "les", "une", "sur", "sont"],
+    de: ["der", "die", "und", "sie", "fur", "mit", "ihr", "danke", "hallo", "ist", "ein", "wir", "nicht", "das", "haben"],
+    pt: ["voce", "obrigado", "ola", "seu", "sua", "uma", "nao", "por", "para", "com", "aqui", "estamos"],
+    fi: ["etta", "kiitos", "hei", "jos", "mukavaa", "hyvaa", "olemme", "tama", "voit", "vain", "myos", "kun"],
+    it: ["che", "per", "con", "grazie", "ciao", "una", "non", "siamo", "questo", "sono", "anche"],
+};
+
+function detectLang(text: string): string | null {
+    const norm = String(text || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    const tokens = new Set(norm.replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean));
+    if (tokens.size < 4) return null;
+    let best: string | null = null;
+    let bestHits = 0;
+    let secondHits = 0;
+    for (const [lang, words] of Object.entries(LANG_STOPWORDS)) {
+        let hits = 0;
+        for (const w of words) if (tokens.has(w)) hits++;
+        if (hits > bestHits) {
+            secondHits = bestHits;
+            bestHits = hits;
+            best = lang;
+        } else if (hits > secondHits) {
+            secondHits = hits;
+        }
+    }
+    // Require a clear signal and a clear margin over the runner-up.
+    return bestHits >= 3 && bestHits >= secondHits + 2 ? best : null;
+}
+
+/** AI and team replies are in clearly different languages — skip grading. */
+function isLanguageMismatch(ai: string, team: string): boolean {
+    if (nonLatinRe.test(team) !== nonLatinRe.test(ai)) return true;
+    const la = detectLang(ai);
+    const lt = detectLang(team);
+    return !!(la && lt && la !== lt);
+}
+
 /** First name in a leading greeting ("Hi Caitlyn, ..."), lowercased, or null. */
 function greetName(s: string): string | null {
     const m = String(s || "").match(/^\s*(?:hi|hello|hey|hola|aloha)[ ,]+([A-Za-zÀ-ÿ]{2,})/i);
@@ -244,6 +290,7 @@ export class InboxAnalyticsService {
         let teamOpsDriven = 0;
         let teamAckOnly = 0;
         let teamNameMismatch = 0;
+        let teamLangMismatch = 0;
         const teamComparable = teamPairs.filter((p) => {
             if (p.matchQuality === "guest_followup") return false;
             if (opsDrivenRe.test(p.other)) {
@@ -258,6 +305,12 @@ export class InboxAnalyticsService {
             const tn = greetName(p.other);
             if (an && tn && an !== tn) {
                 teamNameMismatch++;
+                return false;
+            }
+            // Different languages (e.g. AI replied in the guest's Spanish, team in
+            // English): embeddings under-score cross-language pairs, so skip.
+            if (isLanguageMismatch(p.ai, p.other)) {
+                teamLangMismatch++;
                 return false;
             }
             return true;
@@ -311,6 +364,7 @@ export class InboxAnalyticsService {
                 teamOpsDriven,
                 teamAckOnly,
                 teamNameMismatch,
+                teamLangMismatch,
             },
             vsTeam: this.summarize(teamComparable),
             vsUser: this.summarize(userPairs),
