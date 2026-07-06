@@ -6,6 +6,7 @@ import listingKnowledgeRoutes from "./listingKnowledgeRoutes";
 import listingDocumentRoutes from "./listingDocumentRoutes";
 import aiCopilotRoutes from "./aiCopilotRoutes";
 import aiActionItemsTestingRoutes from "./aiActionItemsTestingRoutes";
+import inboxAnalyticsRoutes from "./inboxAnalyticsRoutes";
 import connectedAccountRoutes from "./ConnectedAccountRoutes";
 import subscriptionRoutes from "./userSubscriptionRoutes";
 import usersRoutes from "./usersRoutes";
@@ -104,6 +105,7 @@ router.use('/refund-request', refundRequestRoutes)
 router.use('/owner-portal', ownerPortalRoutes)
 router.use('/client-ticket', clientTicketRoutes);
 router.use('/ai-action-items-testing', aiActionItemsTestingRoutes);
+router.use('/inbox-analytics', inboxAnalyticsRoutes);
 router.use('/action-items', actionItemsRoutes);
 router.use('/action-items-beta', actionItemsBetaRoutes);
 router.use('/contact', contactRoutes);

@@ -65,6 +65,8 @@ export class AIMessageSuggestionEntity {
     @Column({ type: "bigint", nullable: true }) actualReplyMessageId: number | null;
     @Column({ type: "datetime", nullable: true }) actualReplyAt: Date | null;
     @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySimilarity: number | null;
+    /** Semantic (embedding cosine) similarity 0..100 between suggestion and actual reply. */
+    @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) replySemanticSimilarity: number | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;

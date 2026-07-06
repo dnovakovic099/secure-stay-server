@@ -66,6 +66,7 @@ export class InboxAIAuditService {
             .getMany();
 
         let matched = 0;
+        const newlyMatched: AIMessageSuggestionEntity[] = [];
         for (const s of suggestions) {
             try {
                 const reply = await this.messageRepo
@@ -84,14 +85,68 @@ export class InboxAIAuditService {
                     s.actualReplyAt = reply.sentAt ?? null;
                     s.replySimilarity = this.similarityPct(s.suggestedReply || "", reply.body);
                     matched++;
+                    newlyMatched.push(s);
                 }
                 await this.suggestionRepo.save(s);
             } catch (err: any) {
                 logger.warn(`[InboxAIAudit] capture failed for suggestion ${s.id}: ${err.message}`);
             }
         }
+        // Semantic score for the just-matched pairs (batched, best-effort).
+        await this.scoreSemantic(newlyMatched).catch((e) =>
+            logger.warn(`[InboxAIAudit] semantic scoring failed: ${e.message}`)
+        );
         logger.info(`[InboxAIAudit] reply capture: scanned=${suggestions.length} matched=${matched}`);
         return { scanned: suggestions.length, matched };
+    }
+
+    /**
+     * Compute embedding-cosine similarity (0..100) between each suggestion and the
+     * team's actual reply, in batches, and persist to replySemanticSimilarity.
+     * Jaccard token-overlap (replySimilarity) badly understates agreement because
+     * the team writes far shorter replies; the semantic score is what the Analytics
+     * page trends on. Skipped silently if OPENAI_API_KEY is absent.
+     */
+    private async scoreSemantic(rows: AIMessageSuggestionEntity[]): Promise<void> {
+        if (!rows.length || !process.env.OPENAI_API_KEY) return;
+        const { EmbeddingService } = await import("./EmbeddingService");
+        const es = new EmbeddingService();
+        const aiVecs = await es.embedMany(rows.map((r) => r.suggestedReply || ""));
+        const teamVecs = await es.embedMany(rows.map((r) => r.actualReplyText || ""));
+        for (let i = 0; i < rows.length; i++) {
+            const sem = EmbeddingService.cosine(aiVecs[i], teamVecs[i]) * 100;
+            rows[i].replySemanticSimilarity = Math.round(sem * 100) / 100;
+        }
+        await this.suggestionRepo.save(rows);
+    }
+
+    /**
+     * Backfill semantic similarity for historical matched pairs that predate the
+     * column (or were captured before scoring existed). Bounded per run so the
+     * nightly job fills history over a few nights without a manual script.
+     */
+    async backfillSemantic(limit = 400): Promise<{ backfilled: number }> {
+        if (!process.env.OPENAI_API_KEY) return { backfilled: 0 };
+        const rows = await this.suggestionRepo
+            .createQueryBuilder("s")
+            .where("s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''")
+            .andWhere("s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''")
+            .andWhere("s.replySemanticSimilarity IS NULL")
+            .orderBy("s.generatedAt", "DESC")
+            .take(Math.min(Math.max(limit, 1), 1000))
+            .getMany();
+        if (!rows.length) return { backfilled: 0 };
+        // Chunk so a single embed request stays reasonable.
+        let done = 0;
+        for (let i = 0; i < rows.length; i += 100) {
+            const chunk = rows.slice(i, i + 100);
+            await this.scoreSemantic(chunk).catch((e) =>
+                logger.warn(`[InboxAIAudit] backfill chunk failed: ${e.message}`)
+            );
+            done += chunk.length;
+        }
+        logger.info(`[InboxAIAudit] semantic backfill: ${done} pairs`);
+        return { backfilled: done };
     }
 
     /** Token-overlap (Jaccard) similarity as a 0..100 percentage. */
@@ -320,6 +375,12 @@ export class InboxAIAuditService {
             return { scanned: 0, matched: 0 };
         });
 
+        // Fill semantic scores for historical matched pairs (bounded per night).
+        const semBf = await this.backfillSemantic().catch((e) => {
+            logger.error(`[InboxAIAudit] semantic backfill failed: ${e.message}`);
+            return { backfilled: 0 };
+        });
+
         // Gated: AI extraction of learned facts (stored pending; never guest-facing).
         let ext = { properties: 0, factsUpserted: 0 };
         if (InboxAIAuditService.extractionEnabled()) {
@@ -362,6 +423,7 @@ export class InboxAIAuditService {
             `[InboxAIAudit] nightly audit complete — replies matched=${cap.matched}/${cap.scanned}, ` +
                 `properties=${ext.properties}, pending facts upserted=${ext.factsUpserted}, ` +
                 `KB sweep seeded=${sweep.entries} entries/${sweep.seeded} listings, ` +
+                `semantic backfilled=${semBf.backfilled}, ` +
                 `new exemplars embedded=${emb.embedded}`
         );
     }
