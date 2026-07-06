@@ -180,6 +180,12 @@ export class InboxAnalyticsService {
         const sem = pairs.filter((p) => p.semantic != null).map((p) => p.semantic as number);
         const cov = pairs.filter((p) => p.coverage != null).map((p) => p.coverage as number);
         const jac = pairs.map((p) => p.jaccard);
+        // Mistake-vs-acceptable: the LLM judge's per-reply verdict is the primary
+        // quality signal ("missed" = the AI genuinely got it wrong).
+        const aiMissed = pairs.filter((p) => p.aiQuality === "missed").length;
+        const aiAddressed = pairs.filter((p) => p.aiQuality === "addressed").length;
+        const aiJudged = aiMissed + aiAddressed;
+        const aiAcceptablePct = aiJudged ? Math.round((aiAddressed / aiJudged) * 1000) / 10 : null;
         const buckets = { "0-25": 0, "25-50": 0, "50-70": 0, "70-100": 0 };
         pairs.forEach((p) => {
             const s = this.simOf(p);
@@ -228,6 +234,9 @@ export class InboxAnalyticsService {
 
         return {
             count: pairs.length,
+            aiAcceptablePct,
+            aiJudged,
+            aiMissed,
             avgCoverage: avg(cov),
             coverageScored: cov.length,
             avgSemantic: avg(sem),
@@ -252,24 +261,33 @@ export class InboxAnalyticsService {
     }
 
     private buildTrend(pairs: Pair[], granularity: "day" | "week" | "month") {
-        const byBucket: Record<string, { sem: number[]; jac: number[]; cov: number[] }> = {};
+        const byBucket: Record<string, { sem: number[]; jac: number[]; cov: number[]; missed: number; addressed: number }> = {};
         for (const p of pairs) {
             const key = this.bucketKey(new Date(p.generatedAt), granularity);
-            const b = (byBucket[key] = byBucket[key] || { sem: [], jac: [], cov: [] });
+            const b = (byBucket[key] = byBucket[key] || { sem: [], jac: [], cov: [], missed: 0, addressed: 0 });
             if (p.semantic != null) b.sem.push(p.semantic);
             if (p.coverage != null) b.cov.push(p.coverage);
             b.jac.push(p.jaccard);
+            if (p.aiQuality === "missed") b.missed++;
+            else if (p.aiQuality === "addressed") b.addressed++;
         }
         const avg = (a: number[]) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null);
         return Object.keys(byBucket)
             .sort()
-            .map((key) => ({
-                bucket: key,
-                avgCoverage: avg(byBucket[key].cov),
-                avgSemantic: avg(byBucket[key].sem),
-                avgJaccard: avg(byBucket[key].jac),
-                count: byBucket[key].jac.length,
-            }));
+            .map((key) => {
+                const b = byBucket[key];
+                const judged = b.missed + b.addressed;
+                return {
+                    bucket: key,
+                    acceptablePct: judged ? Math.round((b.addressed / judged) * 1000) / 10 : null,
+                    judged,
+                    missed: b.missed,
+                    avgCoverage: avg(b.cov),
+                    avgSemantic: avg(b.sem),
+                    avgJaccard: avg(b.jac),
+                    count: b.jac.length,
+                };
+            });
     }
 
     /** Load AI-vs-team pairs (Hostify-captured replies) for the last N days. */
@@ -548,29 +566,159 @@ export class InboxAnalyticsService {
             byCategory[c] = (byCategory[c] || 0) + 1;
         }
 
+        const list = shown
+            .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
+            .slice(0, 200);
+
+        // Has the AI already taken steps on each miss? Two self-healing paths:
+        //  - a learned fact for the same listing whose content matches the miss
+        //    (nightly extraction or a staff answer already covered it), or
+        //  - a learning prompt raised on the same thread (the bot asked the team).
+        const threadIds = [...new Set(list.map((p) => p.threadId))];
+        const listingRows: any[] = threadIds.length
+            ? await appDatabase.query(
+                  `SELECT threadId, listingId FROM inbox_conversations WHERE threadId IN (${threadIds.map(() => "?").join(",")})`,
+                  threadIds
+              )
+            : [];
+        const listingByThread = new Map<number, number | null>(
+            listingRows.map((r) => [Number(r.threadId), r.listingId != null ? Number(r.listingId) : null])
+        );
+        const listingIds = [...new Set(listingRows.map((r) => Number(r.listingId)).filter(Boolean))];
+        const facts: any[] = listingIds.length
+            ? await appDatabase.query(
+                  `SELECT listingId, scope, topic, question, answer, status, createdAt FROM ai_learned_facts
+                   WHERE status IN ('approved','pending') AND (scope = 'portfolio' OR listingId IN (${listingIds.map(() => "?").join(",")}))`,
+                  listingIds
+              )
+            : [];
+        const prompts: any[] = threadIds.length
+            ? await appDatabase.query(
+                  `SELECT threadId, question, status, answerText FROM ai_learning_prompts
+                   WHERE threadId IN (${threadIds.map(() => "?").join(",")})
+                   ORDER BY createdAt DESC`,
+                  threadIds
+              )
+            : [];
+        const promptByThread = new Map<number, any>();
+        for (const pr of prompts) {
+            if (!promptByThread.has(Number(pr.threadId))) promptByThread.set(Number(pr.threadId), pr);
+        }
+
+        const tokOverlap = (a: string, b: string): number => {
+            const tok = (s: string) =>
+                new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
+            const A = tok(a);
+            const B = tok(b);
+            if (!A.size || !B.size) return 0;
+            let inter = 0;
+            for (const w of A) if (B.has(w)) inter++;
+            return inter / Math.min(A.size, B.size);
+        };
+
+        const remediationOf = (p: Pair) => {
+            const lid = listingByThread.get(p.threadId) ?? null;
+            const missText = `${p.aiQualityNote || ""} ${p.guestMsg || ""}`;
+            const candidates = facts.filter(
+                (f) => f.scope === "portfolio" || (lid != null && Number(f.listingId) === lid)
+            );
+            let best: any = null;
+            let bestScore = 0;
+            for (const f of candidates) {
+                const s = tokOverlap(missText, `${f.topic || ""} ${f.question || ""} ${f.answer || ""}`);
+                if (s > bestScore) {
+                    bestScore = s;
+                    best = f;
+                }
+            }
+            if (best && bestScore >= 0.3) {
+                return {
+                    status: best.status === "approved" ? "learned" : "learned_pending_review",
+                    detail: String(best.answer || best.question || best.topic).replace(/\s+/g, " ").slice(0, 220),
+                };
+            }
+            const prompt = promptByThread.get(p.threadId);
+            if (prompt) {
+                return {
+                    status: prompt.status === "pending" ? "asked" : "answered",
+                    detail: String(prompt.status === "pending" ? prompt.question : prompt.answerText || prompt.question)
+                        .replace(/\s+/g, " ")
+                        .slice(0, 220),
+                };
+            }
+            return { status: "none", detail: null as string | null };
+        };
+
         return {
             sinceDays: days,
             total: all.length,
             unresolved: unresolved.length,
             resolved: all.length - unresolved.length,
             byCategory,
-            examples: shown
-                .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
-                .slice(0, 200)
-                .map((p) => ({
-                    id: p.id,
-                    threadId: p.threadId,
-                    channel: p.channel,
-                    guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
-                    aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
-                    theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
-                    note: p.aiQualityNote || null,
-                    category: p.aiQualityCategory || "other",
-                    coverage: p.coverage,
-                    resolvedAt: p.missResolvedAt || null,
-                    generatedAt: p.generatedAt,
-                })),
+            examples: list.map((p) => ({
+                id: p.id,
+                threadId: p.threadId,
+                channel: p.channel,
+                guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
+                aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
+                theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
+                note: p.aiQualityNote || null,
+                category: p.aiQualityCategory || "other",
+                coverage: p.coverage,
+                resolvedAt: p.missResolvedAt || null,
+                generatedAt: p.generatedAt,
+                remediation: remediationOf(p),
+            })),
         };
+    }
+
+    /**
+     * Staff teaches the AI the missing/corrected info for a specific miss:
+     * stored as a trusted learned fact (same path as learning-prompt answers,
+     * so it feeds context + RAG immediately) and the miss is marked resolved.
+     */
+    async teachMiss(
+        suggestionId: number,
+        answer: string,
+        scope: "property" | "portfolio" = "property"
+    ): Promise<{ saved: boolean }> {
+        const text = (answer || "").trim();
+        if (!text) return { saved: false };
+        const rows: any[] = await appDatabase.query(
+            `SELECT s.id, s.threadId, s.aiReplyQualityNote, s.messageId, c.listingId
+             FROM ai_message_suggestions s
+             LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
+             WHERE s.id = ?`,
+            [suggestionId]
+        );
+        if (!rows.length) return { saved: false };
+        const r = rows[0];
+        const guestRows: any[] = r.messageId
+            ? await appDatabase.query(
+                  `SELECT body FROM inbox_messages WHERE threadId = ? AND externalId = ? LIMIT 1`,
+                  [r.threadId, r.messageId]
+              )
+            : [];
+        const question = String(r.aiReplyQualityNote || guestRows?.[0]?.body || "guest question").slice(0, 500);
+
+        const { AILearnedFactsService } = await import("./AILearnedFactsService");
+        const { InboxAIAuditService } = await import("./InboxAIAuditService");
+        const learned = new AILearnedFactsService();
+        const listingId = r.listingId != null ? Number(r.listingId) : null;
+        await learned.upsert(
+            {
+                scope: scope === "portfolio" ? "portfolio" : "property",
+                listingId,
+                topic: question.slice(0, 120),
+                question,
+                answer: text,
+                sampleThreadId: Number(r.threadId),
+                source: "manual",
+            },
+            { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
+        );
+        await appDatabase.query(`UPDATE ai_message_suggestions SET missResolvedAt = NOW() WHERE id = ?`, [suggestionId]);
+        return { saved: true };
     }
 
     /** Mark / unmark a miss as handled so the fix queue shrinks as it's worked. */

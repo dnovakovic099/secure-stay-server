@@ -41,6 +41,18 @@ export class InboxAnalyticsController {
         }
     }
 
+    async teachMiss(request: Request, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            const answer = String(request.body?.answer || "");
+            const scope = request.body?.scope === "portfolio" ? "portfolio" : "property";
+            const data = await new InboxAnalyticsService().teachMiss(id, answer, scope);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async resolveMiss(request: Request, response: Response, next: NextFunction) {
         try {
             const id = Number(request.params.id);
