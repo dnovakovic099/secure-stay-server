@@ -42,6 +42,7 @@ const REASON_LABELS: Record<string, string> = {
     ai_deferred_or_escalated: "AI deferred / escalated; they answered directly",
     team_specifics_ai_missing: "They gave specifics the AI didn't have",
     ai_verbose: "AI reply much longer than theirs",
+    ai_missed_substance: "AI reply missed part of what the team said",
     language_mismatch: "Different language",
     other_wording: "Same meaning, different wording",
 };
@@ -61,8 +62,13 @@ function jaccardPct(a: string, b: string): number {
 }
 
 export class InboxAnalyticsService {
-    /** Primary similarity metric for a pair (semantic if available, else jaccard). */
+    /**
+     * Primary quality metric for a pair: answer coverage (length-invariant) when
+     * scored, else semantic, else jaccard. Keeps the reason breakdown consistent
+     * with the headline KPI so verbosity alone never counts as "diverging".
+     */
     private simOf(p: Pair): number {
+        if (p.coverage != null) return p.coverage;
         return p.semantic != null ? p.semantic : p.jaccard;
     }
 
@@ -75,8 +81,11 @@ export class InboxAnalyticsService {
         if (p.escalation || (deferRe.test(ai) && (specificsRe.test(other) || wOther >= 12)))
             return "ai_deferred_or_escalated";
         if (specificsRe.test(other) && !specificsRe.test(ai)) return "team_specifics_ai_missing";
-        if (wOther > 0 && words(ai) / Math.max(wOther, 1) >= 2.5) return "ai_verbose";
-        return "other_wording";
+        // Length is only a "reason" for pairs graded by the old style-sensitive
+        // metrics (no coverage score). Under coverage grading, verbosity cannot
+        // lower the score, so a low-coverage verbose reply is missing substance.
+        if (p.coverage == null && wOther > 0 && words(ai) / Math.max(wOther, 1) >= 2.5) return "ai_verbose";
+        return p.coverage != null ? "ai_missed_substance" : "other_wording";
     }
 
     private summarize(pairs: Pair[], lowThreshold = 45) {
@@ -115,6 +124,7 @@ export class InboxAnalyticsService {
                         guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                         aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
                         theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
+                        coverage: p.coverage,
                         semantic: p.semantic,
                         jaccard: p.jaccard,
                     })),
