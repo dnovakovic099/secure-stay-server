@@ -378,7 +378,7 @@ export class InboxAnalyticsService {
                 mistakePct: inBand.length ? Math.round((missed / inBand.length) * 1000) / 10 : null,
             };
         });
-        const thresholds = [95, 90, 85, 80, 70, 60].map((t) => {
+        const thresholds = [100, 95, 90, 85, 80, 70, 60].map((t) => {
             const above = judged.filter((p) => (p.confidence as number) >= t);
             const missed = above.filter((p) => p.aiQuality === "missed").length;
             return {
