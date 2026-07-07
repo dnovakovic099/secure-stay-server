@@ -32,18 +32,21 @@ import logger from "../utils/logger.utils";
 export interface OverdueFilters {
     // "airbnb" is excluded by default; pass includeAirbnb to show everything.
     includeAirbnb?: boolean;
-    channel?: string | null; // exact channelName filter (overrides the airbnb default)
-    payment?: "all" | "unpaid" | "partial" | "paid" | "unknown";
+    channel?: string | null; // exact channelName/source filter
+    payment?: "all" | "unpaid" | "partial" | "paid" | "unknown" | "owing";
     keyword?: string | null;
     listingId?: number | null;
-    // Only reservations departing on/after this date are shown (defaults to 30
-    // days ago so we keep the list to current + recent + upcoming).
-    fromDate?: string | null;
-    toDate?: string | null; // filter on arrival date upper bound
+    // Check-in date window (the primary way the page is filtered).
+    checkinFrom?: string | null;
+    checkinTo?: string | null;
     onlyArrived?: boolean; // only stays that have started (true overdue)
+    // Blocked-calendar rows and $0 bookings are hidden unless this is set.
+    includeJunk?: boolean;
     page?: number;
     perPage?: number;
-    sortBy?: "arrival" | "departure" | "due";
+    // "smart" (default): currently staying first, then soonest check-in,
+    // past stays at the bottom.
+    sortBy?: "smart" | "arrival" | "departure" | "due";
 }
 
 export interface OverdueRow {
@@ -141,14 +144,11 @@ export class OverduePaymentService {
         page: number;
         perPage: number;
         totals: { count: number; totalDue: number; currency: string | null };
+        channels: string[];
     }> {
         const page = Math.max(filters.page ?? 1, 1);
         const perPage = Math.min(Math.max(filters.perPage ?? 25, 1), 200);
-        const fromDate = filters.fromDate || (() => {
-            const d = new Date();
-            d.setDate(d.getDate() - 30);
-            return d.toISOString().slice(0, 10);
-        })();
+        const today = this.todayStr();
 
         const qb = this.reservationRepo
             .createQueryBuilder("r")
@@ -161,9 +161,16 @@ export class OverduePaymentService {
             qb.andWhere("(COALESCE(r.source,'') NOT LIKE '%airbnb%' AND COALESCE(r.channelName,'') NOT LIKE '%airbnb%')");
         }
 
+        // Hide calendar-block pseudo-reservations and $0 bookings by default —
+        // nothing is owed on them, they just bury the real arrivals.
+        if (!filters.includeJunk) {
+            qb.andWhere("COALESCE(r.totalPrice, 0) > 0");
+            qb.andWhere("LOWER(COALESCE(r.guestName,'')) NOT IN ('blocked', 'airbnb (not available)', 'not available')");
+        }
+
         if (filters.listingId) qb.andWhere("r.listingMapId = :lid", { lid: filters.listingId });
-        if (fromDate) qb.andWhere("(r.departureDate IS NULL OR r.departureDate >= :fromDate)", { fromDate });
-        if (filters.toDate) qb.andWhere("r.arrivalDate <= :toDate", { toDate: filters.toDate });
+        if (filters.checkinFrom) qb.andWhere("r.arrivalDate >= :cf", { cf: filters.checkinFrom });
+        if (filters.checkinTo) qb.andWhere("r.arrivalDate <= :ct", { ct: filters.checkinTo });
         if (filters.keyword) {
             const kw = `%${filters.keyword.trim()}%`;
             qb.andWhere(
@@ -183,6 +190,9 @@ export class OverduePaymentService {
             case "unpaid":
                 qb.andWhere("LOWER(COALESCE(r.paidPart,'')) = 'none'");
                 break;
+            case "owing":
+                qb.andWhere("LOWER(COALESCE(r.paidPart,'')) IN ('none','part')");
+                break;
             case "unknown":
                 qb.andWhere("r.paidPart IS NULL");
                 break;
@@ -192,10 +202,43 @@ export class OverduePaymentService {
                 break;
         }
 
-        const sortCol = filters.sortBy === "departure" ? "r.departureDate" : "r.arrivalDate";
-        qb.orderBy(sortCol, "ASC").skip((page - 1) * perPage).take(perPage);
+        // Ordering. "smart" (default) surfaces who matters NOW: guests currently
+        // in-house first, then upcoming check-ins soonest-first, and stays that
+        // already ended at the bottom (most recent first).
+        qb.setParameter("todayD", today);
+        switch (filters.sortBy) {
+            case "arrival":
+                qb.orderBy("r.arrivalDate", "ASC");
+                break;
+            case "departure":
+                qb.orderBy("r.departureDate", "ASC");
+                break;
+            case "due":
+                qb.orderBy("(COALESCE(r.totalPrice, 0) - COALESCE(r.paidAmount, 0))", "DESC");
+                break;
+            case "smart":
+            default:
+                qb.orderBy(
+                    `CASE
+                        WHEN r.departureDate IS NOT NULL AND r.departureDate < :todayD THEN 2
+                        WHEN r.arrivalDate IS NOT NULL AND r.arrivalDate <= :todayD THEN 0
+                        ELSE 1
+                    END`,
+                    "ASC"
+                ).addOrderBy("ABS(DATEDIFF(r.arrivalDate, :todayD))", "ASC");
+                break;
+        }
+        qb.skip((page - 1) * perPage).take(perPage);
 
         const [reservations, total] = await qb.getManyAndCount();
+
+        // Distinct channels for the filter dropdown (cheap, index-friendly).
+        const channelRows: { ch: string }[] = await this.reservationRepo
+            .createQueryBuilder("r")
+            .select("DISTINCT r.channelName", "ch")
+            .where("r.channelName IS NOT NULL AND r.channelName != ''")
+            .getRawMany();
+        const channels = channelRows.map((c) => c.ch).filter(Boolean).sort();
 
         const listingIds = Array.from(
             new Set(reservations.map((r) => Number(r.listingMapId)).filter((id) => Number.isFinite(id) && id > 0))
@@ -205,7 +248,6 @@ export class OverduePaymentService {
             : [];
         const listingMap = new Map(listings.map((l) => [Number(l.id), l]));
 
-        const today = this.todayStr();
         const rows: OverdueRow[] = reservations.map((r) => {
             const listing = listingMap.get(Number(r.listingMapId)) || null;
             const total = this.toNum(r.totalPrice);
@@ -258,6 +300,7 @@ export class OverduePaymentService {
             page,
             perPage,
             totals: { count: filteredForOverdue.length, totalDue, currency },
+            channels,
         };
     }
 

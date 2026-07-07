@@ -18,12 +18,13 @@ export class OverduePaymentController {
                 payment: (q.payment as OverdueFilters["payment"]) || "all",
                 keyword: (q.keyword as string) || null,
                 listingId: toNum(q.listingId),
-                fromDate: (q.fromDate as string) || null,
-                toDate: (q.toDate as string) || null,
+                checkinFrom: (q.checkinFrom as string) || null,
+                checkinTo: (q.checkinTo as string) || null,
                 onlyArrived: q.onlyArrived === "true",
+                includeJunk: q.includeJunk === "true",
                 page: toNum(q.page) || 1,
                 perPage: toNum(q.perPage) || 25,
-                sortBy: (q.sortBy as OverdueFilters["sortBy"]) || "arrival",
+                sortBy: (q.sortBy as OverdueFilters["sortBy"]) || "smart",
             };
             const data = await new OverduePaymentService().listOverdue(filters);
             return response.status(200).json({ status: true, data });
